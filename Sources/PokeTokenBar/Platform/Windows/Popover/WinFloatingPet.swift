@@ -62,10 +62,12 @@ import WinSDK
     /// screen, must not animate behind it); `WM_WTSSESSION_CHANGE` moves it afterwards.
     var sessionLocked: () -> Bool = { WinFloatingPet.sessionNow().locked }
     var screens: () -> [FloatingPetScreen] = { WinFloatingPet.monitorScreens() }
-    /// Task 23's seams: the pointer came over the pet or left it (the hover callout), and where it moved without a button held
-    /// (strokes, in screen pixels). Nil: no tracking at all.
+    /// Observers of the pointer coming over the pet or leaving it, and of where it moved without a button held (screen pixels;
+    /// the selftest's). The pet's own hover callout and strokes (Task 23) do not need them.
     var onHoverChange: ((Bool) -> Void)?
     var onPointerMove: ((CGPoint) -> Void)?
+    /// Task 23: the bubbles, hearts, prayers, hover callout and agent activity (state and one-shot timers).
+    let extras = WinPetExtras()
 
     fileprivate(set) var stats = Stats()
     /// The last press on the pet and whether it closed the popover.
@@ -87,6 +89,14 @@ import WinSDK
             guard let self else { return true }
             return self.press.clickOpens(popoverOpen: self.popoverIsOpen())
         }
+        // --- stage 7 Task 23 (begin) ---
+        extras.lastSeenEventSeq = latestEvent?.seq   // an event from before the pet existed is not news
+        actions.spawnEmoji = { [weak self] in
+            guard let self, let w = self.window else { return }
+            self.extras.spawnPrayer { [weak w] in w?.render() }
+        }
+        actions.didPray = { [weak self] in self?.refreshHover() }
+        // --- stage 7 Task 23 (end) ---
         observe()
         sync()
     }
@@ -115,6 +125,7 @@ import WinSDK
     func sync() {
         guard !isDestroyed else { return }
         stats.syncs += 1
+        if extras.syncReset(enabled: agentEnabled) { extras.updateBob(active: false) {} }   // Task 23: `sync`'s reset
         let next = FloatingPetModel.make(store: store, companion: companion, displayAwake: !displayAsleep(), lowPower: lowPower())
         let previous = model
         model = next
@@ -123,7 +134,13 @@ import WinSDK
             return
         }
         if let window {
-            if next != previous { window.apply(next) }
+            // Task 23: a new bubble (a limit alert, an agent) is drawn; anything else draws nothing.
+            if next != previous {
+                window.apply(next)
+            } else if extras.bubble(limitAlert: limitAlert) != extras.drawnBubble {
+                window.render()
+            }
+            refreshHover()
             return
         }
         guard let made = WinPetWindow(pet: self, model: next) else { return }
@@ -133,6 +150,7 @@ import WinSDK
 
     private func hideWindow() {
         guard let window else { return }
+        extras.hidden()   // Task 23: the transients end, the callout goes, the pet comes back at home
         window.destroy()
         self.window = nil
         stats.hides += 1
@@ -151,6 +169,7 @@ import WinSDK
         isDestroyed = true
         generation += 1
         hideWindow()
+        extras.destroy()
     }
 
     private func observe() {
@@ -162,11 +181,23 @@ import WinSDK
             _ = store.animationQuality
             _ = companion.representativeSubject
             _ = companion.facesBack
+            // --- stage 7 Task 23: what the bubble and the hover text show (the Mac's `observeSettings`) (begin) ---
+            _ = store.floatingPetAgentActivity
+            _ = store.currentBubbleAlert
+            _ = store.todayTotalTokens
+            _ = store.highestLimitUtilization
+            _ = store.limitDisplayMode
+            _ = companion.language
+            _ = companion.sulkIdle
+            _ = companion.state.eggPrayers
+            _ = companion.latestEvent
+            // --- stage 7 Task 23 (end) ---
         } onChange: { [weak self] in
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     guard let self, !self.isDestroyed, g == self.generation else { return }
                     self.sync()
+                    self.popEventIfNew()
                     self.observe()
                 }
             }
@@ -256,8 +287,17 @@ import WinSDK
 
     private struct Surface {
         var dc: HDC?, bitmap: HBITMAP?, old: HGDIOBJ?, bits: UnsafeMutableRawPointer?
-        var side = 0
+        var width = 0, height = 0
     }
+    /// The native tooltip (the Mac's `hosting.toolTip`): the hover text after 600 ms, cleared while the hearts show.
+    private var tooltips: WinTooltips?
+    private var tooltipText: String?
+    private var tooltipDark = false
+    /// The picture's pieces kept between frames: the bubble's picture for its text and DPI, the 🙏 glyph, the sprite's visible top.
+    private var bubbleImage: (key: String, image: PlazaImage, size: CGSize)?
+    private var prayerImage: (key: String, bgra: [UInt8], w: Int, h: Int)?
+    private var heartsImage: (scale: CGFloat, bgra: [UInt8], w: Int, h: Int)?
+    private var visibleTopCache: (key: String, top: CGFloat)?
 
     init?(pet: WinFloatingPet, model: FloatingPetModel) {
         guard let placed = FloatingPetPlacement.screenFrame(petSize: model.petSize, saved: FloatingPetOrigin.saved(in: pet.defaults),
@@ -326,6 +366,7 @@ import WinSDK
         render()
         showOnScreen()
         refreshActivity()
+        pet?.refreshHover()   // Task 23: the tooltip's text, a callout already wanted
     }
 
     /// What the pet shows changed (`FloatingPetModel`): the sprite, its size, the frame floor, animated or still.
@@ -360,6 +401,7 @@ import WinSDK
             render()
         }
         playback.isActive = canAnimate
+        pet?.refreshBob()   // Task 23: the bob follows the same motion rule
         noteClock()   // fix/windows-pet-still
     }
 
@@ -391,7 +433,7 @@ import WinSDK
     }
     private(set) var loggedClock: ClockState?
     /// The clock check (a one-shot Win32 timer, not a Foundation one: it must fire even if the animation clock's timers do not).
-    static let clockCheckTimerID: UInt = 0x5054   // "PT"
+    static let clockCheckTimerID: UINT_PTR = 0x5054   // "PT"
     static let clockCheckDelayMs: UINT = 10_000
     private var clockCheck: (since: Date, ticks: Int, fires: Int, arms: Int)?
     private(set) var clockChecks: [String] = []
@@ -433,8 +475,10 @@ import WinSDK
     /// `targetFrame` (the home if it meets a work area, else the default corner), drawn there. Nothing is saved: only a drag
     /// moves the home (review M11; the Mac saves the fallback corner, see the inventory's F1).
     func place(scale: CGFloat? = nil) {
-        guard !isDestroyed, let pet,
-              let placed = FloatingPetPlacement.screenFrame(petSize: model.petSize, saved: FloatingPetOrigin.saved(in: pet.defaults),
+        guard !isDestroyed, let pet else { return }
+        // Task 23: a pet that ran to the cursor stays there until it comes back (its bottom-left kept, drawn at the new size).
+        guard pet.extras.flow.runPhase == .home else { render(); return }
+        guard let placed = FloatingPetPlacement.screenFrame(petSize: model.petSize, saved: FloatingPetOrigin.saved(in: pet.defaults),
                                                             screens: pet.screens(), scale: scale ?? CGFloat(dpi) / 96) else { return }
         frame = Self.rect(placed.frame)
         dpi = UINT((placed.scale * 96).rounded())
@@ -466,10 +510,115 @@ import WinSDK
         guard x != frame.left || y != frame.top else { return }
         let w = frame.right - frame.left, h = frame.bottom - frame.top
         frame = RECT(left: x, top: y, right: x + w, bottom: y + h)
+        let r = windowRect
         // A drag over a monitor of another DPI gets its WM_DPICHANGED from inside this call: deferred to the release.
-        _ = SetWindowPos(hwnd, nil, x, y, 0, 0, UINT(SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE))
-        drawnFrame = frame   // the window is there now: the next picture needs no place
+        _ = SetWindowPos(hwnd, nil, r.left, r.top, 0, 0, UINT(SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE))
+        // The window is there now (its size unchanged): the next picture of the same size needs no place.
+        if let d = drawnFrame { drawnFrame = RECT(left: r.left, top: r.top, right: r.left + d.right - d.left, bottom: r.top + d.bottom - d.top) }
         pet?.stats.moves += 1
+        if pet?.extras.callout.isShown == true { pet?.refreshHover() }   // Task 23: `windowDidMove` moves the callout along
+    }
+
+    // MARK: - Task 23: the panel, the run and the way home
+
+    /// The window's rectangle: the pet box, or the Mac's panel around it while a bubble or the hearts show
+    /// (`panelSize(petSize:showingBubble:)`: at least 180 DIP wide, 72 DIP of headroom; the pet at its bottom, centred).
+    var windowRect: RECT {
+        guard let pet, pet.extras.showingBubble(alertActive: pet.limitAlert != nil) else { return frame }
+        let scale = CGFloat(dpi) / 96
+        let panel = FloatingPetRules.panelSize(petSize: model.petSize, showingBubble: true)
+        let w = Int32((panel.width * scale).rounded()), h = Int32((panel.height * scale).rounded())
+        let side = frame.right - frame.left
+        let left = frame.left - max(0, (w - side) / 2)
+        return RECT(left: left, top: frame.bottom - h, right: left + w, bottom: frame.bottom)
+    }
+
+    /// The pet box's bottom-left now (screen pixels): what a run moves, as the home is that corner.
+    private var petBottomLeft: CGPoint { CGPoint(x: CGFloat(frame.left), y: CGFloat(frame.bottom)) }
+
+    /// An agent's done (`runToCursor` / `beginRun`): the panel next to the pointer on the pointer's monitor (`runPanelOrigin`,
+    /// on a y-up mirror of the screen so the Mac's rule reads as it is), at that monitor's DPI, reached in 0.6 s. The home is
+    /// not saved.
+    func runToCursor() {
+        guard let pet else { return }
+        var cursor = POINT()
+        let screens = pet.screens()
+        guard GetCursorPos(&cursor),
+              let screen = screens.first(where: { $0.bounds.contains(CGPoint(x: CGFloat(cursor.x), y: CGFloat(cursor.y))) })
+                  ?? screens.first(where: { $0.isPrimary }) else { pet.sync(); return }
+        let toDPI = UINT((screen.scale * 96).rounded())
+        let panel = FloatingPetRules.panelSize(petSize: model.petSize, showingBubble: true)
+        let size = CGSize(width: (panel.width * screen.scale).rounded(), height: (panel.height * screen.scale).rounded())
+        let work = screen.work
+        let origin = FloatingPetAgentMotion.runPanelOrigin(cursor: CGPoint(x: CGFloat(cursor.x), y: -CGFloat(cursor.y)), panelSize: size,
+                                                           visibleFrame: CGRect(x: work.minX, y: -work.maxY, width: work.width, height: work.height),
+                                                           gap: (FloatingPetAgentMotion.agentRunCursorGap * screen.scale).rounded())
+        // The panel's bottom-left in y-down pixels; the pet box at its bottom, centred (`petOrigin(panelOrigin:)`).
+        let side = CGFloat(pictureSide(at: toDPI))
+        let target = CGPoint(x: origin.x + max(0, (size.width - side) / 2).rounded(.down), y: -origin.y)
+        pet.extras.beganRun()
+        pet.extras.animateMove(from: petBottomLeft, to: target, returning: false,
+                               step: { [weak self] p in self?.moveForRun(to: p) },
+                               ended: { [weak self] in self?.settle(at: toDPI) },
+                               render: { [weak self] in self?.render() })
+    }
+
+    /// The agents are answered (`returnHome`): back to the home frame (`targetFrame`) in 0.6 s, then at home.
+    func returnHome() {
+        guard let pet, let placed = FloatingPetPlacement.screenFrame(petSize: model.petSize, saved: FloatingPetOrigin.saved(in: pet.defaults),
+                                                                     screens: pet.screens(), scale: CGFloat(dpi) / 96) else {
+            pet?.extras.returned()
+            pet?.sync()
+            return
+        }
+        let toDPI = UINT((placed.scale * 96).rounded())
+        pet.extras.animateMove(from: petBottomLeft, to: CGPoint(x: placed.frame.minX, y: placed.frame.maxY), returning: true,
+                               step: { [weak self] p in self?.moveForRun(to: p) },
+                               ended: { [weak self] in
+                                   self?.settle(at: toDPI)
+                                   self?.pet?.extras.returned()
+                                   self?.pet?.sync()
+                               },
+                               render: { [weak self] in self?.render() })
+    }
+
+    /// One frame of a run or the way back: the pet box's bottom-left moves (drawn by the frame's render), nothing is saved.
+    private func moveForRun(to p: CGPoint) {
+        let x = Int32(p.x.rounded()), bottom = Int32(p.y.rounded())
+        let side = frame.right - frame.left
+        frame = RECT(left: x, top: bottom - side, right: x + side, bottom: bottom)
+    }
+
+    /// The move ended on a monitor of `toDPI`: drawn at it there (the messages its frames caused came from inside the
+    /// window's own updates and were not a new DPI).
+    private func settle(at toDPI: UINT) {
+        guard !isDestroyed, toDPI != dpi, toDPI > 0 else { return }
+        dpi = toDPI
+        pet?.stats.dpiChanges += 1
+        render()
+    }
+
+    /// The native tooltip's text (nil clears it): the Mac's `hosting.toolTip`, shown by the system after 600 ms (the app's
+    /// `NSInitialToolTipDelay`, as the popover's), its lines as the hover text's; dressed dark in dark mode as the popover's.
+    func setToolTip(_ text: String?) {
+        let dark = text != nil && WinPetLook.system().dark
+        if let made = tooltips, text != nil, dark != tooltipDark {   // the app mode changed: a tooltip dressed for it
+            made.destroy()
+            tooltips = nil
+            tooltipText = nil
+        }
+        guard text != tooltipText else { return }
+        tooltipText = text
+        if tooltips == nil, text != nil {
+            let made = WinTooltips(owner: hwnd, font: nil, maxWidth: Int32((280 * CGFloat(dpi) / 96).rounded()))
+            tooltipDark = dark
+            if dark {
+                let palette = WinUIColors.resolve(highContrast: false, dark: true, accent: nil, system: { GetSysColor($0) })
+                made.dress(background: palette.card, text: palette.text)
+            }
+            tooltips = made
+        }
+        tooltips?.set(text?.replacingOccurrences(of: "\n", with: "\r\n"), for: hwnd, in: nil)
     }
 
     private static func rect(_ r: CGRect) -> RECT {
@@ -499,13 +648,15 @@ import WinSDK
             return 0
         }
         w.on(0x0113 /* WM_TIMER */) { [weak self] wParam, _ in   // fix/windows-pet-still: the clock check
-            guard let self, UInt(wParam) == Self.clockCheckTimerID else { return nil }
+            guard let self, UINT_PTR(wParam) == Self.clockCheckTimerID else { return nil }
             self.checkClock()
             return 0
         }
         w.on(0x02A3 /* WM_MOUSELEAVE */) { [weak self] _, _ in
             guard let self, self.hovering else { return 0 }
             self.hovering = false
+            self.pet?.extras.setHovering(false)   // Task 23: `mouseExited` (strokes reset, the callout goes)
+            self.pet?.extras.hideCallout()
             self.pet?.onHoverChange?(false)
             return 0
         }
@@ -551,10 +702,12 @@ import WinSDK
         }
     }
 
-    /// The pointer in screen pixels: the message's client point plus where the window is now.
+    /// The pointer in screen pixels: the message's client point plus where the window is now (the panel's top-left while a
+    /// bubble shows).
     private func screenPoint(_ lParam: LPARAM) -> CGPoint {
-        CGPoint(x: CGFloat(frame.left) + CGFloat(Int16(truncatingIfNeeded: lParam)),
-                y: CGFloat(frame.top) + CGFloat(Int16(truncatingIfNeeded: lParam >> 16)))
+        let r = drawnFrame ?? windowRect
+        return CGPoint(x: CGFloat(r.left) + CGFloat(Int16(truncatingIfNeeded: lParam)),
+                       y: CGFloat(r.top) + CGFloat(Int16(truncatingIfNeeded: lParam >> 16)))
     }
 
     private var origin: CGPoint { CGPoint(x: CGFloat(frame.left), y: CGFloat(frame.top)) }
@@ -567,6 +720,7 @@ import WinSDK
 
     private func buttonDown(_ lParam: LPARAM) {
         guard !isDestroyed, !inMenu, let pet else { return }
+        pet.extras.petting.reset()   // Task 23: a press is no stroke (`mouseDown`)
         _ = SetCapture(hwnd)
         pointer.down(at: screenPoint(lParam), windowOrigin: origin)
         // An open popover closes for this press, as the Mac's transient popover on any press outside it (a prayer or a drag
@@ -590,16 +744,30 @@ import WinSDK
         guard !isDestroyed else { return }
         let p = screenPoint(lParam)
         if pointer.isPressed {
-            if let to = pointer.drag(to: p, thresholdSquared: thresholdSquared) { move(toTopLeft: to) }
+            pet?.extras.petting.reset()   // a drag never counts as a stroke (`mouseDragged`)
+            if let to = pointer.drag(to: p, thresholdSquared: thresholdSquared) {
+                // A drag during the run, away or on the way back is the new home (`panelDidMove`/`resolveMove`): the move stops.
+                if let extras = pet?.extras, extras.move != nil || extras.flow.runPhase != .home { extras.cancelMove() }
+                move(toTopLeft: to)
+            }
             return
         }
-        guard let pet, pet.onHoverChange != nil || pet.onPointerMove != nil else { return }
-        if !hovering, pet.onHoverChange != nil {
+        guard let pet else { return }
+        // Task 23: the hover callout (`mouseEntered`) and the strokes (`mouseMoved`, screen x in DIP: the panel widens and
+        // re-centres when a bubble appears, which would shift client x mid-gesture).
+        if !hovering {
             var tme = TRACKMOUSEEVENT(cbSize: DWORD(MemoryLayout<TRACKMOUSEEVENT>.size), dwFlags: 0x0000_0002 /* TME_LEAVE */,
                                       hwndTrack: hwnd, dwHoverTime: 0)
             _ = TrackMouseEvent(&tme)
             hovering = true
+            pet.extras.setHovering(true)
+            pet.showHover()
             pet.onHoverChange?(true)
+        }
+        let scale = CGFloat(dpi) / 96
+        if pet.extras.petting.feed(x: p.x / scale, at: Double(UInt32(bitPattern: GetMessageTime())) / 1000,
+                                   minStroke: FloatingPetStroke.distance(petSize: model.petSize)) {
+            pet.stroked()
         }
         pet.onPointerMove?(p)
     }
@@ -613,6 +781,7 @@ import WinSDK
         if release.moved { persist() }
         guard release.click, let pet else { return }
         pet.stats.clicks += 1
+        pet.acknowledgeAgents()   // Task 23: a click answers waiting agents and acknowledges done ones first (`petClicked`)
         pet.actions.petClicked()
     }
 
@@ -630,6 +799,8 @@ import WinSDK
         if at.x == -1 && at.y == -1 { at = POINT(x: (frame.left + frame.right) / 2, y: (frame.top + frame.bottom) / 2) }
         if hovering {
             hovering = false
+            pet.extras.setHovering(false)
+            pet.extras.hideCallout()
             pet.onHoverChange?(false)
         }
         let entries = FloatingPetMenu.entries(l: pet.companion.l, backViewOn: pet.store.alwaysFacesBack)
@@ -649,6 +820,7 @@ import WinSDK
         if WinPopupMenu.gaveBack { pet.stats.foregroundRestores += 1 }
         if destroyAfterMenu { finishDestroy() }
         let action = chosen.flatMap { entries.indices.contains($0) ? entries[$0].action : nil }
+        if action == .open { pet.acknowledgeAgents() }   // Task 23: the menu's Open answers agents too (`openPopover`)
         if let action { pet.actions.perform(action) }
     }
 
@@ -656,7 +828,12 @@ import WinSDK
     private func dpiChanged(_ newDPI: UINT, suggested: RECT?) {
         guard !isDestroyed, let pet else { return }
         let f = CGRect(x: CGFloat(frame.left), y: CGFloat(frame.top), width: CGFloat(frame.right - frame.left), height: CGFloat(frame.bottom - frame.top))
-        let s = suggested.map { CGRect(x: CGFloat($0.left), y: CGFloat($0.top), width: CGFloat($0.right - $0.left), height: CGFloat($0.bottom - $0.top)) }
+        var s = suggested.map { CGRect(x: CGFloat($0.left), y: CGFloat($0.top), width: CGFloat($0.right - $0.left), height: CGFloat($0.bottom - $0.top)) }
+        // Task 23: while a bubble shows the window is the panel: its suggested rectangle holds the pet box at its bottom, centred.
+        if let r = s, windowRect.left != frame.left || windowRect.top != frame.top {
+            let side = CGFloat(pictureSide(at: newDPI))
+            s = CGRect(x: r.minX + max(0, (r.width - side) / 2).rounded(.down), y: r.maxY - side, width: side, height: side)
+        }
         switch FloatingPetDPIChange.decide(current: Int(dpi), new: Int(newDPI), pressed: pointer.isPressed, inOwnUpdate: inOwnUpdate,
                                            frame: f, side: CGFloat(pictureSide(at: newDPI)), suggested: s) {
         case .ignore:
@@ -699,7 +876,9 @@ import WinSDK
 
     // MARK: - drawing
 
-    /// Draws the current picture into the window (`UpdateLayeredWindow`, premultiplied alpha), its bottom-left kept.
+    /// Draws the current picture into the window (`UpdateLayeredWindow`, premultiplied alpha), its bottom-left kept: the
+    /// sprite in its box and, around it (Task 23), the speech bubble or the hearts above it, the 🙏 rising over it, the
+    /// wobble and the bob's squash; the window is the Mac's panel while a bubble or the hearts show.
     func render() {
         guard !isDestroyed, let pet else { return }
         // A new subject still loading keeps the picture on screen (the Mac's `SpriteView` keeps its pixels until the load
@@ -712,19 +891,21 @@ import WinSDK
         let scale = CGFloat(dpi) / 96
         let side = pictureSide(at: dpi)
         frame = RECT(left: frame.left, top: frame.bottom - Int32(side), right: frame.left + Int32(side), bottom: frame.bottom)
-        guard ensureSurface(side), let bits = surface.bits else {
+        let win = windowRect
+        let width = Int(win.right - win.left), height = Int(win.bottom - win.top)
+        guard ensureSurface(width, height), let bits = surface.bits else {
             pet.stats.renderFailures += 1
             return
         }
-        memset(bits, 0, side * side * 4)
-        drawPicture(into: bits, side: side, scale: scale)
+        memset(bits, 0, width * height * 4)
+        compose(into: bits, width: width, height: height, boxX: Int(frame.left - win.left), boxY: Int(frame.top - win.top), side: side, scale: scale)
         _ = GdiFlush()
-        var size = SIZE(cx: Int32(side), cy: Int32(side))
+        var size = SIZE(cx: Int32(width), cy: Int32(height))
         var source = POINT(x: 0, y: 0)
-        var destination = POINT(x: frame.left, y: frame.top)
+        var destination = POINT(x: win.left, y: win.top)
         var blend = BLENDFUNCTION(BlendOp: 0 /* AC_SRC_OVER */, BlendFlags: 0, SourceConstantAlpha: 255, AlphaFormat: 1 /* AC_SRC_ALPHA */)
         // A new frame of the same window: only the picture (no place or size: no window-position work for every frame).
-        let same = drawnFrame.map { $0.left == frame.left && $0.top == frame.top && $0.right == frame.right && $0.bottom == frame.bottom } ?? false
+        let same = drawnFrame.map { $0.left == win.left && $0.top == win.top && $0.right == win.right && $0.bottom == win.bottom } ?? false
         // A place or a size of the window's own choosing: a WM_DPICHANGED sent from inside is not a new DPI (review I2).
         inOwnUpdate = true
         let done = same
@@ -734,20 +915,121 @@ import WinSDK
         if done {
             pet.stats.renders += 1
             drawnSide = side
-            drawnFrame = frame
+            drawnFrame = win
         } else {
             pet.stats.renderFailures += 1
             if !loggedFailure {
                 loggedFailure = true
-                AppLog.write("floating pet: UpdateLayeredWindow \(side)x\(side) failed: \(GetLastError())")
+                AppLog.write("floating pet: UpdateLayeredWindow \(width)x\(height) failed: \(GetLastError())")
             }
         }
     }
 
+    /// The window's picture (`FloatingPetView.body`, the bottom-aligned `VStack(spacing: 8)`): the box at the bottom centre
+    /// with the sprite (turned by the prayer's wobble), the 🙏 over it and the hearts on its visible top, all three squashed
+    /// toward the box's feet on the bob's frame (`AgentBob` wraps them); the speech bubble 8 DIP above the box, over the rest
+    /// (`zIndex(1)`). A bubble or hearts that just appeared pop in (`FloatingPetPopIn`).
+    private func compose(into bits: UnsafeMutableRawPointer, width: Int, height: Int, boxX: Int, boxY: Int, side: Int, scale: CGFloat) {
+        guard let pet else { return }
+        let extras = pet.extras
+        let now = extras.now()
+        let bubble = extras.bubble(limitAlert: pet.limitAlert)
+        let hearts = extras.heartsShowing && bubble == nil
+        extras.drew(bubble: bubble, hearts: hearts, at: now, animated: model.animated) { [weak self] in self?.render() }
+        drawPicture(into: bits, width: width, height: height, boxX: boxX, boxY: boxY, scale: scale, wobble: extras.wobbleAngle(at: now))
+        let particles = extras.particleStates(at: now)
+        if !particles.isEmpty, let glyph = prayerGlyph(scale: scale) {
+            let emoji = FloatingPetPrayerArt.emojiSize(petSize: model.petSize)
+            for particle in particles {
+                let at = FloatingPetPrayerArt.particle(xFraction: particle.xFraction, petSize: model.petSize, emojiSize: emoji, progress: particle.progress)
+                WinPetDecor.compose(bgra: glyph.bgra, w: glyph.w, h: glyph.h, into: bits, width: width, height: height,
+                                    x: boxX + Int((at.center.x * scale).rounded()) - glyph.w / 2,
+                                    y: boxY + Int((at.center.y * scale).rounded()) - glyph.h / 2, opacity: at.opacity)
+            }
+        }
+        if hearts {
+            let art = heartsPicture(scale: scale)
+            let pop = WinPetExtras.pop(extras.heartsPop, at: now)
+            let bgra = pop.scale == 1 ? art.bgra
+                : WinPetDecor.scaledAbout(art.bgra, w: art.w, h: art.h, sx: pop.scale, sy: pop.scale, ax: CGFloat(art.w) / 2, ay: CGFloat(art.h))
+            let offset = FloatingPetHeartArt.bubbleTopOffset(visibleTop: spriteVisibleTop(), bubbleHeight: FloatingPetHeartArt.height,
+                                                             overlap: FloatingPetHeartArt.tailOverlap)
+            WinPetDecor.compose(bgra: bgra, w: art.w, h: art.h, into: bits, width: width, height: height,
+                                x: boxX + (side - art.w) / 2, y: boxY + Int((offset * scale).rounded()), opacity: pop.opacity)
+        }
+        if extras.squashed {   // x 1.03, y 0.94 about the box's bottom centre
+            let n = width * height * 4
+            let layer = Array(UnsafeRawBufferPointer(start: bits, count: n))
+            let squashed = WinPetDecor.scaledAbout(layer, w: width, h: height, sx: FloatingPetAgentMotion.bobScaleX, sy: FloatingPetAgentMotion.bobScaleY,
+                                                   ax: CGFloat(boxX) + CGFloat(side) / 2, ay: CGFloat(boxY + side))
+            squashed.withUnsafeBytes { bits.copyMemory(from: $0.baseAddress!, byteCount: n) }
+        }
+        if let bubble, let picture = bubblePicture(bubble, scale: scale) {
+            let image = picture.image
+            let pop = WinPetExtras.pop(extras.bubblePop, at: now)
+            var bgra = PopoverSpriteScale.scaledBGRA(image.pixels, width: image.width, height: image.height)
+            if pop.scale != 1 {   // about the bubble view's bottom centre (its 6 DIP pad below the box included)
+                bgra = WinPetDecor.scaledAbout(bgra, w: image.width, h: image.height, sx: pop.scale, sy: pop.scale,
+                                               ax: CGFloat(image.width) / 2, ay: CGFloat(image.height))
+            }
+            let y = boxY - Int((FloatingPetBubbleChrome.spacingToSprite * scale).rounded()) - image.height
+            WinPetDecor.compose(bgra: bgra, w: image.width, h: image.height, into: bits, width: width, height: height,
+                                x: (width - image.width) / 2, y: y, opacity: pop.opacity)
+        }
+    }
+
+    /// The bubble's picture for its text, the DPI and the appearance (made again only when one changes).
+    private func bubblePicture(_ bubble: FloatingPetBubbles.Bubble, scale: CGFloat) -> (image: PlazaImage, size: CGSize)? {
+        guard let pet else { return nil }
+        let content = FloatingPetBubbles.bubbleContent(bubble, l: L(pet.companion.language), measure: WinPetDecor.measure(PlatformPlaza.graphics.text))
+        let look = WinPetLook.system()
+        let key = "\(content)|\(dpi)|\(look)"
+        if let kept = bubbleImage, kept.key == key { return (kept.image, kept.size) }
+        guard let made = WinPetDecor.bubble(content, look: look, scale: scale) else { return nil }
+        bubbleImage = (key, made.image, made.size)
+        return made
+    }
+
+    /// The 🙏 glyph at this pet size and DPI, in BGRA.
+    private func prayerGlyph(scale: CGFloat) -> (bgra: [UInt8], w: Int, h: Int)? {
+        let emoji = FloatingPetPrayerArt.emojiSize(petSize: model.petSize)
+        let key = "\(emoji)@\(scale)"
+        if let kept = prayerImage, kept.key == key { return (kept.bgra, kept.w, kept.h) }
+        guard let image = WinPetDecor.prayerGlyph(emojiSize: emoji, scale: scale) else { return nil }
+        let bgra = PopoverSpriteScale.scaledBGRA(image.pixels, width: image.width, height: image.height)
+        prayerImage = (key, bgra, image.width, image.height)
+        return (bgra, image.width, image.height)
+    }
+
+    /// The hearts' pixels at this DPI.
+    private func heartsPicture(scale: CGFloat) -> (bgra: [UInt8], w: Int, h: Int) {
+        if let kept = heartsImage, kept.scale == scale { return (kept.bgra, kept.w, kept.h) }
+        let made = WinPetDecor.hearts(scale: scale)
+        heartsImage = (scale, made.bgra, made.w, made.h)
+        return made
+    }
+
+    /// The sprite's visible top in DIP from the box's top (`CompanionSpriteView.visibleTop`): the median frame's opaque top
+    /// over the GIF's frames, else the still's; 0 while nothing loaded (the Mac's `visibleTop ?? 0` under its 🥚). Kept per
+    /// picture set and size.
+    private func spriteVisibleTop() -> CGFloat {
+        guard let sprite = playback.models.first else { return 0 }
+        let images = sprite.frames.isEmpty ? (sprite.subject.image.map { [$0] } ?? []) : sprite.frames.map { $0.image }
+        guard let first = images.first else { return 0 }
+        let key = "\(ObjectIdentifier(first).hashValue)|\(images.count)|\(model.petSize)"
+        if let kept = visibleTopCache, kept.key == key { return kept.top }
+        let fraction = FloatingPetVisibleTop.anchorFraction(of: images.map { FloatingPetVisibleTop.opaqueTopFraction(of: $0.pixels) })
+        let top = FloatingPetVisibleTop.inset(box: model.petSize, imageSize: CGSize(width: first.width, height: first.height), opaqueTopFraction: fraction)
+        visibleTopCache = (key, top)
+        return top
+    }
+
     /// The picture the Mac's `SpriteView` shows in the pet's box: the GIF's frame, else the still (cropped to its content
     /// while an animated pet waits for its GIF: `SpriteLoader.animationPlaceholder`), else the egg sprite, else 🥚 at 62 % of
-    /// the box. Fitted inside the box with its aspect, centred, scaled smoothly as the Mac shows sprites (`PopoverSpriteScale`).
-    private func drawPicture(into bits: UnsafeMutableRawPointer, side: Int, scale: CGFloat) {
+    /// the box. Fitted inside the box with its aspect, centred, scaled smoothly as the Mac shows sprites (`PopoverSpriteScale`),
+    /// turned by the prayer's wobble (degrees clockwise about the box's centre: `.rotationEffect`), written into the window's
+    /// picture at the box (`boxX`, `boxY`); what leaves the window is cut.
+    private func drawPicture(into bits: UnsafeMutableRawPointer, width: Int, height: Int, boxX: Int, boxY: Int, scale: CGFloat, wobble: Double = 0) {
         guard let sprite = playback.models.first else { return }
         let box = model.petSize
         let picture: PlazaImage?
@@ -758,17 +1040,23 @@ import WinSDK
         }
         guard let picture else { return }
         let fit = PopoverSpriteFit.size(for: CGSize(width: picture.width, height: picture.height), width: box, height: box)
-        let w = max(1, Int((fit.width * scale).rounded())), h = max(1, Int((fit.height * scale).rounded()))
-        let x = Int(((box - fit.width) / 2 * scale).rounded()), y = Int(((box - fit.height) / 2 * scale).rounded())
-        let bytes = scaledBytes(picture, w, h, task: sprite.taskID)
-        let x0 = max(0, x), x1 = min(side, x + w)
+        var w = max(1, Int((fit.width * scale).rounded())), h = max(1, Int((fit.height * scale).rounded()))
+        var x = boxX + Int(((box - fit.width) / 2 * scale).rounded()), y = boxY + Int(((box - fit.height) / 2 * scale).rounded())
+        var bytes = scaledBytes(picture, w, h, task: sprite.taskID)
+        if abs(wobble) > 0.001 {
+            let turned = PopoverSpriteScale.rotateBilinear(bytes, width: w, height: h, degrees: wobble)
+            x += (w - turned.1) / 2
+            y += (h - turned.2) / 2
+            (bytes, w, h) = turned
+        }
+        let x0 = max(0, x), x1 = min(width, x + w)
         guard x1 > x0 else { return }
         bytes.withUnsafeBytes { src in
             guard let base = src.baseAddress else { return }
             for row in 0..<h {
                 let dy = y + row
-                guard dy >= 0, dy < side else { continue }
-                (bits + (dy * side + x0) * 4).copyMemory(from: base + (row * w + (x0 - x)) * 4, byteCount: (x1 - x0) * 4)
+                guard dy >= 0, dy < height else { continue }
+                (bits + (dy * width + x0) * 4).copyMemory(from: base + (row * w + (x0 - x)) * 4, byteCount: (x1 - x0) * 4)
             }
         }
     }
@@ -811,24 +1099,24 @@ import WinSDK
         return image
     }
 
-    private func ensureSurface(_ side: Int) -> Bool {
-        if surface.dc != nil, surface.side == side { return true }
+    private func ensureSurface(_ width: Int, _ height: Int) -> Bool {
+        if surface.dc != nil, surface.width == width, surface.height == height { return true }
         releaseSurface()
         var info = BITMAPINFO()
         info.bmiHeader.biSize = DWORD(MemoryLayout<BITMAPINFOHEADER>.size)
-        info.bmiHeader.biWidth = Int32(side)
-        info.bmiHeader.biHeight = -Int32(side)   // top-down
+        info.bmiHeader.biWidth = Int32(width)
+        info.bmiHeader.biHeight = -Int32(height)   // top-down
         info.bmiHeader.biPlanes = 1
         info.bmiHeader.biBitCount = 32
         info.bmiHeader.biCompression = 0         // BI_RGB
         guard let dc = CreateCompatibleDC(nil) else { return false }
         var p: UnsafeMutableRawPointer?
         guard let b = CreateDIBSection(dc, &info, 0 /* DIB_RGB_COLORS */, &p, nil, 0), p != nil else {
-            AppLog.write("floating pet: CreateDIBSection \(side)x\(side) failed: \(GetLastError())")
+            AppLog.write("floating pet: CreateDIBSection \(width)x\(height) failed: \(GetLastError())")
             _ = DeleteDC(dc)
             return false
         }
-        surface = Surface(dc: dc, bitmap: b, old: SelectObject(dc, UnsafeMutableRawPointer(b)), bits: p, side: side)
+        surface = Surface(dc: dc, bitmap: b, old: SelectObject(dc, UnsafeMutableRawPointer(b)), bits: p, width: width, height: height)
         return true
     }
 
@@ -841,11 +1129,32 @@ import WinSDK
         surface = Surface()
     }
 
-    /// What the window shows now, premultiplied BGRA top-down (the selftest's captures and checks).
+    /// The pet's box as the window shows it now, premultiplied BGRA top-down (the selftest's captures and checks).
     func snapshot() -> (side: Int, bgra: [UInt8])? {
-        guard let bits = surface.bits, surface.side > 0 else { return nil }
-        let n = surface.side * surface.side * 4
-        return (surface.side, Array(UnsafeRawBufferPointer(start: bits, count: n)))
+        guard let panel = panelSnapshot(), let win = drawnFrame else { return nil }
+        let side = Int(frame.right - frame.left), x0 = Int(frame.left - win.left), y0 = Int(frame.top - win.top)
+        guard side > 0, x0 >= 0, y0 >= 0, x0 + side <= panel.width, y0 + side <= panel.height else { return nil }
+        var out = [UInt8](repeating: 0, count: side * side * 4)
+        for row in 0..<side {
+            let from = ((y0 + row) * panel.width + x0) * 4
+            out.replaceSubrange(row * side * 4..<(row + 1) * side * 4, with: panel.bgra[from..<from + side * 4])
+        }
+        return (side, out)
+    }
+
+    /// The window's name, what a screen reader reads for it: the hearts' label while they show (the Mac's
+    /// `HeartBubbleView.accessibilityLabel`), else the app's.
+    func setAccessibleName(_ name: String?) {
+        _ = SetWindowTextW(hwnd, WinStr.w(name ?? "PokeTokenBar"))
+    }
+
+    /// The native tooltip's text now (the selftest's).
+    var toolTipForTesting: String? { tooltipText }
+
+    /// The whole window as it shows now (the panel with its bubble or hearts; Task 23's checks and captures).
+    func panelSnapshot() -> (width: Int, height: Int, bgra: [UInt8])? {
+        guard let bits = surface.bits, surface.width > 0, surface.height > 0 else { return nil }
+        return (surface.width, surface.height, Array(UnsafeRawBufferPointer(start: bits, count: surface.width * surface.height * 4)))
     }
 
     // MARK: - closing
@@ -902,6 +1211,13 @@ import WinSDK
         scaled = FloatingPetScaledFrames(budget: Self.scaledBudget)
         placeholders = [:]
         eggGlyph = nil
+        tooltips?.destroy()   // Task 23
+        tooltips = nil
+        tooltipText = nil
+        bubbleImage = nil
+        prayerImage = nil
+        heartsImage = nil
+        visibleTopCache = nil
     }
 
     /// Windows destroyed the window (the session ending): free the rest, tell the pet.

@@ -230,6 +230,49 @@ UI/FloatingPetPanel.swift#PetHostingView.mouseUp | Popover/FloatingPetRules.swif
 UI/FloatingPetPanel.swift#PetHostingView.showContextMenu | Popover/FloatingPetRules.swift#FloatingPetMenu.entries | pin cc6ef9f2f042b145
 PokeTokenBarApp.swift#AppDelegate.openPopover | Platform/Windows/Popover/WinFloatingPet.swift#WinFloatingPet.openPopover | pin c75042de6088a90a
 # --- stage 7 Task 22 (end) ---
+# --- stage 7 Task 23: the pet's bubbles, hearts, prayers, hover and agent activity (begin) ---
+# Pure statics as renamed copies (PopoverPetExtrasTwinEquivalenceTests+Mac drives the Mac's and the twin over the same inputs).
+UI/FloatingPetPanel.swift#FloatingPetController.bubble | Popover/FloatingPetExtras.swift#FloatingPetBubbles.bubble
+UI/FloatingPetPanel.swift#FloatingPetController.heartsShowing | Popover/FloatingPetExtras.swift#FloatingPetBubbles.heartsShowing
+UI/FloatingPetPanel.swift#FloatingPetController.isShowingBubble | Popover/FloatingPetExtras.swift#FloatingPetBubbles.isShowingBubble
+UI/FloatingPetPanel.swift#FloatingPetController.nativeToolTip | Popover/FloatingPetExtras.swift#FloatingPetBubbles.nativeToolTip
+UI/FloatingPetPanel.swift#FloatingPetController.shouldPopEvent | Popover/FloatingPetExtras.swift#FloatingPetBubbles.shouldPopEvent
+UI/FloatingPetPanel.swift#FloatingPetController.runPanelOrigin | Popover/FloatingPetExtras.swift#FloatingPetAgentMotion.runPanelOrigin | NSPoint=CGPoint, NSSize=CGSize, NSRect=CGRect
+UI/FloatingPetPanel.swift#FloatingPetController.runsToCursor | Popover/FloatingPetExtras.swift#FloatingPetAgentMotion.runsToCursor | RunPhase=FloatingPetRules.RunPhase
+UI/FloatingPetPanel.swift#FloatingPetController.shouldBob | Popover/FloatingPetExtras.swift#FloatingPetAgentMotion.shouldBob
+UI/FloatingPetPanel.swift#FloatingPetView.hoverTooltip | Popover/FloatingPetExtras.swift#FloatingPetHoverText.hoverTooltip
+UI/FloatingPetPanel.swift#PettingDetector | Popover/FloatingPetExtras.swift#FloatingPetPetting | PettingDetector=FloatingPetPetting
+UI/FloatingPetPanel.swift#PrayerEmojiLayer.emojiSize | Popover/FloatingPetExtras.swift#FloatingPetPrayerArt.emojiSize
+UI/SpriteLoader.swift#SpriteVisibleTop.bubbleTopOffset | Popover/FloatingPetExtras.swift#FloatingPetHeartArt.bubbleTopOffset
+UI/SpriteLoader.swift#SpriteVisibleTop.inset | Popover/FloatingPetExtras.swift#FloatingPetVisibleTop.inset | SpriteFit=PopoverSpriteFit
+UI/SpriteLoader.swift#SpriteVisibleTop.anchorFraction | Popover/FloatingPetExtras.swift#FloatingPetVisibleTop.anchorFraction
+# The text cuts with the measurement as a parameter (the Mac measures with AppKit): the same strings with the Mac's
+# measurement passed in (the equivalence test).
+UI/FloatingPetPanel.swift#FloatingPetController.bubbleContent | Popover/FloatingPetExtras.swift#FloatingPetBubbles.bubbleContent | pin 1419ab2a079589c0
+UI/FloatingPetPanel.swift#FloatingPetController.agentTitle | Popover/FloatingPetExtras.swift#FloatingPetBubbles.agentTitle | pin 020544b9b6b149a1
+UI/FloatingPetPanel.swift#FloatingPetController.fittedBubbleBody | Popover/FloatingPetExtras.swift#FloatingPetBubbles.fittedBubbleBody | pin 3d87f5148e799dd1
+UI/FloatingPetPanel.swift#FloatingPetController.bubbleBody | Popover/FloatingPetExtras.swift#FloatingPetBubbles.bubbleBody | pin d51f143c3008df84
+# Mac bodies rebuilt as values or as the Windows window's work (pins): the agent flow, the transients, the art.
+UI/FloatingPetPanel.swift#FloatingPetController.handleAgentEvent | Popover/FloatingPetExtras.swift#FloatingPetAgentFlow.handle | pin 3fc3426848d39d20
+UI/FloatingPetPanel.swift#FloatingPetController.agentDidChange | Popover/FloatingPetExtras.swift#FloatingPetAgentFlow.handle | pin 3ea8a140ffee7fc1
+UI/FloatingPetPanel.swift#FloatingPetController.returnHome | Popover/FloatingPetExtras.swift#FloatingPetAgentFlow.handle | pin 6ee003273551cefb
+UI/FloatingPetPanel.swift#FloatingPetController.expireAgentActivity | Popover/FloatingPetExtras.swift#FloatingPetAgentFlow.expire | pin 4686611221e725d5
+UI/FloatingPetPanel.swift#FloatingPetController.resetAgent | Popover/FloatingPetExtras.swift#FloatingPetAgentFlow.syncReset | pin b442defddeb5d78a
+UI/FloatingPetPanel.swift#FloatingPetController.beginRun | Popover/FloatingPetExtras.swift#FloatingPetAgentFlow.beganRun | pin 8af66f3856564910
+UI/FloatingPetPanel.swift#FloatingPetController.measureSpeechBubbleLayout | Popover/FloatingPetExtras.swift#FloatingPetBubbles.SpeechBubbleLayout | pin 074f528359cb98a6
+UI/FloatingPetPanel.swift#SpeechBubbleView | Popover/FloatingPetExtras.swift#FloatingPetBubbleChrome | pin e92829c70de132dd
+UI/FloatingPetPanel.swift#AgentBob | Popover/FloatingPetExtras.swift#FloatingPetAgentMotion | pin 96285c6d6f10d4fd
+UI/FloatingPetPanel.swift#PrayerBurst | Popover/FloatingPetExtras.swift#FloatingPetPrayerArt | pin c8d4b0618b27f845
+UI/FloatingPetPanel.swift#PrayerEmojiFrame | Popover/FloatingPetExtras.swift#FloatingPetPrayerArt.particle | pin 44f17c08a0496a7d
+UI/FloatingPetPanel.swift#HeartBubbleArt | Popover/FloatingPetExtras.swift#FloatingPetHeartArt | pin 3fd7c5cef17a45d0
+UI/FloatingPetPanel.swift#FloatingPetView.body | Popover/FloatingPetExtras.swift#FloatingPetPrayerArt.wobbleAngle | pin 6e9fff91ba13ca7f
+# The hearts' anchor over a bitmap instead of an NSImage (the scan over the same pixels; the equivalence test) and the one
+# anchor for an animation; the hearts' cells. The bubble's and the hearts' entrance (FloatingPetPopIn, SwiftUI's spring)
+# are the view body's transitions: the body's pin above guards them.
+UI/SpriteLoader.swift#SpriteVisibleTop.scanOpaqueTopFraction | Popover/FloatingPetExtras.swift#FloatingPetVisibleTop.opaqueTopFraction | pin 3c7c2dd984a32579
+UI/CompanionView.swift#SpriteView.visibleTop | Popover/FloatingPetExtras.swift#FloatingPetVisibleTop | pin b680a4fe017b8fba
+UI/FloatingPetPanel.swift#HeartBubbleView | Popover/FloatingPetExtras.swift#FloatingPetHeartArt | pin 64f9e7a2e0b41684
+# --- stage 7 Task 23 (end) ---
 
 # Task 21: the detail page's derived members (which form, appearance and individual the page shows), copied verbatim.
 UI/CompanionView.swift#PokemonDetailView.formSpecies | Popover/DexDetailModel.swift#DexDetailResolver.formSpecies
