@@ -40,7 +40,8 @@ import WinSDK
         guard let dc = BeginPaint(hwnd, &ps) else { return 0 }
         paints += 1
         WinOpenTrace.note(.paint, hwnd)
-        draw(dc, ps.rcPaint)
+        // Drawn in memory and copied once: the antialiased shapes blend over what the DC holds (K2).
+        WinPaint.buffered(dc, ps.rcPaint, background: ctx.colors.brush(ctx.colors.palette.window)) { draw($0, ps.rcPaint) }
         _ = EndPaint(hwnd, &ps)
         return 0
     }
@@ -88,7 +89,6 @@ import WinSDK
     // --- parity (end) ---
     private var sizeRelayouts: [Date] = []
     private var loggedSizeLoop = false
-    private var borderPen: HPEN?
     private(set) var layouts = 0
     private(set) var isDestroyed = false
 
@@ -225,15 +225,17 @@ import WinSDK
         var r = dirty
         _ = FillRect(dc, &r, colors.brush(colors.palette.window))
         guard let f = frames else { return }
-        if borderPen == nil { borderPen = CreatePen(0 /* PS_SOLID */, max(1, ctx.px(1)), colors.palette.cardBorder) }
-        let oldPen = SelectObject(dc, UnsafeMutableRawPointer(borderPen))
-        let oldBrush = SelectObject(dc, UnsafeMutableRawPointer(colors.brush(colors.palette.card)))
-        let radius = 2 * Int32(metrics.cardRadius)
+        let radius = Int32(metrics.cardRadius)
+        let hairline = max(1, ctx.px(1))
+        // All the cards of the page in one bind of the painter (its cost is per bind).
+        var cards: [WinPaint.Item] = []
         for case let s? in f.sections {
-            if let card = s.card {
-                let c = WinKit.rect(card)
-                _ = RoundRect(dc, c.left, c.top, c.right, c.bottom, radius, radius)
-            }
+            guard let card = s.card else { continue }
+            cards.append(WinPaint.Item(rect: WinKit.rect(card), radius: radius, fill: WinPaint.Ink(color: colors.palette.card),
+                                       stroke: WinPaint.Ink(color: colors.palette.cardBorder), strokeWidth: hairline))
+        }
+        WinPaint.roundedRects(dc, cards, under: colors.palette.window, ctx: ctx, clip: dirty)
+        for case let s? in f.sections {
             for d in s.dividers {
                 var dr = WinKit.rect(d)
                 dr.left += 1
@@ -241,8 +243,6 @@ import WinSDK
                 _ = FillRect(dc, &dr, colors.brush(colors.palette.divider))
             }
         }
-        _ = SelectObject(dc, oldBrush)
-        _ = SelectObject(dc, oldPen)
     }
 
     /// Commits changed fields and destroys every control (the pane stays: its owner destroys it).
@@ -251,8 +251,6 @@ import WinSDK
         isDestroyed = true
         for c in controls { c.destroy() }
         sections = []
-        if let pen = borderPen { _ = DeleteObject(UnsafeMutableRawPointer(pen)) }
-        borderPen = nil
         pane.paint = nil
     }
 }

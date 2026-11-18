@@ -162,16 +162,10 @@ import WinSDK
         _ = GetClientRect(pane.hwnd, &all)
         var rr = r
         _ = FillRect(dc, &rr, ctx.colors.brush(pal.window))
-        if tintColor != pal.window || ctx.highContrast {
-            if let pen = CreatePen(ctx.highContrast ? 0 : 5 /* PS_NULL */, 1, pal.text) {  // a tinted card needs no hairline
-                let oldPen = SelectObject(dc, UnsafeMutableRawPointer(pen))
-                let oldBrush = SelectObject(dc, UnsafeMutableRawPointer(ctx.colors.brush(tintColor)))
-                let radius = 2 * ctx.px(radiusDIP)
-                _ = RoundRect(dc, all.left, all.top, all.right + 1, all.bottom + 1, radius, radius)
-                _ = SelectObject(dc, oldBrush)
-                _ = SelectObject(dc, oldPen)
-                _ = DeleteObject(UnsafeMutableRawPointer(pen))
-            }
+        if tintColor != pal.window || ctx.highContrast {  // a tinted card needs no hairline (high contrast: an outline)
+            WinPaint.roundedRect(dc, all, radius: ctx.px(radiusDIP), fill: WinPaint.Ink(color: tintColor),
+                                 stroke: ctx.highContrast ? WinPaint.Ink(color: pal.text) : nil, strokeWidth: max(1, ctx.px(1)),
+                                 under: pal.window, ctx: ctx, clip: r)
         }
         if let glyph, glyphRect.right > glyphRect.left {
             let old = SelectObject(dc, UnsafeMutableRawPointer(glyph.font))

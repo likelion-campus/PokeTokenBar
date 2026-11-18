@@ -452,10 +452,10 @@ private struct CollectionFixtureNames: PokemonNameProviding {
             // one scroller, as the Mac's: the page's own thumb (drawn, it scrolls its rows under the pinned Back line); the native bar is not there
             if let area = h.window.scroll {
                 if area.barVisible || area.contentHeight > area.viewportHeight + 2 {
-                    problems.append("\(language): a second scroller on the detail page: native bar shown=\(area.barVisible), content \(area.contentHeight) px in \(area.viewportHeight)")
+                    problems.append("\(language): a second scroller on the detail page: overlay thumb shown=\(area.barVisible), content \(area.contentHeight) px in \(area.viewportHeight)")
                 }
                 if part.maxScroll <= 0 { problems.append("\(language): the detail page's own scroller has nothing to scroll (\(part.maxScroll))") }
-                notes.append("\(language): scrollers on the detail page: native bar \(area.barVisible ? "shown" : "hidden") (content \(area.contentHeight)/\(area.viewportHeight) px), own thumb for \(Int(part.maxScroll)) pt")
+                notes.append("\(language): scrollers on the detail page: overlay thumb \(area.barVisible ? "shown" : "hidden") (content \(area.contentHeight)/\(area.viewportHeight) px), own thumb for \(Int(part.maxScroll)) pt")
             }
             // the wheel scrolls it and names are asked for what comes into view only
             _ = SendMessageW(view.hwnd, 0x020A, WPARAM(UInt(bitPattern: Int(-120)) << 16), 0)
@@ -490,11 +490,11 @@ private struct CollectionFixtureNames: PokemonNameProviding {
             defer { h.destroy() }
             if let area = h.window.scroll, let log = page.logPart {
                 if area.barVisible || area.contentHeight > area.viewportHeight + 2 {
-                    problems.append("catch log: a second scroller: native bar shown=\(area.barVisible), content \(area.contentHeight) px in \(area.viewportHeight)")
+                    problems.append("catch log: a second scroller: overlay thumb shown=\(area.barVisible), content \(area.contentHeight) px in \(area.viewportHeight)")
                 }
                 if log.maxScroll <= 0 { problems.append("catch log: its own scroller has nothing to scroll (\(log.maxScroll))") }
                 dump(h, "log-scroller-en")
-                notes.append("catch log: native bar \(area.barVisible ? "shown" : "hidden"), own thumb for \(Int(log.maxScroll)) pt")
+                notes.append("catch log: overlay thumb \(area.barVisible ? "shown" : "hidden"), own thumb for \(Int(log.maxScroll)) pt")
             } else { problems.append("catch log: no scroll area or log part") }
         }
         // Back from a species of a later page lands on that page

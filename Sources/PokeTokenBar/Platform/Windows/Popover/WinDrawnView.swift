@@ -457,7 +457,8 @@ import WinSDK
         if d.itemState & 0x0010 != 0, d.itemState & 0x0200 == 0 {  // ODS_FOCUS, not ODS_NOFOCUSRECT
             var f = d.rcItem
             _ = InflateRect(&f, -1, -1)
-            _ = DrawFocusRect(d.hDC, &f)
+            WinPaint.focusRing(d.hDC, f, radius: ctx.px(4), ctx: ctx, outer: ctx.colors.palette.text,
+                               inner: f.bottom - f.top >= ctx.px(26) ? background : nil)
         }
     }
 
