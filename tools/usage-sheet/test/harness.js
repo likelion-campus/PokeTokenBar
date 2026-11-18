@@ -33,6 +33,12 @@ function formatInZone(date, tz, pattern) {
 //   Session.getScriptTimeZone().
 //   ScriptApp: newTrigger(fn).timeBased().everyHours(n).create(), getProjectTriggers, deleteTrigger (fakes.triggers).
 //   SpreadsheetApp.getUi().createMenu(t).addItem(l, fn).addToUi() records into fakes.menus.
+//   UrlFetchApp.fetch(url, opts): answers from fakes.http.handler(url, opts) -> { code, body } (body an object or a raw
+//     string); records {url, opts} in fakes.http.requests; like Apps Script it throws on a code >= 400 unless
+//     opts.muteHttpExceptions is true. The response has getResponseCode() and getContentText().
+//   PropertiesService.getUserProperties() / getDocumentProperties(): separate in-memory stores (getProperty,
+//     setProperty, deleteProperty), reachable as fakes.props.user / fakes.props.doc (plain objects).
+//   Utilities.sleep(ms): records into fakes.sleeps.
 // Later tasks extend the returned object with more fakes.
 // Like real Sheets, a string written by setValues is parsed as typed input unless the column is
 // plain text ("@") or the string starts with an apostrophe (stripped, stored as text).
@@ -163,7 +169,34 @@ function makeFakes(opts) {
   const lockStats = { acquired: 0, released: 0, held: false, docAcquired: 0, docHeld: false };
   const triggers = [];
   const menus = [];
+  const http = { handler: null, requests: [] };
+  const props = { user: Object.create(null), doc: Object.create(null) };
+  const sleeps = [];
+  function propertyStore(store) {
+    return {
+      getProperty: (k) => (k in store ? store[k] : null),
+      setProperty(k, v) { store[k] = String(v); },
+      deleteProperty(k) { delete store[k]; },
+    };
+  }
   return {
+    http,
+    props,
+    sleeps,
+    UrlFetchApp: {
+      fetch(url, opts) {
+        http.requests.push({ url, opts });
+        if (!http.handler) throw new Error("fake UrlFetchApp: no handler set");
+        const r = http.handler(url, opts);
+        if (r.code >= 400 && !(opts && opts.muteHttpExceptions)) throw new Error(`Request failed for ${url} returned code ${r.code}`);
+        const text = typeof r.body === "string" ? r.body : JSON.stringify(r.body);
+        return { getResponseCode: () => r.code, getContentText: () => text };
+      },
+    },
+    PropertiesService: {
+      getUserProperties: () => propertyStore(props.user),
+      getDocumentProperties: () => propertyStore(props.doc),
+    },
     ss,
     lockStats,
     triggers,
@@ -203,6 +236,7 @@ function makeFakes(opts) {
     },
     Utilities: {
       formatDate: formatInZone,
+      sleep(ms) { sleeps.push(ms); },
       DigestAlgorithm: { SHA_256: "SHA_256" },
       Charset: { UTF_8: "UTF_8" },
       computeDigest(alg, value) {

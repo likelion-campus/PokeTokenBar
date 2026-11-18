@@ -185,7 +185,7 @@ test("ensureSheets is idempotent, hides two tabs and sets text format on date co
   const snap = snapshot(ss);
   S.ensureSheets(ss);
   assert.equal(snapshot(ss), snap);
-  assert.deepEqual(ss.getSheets().map((s) => s.getName()), ["시트1", "원본", "한도", "사람", "부서", "팀이름", "기기", "설정"]);
+  assert.deepEqual(ss.getSheets().map((s) => s.getName()), ["시트1", "원본", "한도", "사람", "부서", "팀이름", "기기", "설정", "엔터프라이즈 원본", "엔터프라이즈 사람", "엔터프라이즈기록"]);
   assert.equal(ss.getSheetByName("팀이름").isSheetHidden(), true);
   assert.equal(ss.getSheetByName("기기").isSheetHidden(), true);
   assert.equal(ss.getSheetByName("원본").isSheetHidden(), false);

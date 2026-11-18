@@ -16,6 +16,9 @@ var TAB_TEAMLABELS = "팀이름";
 var TAB_DEVICES = "기기";
 var TAB_SETTINGS = "설정";
 var TAB_PLAN = "플랜";
+var TAB_ENT_RAW = "엔터프라이즈 원본";
+var TAB_ENT_PEOPLE = "엔터프라이즈 사람";
+var TAB_ENT_LOG = "엔터프라이즈기록";
 
 var COLS_RAW = ["memberId", "닉네임", "날짜", "도구", "팀ID", "입력", "출력", "캐시쓰기", "캐시읽기", "합계", "앱버전", "플랫폼", "받은시각"];
 var COLS_LIMITS = ["계정", "도구", "리셋시각", "memberId", "팀ID", "플랜", "이메일도메인", "최고사용률", "마지막사용률", "마지막읽은시각"];
@@ -24,6 +27,19 @@ var COLS_DEPTS = ["팀ID", "부서이름", "참고팀이름", "처음본날"];
 var COLS_TEAMLABELS = ["팀ID", "memberId", "팀이름", "마지막받은시각"];
 var COLS_DEVICES = ["memberId", "비밀값해시", "처음본시각", "마지막본시각"];
 var COLS_SETTINGS = ["키", "값", "설명"];
+var COLS_ENT_RAW = ["날짜", "userId", "이메일", "채팅메시지", "대화", "Cowork메시지", "ClaudeCode세션", "받은시각"];
+var COLS_ENT_PEOPLE = ["userId", "이메일", "부서", "처음본날"];
+var COLS_ENT_LOG = ["날짜", "불러온시각", "행수"];
+
+var ENT_API_URL = "https://api.anthropic.com/v1/organizations/analytics/users";
+var ENT_API_VERSION = "2026-10-21";
+var ENT_FIRST_DATE = "2026-01-01";
+var ENT_PAGE_LIMIT = 1000;
+var ENT_MAX_REQUESTS = 100;
+var ENT_SLEEP_MS = 1000;
+var ENT_RECENT_DAYS = 3;
+var ENT_KEY_PROP = "enterprise_api_key";        // UserProperties
+var ENT_STATUS_PROP = "enterprise_status";      // DocumentProperties, JSON
 
 var DEFAULT_SETTINGS = [
   { key: "forecast_short_pct", value: 100, note: "리셋 때 예상이 이 % 이상이면 \"모자람\"." },

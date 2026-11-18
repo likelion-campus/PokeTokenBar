@@ -20,14 +20,14 @@ function body(ss, tab) {
   return last < 2 ? [] : plain(sheet.getRange(2, 1, last - 1, sheet.getLastColumn()).getValues());
 }
 
-test("setup creates 11 tabs and one hourly trigger, and is idempotent", () => {
+test("setup creates 14 tabs and one hourly trigger, and is idempotent", () => {
   const { S, ss } = fresh();
   S.setup();
-  assert.equal(ss.getSheets().length, 11);
+  assert.equal(ss.getSheets().length, 14);
   assert.equal(S.fakes.triggers.length, 1);
   assert.equal(S.fakes.triggers[0].getHandlerFunction(), "refreshAll");
   S.setup();
-  assert.equal(ss.getSheets().length, 11);
+  assert.equal(ss.getSheets().length, 14);
   assert.equal(S.fakes.triggers.length, 1);
 });
 
@@ -195,8 +195,8 @@ test("setup puts the dashboards and the plan first, opens 이번 달 and drops t
   const names = ss.getSheets().map((s) => s.getName());
   assert.deepEqual(names.slice(0, 4), ["이번 달", "지난 7일", "지난달", "플랜"]);
   assert.equal(names.includes("시트1"), false);
-  assert.equal(names.length, 11);
-  assert.deepEqual(names.slice(4, 9), ["원본", "한도", "사람", "부서", "설정"]);
+  assert.equal(names.length, 14);
+  assert.deepEqual(names.slice(4, 11), ["원본", "한도", "사람", "부서", "설정", "엔터프라이즈 원본", "엔터프라이즈 사람"]);
   assert.equal(ss.getActiveSheet().getName(), "이번 달");
 });
 
