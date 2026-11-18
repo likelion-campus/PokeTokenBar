@@ -1353,7 +1353,9 @@ extension WinControl {
         var r = RECT()
         _ = GetWindowRect(hwnd, &r)
         let owner = GetAncestor(hwnd, 2 /* GA_ROOT */) ?? hwnd
-        let chosen = Self.testMenu?(entries) ?? WinPopupMenu.run(entries, at: POINT(x: r.left, y: r.bottom), owner: owner, below: true)
+        // (a test's answer of "dismissed" is nil too: it must not fall through to the real, modal menu)
+        let chosen: Int?
+        if let hook = Self.testMenu { chosen = hook(entries) } else { chosen = WinPopupMenu.run(entries, at: POINT(x: r.left, y: r.bottom), owner: owner, below: true) }
         guard let chosen, chosen != comboSel else { return }
         comboSel = chosen
         refreshComboText()
