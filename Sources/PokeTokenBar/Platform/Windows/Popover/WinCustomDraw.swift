@@ -233,11 +233,11 @@ struct WinLook {
         @MainActor init(_ c: WinControl, _ part: HWND) {
             let bst = WinKit.send(part, 0x00F2 /* BM_GETSTATE */)
             checked = bst & 0x3 == 0x1  // BST_CHECKED
-            pressed = bst & 0x4 != 0  // BST_PUSHED
+            pressed = bst & 0x4 != 0 || c.isForced(part, c.testPressed)  // BST_PUSHED
             // `WM_QUERYUISTATE`: UISF_HIDEFOCUS (1) is set until the keyboard is used, as for the system's own focus rectangle.
-            focusRing = bst & 0x8 != 0 && WinKit.send(part, 0x0129) & 0x1 == 0  // BST_FOCUS
+            focusRing = bst & 0x8 != 0 && WinKit.send(part, 0x0129) & 0x1 == 0 || c.isForced(part, c.testFocus)  // BST_FOCUS
             disabled = !IsWindowEnabled(part)
-            hot = c.hotPart == part
+            hot = c.hotPart == part || c.isForced(part, c.testHot)
         }
     }
 
@@ -448,9 +448,9 @@ struct WinLook {
         var client = RECT()
         _ = GetClientRect(part, &client)
         let disabled = !IsWindowEnabled(part)
-        let focused = GetFocus() == part && WinKit.send(part, 0x0129) & 0x1 == 0
-        let dragging = GetCapture() == part
-        let hot = c.hotPart == part
+        let focused = GetFocus() == part && WinKit.send(part, 0x0129) & 0x1 == 0 || c.isForced(part, c.testFocus)
+        let dragging = GetCapture() == part || c.isForced(part, c.testPressed)
+        let hot = c.hotPart == part || c.isForced(part, c.testHot)
         let d = look.px(20)
         let centre = (x: Double(nativeRect.left + nativeRect.right) / 2, y: Double(client.top + client.bottom) / 2)
         let thumb = WinFRect(x: centre.x - d / 2, y: centre.y - d / 2, width: d, height: d)

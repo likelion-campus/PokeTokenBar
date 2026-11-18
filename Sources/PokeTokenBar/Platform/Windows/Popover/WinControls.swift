@@ -113,6 +113,8 @@ enum WinEditKind: Equatable, Sendable {
     // --- visual polish K3: native controls repainted through NM_CUSTOMDRAW (begin) ---
     /// Radio groups: a connected segmented control (the main tabs, the pickers) or a row of capsule chips (provider tabs).
     var segmentStyle: WinSegmentStyle = .segmented
+    /// Segmented groups: fill the row's width (the main tab strip) instead of being as wide as their labels.
+    var fillsRow = false
     /// Chips: a marker dot before the title (the Mac's "●" on a tab with news), drawn by the chip, not part of the window text.
     var chipMarks: [Bool] = []
     /// Chips: each chip's width in pixels (they are as wide as their title, 8 DIP apart).
@@ -137,6 +139,14 @@ enum WinEditKind: Equatable, Sendable {
         default: false
         }
     }
+    /// SELFTEST HOOK, not a setting: a state forced onto one window of the control (by part index) so the gallery capture can show
+    /// the hover, pressed and focus looks that a capture cannot otherwise reach.
+    var testHot: Int?, testPressed: Int?, testFocus: Int?
+    func forceState(hot: Int? = nil, pressed: Int? = nil, focus: Int? = nil) {
+        testHot = hot; testPressed = pressed; testFocus = focus
+        for part in parts { _ = InvalidateRect(part, nil, false) }
+    }
+    func isForced(_ part: HWND, _ index: Int?) -> Bool { index.map { parts.indices.contains($0) && parts[$0] == part } ?? false }
     /// Whether `part` is painted by `WinCustomDraw` (a slider's value text is an ordinary static).
     func drawsItself(_ part: HWND) -> Bool { usesCustomDraw && (kind != .trackbar || part == hwnd) }
     // --- visual polish K3 (end) ---
@@ -234,6 +244,13 @@ enum WinEditKind: Equatable, Sendable {
         if let onFrame { onFrame(r); return }
         let w = r.right - r.left
         switch kind {
+        case .radioGroup where !fillsRow && chipWidths.isEmpty:
+            // sized to its content at the row's left edge (the Mac's `.fixedSize()` pickers), equal segments
+            let total = min(w, Int32(preferredSize.width.rounded(.up)))
+            let n = Int32(parts.count)
+            for (i, part) in parts.enumerated() {
+                WinKit.move(part, RECT(left: r.left + total * Int32(i) / n, top: r.top, right: r.left + total * Int32(i + 1) / n, bottom: r.bottom))
+            }
         case .radioGroup where !chipWidths.isEmpty:
             var x = r.left
             for (i, part) in parts.enumerated() {
@@ -726,7 +743,7 @@ enum WinClipboardText {
 
     /// Push-like radio buttons (the Mac's segmented pickers), painted by `WinCustomDraw` as one connected control: a shared track
     /// with the selected segment raised. One Tab stop, arrows move inside the group; `tall` is the main tab strip's 30 DIP.
-    static func radioGroup(_ titles: [String], selected: Int, tall: Bool = false, in parent: HWND, ctx: WinUIContext) -> WinControl? {
+    static func radioGroup(_ titles: [String], selected: Int, tall: Bool = false, fillsRow: Bool = false, in parent: HWND, ctx: WinUIContext) -> WinControl? {
         guard !titles.isEmpty else { return nil }
         let font = ctx.fonts.font(.body)
         var parts: [HWND] = []
@@ -745,9 +762,10 @@ enum WinClipboardText {
             parts.append(h)
         }
         let c = WinControl(kind: .radioGroup, ctx: ctx, parts: parts,
-                           size: CGSize(width: CGFloat((widest + ctx.px(24)) * Int32(parts.count)), height: CGFloat(max(height + ctx.px(8), ctx.px(tall ? 30 : 28)))),
+                           size: CGSize(width: CGFloat((widest + ctx.px(16)) * Int32(parts.count)), height: CGFloat(max(height + ctx.px(8), ctx.px(tall ? 30 : 28)))),
                            background: ctx.colors.palette.window, font: font)
         c.selection = selected
+        c.fillsRow = fillsRow
         return c
     }
 
