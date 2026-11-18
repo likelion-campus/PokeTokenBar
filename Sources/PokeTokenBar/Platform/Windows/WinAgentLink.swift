@@ -112,9 +112,8 @@ enum WinAgentLink {
             var flags = DWORD(0x0400_0000)   // CREATE_DEFAULT_ERROR_MODE
             if environment != nil { flags |= 0x0000_0400 }   // CREATE_UNICODE_ENVIRONMENT
             if breakaway { flags |= 0x0100_0000 }   // CREATE_BREAKAWAY_FROM_JOB
-            let ok = command.withUnsafeMutableBufferPointer { buffer in
-                CreateProcessW(WinStr.w(exe), buffer.baseAddress, nil, nil, false, flags, environment, WinStr.w(folder), &startup, &info)
-            }
+            // `&command` and no closure: a closure capturing `info` and `environment` fails the release build's isolation check
+            let ok = CreateProcessW(WinStr.w(exe), &command, nil, nil, false, flags, environment, WinStr.w(folder), &startup, &info)
             return (ok, info, ok ? 0 : GetLastError())
         }
         var inJob: WindowsBool = false
