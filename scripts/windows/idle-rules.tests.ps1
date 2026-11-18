@@ -61,7 +61,7 @@ $runs = @(
     [pscustomobject]@{ run = '44295198366'; label = 'popover-sprite-open-120s'; fires = 1222; messages = 1223; main = 662.0 }
     [pscustomobject]@{ run = '44297197674'; label = 'popover-companion-animated-120s'; fires = 1196; messages = 2393; main = 692.5 }
     [pscustomobject]@{ run = '44297197674'; label = 'popover-sprite-open-120s'; fires = 1221; messages = 1222; main = 637.0 }
-@('44200348337', 'popover-sprite-open-120s', 1221, 1222, 747.0)
+    [pscustomobject]@{ run = '44200348337'; label = 'popover-sprite-open-120s'; fires = 1221; messages = 1222; main = 747.0 }
 )
 Check ($runs.Count -eq 28) "the table has the 14 runs of both windows (got $($runs.Count))"
 foreach ($r in $runs) {

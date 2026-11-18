@@ -32,7 +32,11 @@ extension WindowsSelftest {
         sendScan(k.scan, extended: k.extended, up: !down)
     }
 
+    /// Taps that are not sent (the `plaza.walkRetry` proof: a key that never reaches the window).
+    nonisolated(unsafe) private static var tapsToDrop = 0
+
     private static func tap(_ code: UInt16, hold: TimeInterval = 0.04) async {
+        if tapsToDrop > 0 { tapsToDrop -= 1; await pumpFor(hold + 0.04); return }
         key(code, down: true)
         await pumpFor(hold)
         key(code, down: false)
@@ -135,6 +139,24 @@ extension WindowsSelftest {
             let t1 = scene.walker.tile
             return (t1.x - t0.x, t1.y - t0.y)
         }
+        // Pump latency (follow-up of 44297197674: a tap and a Shift hold moved nothing, then keys worked again): a message posted to a
+        // window of ours and the time until the pump hands it over. Measured before and after the walk and at each retry, so a late pump
+        // (a large number) and a lost key (a small one) can be told apart.
+        let latencyProbe = try? WinSinkWindow(title: "PokeTokenBar selftest pump latency")
+        defer { latencyProbe?.destroy() }
+        let latencyMessage = UINT(WM_APP) + 0x24
+        var latencyArrived: Double?
+        _ = latencyProbe?.on(latencyMessage) { _, _ in latencyArrived = WinPlazaClock.seconds(); return 0 }
+        func pumpLatency() async -> String {
+            guard let probe = latencyProbe else { return "?" }
+            latencyArrived = nil
+            let t0 = WinPlazaClock.seconds()
+            _ = PostMessageW(probe.hwnd, latencyMessage, 0, 0)
+            _ = await waitUntil(timeout: 2, poll: 0.002) { latencyArrived != nil }
+            return latencyArrived.map { String(format: "%.1f ms", ($0 - t0) * 1000) } ?? "over 2 s"
+        }
+        var retries: [String] = []
+        let latencyBefore = await pumpLatency()
         let start = scene.walker.tile
         func capture(_ name: String) -> String {
             shell.drawForTesting()
@@ -151,6 +173,21 @@ extension WindowsSelftest {
             var db: (dx: Int, dy: Int)
             if da.dx == 0 && da.dy == 0 {
                 db = await tapMove(b)
+                if db.dx == 0 && db.dy == 0 {  // neither way moved: tried once more (a second no-move fails the pair)
+                    let pump = await pumpLatency()
+                    retries.append("\(dirName(a))/\(dirName(b)) taps moved nothing (pump \(pump)): once more")
+                    da = await tapMove(a)
+                    if da.dx == 0 && da.dy == 0 { db = await tapMove(b) } else { db = (0, 0) }
+                    if da.dx != 0 || da.dy != 0 {  // a moved on the retry: the pair goes on from there as without a wall
+                        db = await tapMove(b)
+                        free[a] = true
+                        pairsOK = pairsOK && db.dx == -da.dx && db.dy == -da.dy
+                        let axisOK = horizontal ? (abs(da.dx) + abs(db.dx) > 0 && da.dy == 0 && db.dy == 0) : (abs(da.dy) + abs(db.dy) > 0 && da.dx == 0 && db.dx == 0)
+                        pairsOK = pairsOK && axisOK && max(abs(da.dx), abs(da.dy)) <= 1 && max(abs(db.dx), abs(db.dy)) <= 1
+                        log.append("\(dirName(a)) \(da) then \(dirName(b)) \(db) (retried)")
+                        continue
+                    }
+                }
                 da = await tapMove(a)
                 free[b] = db.dx != 0 || db.dy != 0
                 pairsOK = pairsOK && (db.dx != 0 || db.dy != 0) && da.dx == -db.dx && da.dy == -db.dy
@@ -167,32 +204,63 @@ extension WindowsSelftest {
         for code in [PlazaKeyCode.w, 1 /* S */] as [UInt16] { await tap(code) }
         await pumpFor(0.4)
         let wsNoWalk = scene.walker.tile == afterPairs
-        // The place has changed since the taps: which way is open here is asked again before each use.
+        // The place has changed since the taps: which way is open here is asked again before each use. Both ways are tried (the fallback
+        // is no longer taken on trust: run 44297197674 took "up" after a "down" tap moved nothing, and "up" moved nothing either); when
+        // neither moves, once more; a second time is a failure (nil).
+        var directionsOK = true
         func openDirection(_ a: UInt16, _ b: UInt16) async -> UInt16 {
-            let m = await tapMove(a)
-            if m.dx != 0 || m.dy != 0 {
-                _ = await tapMove(b)
-                return a
+            for attempt in 1...2 {
+                let m = await tapMove(a)
+                if m.dx != 0 || m.dy != 0 { _ = await tapMove(b); return a }
+                let n = await tapMove(b)
+                if n.dx != 0 || n.dy != 0 { _ = await tapMove(a); return b }
+                let pump = await pumpLatency()
+                retries.append("\(dirName(a))/\(dirName(b)) neither moved, attempt \(attempt) (pump \(pump))")
             }
-            return b
+            directionsOK = false
+            return a
         }
         var hDir = await openDirection(PlazaKeyCode.right, PlazaKeyCode.left)
         var vDir = await openDirection(PlazaKeyCode.down, PlazaKeyCode.up)
         _ = free
+        // plaza.walkRetry: the retry keeps its teeth, proved in every run with taps that are not sent: both taps of the first try lost ->
+        // the second try finds the way; all four lost -> the way is not found (plaza.walk would fail).
+        do {
+            let okBefore = directionsOK, retriesBefore = retries.count, at = scene.walker.tile
+            tapsToDrop = 2
+            _ = await openDirection(PlazaKeyCode.right, PlazaKeyCode.left)
+            let foundOnRetry = directionsOK && retries.count == retriesBefore + 1 && tapsToDrop == 0
+            tapsToDrop = 4
+            _ = await openDirection(PlazaKeyCode.right, PlazaKeyCode.left)
+            let failedTwice = !directionsOK && tapsToDrop == 0
+            tapsToDrop = 0
+            directionsOK = okBefore
+            retries.removeLast(retries.count - retriesBefore)
+            r.add("plaza.walkRetry", foundOnRetry && failedTwice && scene.walker.tile == at,
+                  "two lost taps: found on the retry=\(foundOnRetry); four lost taps: not found=\(failedTwice); walker back at \(tileText(at))=\(scene.walker.tile == at)")
+        }
         // Shift runs: the walker runs while Shift and the arrow are held, and not without Shift.
         var walkedRunning = false
         key(hDir, down: true)
         for _ in 0..<5 { await pumpFor(0.1); walkedRunning = walkedRunning || scene.walker.isRunning }
         key(hDir, down: false)
         await pumpFor(0.1); await settle()
-        sendScan(scanShift, up: false)
-        await pumpFor(0.06)
+        // Shift held with the open vertical way: the walker runs. A hold that moved the walker not at all is tried once more (a hold
+        // that moved but did not run fails at once: that is the rule under test).
         var ranRunning = false
-        key(vDir, down: true)
-        for _ in 0..<5 { await pumpFor(0.1); ranRunning = ranRunning || scene.walker.isRunning }
-        key(vDir, down: false)
-        sendScan(scanShift, up: true)
-        await pumpFor(0.1); await settle()
+        for attempt in 1...2 {
+            let before = scene.walker.tile
+            sendScan(scanShift, up: false)
+            await pumpFor(0.06)
+            key(vDir, down: true)
+            for _ in 0..<5 { await pumpFor(0.1); ranRunning = ranRunning || scene.walker.isRunning }
+            key(vDir, down: false)
+            sendScan(scanShift, up: true)
+            await pumpFor(0.1); await settle()
+            if ranRunning || scene.walker.tile != before || attempt == 2 { break }
+            let pump = await pumpLatency()
+            retries.append("Shift+\(dirName(vDir)) moved nothing (pump \(pump)): once more")
+        }
         // Two arrows at once (rollover): the last pressed leads, the earlier one takes over when it is let go.
         hDir = await openDirection(PlazaKeyCode.right, PlazaKeyCode.left)
         vDir = await openDirection(PlazaKeyCode.down, PlazaKeyCode.up)
@@ -212,11 +280,13 @@ extension WindowsSelftest {
         let leadMoved = leading.y != beforeBoth.y && leading.x == beforeBoth.x
         let followed = after.x != leading.x || stillHolding   // the open way may end at a wall: the earlier key stays held either way
         let afterShot = capture("plaza-input-after.png")
-        r.add("plaza.walk", pairsOK && wsNoWalk && !walkedRunning && ranRunning && heldBoth && leadMoved && followed && foreground,
+        let latencyAfter = await pumpLatency()
+        r.add("plaza.walk", pairsOK && wsNoWalk && !walkedRunning && ranRunning && heldBoth && leadMoved && followed && foreground && directionsOK,
               "start \(tileText(start)); taps: \(log.joined(separator: "; ")); W and S taps walked nothing=\(wsNoWalk) (A is prayer and D dance on the Mac; only arrows walk); "
                 + "running while holding \(dirName(hDir)) without Shift=\(walkedRunning), with Shift on \(dirName(vDir))=\(ranRunning); "
                 + "\(dirName(hDir))+\(dirName(vDir)) both held=\(heldBoth) (\(router.held.sorted())): the last leads \(tileText(beforeBoth))->\(tileText(leading)) (moved=\(leadMoved)), "
-                + "then \(dirName(hDir)) alone \(tileText(leading))->\(tileText(after)) (followed=\(followed)); frames \(beforeShot) at \(tileText(start)), \(afterShot) at \(tileText(scene.walker.tile))")
+                + "then \(dirName(hDir)) alone \(tileText(leading))->\(tileText(after)) (followed=\(followed)); frames \(beforeShot) at \(tileText(start)), \(afterShot) at \(tileText(scene.walker.tile)); "
+                + "open ways found=\(directionsOK); pump latency before \(latencyBefore), after \(latencyAfter); retries: \(retries.isEmpty ? "none" : retries.joined(separator: "; "))")
 
         // plaza.altAlone: a lone Alt press must not put the window in menu mode (the next key would go to the system menu).
         var gui = GUITHREADINFO()
