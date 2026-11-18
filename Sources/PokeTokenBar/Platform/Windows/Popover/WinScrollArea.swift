@@ -101,7 +101,7 @@ import WinSDK
         var info = SCROLLBARINFO()
         info.cbSize = DWORD(MemoryLayout<SCROLLBARINFO>.size)
         guard GetScrollBarInfo(viewport.hwnd, Int32(bitPattern: 0xFFFF_FFFB) /* OBJID_VSCROLL */, &info) else { return false }
-        return info.rgstate.0 & 0x0000_8000 == 0
+        return info.rgstate.0 & 0x0001_8000 == 0  // neither STATE_SYSTEM_INVISIBLE nor STATE_SYSTEM_OFFSCREEN: it is laid out on the screen
     }
 
     var viewportHeight: Int32 {
@@ -185,30 +185,22 @@ import WinSDK
         }
     }
 
-    /// `SIF_DISABLENOSCROLL` always: it is what enables a bar again when the range grows (a bar hidden by `ShowScrollBar` or by a
-    /// range that fits the page keeps its disabled state otherwise: shown, but the thumb and arrows do nothing). `keepLane` keeps the
-    /// bar on the screen (disabled when nothing scrolls), which is how the lane is measured; otherwise it is on the screen only while
-    /// the content is taller than the page.
+    /// The bar is shown and hidden by `SetScrollInfo` itself (without `SIF_DISABLENOSCROLL` it hides the bar when the range fits the
+    /// page and shows it when it does not, with its frame laid out: run 44157374721's first form had real coordinates), and enabled
+    /// by `EnableScrollBar` whenever there is something to scroll: the lane measured at the start leaves the bar disabled, and a
+    /// hidden-then-shown bar kept that (run 44207063172: the thumb and arrows did nothing). `ShowScrollBar` is not used: a bar it
+    /// shows reported `STATE_SYSTEM_OFFSCREEN` with an empty rectangle (run 44226708621). `keepLane` keeps the bar on the screen
+    /// (disabled) for measuring the lane.
     private static func updateBar(_ hwnd: HWND, height: Int32, page: Int32, offset: Int32, keepLane: Bool = false) {
         var si = SCROLLINFO()
         si.cbSize = UINT(MemoryLayout<SCROLLINFO>.size)
-        si.fMask = 0x0001 | 0x0002 | 0x0004 | 0x0008  // SIF_RANGE | SIF_PAGE | SIF_POS | SIF_DISABLENOSCROLL
+        si.fMask = 0x0001 | 0x0002 | 0x0004 | (keepLane ? 0x0008 : 0)  // SIF_RANGE | SIF_PAGE | SIF_POS | SIF_DISABLENOSCROLL
         si.nMin = 0
         si.nMax = max(0, height - 1)
         si.nPage = UINT(max(1, page))
         si.nPos = offset
         _ = SetScrollInfo(hwnd, 1 /* SB_VERT */, &si, true)
-        // only a change of state is asked for: a `ShowScrollBar` on a bar that is already as wanted is not harmless here (run 44217166273:
-        // the bar's rectangle read back as zeros after it)
-        let want = PopoverScrollMath.showsBar(content: CGFloat(height), viewport: CGFloat(page)) || keepLane
-        if barShown(hwnd) != want { _ = ShowScrollBar(hwnd, 1, want) }
-    }
-
-    private static func barShown(_ hwnd: HWND) -> Bool {
-        var info = SCROLLBARINFO()
-        info.cbSize = DWORD(MemoryLayout<SCROLLBARINFO>.size)
-        guard GetScrollBarInfo(hwnd, Int32(bitPattern: 0xFFFF_FFFB), &info) else { return false }
-        return info.rgstate.0 & 0x0000_8000 == 0
+        if PopoverScrollMath.showsBar(content: CGFloat(height), viewport: CGFloat(page)) { _ = EnableScrollBar(hwnd, 1, 0 /* ESB_ENABLE_BOTH */) }
     }
 
     /// For the selftest's failure lines: whether the style has the bar, its range and the state and rectangle the system reports.
