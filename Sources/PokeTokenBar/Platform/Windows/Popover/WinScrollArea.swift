@@ -198,7 +198,31 @@ import WinSDK
         si.nPage = UINT(max(1, page))
         si.nPos = offset
         _ = SetScrollInfo(hwnd, 1 /* SB_VERT */, &si, true)
-        _ = ShowScrollBar(hwnd, 1, PopoverScrollMath.showsBar(content: CGFloat(height), viewport: CGFloat(page)) || keepLane)
+        // only a change of state is asked for: a `ShowScrollBar` on a bar that is already as wanted is not harmless here (run 44217166273:
+        // the bar's rectangle read back as zeros after it)
+        let want = PopoverScrollMath.showsBar(content: CGFloat(height), viewport: CGFloat(page)) || keepLane
+        if barShown(hwnd) != want { _ = ShowScrollBar(hwnd, 1, want) }
+    }
+
+    private static func barShown(_ hwnd: HWND) -> Bool {
+        var info = SCROLLBARINFO()
+        info.cbSize = DWORD(MemoryLayout<SCROLLBARINFO>.size)
+        guard GetScrollBarInfo(hwnd, Int32(bitPattern: 0xFFFF_FFFB), &info) else { return false }
+        return info.rgstate.0 & 0x0000_8000 == 0
+    }
+
+    /// For the selftest's failure lines: whether the style has the bar, its range and the state and rectangle the system reports.
+    func debugState() -> String {
+        var si = SCROLLINFO()
+        si.cbSize = UINT(MemoryLayout<SCROLLINFO>.size)
+        si.fMask = 0x0001 | 0x0002 | 0x0004 | 0x0010  // SIF_RANGE | SIF_PAGE | SIF_POS | SIF_TRACKPOS
+        _ = GetScrollInfo(viewport.hwnd, 1, &si)
+        var info = SCROLLBARINFO()
+        info.cbSize = DWORD(MemoryLayout<SCROLLBARINFO>.size)
+        let ok = GetScrollBarInfo(viewport.hwnd, Int32(bitPattern: 0xFFFF_FFFB), &info)
+        let style = UInt(bitPattern: Int(GetWindowLongPtrW(viewport.hwnd, -16 /* GWL_STYLE */)))
+        return "style WS_VSCROLL=\(style & 0x0020_0000 != 0) info range \(si.nMin)...\(si.nMax) page \(si.nPage) pos \(si.nPos), GetScrollBarInfo=\(ok) state=0x\(String(info.rgstate.0, radix: 16)) "
+            + "rect \(info.rcScrollBar.left),\(info.rcScrollBar.top)-\(info.rcScrollBar.right),\(info.rcScrollBar.bottom) thumb \(info.xyThumbTop)-\(info.xyThumbBottom)"
     }
 }
 #endif
