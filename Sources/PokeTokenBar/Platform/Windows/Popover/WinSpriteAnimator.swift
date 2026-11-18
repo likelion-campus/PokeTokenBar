@@ -14,13 +14,13 @@ import WinSDK
 /// has a GIF (next frame) or bobs (the next pixel step); it is gone while the view is hidden (`WM_SHOWWINDOW`) or scrolled out (the
 /// next tick finds it out), when animation is off (Windows' "show animations" setting), while the display sleeps and
 /// after `destroy()`. Frames and the decode cache are freed on `destroy()`. A clock stopped that way comes back by itself, with no
-/// timer while it is off: on the view's next paint (scrolled back or uncovered: Windows paints what comes on screen), when the view
-/// itself is shown again (`WM_SHOWWINDOW`, even with nothing to paint) and when the displays wake (no repaint comes then).
+/// timer while it is off: on the view's next paint (a view that comes on screen again is always painted: shown again with its pane,
+/// scrolled back, uncovered; a reopened popover or a swapped page builds new views) and when the displays wake (no repaint comes then).
 @MainActor final class WinSpriteAnimator {
     struct Stats: Equatable {
         var ticks = 0, invalidations = 0, invalidatedPixels = 0, drawn = 0, scales = 0, glyphs = 0
         var styled = 0  // stage 7 Task 9
-        var resumes = 0  // fix/windows-popover-sprite-shown: a stopped clock started again by a show or a display wake (not a paint)
+        var resumes = 0  // fix/windows-popover-sprite-shown: a stopped clock started again by a display wake (not a paint)
     }
 
     private(set) var stats = Stats()
@@ -72,12 +72,7 @@ import WinSDK
         host.paintOverlay = { [weak self] dc in self?.paint(dc) }
         token = host.window.on(0x0018 /* WM_SHOWWINDOW */) { [weak self] wParam, _ in
             guard let self else { return nil }
-            if wParam == 0 {
-                self.playback.isActive = false
-            } else {
-                // fix/windows-popover-sprite-shown: sent before the view is visible; looked at once the show is done
-                DispatchQueue.main.async { [weak self] in MainActor.assumeIsolated { self?.resumeIfShown() } }
-            }
+            if wParam == 0 { self.playback.isActive = false }
             return nil
         }
         Self.live[ObjectIdentifier(self)] = LiveAnimator(animator: self)   // fix/windows-popover-sprite-shown
@@ -86,7 +81,7 @@ import WinSDK
             guard let self, let view = self.view else { return false }
             self.stats.ticks += 1
             let shown = Self.isShown(view.hwnd), asleep = self.displayAsleep()
-            // fix/windows-pet-still: a tick that stops the clock says why (it starts again on a paint, a show or a display wake)
+            // fix/windows-pet-still: a tick that stops the clock says why (it starts again on a paint or a display wake)
             if !shown || asleep { AppLog.write("popover sprites: the clock stops at a tick: shown=\(shown) displays asleep=\(asleep) (until it is on screen again)") }
             return shown && !asleep
         }
@@ -107,7 +102,7 @@ import WinSDK
         }
     }
 
-    /// The clock was stopped (hidden, scrolled out, displays asleep) and the view is on screen again: it starts.
+    /// The clock was stopped (displays asleep) and the view is on screen with the displays awake: it starts.
     private func resumeIfShown() {
         guard !isDestroyed, !playback.isActive, let view, Self.isShown(view.hwnd), !displayAsleep() else { return }
         stats.resumes += 1

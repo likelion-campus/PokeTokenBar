@@ -7,10 +7,11 @@ import WinSDK
 // (`GetParent` of a popup is the owner), the app's hidden sink, whose empty client area meets nothing. The sprite checks ran in a
 // KitWindow, which has no owner. This one opens the real popover (`WinPopover`, owned by the app's sink as the app's is, at the tray
 // position, Home inside its scroller), with the bundled FIXTURE GIF for #1 and animation on (the runner's "Show animations" is off),
-// and judges the header and the Collection detail: shown, the clock running, the frame moving. Then the detail's clock stops when it
-// is scrolled out and when the displays sleep, and comes back by itself: scrolled back (its paint), shown again with nothing to
-// paint, displays awake (no paint comes then). The walk before the fix is printed beside (the trigger: it reads false here). CI only
-// (the popover takes the foreground). Fixture data only.
+// and judges the header and the Collection detail: shown, the clock running, the frame moving. Then the detail's clock stops and comes
+// back by itself: scrolled out of a viewport made short (the detail of a fixture with no moves fits the popover) and back (its paint);
+// its pane hidden and shown again (the view gets no WM_SHOWWINDOW, only its paint); displays off and on (no paint comes: the wake).
+// The walk before the fix is printed beside (the trigger: it reads false here). CI only (the popover takes the foreground). Fixture
+// data only.
 
 extension WindowsSelftest {
     @MainActor static func popoverSpriteShownCheck(_ r: Recorder, _ app: WindowsAppDelegate) async {
@@ -151,28 +152,32 @@ extension WindowsSelftest {
         let d = await measure(detailSprites, detail.hwnd, window)
         notes.append(describe("the Collection detail #1", d))
 
-        // 3. Stopped and back by itself: scrolled out and back (its paint), hidden and shown with nothing to paint, displays off and on.
+        // 3. Stopped and back by itself: scrolled out and back (its paint), its pane hidden and shown (its paint), displays off and on.
         var back: [Bool] = []
-        if let area = dexHome.scrollAreaForTesting, area.contentHeight > area.viewportHeight + 200 {
+        if let area = dexHome.scrollAreaForTesting, let frame = GetParent(area.viewport.hwnd) {
+            let full = WinKit.rect(area.viewport.hwnd, in: frame)
+            // A viewport 80 px tall: the content scrolls whatever the detail's height (a sprite box is taller than what stays in view).
+            area.move(RECT(left: full.left, top: full.top, right: full.right, bottom: full.top + 80))
             area.scroll(to: 100_000)
+            let offset = area.offset, content = area.contentHeight
             let out = await WindowsSelftest.waitUntil(timeout: 2) { !detailSprites.playback.clock.isArmed }
             area.scroll(to: 0)
             let again = await WindowsSelftest.waitUntil(timeout: 2) { detailSprites.playback.clock.isArmed }
-            back.append(out && again)
-            notes.append("scrolled out: the clock stopped=\(out); scrolled back: running again=\(again)")
+            area.move(full)
+            back.append(offset > 0 && out && again)
+            notes.append("scrolled out (viewport 80 px, content \(content) px, offset \(offset)): the clock stopped=\(out); scrolled back: running again=\(again)")
         } else {
-            notes.append("scrolled out: not tried (the detail fits its scroller)")
+            back.append(false)
+            notes.append("scrolled out: no scroll area on the Collection tab")
         }
-        let resumes0 = detailSprites.stats.resumes
-        _ = ShowWindow(detail.hwnd, 0 /* SW_HIDE */)
-        let hidden = !detailSprites.playback.clock.isArmed
-        _ = ShowWindow(detail.hwnd, 8 /* SW_SHOWNA */)
-        _ = ValidateRect(detail.hwnd, nil)   // nothing to paint: only the show itself may start the clock
-        let shownAgain = await WindowsSelftest.waitUntil(timeout: 2) { detailSprites.playback.clock.isArmed }
-        let byShow = detailSprites.stats.resumes > resumes0
-        back.append(hidden && shownAgain && byShow)
-        notes.append("hidden: the clock stopped at once=\(hidden); shown with nothing to paint: running again=\(shownAgain) (by the show=\(byShow))")
-        _ = RedrawWindow(detail.hwnd, nil, nil, UINT(0x0001 | 0x0004 | 0x0080 /* RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN */))
+        if let pane = GetParent(detail.hwnd) {
+            _ = ShowWindow(pane, 0 /* SW_HIDE: the view itself gets no WM_SHOWWINDOW */)
+            let stopped = await WindowsSelftest.waitUntil(timeout: 2) { !detailSprites.playback.clock.isArmed }
+            _ = ShowWindow(pane, 8 /* SW_SHOWNA */)
+            let again = await WindowsSelftest.waitUntil(timeout: 2) { detailSprites.playback.clock.isArmed }
+            back.append(stopped && again)
+            notes.append("its pane hidden: the clock stopped at its tick=\(stopped); shown again: running again (its paint)=\(again)")
+        }
         let resumes1 = detailSprites.stats.resumes
         display(app.sink.hwnd, 0)
         let asleep = await WindowsSelftest.waitUntil(timeout: 2) { !detailSprites.playback.clock.isArmed }
