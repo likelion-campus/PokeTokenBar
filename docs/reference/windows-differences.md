@@ -20,8 +20,8 @@ made on the CI runner; provenance in `assets/windows/SHOTS.txt`). Sources of thi
 tasks and `parity-report.md` in the Windows port ledger.
 
 Last reviewed against: the popover with Home, Settings, Recap, Shop, Bag, Collection and the Pokémon detail page, dark mode
-and high contrast, the in-app update, the installer and the floating pet. **Owed when they land:** the pet's bubbles (see
-the end).
+and high contrast, the in-app update, the installer and the floating pet with its bubbles, hearts, prayers, hover readout
+and agent reactions. **Owed when it lands:** the `poketokenbar:` link that brings agent events (see the end).
 
 ## Approved by the user
 
@@ -96,7 +96,7 @@ the end).
 | `~/Library/Application Support/PokeTokenBar` | `%LOCALAPPDATA%\PokeTokenBar` (state, settings, logs); kept by Uninstall |
 | Gatekeeper warning on first open | SmartScreen warning on first run |
 
-## The floating pet (stage 7 Task 22; its bubbles, hearts, agent activity and run come with Task 23)
+## The floating pet (stage 7 Tasks 22 and 23)
 
 | Difference | Reason |
 |---|---|
@@ -105,6 +105,11 @@ the end).
 | With the popover open, a press on the pet closes it when the press ends (a click, or the drop of a drag); the Mac closes it when the press starts | Win32: closing the active popover while the button is down moves the foreground away and ends the pet's mouse capture, so the prayer or the drag would be lost |
 | After the pet's right-click menu (Escape, Back view, Turn off) the window that had the keyboard gets it back | the pet never takes the foreground, but a Win32 menu must; the Mac leaves the app active |
 | Large sizes are scaled by the app (the shared smooth filter): at 192 and 384 slightly crisper than the Mac | a layered window takes finished pixels; Core Animation scales on the Mac |
+| The speech bubble and the hover readout are set in the popover's Windows fonts: the Mac's cut rule (titles to one line, the body to two, the account dropped first) over Windows' measurements, so a line may break at another word | the fonts differ; the cut rule is shared and tested against the Mac's own measurement |
+| The bubble's second line and the readout take the popover's colours: Windows' readable secondary text (0.68 light, 0.72 dark) and, in dark mode, Windows' dark window (#202020; the Mac's is #1E1E1E) | the popover's contrast rule (approved by the user, 2026-11-17), so the app reads the same everywhere |
+| The pet's hover tooltip is Windows' tooltip (after 600 ms, as the popover's, dark in dark mode) | Win32's own tooltip control; the Mac shows AppKit's help tag |
+| A run to the pointer on a monitor of another scale keeps the pet's size on the way and takes that monitor's size when it arrives | per-monitor DPI, as for a drag |
+| While the hearts show, a screen reader reads them as the pet window's name | the pet is one layered window with no accessible parts; the Mac labels the hearts' view |
 
 ## The plaza on the Mac changed too
 
@@ -115,8 +120,9 @@ differently; the roster's icons bounce together on one beat; card rarity colours
 
 ## Not on Windows yet (owed)
 
-- **Floating pet speech bubbles**, the hover readout, hearts, prayer emoji, agent activity and the run to the cursor (Task 23).
-  The pet itself landed (stage 7 Task 22, differences above; `TEAM.md` and the READMEs say so, captures `floating-pet.png`,
+- **The `poketokenbar:` link** (Task 23, part b): until it lands no agent event reaches the pet, so the agent reactions
+  (the bob, the waiting and done bubbles, the run to the pointer) are there but never start. The pet, its bubbles, hearts,
+  prayers and hover readout landed (stage 7 Tasks 22 and 23, differences above; captures `floating-pet.png`,
   `home-pet-eye-en.png`); owed: a capture of the pet on a plain desktop (the runner's shows its terminal behind it).
 - **ARM64 native build** (the x64 build runs under emulation on Windows 11 on ARM, untested); **Windows 10** is untested.
 - **Code signing:** the installer and the app are unsigned; SmartScreen warns on first run.
