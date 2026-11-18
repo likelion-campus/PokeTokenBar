@@ -29,37 +29,6 @@ import CPlazaD2D
         return code
     }
 
-    /// Runs `body` on a memory DC the size of `r`'s lower right (pane coordinates, so the body draws as it always did), filled with
-    /// `background`, then copies `r` to `dc` in one blit: the painter blends shapes over what the DC holds, which is cheap on a
-    /// memory bitmap and a read-back of the window's surface on a window DC. Falls back to drawing on `dc` itself.
-    static func buffered(_ dc: HDC, _ r: RECT, background: HBRUSH?, _ body: (HDC) -> Void) {
-        let w = r.right - r.left, h = r.bottom - r.top
-        guard w > 0, h > 0, Int64(r.right) * Int64(r.bottom) <= 6_000_000, let mem = CreateCompatibleDC(dc) else { body(dc); return }
-        defer { _ = DeleteDC(mem) }
-        var info = BITMAPINFO()
-        info.bmiHeader.biSize = DWORD(MemoryLayout<BITMAPINFOHEADER>.size)
-        info.bmiHeader.biWidth = r.right
-        info.bmiHeader.biHeight = -r.bottom
-        info.bmiHeader.biPlanes = 1
-        info.bmiHeader.biBitCount = 32
-        var bits: UnsafeMutableRawPointer?
-        guard let bitmap = CreateDIBSection(dc, &info, 0, &bits, nil, 0), bits != nil else { body(dc); return }
-        defer { _ = DeleteObject(UnsafeMutableRawPointer(bitmap)) }
-        let old = SelectObject(mem, UnsafeMutableRawPointer(bitmap))
-        defer { _ = SelectObject(mem, old) }
-        var fill = r
-        _ = FillRect(mem, &fill, background)
-        body(mem)
-        _ = BitBlt(dc, r.left, r.top, w, h, mem, r.left, r.top, DWORD(SRCCOPY))
-    }
-
-    /// 0xAARRGGBB of a `COLORREF` (0x00BBGGRR).
-    nonisolated static func argb(_ c: COLORREF, alpha: Double = 1) -> UInt32 {
-        let a = UInt32((min(1, max(0, alpha)) * 255).rounded())
-        let red: UInt32 = c & 0xFF, green: UInt32 = (c >> 8) & 0xFF, blue: UInt32 = (c >> 16) & 0xFF
-        return (a << 24) | (red << 16) | (green << 8) | blue
-    }
-
     /// One rounded rectangle of a batch.
     struct Item {
         var rect: RECT

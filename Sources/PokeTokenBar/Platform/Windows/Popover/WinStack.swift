@@ -40,8 +40,7 @@ import WinSDK
         guard let dc = BeginPaint(hwnd, &ps) else { return 0 }
         paints += 1
         WinOpenTrace.note(.paint, hwnd)
-        // Drawn in memory and copied once: the antialiased shapes blend over what the DC holds (K2).
-        WinPaint.buffered(dc, ps.rcPaint, background: ctx.colors.brush(ctx.colors.palette.window)) { draw($0, ps.rcPaint) }
+        draw(dc, ps.rcPaint)
         _ = EndPaint(hwnd, &ps)
         return 0
     }
