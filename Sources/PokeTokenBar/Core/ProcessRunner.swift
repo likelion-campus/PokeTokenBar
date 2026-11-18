@@ -99,11 +99,7 @@ enum ProcessRunner {
 
         if process.isRunning {
             PlatformCompat.terminate(process)
-            DispatchQueue.global().asyncAfter(deadline: .now() + 2) {
-                if process.isRunning {
-                    PlatformCompat.forceKill(pid: process.processIdentifier)
-                }
-            }
+            PlatformCompat.forceKillIfStillRunning(process)
             logStderrTail(errURL, binary: binary)
             throw RunnerError.timeout(binary)
         }

@@ -67,7 +67,8 @@ final class WindowsProcessTests: XCTestCase {
         defer { TerminateProcess(childHandle, 1); CloseHandle(childHandle) }
         XCTAssertTrue(isAlive(child))
 
-        PlatformCompat.terminate(p)   // plain `p.terminate()` left the child running (run 43567771725)
+        // `PlatformCompat.terminate`'s Windows branch; plain `p.terminate()` left the child running (run 43567771725).
+        XCTAssertTrue(WinProcessTree.terminate(p), "the running shim was not held and ended")
         var gone = false
         for _ in 0..<30 where !gone {
             try await Task.sleep(nanoseconds: 100_000_000)
@@ -75,6 +76,9 @@ final class WindowsProcessTests: XCTestCase {
         }
         print("F19 orphan: child \(child) after terminate: \(gone ? "gone" : "STILL RUNNING")")
         XCTAssertTrue(gone, "the .cmd shim's child outlived terminate (F19)")
+        for _ in 0..<50 where p.isRunning { try await Task.sleep(nanoseconds: 100_000_000) }
+        XCTAssertFalse(p.isRunning, "the shim outlived terminate")
+        XCTAssertFalse(WinProcessTree.terminate(p), "an ended process cannot be held, so nothing is ended")
     }
 }
 #endif

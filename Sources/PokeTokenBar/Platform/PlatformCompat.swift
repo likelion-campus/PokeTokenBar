@@ -542,17 +542,30 @@ extension PlatformCompat {
     }
 
     /// Ends `process`. Mac: `process.terminate()`, verbatim. Windows: also its descendants, because terminating an npm
-    /// `.cmd` shim leaves the program it started running (measured on the CI runner, F19). `WinProcessTree` takes them from
-    /// one Toolhelp snapshot, keeps only real descendants (a reused process id made unrelated processes look like children:
-    /// run 44207854338 killed the test process), and ends them and the process through handles it opened. corelibs'
-    /// `terminate()` is not called after that: it uses a handle its own thread closes when the process exits. It is the
-    /// fallback when the process could not be confirmed as our running child (no snapshot).
+    /// `.cmd` shim leaves the program it started running (measured on the CI runner, F19). `WinProcessTree` holds the process
+    /// through a copy of corelibs' handle, keeps only real descendants (a reused process id made unrelated processes look like
+    /// children: run 44207854338 killed the test process), and ends them and the process through handles it holds. When the
+    /// process cannot be held (it has exited, or corelibs has closed its handle) nothing is ended. corelibs' `terminate()` is
+    /// never called on Windows: it uses `processHandle`, which corelibs' own thread closes when the process exits.
     static func terminate(_ process: Process) {
         #if os(Windows)
-        if WinProcessTree.terminate(rootPID: DWORD(process.processIdentifier)) { return }
-        guard process.isRunning else { return }
-        #endif
+        WinProcessTree.terminate(process)
+        #else
         process.terminate()
+        #endif
+    }
+
+    /// `ProcessRunner`'s follow-up to a `terminate` on timeout. Mac: 2 s later, SIGKILL if `process` is still running (it may
+    /// ignore SIGTERM), verbatim. Windows: nothing. `terminate` used `TerminateProcess`, which a process cannot ignore, and a
+    /// kill by id 2 s later can end whatever process has the id by then.
+    static func forceKillIfStillRunning(_ process: Process) {
+        #if !os(Windows)
+        DispatchQueue.global().asyncAfter(deadline: .now() + 2) {
+            if process.isRunning {
+                forceKill(pid: process.processIdentifier)
+            }
+        }
+        #endif
     }
 
     /// Whether `path` is an existing launchable file. Mac: `FileManager.isExecutableFile`, verbatim. On Windows that
