@@ -10,6 +10,7 @@
 
 #include <cstdlib>
 #include <cstring>
+#include <cwchar>   // fix/windows-pet-still: _wcsicmp
 
 // Windows 8+ values, spelled out in case the SDK headers are read for an older target.
 #ifndef EVENT_OBJECT_CLOAKED
@@ -302,6 +303,45 @@ extern "C" int ptb_session_state(int *locked, int *disconnected) {
     return ok;
 }
 // --- stage 7 Task 22 (end) ---
+
+// --- fix/windows-pet-still: the raw session values and the input desktop (begin) ---
+extern "C" int ptb_session_raw(uint32_t *sessionFlags, uint32_t *sessionState) {
+    typedef BOOL(WINAPI * Query)(HANDLE, DWORD, WTS_INFO_CLASS, LPWSTR *, DWORD *);
+    typedef void(WINAPI * Release)(PVOID);
+    static Query query = proc<Query>(L"wtsapi32.dll", "WTSQuerySessionInformationW");
+    static Release release = proc<Release>(L"wtsapi32.dll", "WTSFreeMemory");
+    if (sessionFlags) *sessionFlags = 0xFFFFFFFFu;
+    if (sessionState) *sessionState = 0xFFFFFFFFu;
+    if (!query || !release) return 0;
+    LPWSTR buffer = nullptr;
+    DWORD bytes = 0;
+    if (!query(WTS_CURRENT_SERVER_HANDLE, WTS_CURRENT_SESSION, WTSSessionInfoEx, &buffer, &bytes) || !buffer) return 0;
+    int ok = 0;
+    if (bytes >= sizeof(WTSINFOEXW)) {
+        const WTSINFOEXW *info = reinterpret_cast<const WTSINFOEXW *>(buffer);
+        if (info->Level == 1) {
+            if (sessionFlags) *sessionFlags = static_cast<uint32_t>(info->Data.WTSInfoExLevel1.SessionFlags);
+            if (sessionState) *sessionState = static_cast<uint32_t>(info->Data.WTSInfoExLevel1.SessionState);
+            ok = 1;
+        }
+    }
+    release(buffer);
+    return ok;
+}
+
+extern "C" int ptb_input_desktop_default(void) {
+    HDESK desk = OpenInputDesktop(0, FALSE, DESKTOP_READOBJECTS);
+    if (!desk) return 0;   // the secure desktop (the lock screen's credentials, a UAC prompt) refuses a user's process
+    wchar_t name[64] = {0};
+    DWORD needed = 0;
+    int result = -1;
+    if (GetUserObjectInformationW(desk, UOI_NAME, name, sizeof(name) - sizeof(wchar_t), &needed)) {
+        result = _wcsicmp(name, L"Default") == 0 ? 1 : 0;
+    }
+    CloseDesktop(desk);
+    return result;
+}
+// --- fix/windows-pet-still (end) ---
 
 extern "C" uint32_t ptb_process_handle_count(void) {
     DWORD n = 0;

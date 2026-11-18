@@ -31,13 +31,22 @@ private final class FakeFetcher: PlazaSpriteFetching, @unchecked Sendable {
     var stills: Set<Int> = []
     var gates: [Int: Gate] = [:]
     var eggGate: Gate?
+    /// The first `failingGIFs[species]` asks for a species' GIF give nothing (a download that failed), the next ones its frames.
+    var failingGIFs: [Int: Int] = [:]
     private var asks: [String] = []
     var calls: [String] { lock.lock(); defer { lock.unlock() }; return asks }
     private func note(_ s: String) { lock.lock(); asks.append(s); lock.unlock() }
+    private func failing(_ id: Int) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard let n = failingGIFs[id], n > 0 else { return false }
+        failingGIFs[id] = n - 1
+        return true
+    }
 
     func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: PlazaImage, delay: TimeInterval)] {
         note("animated \(speciesID)\(back ? " back" : "")")
         if let gate = gates[speciesID] { await gate.wait() }
+        if !back, failing(speciesID) { return [] }
         return back ? [] : (delays[speciesID] ?? []).map { (picture(), $0) }   // no back sprites in the fake
     }
     func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> PlazaImage? {
@@ -117,12 +126,105 @@ final class PopoverSpriteModelTests: XCTestCase {
     func testNoGIFFallsBackToTheStill() async {
         let f = FakeFetcher(); f.stills = [25]
         let m = model(f)
+        let waits = Waits(); m.waitBeforeRetry = waits.hold
         m.show(species(25), animated: true, bob: true)
         await settle("still") { m.subject.image != nil }
+        await settle("waiting to ask again") { waits.count == 1 }
         XCTAssertTrue(m.frames.isEmpty)
         XCTAssertFalse(m.isAnimating)
         XCTAssertEqual(f.calls, ["animated 25", "still 25"])
+        m.release()
     }
+
+    // --- fix/windows-pet-still: the GIF asked again until it comes (the Mac's `recoveringAnimationFrames`) (begin) ---
+
+    /// Waits that do not wait: each one is recorded, and `hold` parks the loop until the test lets it go (or cancels it).
+    private final class Waits: @unchecked Sendable {
+        private let lock = NSLock()
+        private var seen: [TimeInterval] = []
+        var delays: [TimeInterval] { lock.lock(); defer { lock.unlock() }; return seen }
+        var count: Int { delays.count }
+        /// Records and returns at once.
+        private func record(_ d: TimeInterval) { lock.withLock { seen.append(d) } }
+        var pass: @Sendable (TimeInterval) async throws -> Void {
+            { [self] d in record(d) }
+        }
+        /// Records, then sleeps until cancelled (the task's cancel ends it).
+        var hold: @Sendable (TimeInterval) async throws -> Void {
+            { [self] d in
+                record(d)
+                try await Task.sleep(nanoseconds: 3_600_000_000_000)
+            }
+        }
+    }
+
+    /// The trigger on the user's PC: the GIF's first download failed while the still was on disk. The still shows, the GIF is
+    /// asked for again 2 s and 4 s later, and the slot animates when it comes, with no new subject.
+    func testAGIFThatFailedIsAskedAgainUntilItComes() async {
+        let f = FakeFetcher(); f.stills = [25]; f.delays[25] = [0.1, 0.1, 0.1]; f.failingGIFs[25] = 2
+        let m = model(f)
+        let waits = Waits(); m.waitBeforeRetry = waits.pass
+        m.show(species(25), animated: true, bob: false)
+        await settle("frames after two failed asks") { m.frames.count == 3 }
+        XCTAssertTrue(m.isAnimating)
+        XCTAssertNotNil(m.subject.image, "the still showed meanwhile")
+        XCTAssertEqual(waits.delays, [2, 4])
+        XCTAssertEqual(m.gifAsks, 3)
+        XCTAssertEqual(f.calls, ["animated 25", "still 25", "animated 25", "animated 25"])
+    }
+
+    /// The wait doubles from 2 s to 30 s and stays there, with no attempt limit (`recoveringAnimationFrames`).
+    func testTheWaitDoublesToThirtySecondsAndNeverGivesUp() async {
+        let f = FakeFetcher(); f.stills = [25]; f.delays[25] = [0.1, 0.1]; f.failingGIFs[25] = 7
+        let m = model(f)
+        let waits = Waits(); m.waitBeforeRetry = waits.pass
+        m.show(species(25), animated: true, bob: false)
+        await settle("frames after seven failed asks") { m.frames.count == 2 }
+        XCTAssertEqual(waits.delays, [2, 4, 8, 16, 30, 30, 30])
+        XCTAssertEqual(PopoverSpriteModel.firstRetry, 2)
+        XCTAssertEqual(PopoverSpriteModel.maxRetry, 30)
+    }
+
+    /// A species with no GIF at all (PokéAPI's animated sprites end at #649) stops at its still: no second ask, no wait.
+    func testASpeciesWithoutAGIFStopsAtItsStill() async {
+        let f = FakeFetcher(); f.stills = [700]
+        let m = model(f)
+        let waits = Waits(); m.waitBeforeRetry = waits.pass
+        m.show(species(700), animated: true, bob: false)
+        await settle("still") { m.subject.image != nil && !m.isLoading }
+        for _ in 0..<20 { await Task.yield() }
+        XCTAssertEqual(waits.count, 0)
+        XCTAssertEqual(f.calls, ["animated 700", "still 700"])
+    }
+
+    /// A new subject (or the slot released) ends the asking: the old species is never asked for again.
+    func testANewSubjectEndsTheAsking() async {
+        let f = FakeFetcher(); f.stills = [25, 26]; f.delays[26] = [0.1, 0.1]; f.failingGIFs[25] = 1_000
+        let m = model(f)
+        let waits = Waits(); m.waitBeforeRetry = waits.hold
+        m.show(species(25), animated: true, bob: false)
+        await settle("waiting to ask again") { waits.count == 1 }
+        m.show(species(26), animated: true, bob: false)
+        await settle("the new species") { m.frames.count == 2 }
+        for _ in 0..<20 { await Task.yield() }
+        XCTAssertEqual(f.calls.filter { $0 == "animated 25" }.count, 1)
+        m.release()
+    }
+
+    /// Through the playback: a slot whose GIF came late starts the clock then (the floating pet and the popover's sprites).
+    func testThePlaybackStartsTheClockWhenALateGIFComes() async {
+        let f = FakeFetcher(); f.stills = [25]; f.delays[25] = [0.05, 0.05]; f.failingGIFs[25] = 1
+        let clock = PopoverAnimationClock()
+        let p = PopoverSpritePlayback(fetcher: f, clock: clock)
+        let waits = Waits(); p.waitBeforeRetry = waits.pass
+        p.isActive = true
+        p.update(slots: [SpriteSlot(frame: CGRect(x: 0, y: 0, width: 96, height: 96), subject: species(25), bob: false, animated: true)])
+        await settle("frames") { p.models.first?.isAnimating == true }
+        XCTAssertTrue(clock.isArmed, "the clock runs once the GIF came")
+        XCTAssertEqual(waits.delays, [2])
+        p.release()
+    }
+    // --- fix/windows-pet-still (end) ---
 
     func testAMissingBackSpriteStandsTheFrontIn() async {
         let f = FakeFetcher(); f.delays[25] = [0.1, 0.1]

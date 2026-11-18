@@ -107,7 +107,7 @@ private struct PetGifFetcher: PlazaSpriteFetching {
 
 @MainActor enum WindowsSelftestPopoverPet {
     static let names = ["pet.show", "pet.hide", "pet.toggles", "pet.noActivate", "pet.drag", "pet.savedOrigin", "pet.clamp", "pet.dpi",
-                        "pet.clickActions", "pet.menu", "pet.zOrder", "pet.animation", "pet.idle", "pet.capture", "pet.resources"]
+                        "pet.clickActions", "pet.menu", "pet.zOrder", "pet.animation", "pet.lateGIF", "pet.idle", "pet.capture", "pet.resources"]
 
     static func run(_ r: WindowsSelftest.Recorder, _ app: WindowsAppDelegate) async {
         WinFloatingPet.spriteFetcherOverride = WindowsSelftestPopoverCompanion.fixtureFetcher()
@@ -124,6 +124,7 @@ private struct PetGifFetcher: PlazaSpriteFetching {
         await menuCheck(r, app)
         await zOrderCheck(r, app)
         await animationCheck(r)
+        await lateGIFCheck(r)   // fix/windows-pet-still
         await idleCheck(r)
         await captureCheck(r)
         await resourcesCheck(r, start: start)
@@ -1009,12 +1010,69 @@ private struct PetGifFetcher: PlazaSpriteFetching {
         let real = WinFloatingPet.sessionNow()
         var lockedRaw: Int32 = -1, disconnectedRaw: Int32 = -1
         let read = ptb_session_state(&lockedRaw, &disconnectedRaw)
-        let realOK = read == 1 && !real.locked
+        let raw = WinFloatingPet.sessionRaw()   // fix/windows-pet-still: the values the rule reads, and the input desktop
+        let realOK = read == 1 && !real.locked && raw.desktop == 1
         ok = ok && lockedStill && unlockedLater && realOK
         notes.append("a window made while the session is locked (FIXTURE state) -> shown=\(lockedShown), clock off=\(lockedStill), WTS_SESSION_UNLOCK -> on=\(unlockedLater); "
-                     + "this session read (WTSSessionInfoEx)=\(read) locked=\(real.locked) disconnected=\(real.disconnected) (read and unlocked on the runner=\(realOK); the disconnect is only told by WM_WTSSESSION_CHANGE)")
+                     + "this session read (WTSSessionInfoEx)=\(read) locked=\(real.locked) disconnected=\(real.disconnected) (SessionFlags=0x\(String(raw.flags, radix: 16)) "
+                     + "SessionState=\(raw.state) input desktop=\(raw.desktop); read, unlocked and on the user's desktop on the runner=\(realOK); the disconnect is only told by WM_WTSSESSION_CHANGE)")
         r.add("pet.animation", ok, notes.joined(separator: "; "))
     }
+
+    // --- fix/windows-pet-still: a GIF whose first read failed (begin) ---
+
+    /// The sprite folder's files, except that the first `failures` GIF reads give nothing: what a failed first download gives
+    /// the store-backed fetcher on a fresh install (the still is on disk, the GIF is not yet).
+    final class FlakyGIFSource: PlazaSpriteSource, @unchecked Sendable {
+        let inner: WinFixtureSpriteSource
+        private let lock = NSLock()
+        private var failures: Int
+        private(set) var gifReads = 0
+        init(inner: WinFixtureSpriteSource, failures: Int) { self.inner = inner; self.failures = failures }
+        var directory: URL { inner.directory }
+        private func fails() -> Bool { lock.withLock { gifReads += 1; if failures > 0 { failures -= 1; return true }; return false } }
+        func data(speciesID: Int, animated: Bool, shiny: Bool, form: PokemonForm?, back: Bool) async -> Data? {
+            if animated, fails() { return nil }
+            return await inner.data(speciesID: speciesID, animated: animated, shiny: shiny, form: form, back: back)
+        }
+        func eggData() async -> Data? { await inner.eggData() }
+    }
+
+    /// The user's report (kit 10: a hatched pet that never moved): the GIF's first read fails, the still shows, the pet asks
+    /// again 2 s later (the Mac's `recoveringAnimationFrames`) and moves without a restart. Through the real store-backed
+    /// fetcher (`PlazaStoreSpriteFetcher`, its decoder) over the FIXTURE folder; the log says why it stood and that it moves.
+    static func lateGIFCheck(_ r: WindowsSelftest.Recorder) async {
+        guard let dir = WindowsSelftestPopoverCompanion.spriteDirectory else {
+            r.add("pet.lateGIF", true, "skipped: no PTB_SELFTEST_SPRITES (the FIXTURE folder)")
+            return
+        }
+        let source = FlakyGIFSource(inner: WinFixtureSpriteSource(directory: dir), failures: 1)
+        let saved = WinFloatingPet.spriteFetcherOverride
+        WinFloatingPet.spriteFetcherOverride = PlazaStoreSpriteFetcher(source: source)
+        defer { WinFloatingPet.spriteFetcherOverride = saved }
+        let h = await PetHarness.make(.midLevel)
+        defer { h.destroy() }
+        guard await h.waitShown(), let w = h.window, let sprite = w.playback.models.first else {
+            r.add("pet.lateGIF", false, "no picture")
+            return
+        }
+        let stillFirst = sprite.frames.count <= 1 && sprite.subject.image != nil
+        let stillReason = w.loggedClock?.stillReason ?? "none"
+        let reasonOK = w.loggedClock?.moving == false && stillReason.hasPrefix("no GIF for #")
+        let began = Date()
+        let moved = await WindowsSelftest.waitUntil(timeout: 6) { sprite.isAnimating && w.playback.clock.isArmed && w.playback.ticks > 0 }
+        let after = Date().timeIntervalSince(began)
+        let loggedMoving = w.loggedClock?.moving == true
+        AppLog.flush()
+        let log = (try? String(contentsOf: AppLog.logFileURL, encoding: .utf8)) ?? ""
+        let lines = log.split(separator: "\n").suffix(400).filter { $0.contains("floating pet: ") && $0.contains("#\(h.companion.representativeSubject.speciesID ?? 0) ") }
+        let logOK = lines.contains { $0.contains("still: no GIF for #") } && lines.contains { $0.contains("floating pet: moving") }
+        r.add("pet.lateGIF", stillFirst && reasonOK && moved && sprite.gifAsks == 2 && loggedMoving && logOK,
+              "first GIF read failed (FIXTURE folder through PlazaStoreSpriteFetcher) -> still shown=\(stillFirst), logged '\(stillReason)'=\(reasonOK); "
+              + "asked again -> moving after \(String(format: "%.1f", after)) s=\(moved) (GIF asks \(sprite.gifAsks), reads \(source.gifReads), "
+              + "\(sprite.frames.count) frames, ticks \(w.playback.ticks)); logged moving=\(loggedMoving); log lines \(lines.count): still and moving=\(logOK)")
+    }
+    // --- fix/windows-pet-still (end) ---
 
     // MARK: - pet.idle: a still, an animated and a hidden pet in this process (the installed app's cost at the gate's budgets is
     // the idle gate's: pet-still-120s, pet-animated-120s, pet-hidden-120s, `--pet-idle-probe`)

@@ -57,6 +57,7 @@ import WinSDK
         guard !isDestroyed else { return }
         if view !== host { attach(host) }
         playback.animationsEnabled = animationsEnabled()
+        Self.noteAnimations(playback.animationsEnabled, slots: slots)   // fix/windows-pet-still
         playback.bobSteps = max(1, Int((PopoverSpriteModel.bobTravel * host.ctx.scale).rounded()))  // stage 7 Task 9
         playback.update(slots: slots)
         let live = Set(slots.indices)
@@ -74,7 +75,10 @@ import WinSDK
         playback.shouldTick = { [weak self] in
             guard let self, let view = self.view else { return false }
             self.stats.ticks += 1
-            return Self.isShown(view.hwnd) && !self.displayAsleep()
+            let shown = Self.isShown(view.hwnd), asleep = self.displayAsleep()
+            // fix/windows-pet-still: a tick that stops the clock says why (it starts again only at the next paint)
+            if !shown || asleep { AppLog.write("popover sprites: the clock stops at a tick: shown=\(shown) displays asleep=\(asleep) (until the next paint)") }
+            return shown && !asleep
         }
         playback.onInvalidate = { [weak self] index in self?.invalidate(slot: index) }
     }
@@ -85,7 +89,26 @@ import WinSDK
         playback.isActive = shown && Self.isShown(view?.hwnd) && !displayAsleep()
     }
 
+    // --- fix/windows-pet-still: each slot's state in the log when it changes (never per frame) (begin) ---
+    private struct SlotState: Equatable { var subject: PlazaSpriteSubjectKey?, frames: Int, loading: Bool, animated: Bool, playing: Bool }
+    private var loggedSlots: [Int: SlotState] = [:]
+    private func noteSlot(_ index: Int) {
+        guard index < playback.models.count, let view, index < view.spriteSlots.count, view.spriteSlots[index].animated else { return }
+        let model = playback.models[index]
+        let state = SlotState(subject: view.spriteSlots[index].subject, frames: model.frames.count, loading: model.isLoading,
+                              animated: model.animated, playing: playback.isActive && playback.animationsEnabled)
+        guard loggedSlots[index] != state else { return }
+        loggedSlots[index] = state
+        let species = state.subject?.speciesID.map { String($0) } ?? "egg"
+        AppLog.write("popover sprite #\(species) shiny=\(state.subject?.shiny == true) (slot \(index)): \(state.frames) frames, "
+                     + "loading=\(state.loading) asked animated=\(state.animated) playing=\(state.playing) GIF asks=\(model.gifAsks) "
+                     + "(Show animations=\(playback.animationsEnabled), active=\(playback.isActive), shown=\(Self.isShown(view.hwnd)), "
+                     + "displays asleep=\(displayAsleep()), clock armed=\(playback.clock.isArmed))")
+    }
+    // --- fix/windows-pet-still (end) ---
+
     private func invalidate(slot index: Int) {
+        noteSlot(index)   // fix/windows-pet-still
         guard let view, !isDestroyed, index < view.spriteSlots.count else { return }
         var r = view.spriteSlots[index].frame
         r.origin.y -= 3          // the bob's travel
@@ -262,6 +285,20 @@ import WinSDK
     }
 
     // MARK: - environment
+
+    // --- fix/windows-pet-still: why the popover's sprites stand still, in the user's log (begin) ---
+    @MainActor private static var loggedAnimations: Bool?
+    /// One line in the app's log when the popover's sprite animation turns on or off (the first animated slot shown, then each
+    /// change): off is Windows' "Show animations" (windows-differences: the Mac popover ignores Reduce Motion). Never per frame.
+    @MainActor static func noteAnimations(_ on: Bool, slots: [SpriteSlot]) {
+        guard slots.contains(where: { $0.animated }), on != loggedAnimations else { return }
+        loggedAnimations = on
+        var raw: Int32 = -1
+        let read = SystemParametersInfoW(0x1042 /* SPI_GETCLIENTAREAANIMATION */, 0, &raw, 0)
+        AppLog.write("popover sprites: " + (on ? "animate" : "stand still: Windows' \"Show animations\" is off (Settings > Accessibility > Visual effects > Animation effects)")
+                     + " (SPI_GETCLIENTAREAANIMATION read=\(read) value=\(raw))")
+    }
+    // --- fix/windows-pet-still (end) ---
 
     /// Windows' "Show animations in Windows" (`SPI_GETCLIENTAREAANIMATION`).
     static func systemAnimationsEnabled() -> Bool {

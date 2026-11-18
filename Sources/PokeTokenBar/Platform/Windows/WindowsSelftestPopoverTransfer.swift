@@ -779,8 +779,7 @@ final class TransferDialogDriver: @unchecked Sendable {
             r.add("settings.dialogExitProcess", ready && shown && sent && code == 0 && seconds < WindowsApp.exitBudget && saved,
                   "child with the real save dialog open, WM_CLOSE posted to its sink: dialog was shown=\(shown) exit=\(WindowsSelftest.describe(code)) (0 = the exit ran inside the dialog's loop; 5 = the dialog returned first) "
                     + "in \(String(format: "%.2f", seconds)) s (budget \(WindowsApp.exitBudget) s) setting_on_disk=\(saved) ready=\(ready)")
-            app.defaults.removeObject(forKey: key)
-            WinDefaultsSync.flushNow()
+            WindowsSelftest.removeChildKeys([key], from: app.defaults)   // fix/windows-pet-still: the child wrote it
         } catch {
             r.add("settings.dialogExitProcess", false, "\(error)")
         }
