@@ -17,5 +17,6 @@ jobs:
           $vw = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
           & $vw -all -products * -property installationPath
           & $vw -all -products * -property catalog_productDisplayVersion
-          Get-ChildItem 'C:\Program Files\Microsoft Visual Studio' -Directory | ForEach-Object { $_.FullName; Get-ChildItem (Join-Path $_.FullName '*\VC\Tools\MSVC') -Directory -ErrorAction SilentlyContinue | ForEach-Object { '  toolset ' + $_.FullName } }
+          Get-ChildItem 'C:\Program Files\Microsoft Visual Studio\*\*\VC\Tools\MSVC\*' -Directory | ForEach-Object { 'TOOLSET ' + $_.FullName }
+          Get-ChildItem 'C:\Program Files\Microsoft Visual Studio\*\*\VC\Tools\MSVC\*\include\yvals_core.h' | ForEach-Object { 'YVALS ' + $_.FullName; Select-String -Path $_.FullName -Pattern '_MSVC_STL_VERSION|STL1000|_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH|_MSC_VER >=|__clang_major__' | Select-Object -First 12 | ForEach-Object { '   ' + $_.Line.Trim() } }
           Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Include' -Directory | ForEach-Object Name
