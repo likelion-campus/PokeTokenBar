@@ -9,7 +9,9 @@ import WinSDK
 /// - an app running for this state folder gets the link over `WM_COPYDATA` and this start ends at once: no window, no popover,
 ///   no activation, no settings or log written (a hook may open a link for every tool call);
 /// - with no app running, this start starts the app clean (`startClean`) and ends; the link is dropped, as on the Mac, where
-///   Launch Services starts the app and the event arrives before the pet exists;
+///   Launch Services starts the app and the event arrives before the pet exists; from an elevated opener it starts nothing.
+///   Either outcome (the pid, the CreateProcessW error, the elevated drop) is one log line: this start is rare and a person
+///   sees its result;
 /// - any other shape ends at once (a link that broke out of its quotes and added arguments never reaches the app's flags).
 /// The link and the message are untrusted (any program or web page can open a link, any local program can send the
 /// message): both go through `AgentLinkRules` and then `AgentActivityEvent(url:)`, the Mac's parser, and the only thing an
@@ -40,7 +42,15 @@ enum WinAgentLink {
         case .forward(let link):
             if let sink = sinkForThisStateFolder() { forward(link, to: sink) }
         case .startClean:
-            _ = startClean()
+            // The one start a person sees the result of: what came of it is logged (a link that cannot start the app leaves a trace).
+            switch startClean() {
+            case .started(let pid, let outOfJob):
+                AppLog.writeAndFlush("agent link: no app for this state folder: started the app clean (pid \(pid), out of the opener's job=\(outOfJob)); the link is dropped")
+            case .failed(let error):
+                AppLog.writeAndFlush("agent link: no app for this state folder and the clean start failed (CreateProcessW error \(error)); the link is dropped")
+            }
+        case .droppedElevated:
+            AppLog.writeAndFlush("agent link: no app for this state folder and this start runs elevated: the app is not started from it (it would run elevated); the link is dropped")
         case .drop:
             break
         }
@@ -88,7 +98,8 @@ enum WinAgentLink {
     /// allows it (`CREATE_BREAKAWAY_FROM_JOB`; a job that refuses keeps the app in it, and it ends with that job), from the
     /// install folder, no handles inherited. An elevated opener never gets here (`decide`: the app would run elevated, and
     /// UIPI would then refuse the normal links to it).
-    @MainActor static func startClean() -> CleanStart {
+    /// `suspended`: the selftest's, which checks the start and stops the process before it runs a line (`CREATE_SUSPENDED`).
+    @MainActor static func startClean(suspended: Bool = false) -> CleanStart {
         let exe = WindowsLoginItem.currentExecutablePath()
         guard let line = WinProcess.commandLine(exe, AgentLinkRules.cleanStartArguments) else { return .failed(87) }
         var environment: UnsafeMutableRawPointer?
@@ -112,6 +123,7 @@ enum WinAgentLink {
             var flags = DWORD(0x0400_0000)   // CREATE_DEFAULT_ERROR_MODE
             if environment != nil { flags |= 0x0000_0400 }   // CREATE_UNICODE_ENVIRONMENT
             if breakaway { flags |= 0x0100_0000 }   // CREATE_BREAKAWAY_FROM_JOB
+            if suspended { flags |= 0x0000_0004 }   // CREATE_SUSPENDED
             // `&command` and no closure: a closure capturing `info` and `environment` fails the release build's isolation check
             let ok = CreateProcessW(WinStr.w(exe), &command, nil, nil, false, flags, environment, WinStr.w(folder), &startup, &info)
             return (ok, info, ok ? 0 : GetLastError())

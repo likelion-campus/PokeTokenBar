@@ -24,7 +24,7 @@ final class AgentLinkRulesTests: XCTestCase {
         XCTAssertEqual(decide([exe, AgentLinkRules.flag, link], running: true), .forward(link))
         XCTAssertEqual(decide([exe, AgentLinkRules.flag, "PokeTokenBar://Agent?state=done"], running: true), .forward("PokeTokenBar://Agent?state=done"))
         XCTAssertEqual(decide([exe, AgentLinkRules.flag, link]), .startClean)
-        XCTAssertEqual(decide([exe, AgentLinkRules.flag, link], elevated: true), .drop)
+        XCTAssertEqual(decide([exe, AgentLinkRules.flag, link], elevated: true), .droppedElevated)
         XCTAssertEqual(decide([exe, AgentLinkRules.flag, link], running: true, elevated: true), .forward(link), "an elevated opener may still hand a link over")
         // A link that closed its quotes and added flags: the whole start is dropped, with or without an app running.
         let smuggled = [exe, AgentLinkRules.flag, #"poketokenbar://agent?state=done""#, "--selftest-x", ""]

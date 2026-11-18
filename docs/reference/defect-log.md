@@ -3193,3 +3193,14 @@ read_when:
   - **고침:** 점검이 파트 자신의 폭(`TrendBarsPart.width`, 읽기 전용으로 공개)으로 찾는다. 실패 줄에는 포인터·카드·항목 사각형과 선택·뷰 통계를 남긴다.
   - **부류 스윕:** 셀프테스트의 `size(width:)` 호출은 이 하나뿐(나머지는 호스트 경로). "오늘"을 시계에서 받는 픽스처(`ActivityFixtures`, Recap `series`, Home 의 `now`)는 날짜별 열 위치에만 의존하며 이 부류는 이 점검이 유일하다.
   - **영구 캡처:** `PopoverActivityTests.testAPointFoundAtThePartsOwnWidthStaysOnItsColumn` — 7월 1–14 일 모두에서 자기 폭의 점은 +1 px 에서 열을 지키고, 다른 폭의 점은 일부 날에 지키지 못한다(함정을 고정). **규칙:** 살아 있는 파트를 재는 점검은 파트의 현재 폭을 쓰고, `size(width:)` 로 폭을 바꾸지 않는다.
+
+<!-- agent link cold start (feat/windows-pet-link) begin -->
+- **(CI, 라이트 런 44255743956) `link.coldStart`: 앱이 없을 때의 정상 링크가 0 으로 58 ms 에 끝나고 깨끗한 시작이 하나도 없었다.** 직접원인: GitHub 의 Windows 러너는 관리자·UAC 꺼짐으로
+  돌아 토큰이 승격돼 있고(이 체크의 새 메모 `this runner's token elevated=` 가 보인다), 링크 시작은 설계대로 승격 분기(아무것도 켜지 않음)로 갔다. **왜 못 걸렀나:** ① 체크가 러너의
+  토큰을 확인하지 않고 승격되지 않은 여는 쪽을 가정했다 — 결정 표의 단위 테스트는 두 분기를 다 덮었지만 셀프테스트는 러너에서 도달할 수 없는 분기를 기대했다. ② 깨끗한 시작은
+  결과를 어디에도 남기지 않아(링크 시작은 아무것도 쓰지 않는다는 설계) 실패한 CreateProcessW·승격 포기·성공을 로그로 구별할 수 없었다. ③ 그 브랜치의 첫 라이트 런이 릴리스
+  빌드 오류로 셀프테스트까지 가지 못해 한 번 늦게 드러났다. **고침:** 결정에 `droppedElevated` 를 따로 두고, 깨끗한 시작의 세 결과(pid·CreateProcessW 오류·승격 포기)를 각각 한 줄로
+  남긴다(드문 시작이고 사람이 그 결과를 본다). 체크는 러너의 승격에 따라 기대를 고르고(승격: 포기 줄과 시작 없음, 아님: 로그의 pid 로 정확히 그 프로세스를 멈춘다), 깨끗한 시작
+  자체(`startClean(suspended: true)`: 같은 CreateProcessW·새 환경·job 이탈·폴더)를 직접 만들어 한 줄도 돌기 전에 멈춘다. **부류 스윕:** 셀프테스트에서 승격 여부에 따라 갈리는 앱
+  경로는 이 하나(`isElevated` 를 쓰는 곳은 링크뿐). **규칙:** 러너에서 도는 체크가 토큰·무결성·job 에 따라 갈리는 경로를 기대할 때는 그 값을 먼저 읽어 메모에 남기고 기대를 고른다.
+<!-- agent link cold start (feat/windows-pet-link) end -->

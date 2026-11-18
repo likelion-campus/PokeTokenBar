@@ -159,10 +159,29 @@ extension WindowsSelftest {
 
     // MARK: - link.coldStart: no app for the state folder (review I1, I2, M2)
 
-    /// A link start finding no app: a well-formed one starts the app clean (a new PokeTokenBar process, its child, while the
-    /// link start's own state folder stays untouched: the clean start has the user's fresh environment, not this one's
-    /// PTB_STATE_DIR); one with a smuggled flag starts nothing and writes nothing. CI only: the clean start is the real app on
-    /// the runner's default profile (stopped at once); a person's PC keeps its own app alone.
+    /// Stops the process `pid` (a clean start's app) and says whether it was there to stop.
+    static func stop(_ pid: DWORD) -> Bool {
+        guard let h = OpenProcess(DWORD(0x0001 | 0x0010_0000) /* TERMINATE | SYNCHRONIZE */, false, pid) else { return false }
+        _ = TerminateProcess(h, 0)
+        _ = WaitForSingleObject(h, 5_000)
+        _ = CloseHandle(h)
+        return true
+    }
+
+    /// The pid in the newest log line starting with `marker` written after `count` such lines (the link start's own report).
+    static func loggedPID(_ marker: String, after count: Int) -> (lines: Int, pid: DWORD?) {
+        let lines = PopoverRun.logLines(containing: marker)
+        guard lines.count > count, let last = lines.last, let range = last.range(of: "(pid ") else { return (lines.count, nil) }
+        return (lines.count, DWORD(last[range.upperBound...].prefix { $0.isNumber }))
+    }
+
+    /// A link start finding no app. One with a smuggled flag starts nothing and writes nothing. A well-formed one starts the app
+    /// clean and logs the pid, which the check stops (the clean start has the user's fresh environment, not this one's
+    /// PTB_STATE_DIR: the link start's own state folder stays untouched); from an elevated opener it starts nothing and logs why.
+    /// GitHub's runners run elevated (administrator, UAC off), so there the well-formed link takes the elevated branch, and the
+    /// clean start itself is checked here directly: `WinAgentLink.startClean(suspended: true)` creates the process (the same
+    /// CreateProcessW, fresh environment, breakaway and folder) and it is stopped before it runs a line. CI only: a person's PC
+    /// keeps its own app alone.
     static func coldStartCheck(_ r: WindowsSelftest.Recorder) async {
         guard WindowsSelftest.onCI else {
             r.add("link.coldStart", true, "skipped: CI not set (a clean start would start the app on this PC's own profile)")
@@ -176,7 +195,8 @@ extension WindowsSelftest {
             return dir
         }
         func written(_ dir: URL) -> [String] { (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? ["unreadable"] }
-        var notes: [String] = []
+        let elevated = WinAgentLink.isElevated()   // the link start below runs with this process's token
+        var notes = ["this runner's token elevated=\(elevated)"]
         // A smuggled flag with no app for its state folder: dropped whole (no clean start, no settings suite switched).
         let smuggledDir = folder("smuggled")
         let smuggled = await start([AgentLinkRules.flag, #"poketokenbar://agent?state=done""#, "--selftest-x", ""], environment: ["PTB_STATE_DIR": smuggledDir.path])
@@ -184,25 +204,37 @@ extension WindowsSelftest {
         let smuggledChildren = smuggled.pid.map { children(of: DWORD($0)) } ?? []
         let smuggledOK = smuggled.code == 0 && smuggledChildren.isEmpty && written(smuggledDir).isEmpty
         notes.append("smuggled flag, no app -> exit \(smuggled.code.map(String.init) ?? "none"), started \(smuggledChildren.count) app(s), wrote \(written(smuggledDir))=\(smuggledOK)")
-        // Well formed, no app for its state folder: the app started clean, the link start's folder untouched.
+        // Well formed, no app for its state folder: a clean start (its pid in the log) or, elevated, nothing and a line saying why.
+        let startedMarker = "agent link: no app for this state folder: started the app clean", elevatedMarker = "this start runs elevated"
+        let failedMarker = "the clean start failed"
+        let started0 = PopoverRun.logLines(containing: startedMarker).count, elevated0 = PopoverRun.logLines(containing: elevatedMarker).count
+        let failed0 = PopoverRun.logLines(containing: failedMarker).count
         let cleanDir = folder("clean")
         let clean = await start([AgentLinkRules.flag, "poketokenbar://agent?state=done&label=selftest-cold"], environment: ["PTB_STATE_DIR": cleanDir.path])
-        var started: [DWORD] = []
-        _ = await WindowsSelftest.waitUntil(timeout: 5) {
-            started = clean.pid.map { children(of: DWORD($0)) } ?? []
-            return !started.isEmpty
+        let logged = loggedPID(startedMarker, after: started0)
+        let stopped = logged.pid.map(stop) ?? false
+        let elevatedLogged = PopoverRun.logLines(containing: elevatedMarker).count > elevated0
+        let failedLines = PopoverRun.logLines(containing: failedMarker).dropFirst(failed0)
+        let linkOK = clean.code == 0 && written(cleanDir).isEmpty && failedLines.isEmpty
+            && (elevated ? elevatedLogged && logged.pid == nil : logged.pid != nil)
+        notes.append("well formed, no app -> exit \(clean.code.map(String.init) ?? "none") in \(clean.ms) ms, "
+                     + (elevated ? "the elevated drop logged=\(elevatedLogged), no clean start=\(logged.pid == nil)"
+                                 : "the clean start logged pid \(logged.pid.map(String.init) ?? "none"), stopped by it=\(stopped)")
+                     + (failedLines.isEmpty ? "" : ", FAILED: \(failedLines.joined(separator: " / "))")
+                     + ", the link start's folder wrote \(written(cleanDir))=\(linkOK)")
+        // The clean start itself, here (the runner's elevation cannot reach it through a link): created, then stopped unrun.
+        let direct = WinAgentLink.startClean(suspended: true)
+        var directOK = false
+        switch direct {
+        case .started(let pid, let outOfJob):
+            let mine = children(of: GetCurrentProcessId()).contains(pid)
+            let gone = stop(pid)
+            directOK = mine && gone
+            notes.append("startClean (suspended) -> pid \(pid), a PokeTokenBar.exe child of this process=\(mine), out of the job=\(outOfJob), stopped unrun=\(gone)")
+        case .failed(let error):
+            notes.append("startClean (suspended) FAILED: CreateProcessW error \(error)")
         }
-        for pid in started {
-            if let h = OpenProcess(DWORD(0x0001 | 0x0010_0000) /* TERMINATE | SYNCHRONIZE */, false, pid) {
-                _ = TerminateProcess(h, 0)
-                _ = WaitForSingleObject(h, 5_000)
-                _ = CloseHandle(h)
-            }
-        }
-        let cleanOK = clean.code == 0 && started.count == 1 && written(cleanDir).isEmpty
-        notes.append("well formed, no app -> exit \(clean.code.map(String.init) ?? "none") in \(clean.ms) ms, started \(started.count) clean app(s) (stopped), "
-                     + "the link start's folder wrote \(written(cleanDir))=\(cleanOK)")
-        r.add("link.coldStart", smuggledOK && cleanOK, notes.joined(separator: "; "))
+        r.add("link.coldStart", smuggledOK && linkOK && directOK, notes.joined(separator: "; "))
     }
 
     // MARK: - link.registration: the installer's key (read only, and only from the registered copy)

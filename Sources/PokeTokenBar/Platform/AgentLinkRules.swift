@@ -32,8 +32,11 @@ enum AgentLinkRules {
         /// and the link is dropped, as on the Mac (Launch Services starts the app; the event comes before the pet exists).
         case startClean
         /// A link start that does nothing and ends: a command line of another shape (a link that broke out of its quotes and
-        /// added arguments), a link of another scheme, or an elevated opener with no app running (the app would run elevated).
+        /// added arguments) or a link of another scheme.
         case drop
+        /// A well-formed link start with no app running, from an elevated opener: nothing starts (the app would run elevated) and
+        /// this start ends; Windows logs it, as it is the one well-formed link that starts nothing.
+        case droppedElevated
     }
 
     /// The decision for a command line. A link start is `[exe, --agent-link, <link>]`, exactly: the shell's command quotes `%1`,
@@ -47,7 +50,7 @@ enum AgentLinkRules {
         }
         guard arguments.count == 3, isLink(arguments[2]) else { return .drop }
         if appRunning() { return .forward(arguments[2]) }
-        return elevated() ? .drop : .startClean
+        return elevated() ? .droppedElevated : .startClean
     }
 
     /// Text that starts with `poketokenbar:` (any case).
