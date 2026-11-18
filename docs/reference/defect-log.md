@@ -3134,6 +3134,12 @@ read_when:
   훨씬 오래된 무관한 프로세스가 shim 의 '자식' 으로 보이고 함께 죽는다. 같은 규칙으로 옛 코드는 가짜 스냅숏에서 [현재 프로세스, 무관한 두 프로세스, 진짜 자식] 을 골랐다
   (`ProcessTreeSelectionTests` 결함 주입). PC 에서 대표적인 그런 프로세스는 explorer.exe 다(만든 userinit.exe 가 로그온 뒤 끝난다). 출하 코드에서는 `ProcessRunner` 가 Codex 한도
   갱신 때마다 codex(npm `.cmd` shim)를 이렇게 끝낸다.
+  **러너 실측(임시 진단, windows.yml 44230921044·44228430972):** 테스트 프로세스의 조상(swift-test ← swift ← bash ×3 ← Runner.Worker ← Runner.Listener ← …)은 모두 살아
+  있지만, 러너에는 만든 프로세스가 끝난 프로세스가 10 개 있었다 — wininit.exe·csrss.exe(만든 smss 인스턴스가 끝남), explorer.exe·winlogon.exe 등, 그리고 지금 단계의 파이프라인
+  `tee.exe` 둘(포크한 bash 가 끝남). 옛 규칙으로 shim 이 그 끝난 id 하나를 받으면: wininit 의 것(712)이면 **132 개**를 끝내려 한다(svchost ×78, Runner·bash·swift-test 를 지나
+  이 테스트 프로세스까지 — 깊은 쪽부터 끝내는 순서에서 **10 번째**, PowerShell 보다 앞). 이것이 44207854338 과 정확히 같은 모양이다(테스트 프로세스가 먼저 죽고 PowerShell 은
+  30 s 를 다 잤다). explorer 의 것(5816)이면 explorer·dwm·winlogon·csrss 등 8 개, tee 의 것이면 그 단계의 로그 파이프. 새 규칙은 모든 경우 0 개다. 새 shim 이 방금 끝난 id 를
+  받는 일은 실제로 일어난다 — 430 개 중 3 개가 우리가 막 끝낸 cmd 24 개의 id 를 받았다. PC 에서는 explorer 아래가 사용자가 띄운 앱 전부다(PokeTokenBar 자신 포함).
   **같은 함수의 둘째 결함:** 트리를 다 끝낸 뒤 corelibs `Process.terminate()` 를 불렀다. 그것은 `processHandle` 로 `TerminateProcess` 하는데, 그 핸들은 프로세스가 끝나면 corelibs 의
   관리 스레드가 닫는다(`Process.swift` `closeHandler`, 값은 그대로 남는다). 자식을 먼저 죽이면 shim 이 곧 끝나므로, 닫힌 핸들(다른 객체에 재배정되었을 수 있는 값)로 부를 수 있었다.
   이번 사고는 아니다(그랬다면 PowerShell 이 먼저 죽었다).
