@@ -58,11 +58,11 @@ Check ((Test-SeedArchive $goodNames ($goodVerbose + 'crw-r--r-- 0 0 0 0 Nov 17 2
 $now = [datetime]'2026-11-17T12:00:00Z'
 $sha = 'a' * 40
 function Meta([hashtable]$over) {
-    $m = @{ cleanAt = '2026-11-17T09:00:00Z'; builtAt = '2026-11-17T11:30:00Z'; chainLength = 2; sha = $sha; swift = 'Swift version 6.3.2'; image = '20261103.298.1'; packageSwift = 'p1' }
+    $m = @{ cleanAt = '2026-11-17T09:00:00Z'; builtAt = '2026-11-17T11:30:00Z'; chainLength = 2; sha = $sha; swift = 'Swift version 6.3.2'; image = '20261103.298.1'; packageSwift = 'p1'; msvc = '14.44.35207' }
     foreach ($k in $over.Keys) { $m[$k] = $over[$k] }
     ($m | ConvertTo-Json | ConvertFrom-Json)
 }
-function Verdict($m, $pkg = 'p1') { Test-SeedMeta $m $now 8 24 'Swift version 6.3.2' '20261103.298.1' $pkg }
+function Verdict($m, $pkg = 'p1') { Test-SeedMeta $m $now 8 24 'Swift version 6.3.2' '20261103.298.1' $pkg '14.44.35207' }
 $ok = Verdict (Meta @{})
 Check ((-not $ok.Clean) -and $ok.UseResolved) 'a sane seed is accepted and Package.resolved may be used'
 Check ((Verdict (Meta @{}) 'p2').UseResolved -eq $false -and (-not (Verdict (Meta @{}) 'p2').Clean) ) 'a changed Package.swift: incremental, but Package.resolved is not used'
@@ -83,6 +83,8 @@ $cases = [ordered]@{
     'another Swift'            = @{ swift = 'Swift version 6.2.0' }
     'another image'            = @{ image = '20261101.1.0' }
     'no swift'                 = @{ swift = $null }
+    'another MSVC toolset'     = @{ msvc = '14.51.36231' }
+    'no MSVC toolset recorded' = @{ msvc = $null }
 }
 foreach ($name in $cases.Keys) { Check ((Verdict (Meta $cases[$name])).Clean) "metadata with $name means a clean build" }
 Check ((Test-SeedMeta $null $now 8 24 'x' 'y' 'z').Clean) 'no metadata means a clean build'
