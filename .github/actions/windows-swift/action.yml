@@ -27,6 +27,12 @@ runs:
           Write-Host "vcpkg cache: HIT"
         } else {
           Write-Host "vcpkg cache: MISS"
+          # The runner's vcpkg checkout is older than the baseline in windows/vcpkg.json: fetch that commit so vcpkg can read its versions/baseline.json.
+          $baseline = (Get-Content "$env:GITHUB_WORKSPACE\windows\vcpkg.json" -Raw | ConvertFrom-Json).'builtin-baseline'
+          if ($baseline) {
+              git -C $env:VCPKG_INSTALLATION_ROOT fetch --no-tags origin $baseline
+              if ($LASTEXITCODE -ne 0) { git -C $env:VCPKG_INSTALLATION_ROOT fetch --no-tags --unshallow origin; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } }
+          }
           & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install --triplet x64-windows-static-md --x-manifest-root="$env:GITHUB_WORKSPACE\windows" --x-install-root=C:\vcpkg\installed
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         }
