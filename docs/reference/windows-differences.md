@@ -21,7 +21,7 @@ tasks and `parity-report.md` in the Windows port ledger.
 
 Last reviewed against: the popover with Home, Settings, Recap, Shop, Bag, Collection and the Pokémon detail page, dark mode
 and high contrast, the in-app update, the installer and the floating pet with its bubbles, hearts, prayers, hover readout
-and agent reactions. **Owed when it lands:** the `poketokenbar:` link that brings agent events (see the end).
+and agent reactions, and the `poketokenbar:` link.
 
 ## Approved by the user
 
@@ -111,6 +111,8 @@ and agent reactions. **Owed when it lands:** the `poketokenbar:` link that bring
 | The pet's hover tooltip is Windows' tooltip (after 600 ms, as the popover's, dark in dark mode) | Win32's own tooltip control; the Mac shows AppKit's help tag |
 | A run to the pointer on a monitor of another scale keeps the pet's size on the way and takes that monitor's size when it arrives | per-monitor DPI, as for a drag |
 | While the hearts show, a screen reader reads them as the pet window's name | the pet is one layered window with no accessible parts; the Mac labels the hearts' view |
+| A `poketokenbar:` link longer than 8,192 characters is ignored (the Mac reads any length and then cuts the message and label) | a second start hands the link over as a message any local program could send: its copy is bounded. The longest link the pet can show, percent-encoded, is about 5,000 |
+| The hook example checks `Get-Process PokeTokenBar` and opens the link with `Start-Process` (TEAM.md) | the Mac's uses `pgrep` and `open -g`; the rule is the same: a link opened while the app is off starts it and the event is dropped, so hooks check first |
 
 ## The plaza on the Mac changed too
 
@@ -121,10 +123,9 @@ differently; the roster's icons bounce together on one beat; card rarity colours
 
 ## Not on Windows yet (owed)
 
-- **The `poketokenbar:` link** (Task 23, part b): until it lands no agent event reaches the pet, so the agent reactions
-  (the bob, the waiting and done bubbles, the run to the pointer) are there but never start. The pet, its bubbles, hearts,
-  prayers and hover readout landed (stage 7 Tasks 22 and 23, differences above; captures `floating-pet.png`,
-  `home-pet-eye-en.png`); owed: a capture of the pet on a plain desktop (the runner's shows its terminal behind it).
+- **A capture of the floating pet on a plain desktop** (the runner's shows its terminal behind it). The pet, its
+  bubbles, hearts, prayers, hover readout, agent reactions and the `poketokenbar:` link landed (stage 7 Tasks 22 and 23,
+  differences above; captures `floating-pet.png`, `home-pet-eye-en.png`).
 - **ARM64 native build** (the x64 build runs under emulation on Windows 11 on ARM, untested); **Windows 10** is untested.
 - **Code signing:** the installer and the app are unsigned; SmartScreen warns on first run.
 - **Captures owed:** tray menu with an update offer, the Setup welcome page, dark and high-contrast popover pages, Settings in
