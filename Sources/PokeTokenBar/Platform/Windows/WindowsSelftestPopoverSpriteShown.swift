@@ -7,9 +7,9 @@ import WinSDK
 // (`GetParent` of a popup is the owner), the app's hidden sink, whose empty client area meets nothing. The sprite checks ran in a
 // KitWindow, which has no owner. This one opens the real popover (`WinPopover`, owned by the app's sink as the app's is, at the tray
 // position, Home inside its scroller), with the bundled FIXTURE GIF for #1 and animation on (the runner's "Show animations" is off),
-// and judges the header and the Collection detail: shown, the clock running, the frame moving. Then the detail's clock stops and comes
-// back by itself: scrolled out of a viewport made short (the detail of a fixture with no moves fits the popover) and back (its paint);
-// its pane hidden and shown again (the view gets no WM_SHOWWINDOW, only its paint); displays off and on (no paint comes: the wake).
+// and judges the header and the Collection detail: shown, the clock running, the frame moving. Then a clock stops and comes back by
+// itself: the header scrolled out of Home's viewport made short (the fixture's Home fits the popover) and back (its paint); the
+// detail's pane hidden and shown again (the view gets no WM_SHOWWINDOW, only its paint); displays off and on (no paint: the wake).
 // The walk before the fix is printed beside (the trigger: it reads false here). CI only (the popover takes the foreground). Fixture
 // data only.
 
@@ -134,6 +134,31 @@ extension WindowsSelftest {
         let h = await measure(headerSprites, header.view.hwnd, window)
         notes.append(describe("Home's header #1", h))
 
+        // Scrolled out of Home's scroller and back (its paint). The viewport is made 80 px tall so the header can leave it whatever
+        // Home's height (the fixture's Home fits the popover). Not the detail: its drawn view is the whole tab's content, so part
+        // of it always stays in the viewport (`isShown` judges the view; its sprite slot may be out while the view is not).
+        var back: [Bool] = []
+        if let area = home.scrollAreaForTesting, let frame = GetParent(area.viewport.hwnd) {
+            let full = WinKit.rect(area.viewport.hwnd, in: frame)
+            area.move(RECT(left: full.left, top: full.top, right: full.right, bottom: full.top + 80))
+            area.scroll(to: 100_000)
+            var view = RECT(), port = RECT(), meet = RECT()
+            _ = GetWindowRect(header.view.hwnd, &view)
+            _ = GetWindowRect(area.viewport.hwnd, &port)
+            let left = !IntersectRect(&meet, &view, &port)
+            let offset = area.offset, content = area.contentHeight
+            let out = await WindowsSelftest.waitUntil(timeout: 2) { !headerSprites.playback.clock.isArmed }
+            area.scroll(to: 0)
+            let again = await WindowsSelftest.waitUntil(timeout: 2) { headerSprites.playback.clock.isArmed }
+            area.move(full)
+            back.append(left && out && again)
+            notes.append("Home scrolled (viewport 80 px, content \(content) px, offset \(offset)): the header out of the viewport=\(left), "
+                         + "the clock stopped=\(out); scrolled back: running again=\(again)")
+        } else {
+            back.append(false)
+            notes.append("scrolled out: Home has no scroll area")
+        }
+
         // 2. The Collection detail of #1.
         popover.state.tab = .collection
         popover.replacePage()
@@ -152,24 +177,7 @@ extension WindowsSelftest {
         let d = await measure(detailSprites, detail.hwnd, window)
         notes.append(describe("the Collection detail #1", d))
 
-        // 3. Stopped and back by itself: scrolled out and back (its paint), its pane hidden and shown (its paint), displays off and on.
-        var back: [Bool] = []
-        if let area = dexHome.scrollAreaForTesting, let frame = GetParent(area.viewport.hwnd) {
-            let full = WinKit.rect(area.viewport.hwnd, in: frame)
-            // A viewport 80 px tall: the content scrolls whatever the detail's height (a sprite box is taller than what stays in view).
-            area.move(RECT(left: full.left, top: full.top, right: full.right, bottom: full.top + 80))
-            area.scroll(to: 100_000)
-            let offset = area.offset, content = area.contentHeight
-            let out = await WindowsSelftest.waitUntil(timeout: 2) { !detailSprites.playback.clock.isArmed }
-            area.scroll(to: 0)
-            let again = await WindowsSelftest.waitUntil(timeout: 2) { detailSprites.playback.clock.isArmed }
-            area.move(full)
-            back.append(offset > 0 && out && again)
-            notes.append("scrolled out (viewport 80 px, content \(content) px, offset \(offset)): the clock stopped=\(out); scrolled back: running again=\(again)")
-        } else {
-            back.append(false)
-            notes.append("scrolled out: no scroll area on the Collection tab")
-        }
+        // 3. Stopped and back by itself: its pane hidden and shown (its paint), displays off and on.
         if let pane = GetParent(detail.hwnd) {
             _ = ShowWindow(pane, 0 /* SW_HIDE: the view itself gets no WM_SHOWWINDOW */)
             let stopped = await WindowsSelftest.waitUntil(timeout: 2) { !detailSprites.playback.clock.isArmed }
