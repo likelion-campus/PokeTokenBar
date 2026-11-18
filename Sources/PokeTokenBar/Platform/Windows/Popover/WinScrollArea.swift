@@ -1,6 +1,7 @@
 #if os(Windows)
 import Foundation
 import WinSDK
+import CPlazaD2D
 
 /// A scrolling page (stage 7 D6, K2): a viewport with an overlay scroll thumb in a lane at its right edge and, inside it, the
 /// content pane the page's controls live in, moved up and down as one window. The content's width never changes with its
@@ -42,7 +43,7 @@ import WinSDK
     private var appliedShows = false, appliedLane = [Int32](), appliedThumb: PopoverScrollMath.Thumb?
 
     struct Stats: Equatable {
-        var wheelMessages = 0, thumbDrags = 0, pageClicks = 0, reveals = 0, moves = 0
+        var wheelMessages = 0, thumbDrags = 0, pageClicks = 0, pageKeys = 0, reveals = 0, moves = 0
         /// The greatest `WinModalPump.depth` seen while a drag moved the page: 0 means no modal loop ran (the system bar's did).
         var pumpDepthDuringDrag = 0
     }
@@ -111,7 +112,16 @@ import WinSDK
         contentHeight = max(0, height)
         offset = Int32(PopoverScrollMath.clamped(CGFloat(offset), content: CGFloat(contentHeight), viewport: CGFloat(viewportHeight)))
         WinKit.move(content.hwnd, RECT(left: 0, top: -offset, right: contentWidth, bottom: -offset + max(contentHeight, viewportHeight)))
+        publishScroll()
         layoutLane()
+    }
+
+    /// The numbers the lane's MSAA object reads (`ptb_scrollbar_get_object`): where the page is and how far it can go, in pixels.
+    private func publishScroll() {
+        let range = max(0, contentHeight - viewportHeight)
+        for (name, value) in [("PTB.ScrollPos", offset), ("PTB.ScrollRange", range)] {
+            WinStr.w(name).withUnsafeBufferPointer { _ = SetPropW(lane.hwnd, $0.baseAddress, HANDLE(bitPattern: Int(value))) }
+        }
     }
 
     func scroll(to y: Int32) {
@@ -121,6 +131,8 @@ import WinSDK
         stats.moves += 1
         _ = SetWindowPos(content.hwnd, nil, 0, -offset, 0, 0, UINT(SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE))
         _ = InvalidateRect(lane.hwnd, nil, false)
+        publishScroll()
+        if barVisible { NotifyWinEvent(0x800E /* EVENT_OBJECT_VALUECHANGE */, lane.hwnd, Int32(bitPattern: 0xFFFF_FFFC) /* OBJID_CLIENT */, 0) }
     }
 
     /// Scrolls so the rect (content pixels) is visible with a 8 DIP margin; no move when it already is.
@@ -144,6 +156,36 @@ import WinSDK
         }
     }
 
+    /// Controls that use Page Up/Down, Home and End themselves: the key is theirs, not the page's.
+    private static let keyOwners: Set<String> = ["Edit", "ComboBox", "ComboLBox", "ListBox", "msctls_trackbar32", "msctls_updown32", "SysListView32",
+                                                 "msctls_hotkey32", "RichEdit20W"]
+
+    /// Page Up, Page Down, Home and End on the page (the Mac's scroll view takes them): when the key goes to a control inside a scroll
+    /// area that can scroll, and the control does not use the key itself (an edit, a drop-down, a slider, a drawn item that answers
+    /// keys), the page moves by a page or to its end. True when the key was used. No modifier: Ctrl+Home in an edit is the edit's.
+    static func handlePageKey(_ target: HWND, vk: Int) -> Bool {
+        guard [0x21, 0x22, 0x23, 0x24].contains(vk) /* VK_PRIOR, VK_NEXT, VK_END, VK_HOME */ else { return false }
+        for key in [0x10, 0x11, 0x12] where GetKeyState(Int32(key)) < 0 { return false }
+        guard !keyOwners.contains(WinKit.className(target)), WinControl.control(target)?.onKey == nil else { return false }
+        var node: HWND? = target
+        while let n = node {
+            if let area = areas[Int(bitPattern: n)] {
+                guard area.contentHeight > area.viewportHeight else { return false }
+                let line = area.ctx.px(lineDIP), page = max(line, area.viewportHeight - line)
+                area.stats.pageKeys += 1
+                switch vk {
+                case 0x21: area.scroll(to: area.offset - page)
+                case 0x22: area.scroll(to: area.offset + page)
+                case 0x24: area.scroll(to: 0)
+                default: area.scroll(to: area.contentHeight)
+                }
+                return true
+            }
+            node = GetParent(n)
+        }
+        return false
+    }
+
     func move(_ r: RECT) {
         WinKit.move(viewport.hwnd, r)
         paneWidth = max(1, (r.right - r.left) - laneWidth)
@@ -157,6 +199,7 @@ import WinSDK
     static var liveCount: Int { areas.count }
 
     func destroy() {
+        for name in ["PTB.ScrollPos", "PTB.ScrollRange"] { WinStr.w(name).withUnsafeBufferPointer { _ = RemovePropW(lane.hwnd, $0.baseAddress) } }
         Self.areas[Int(bitPattern: content.hwnd)] = nil
         content.destroy()
         viewport.destroy()
@@ -181,6 +224,9 @@ import WinSDK
         _ = ClientToScreen(lane.hwnd, &br)
         return RECT(left: tl.x, top: tl.y, right: br.x, bottom: br.y)
     }
+
+    /// The lane's window (the selftest asks it for its accessible object).
+    var laneHwnd: HWND { lane.hwnd }
 
     /// Whether the pointer's lane look (the wider thumb on the tinted lane) is on.
     var laneHot: Bool { hover || grab != nil }
@@ -226,6 +272,12 @@ import WinSDK
         }
         lane.on(0x0020 /* WM_SETCURSOR */) { _, lParam in WinKit.arrowCursor(lParam) }
         lane.on(0x0010 /* WM_CLOSE */) { _, _ in 0 }
+        // MSAA: the lane is a scroll bar with a value in percent (what the system bar's object told a screen reader before the overlay).
+        lane.on(0x003D /* WM_GETOBJECT */) { [weak self] wParam, lParam in
+            guard let self else { return nil }
+            let result = ptb_scrollbar_get_object(UnsafeMutableRawPointer(self.lane.hwnd), UInt64(wParam), Int64(lParam))
+            return result == 0 ? nil : LRESULT(result)
+        }
         lane.on(0x0200 /* WM_MOUSEMOVE */) { [weak self] _, lParam in
             guard let self else { return nil }
             if let grab = self.grab {

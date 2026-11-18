@@ -312,6 +312,7 @@ extension WindowsSelftest {
         await scrollChecks(r, w, page)
         await partResizeCheck(r, w, page)
         await scrollClickChecks(r, w, page)
+        await scrollAccessChecks(r, w, page)
         await dpiCheck(r, w, page)
         await idleCheck(r, w, page)
         await settingChangeCheck(r, w, page)
@@ -481,6 +482,61 @@ extension WindowsSelftest {
               "content \(area.contentHeight) px in a \(area.viewportHeight) px viewport, width \(area.contentWidth) px beside the lane: one wheel notch "
               + "(\(lines) lines x \(WinScrollArea.lineDIP) DIP) -> offset \(afterWheel) (expected \(expected)); 8 touchpad parts of 15 -> \(afterParts) "
               + "(expected \(2 * expected)); overlay thumb shown=\(barShownWhenScrolling) [\(barBefore)];  focus on the last field -> offset \(area.offset), field at \(r0.top)...\(r0.bottom) inside=\(visible); \(drag)")
+    }
+
+    // MARK: scroll accessibility and page keys (follow-up to K2)
+
+    /// A client's view of the page's scroller: the lane answers `AccessibleObjectFromWindow` as a scroll bar whose value follows the
+    /// page (percent of its range), as the system bar's object did before the overlay; the viewport beside it is not one (the
+    /// negative control: the measure tells the two apart). Page Up/Down/Home/End on a control that does not use them scroll the page; an
+    /// edit keeps them.
+    private static func scrollAccessChecks(_ r: WindowsSelftest.Recorder, _ w: KitWindow, _ page: GalleryPage) async {
+        guard let area = w.scroll else { r.add("ui.kit.scrollAccess", false, "no scroll area"); return }
+        func probe(_ h: HWND) -> (role: Int32, state: Int32, value: String, code: Int32) {
+            var role: Int32 = -2, state: Int32 = -2
+            var value = [UInt16](repeating: 0, count: 32)
+            let code = ptb_scrollbar_probe(UnsafeMutableRawPointer(h), &role, &state, &value, UInt32(value.count))
+            return (role, state, String(decoding: value.prefix { $0 != 0 }, as: UTF16.self), code)
+        }
+        let range = area.contentHeight - area.viewportHeight
+        var rows: [String] = []
+        var ok = area.barVisible && range > 0
+        for fraction in [0.0, 0.5, 1.0] {
+            area.scroll(to: Int32(Double(range) * fraction))
+            let p = probe(area.laneHwnd)
+            let expected = "\(Int((Double(area.offset) * 100 / Double(range)).rounded()))%"
+            let good = p.code == 0 && p.role == 3 /* ROLE_SYSTEM_SCROLLBAR */ && p.value == expected && p.state & 0x8000 == 0 /* not INVISIBLE */
+            ok = ok && good
+            rows.append("offset \(area.offset)/\(range): role \(p.role) state 0x\(String(p.state, radix: 16)) value \"\(p.value)\" (expected \"\(expected)\") \(good ? "ok" : "WRONG")")
+        }
+        let control = probe(area.viewport.hwnd)
+        let blind = control.role == 3
+        ok = ok && !blind
+        area.scroll(to: 0)
+        // keys
+        guard let button = page.firstButton, let field = page.lastField else {
+            r.add("ui.kit.scrollAccess", false, "no button or field for the key check")
+            return
+        }
+        WindowsSelftest.forceForeground(w.hwnd)
+        func press(_ vk: Int32, on target: HWND) async -> Int32 {
+            _ = SetFocus(target)
+            _ = PostMessageW(target, UINT(WM_KEYDOWN), WPARAM(vk), 0)
+            _ = await WindowsSelftest.waitUntil(timeout: 1) { false }
+            return area.offset
+        }
+        let line = w.ctx.px(WinScrollArea.lineDIP), pageStep = max(line, area.viewportHeight - line)
+        let down = await press(0x22, on: button.hwnd)
+        let up = await press(0x21, on: button.hwnd)
+        let end = await press(0x23, on: button.hwnd)
+        let home = await press(0x24, on: button.hwnd)
+        area.scroll(to: 0)
+        let inEdit = await press(0x22, on: field.hwnd)   // the multi-line edit keeps Page Down
+        let keysOK = down == pageStep && up == 0 && end == range && home == 0 && inEdit == 0
+        ok = ok && keysOK
+        r.add("ui.kit.scrollAccess", ok,
+              "lane object: \(rows.joined(separator: "; ")); the viewport (negative control) is role \(control.role), not a scroll bar=\(!blind); "
+              + "keys on a button: Page Down -> \(down) (expected \(pageStep)), Page Up -> \(up) (0), End -> \(end) (\(range)), Home -> \(home) (0); Page Down in the multi-line edit -> \(inEdit) (0, the edit's); page keys used \(area.stats.pageKeys)")
     }
 
     private static func dpiCheck(_ r: WindowsSelftest.Recorder, _ w: KitWindow, _ page: GalleryPage) async {
