@@ -585,6 +585,19 @@ jobs:
           }
           if ($bad.Count -gt 0) { throw "popover page-open cost: $($bad -join ', ')" }
       # --- settings-open (end) ---
+      # --- fix/windows-popover-sprite-shown (begin) ---
+      - name: Real popover sprite clocks ran (popover.spriteShown)
+        timeout-minutes: 5
+        if: (success() || failure())
+        shell: pwsh
+        run: |
+          $j = Get-Content st.json -Raw | ConvertFrom-Json
+          $c = $j.checks | Where-Object { $_.name -eq 'popover.spriteShown' }
+          if (-not $c) { throw "popover.spriteShown missing" }
+          if (-not $c.ok) { throw "popover.spriteShown FAIL: $($c.detail)" }
+          if ($c.detail -like 'skipped*') { throw "popover.spriteShown skipped on CI" }
+          "PASS popover.spriteShown: $($c.detail)"
+      # --- fix/windows-popover-sprite-shown (end) ---
       # --- stage 7 Task 9: the companion header (begin) ---
       - name: Companion header checks ran (companion.*, captures in ui-dump/companion)
         timeout-minutes: 5

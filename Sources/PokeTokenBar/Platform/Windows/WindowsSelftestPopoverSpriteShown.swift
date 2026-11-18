@@ -1,0 +1,190 @@
+#if os(Windows)
+import Foundation
+import WinSDK
+
+// fix/windows-popover-sprite-shown: `popover.spriteShown`. The user's PC (kit 11) showed every popover sprite decoded and its clock
+// stopped at the first tick by `WinSpriteAnimator.isShown` reading false: the walk went from the top-level popover on to its owner
+// (`GetParent` of a popup is the owner), the app's hidden sink, whose empty client area meets nothing. The sprite checks ran in a
+// KitWindow, which has no owner. This one opens the real popover (`WinPopover`, owned by the app's sink as the app's is, at the tray
+// position, Home inside its scroller), with the bundled FIXTURE GIF for #1 and animation on (the runner's "Show animations" is off),
+// and judges the header and the Collection detail: shown, the clock running, the frame moving. Then the detail's clock stops when it
+// is scrolled out and when the displays sleep, and comes back by itself: scrolled back (its paint), shown again with nothing to
+// paint, displays awake (no paint comes then). The walk before the fix is printed beside (the trigger: it reads false here). CI only
+// (the popover takes the foreground). Fixture data only.
+
+extension WindowsSelftest {
+    @MainActor static func popoverSpriteShownCheck(_ r: Recorder, _ app: WindowsAppDelegate) async {
+        await WindowsSelftestSpriteShown.run(r, app)
+    }
+}
+
+@MainActor enum WindowsSelftestSpriteShown {
+    static let names = ["popover.spriteShown"]
+
+    /// What `isShown` read before the fix: up `GetParent`, which for the top-level popup is its owner.
+    static func ownerWalkShown(_ hwnd: HWND) -> Bool {
+        guard IsWindowVisible(hwnd) else { return false }
+        var area = RECT()
+        guard GetWindowRect(hwnd, &area) else { return false }
+        var parent = GetParent(hwnd)
+        while let p = parent {
+            var client = RECT()
+            var origin = POINT(x: 0, y: 0)
+            guard GetClientRect(p, &client), ClientToScreen(p, &origin) else { return false }
+            var bounds = RECT(left: origin.x, top: origin.y, right: origin.x + client.right, bottom: origin.y + client.bottom)
+            var meet = RECT()
+            guard IntersectRect(&meet, &area, &bounds) else { return false }
+            area = meet
+            parent = GetParent(p)
+        }
+        return true
+    }
+
+    /// Two seconds of one view's clock: shown, armed, ticks and frames moved.
+    struct Run { var shown: Bool, before: Bool, armed: Bool, ticks: Int, frames: Int, moved: Bool, at: RECT }
+
+    static func measure(_ animator: WinSpriteAnimator, _ view: HWND, _ popover: HWND) async -> Run {
+        _ = await WindowsSelftest.waitUntil(timeout: 3) { animator.playback.models.first?.isAnimating == true && animator.playback.clock.isArmed }
+        var at = RECT()
+        _ = GetWindowRect(popover, &at)
+        let ticks0 = animator.playback.ticks, index0 = animator.playback.models.first?.frameIndex ?? -1
+        var moved = false
+        _ = await WindowsSelftest.waitUntil(timeout: 2) {
+            if (animator.playback.models.first?.frameIndex ?? -1) != index0 { moved = true }
+            return false
+        }
+        return Run(shown: WinSpriteAnimator.isShown(view), before: ownerWalkShown(view), armed: animator.playback.clock.isArmed,
+                   ticks: animator.playback.ticks - ticks0, frames: animator.playback.models.first?.frames.count ?? 0, moved: moved, at: at)
+    }
+
+    static func describe(_ name: String, _ m: Run) -> String {
+        "\(name): popover at (\(m.at.left),\(m.at.top)) \(m.at.right - m.at.left)x\(m.at.bottom - m.at.top), \(m.frames) frames, shown=\(m.shown) "
+            + "(the walk before the fix read \(m.before)), in 2 s: \(m.ticks) ticks, the frame moved=\(m.moved), clock armed=\(m.armed)"
+    }
+
+    static func good(_ m: Run) -> Bool { m.shown && m.armed && m.ticks >= 8 && m.moved && m.frames > 1 }
+
+    /// The app's displays-off / on, as Windows sends it to the sink (`GUID_CONSOLE_DISPLAY_STATE`).
+    static func display(_ sink: HWND, _ state: UInt32) {
+        var bytes: [UInt8] = []
+        withUnsafeBytes(of: WindowsSystemEvents.displayStateGUID) { bytes += $0 }
+        withUnsafeBytes(of: UInt32(4)) { bytes += $0 }
+        withUnsafeBytes(of: state) { bytes += $0 }
+        bytes.withUnsafeBytes {
+            _ = SendMessageW(sink, UINT(WM_POWERBROADCAST), WPARAM(WindowsSystemEvents.pbtPowerSettingChange), LPARAM(Int(bitPattern: $0.baseAddress)))
+        }
+    }
+
+    static func run(_ r: WindowsSelftest.Recorder, _ app: WindowsAppDelegate) async {
+        let name = "popover.spriteShown"
+        guard WindowsSelftest.onCI else {
+            r.add(name, true, "skipped: CI not set (the popover takes the foreground)")
+            return
+        }
+        guard let (fetcher, _, _) = WindowsSelftestPopover.fixtureGIF() else {
+            r.add(name, false, "the bundled ice-shatter GIF did not load")
+            return
+        }
+        guard let probe = WindowsSelftestPopoverWindow.makeProbe() else {
+            r.add(name, false, "no probe window: \(GetLastError())")
+            return
+        }
+        defer { probe.destroy() }
+        let savedFetcher = WinCompanionSection.spriteFetcherOverride
+        WinCompanionSection.spriteFetcherOverride = fetcher
+        let suite = "ptb.selftest.spriteshown.\(UUID().uuidString.prefix(8))"
+        let defaults = UserDefaults(suiteName: suite) ?? .standard
+        let stores = await HomeStores.make(language: .en)
+        let (companion, companionDir) = WindowsSelftestPopoverCompanion.fixtureCompanion(language: .en, eggUsage: 1)
+        await companion.hatch(baseID: 1)
+        let loginItem = WindowsLoginItem(runKey: #"Software\PokeTokenBarSelftest\SpriteShown\Run"#, approvedKey: #"Software\PokeTokenBarSelftest\SpriteShown\Approved"#,
+                                         valueName: "PokeTokenBarSpriteShown", command: WindowsLoginItem.command(forExecutable: #"C:\Fixture\PokeTokenBar.exe"#))
+        let host = WinPopoverHost(store: stores.store, companion: companion, updater: nil, team: TeamSettings(defaults: defaults), session: nil, feed: nil,
+                                  tray: nil, loginItem: loginItem, openPlaza: {})
+        host.owner = app.sink.hwnd   // as the app's popover: the owner is the hidden sink (the trigger)
+        let popover = WinPopover(host: host)
+        popover.makePage = { p in
+            let page = WinSettingsPage.routed(p)
+            (page as? WinHomePage)?.configureCompanion = { $0.animationsEnabled = { true } }   // the runner's "Show animations" is off
+            return page
+        }
+        defer {
+            popover.close(.destroyed)
+            WinCompanionSection.spriteFetcherOverride = savedFetcher
+            stores.remove()
+            try? FileManager.default.removeItem(at: companionDir)
+            UserDefaults.standard.removePersistentDomain(forName: suite)
+            WinRegistry.deleteTree(#"Software\PokeTokenBarSelftest\SpriteShown"#)
+        }
+        var notes: [String] = []
+        WindowsSelftest.forceForeground(probe.hwnd)
+        _ = await WindowsSelftest.waitUntil(timeout: 1) { GetForegroundWindow() == probe.hwnd }
+        popover.present(.secondLaunch) { _ in }
+        let up = await WindowsSelftest.waitUntil(timeout: 3) { popover.pageForTesting is WinHomePage && popover.hwndForTesting.map { IsWindowVisible($0) } == true }
+        guard up, let window = popover.hwndForTesting, let home = popover.pageForTesting as? WinHomePage,
+              let header = home.companionSection?.header, let headerSprites = header.view.sprites else {
+            r.add(name, false, "the real popover's Home with its companion header did not come up (up=\(up))")
+            return
+        }
+        let owner = GetWindow(window, UINT(GW_OWNER))
+        notes.append("the popover's owner is the app's sink=\(owner == app.sink.hwnd), a child window=\(GetWindowLongW(window, -16) & 0x4000_0000 != 0)")
+
+        // 1. The header (Home, inside the scroller).
+        let h = await measure(headerSprites, header.view.hwnd, window)
+        notes.append(describe("Home's header #1", h))
+
+        // 2. The Collection detail of #1.
+        popover.state.tab = .collection
+        popover.replacePage()
+        _ = await WindowsSelftest.waitUntil(timeout: 3) { (popover.pageForTesting as? WinHomePage)?.builtTab == .collection }
+        guard let dexHome = popover.pageForTesting as? WinHomePage, let dex = dexHome.tabContent as? WinCollectionPage else {
+            r.add(name, false, (notes + ["the Collection tab did not come up"]).joined(separator: "; "))
+            return
+        }
+        dex.animationsEnabled = { true }
+        dex.openEntry("1")
+        _ = await WindowsSelftest.waitUntil(timeout: 4) { dex.detailView?.sprites?.playback.models.first?.isAnimating == true }
+        guard let detail = dex.detailView, let detailSprites = detail.sprites else {
+            r.add(name, false, (notes + ["the Collection detail of #1 has no sprite"]).joined(separator: "; "))
+            return
+        }
+        let d = await measure(detailSprites, detail.hwnd, window)
+        notes.append(describe("the Collection detail #1", d))
+
+        // 3. Stopped and back by itself: scrolled out and back (its paint), hidden and shown with nothing to paint, displays off and on.
+        var back: [Bool] = []
+        if let area = dexHome.scrollAreaForTesting, area.contentHeight > area.viewportHeight + 200 {
+            area.scroll(to: 100_000)
+            let out = await WindowsSelftest.waitUntil(timeout: 2) { !detailSprites.playback.clock.isArmed }
+            area.scroll(to: 0)
+            let again = await WindowsSelftest.waitUntil(timeout: 2) { detailSprites.playback.clock.isArmed }
+            back.append(out && again)
+            notes.append("scrolled out: the clock stopped=\(out); scrolled back: running again=\(again)")
+        } else {
+            notes.append("scrolled out: not tried (the detail fits its scroller)")
+        }
+        let resumes0 = detailSprites.stats.resumes
+        _ = ShowWindow(detail.hwnd, 0 /* SW_HIDE */)
+        let hidden = !detailSprites.playback.clock.isArmed
+        _ = ShowWindow(detail.hwnd, 8 /* SW_SHOWNA */)
+        _ = ValidateRect(detail.hwnd, nil)   // nothing to paint: only the show itself may start the clock
+        let shownAgain = await WindowsSelftest.waitUntil(timeout: 2) { detailSprites.playback.clock.isArmed }
+        let byShow = detailSprites.stats.resumes > resumes0
+        back.append(hidden && shownAgain && byShow)
+        notes.append("hidden: the clock stopped at once=\(hidden); shown with nothing to paint: running again=\(shownAgain) (by the show=\(byShow))")
+        _ = RedrawWindow(detail.hwnd, nil, nil, UINT(0x0001 | 0x0004 | 0x0080 /* RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN */))
+        let resumes1 = detailSprites.stats.resumes
+        display(app.sink.hwnd, 0)
+        let asleep = await WindowsSelftest.waitUntil(timeout: 2) { !detailSprites.playback.clock.isArmed }
+        display(app.sink.hwnd, 1)
+        let awake = await WindowsSelftest.waitUntil(timeout: 2) { detailSprites.playback.clock.isArmed }
+        let byWake = detailSprites.stats.resumes > resumes1
+        back.append(asleep && awake && byWake)
+        notes.append("displays off: the clock stopped at its tick=\(asleep); displays on: running again=\(awake) (by the wake=\(byWake))")
+        if Platform.current.events.displaysAreAsleep { display(app.sink.hwnd, 1) }
+
+        let ok = good(h) && good(d) && !back.contains(false)
+        r.add(name, ok, notes.joined(separator: "; "))
+    }
+}
+#endif

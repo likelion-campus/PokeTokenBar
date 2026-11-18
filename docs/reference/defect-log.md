@@ -3223,3 +3223,21 @@ read_when:
   - **고침:** 점검이 파트 자신의 폭(`TrendBarsPart.width`, 읽기 전용으로 공개)으로 찾는다. 실패 줄에는 포인터·카드·항목 사각형과 선택·뷰 통계를 남긴다.
   - **부류 스윕:** 셀프테스트의 `size(width:)` 호출은 이 하나뿐(나머지는 호스트 경로). "오늘"을 시계에서 받는 픽스처(`ActivityFixtures`, Recap `series`, Home 의 `now`)는 날짜별 열 위치에만 의존하며 이 부류는 이 점검이 유일하다.
   - **영구 캡처:** `PopoverActivityTests.testAPointFoundAtThePartsOwnWidthStaysOnItsColumn` — 7월 1–14 일 모두에서 자기 폭의 점은 +1 px 에서 열을 지키고, 다른 폭의 점은 일부 날에 지키지 못한다(함정을 고정). **규칙:** 살아 있는 파트를 재는 점검은 파트의 현재 폭을 쓰고, `size(width:)` 로 폭을 바꾸지 않는다.
+
+<!-- popover sprite shown (fix/windows-popover-sprite-shown) begin -->
+- **(사용자 PC, kit 11 로그) 팝오버의 스프라이트(홈 헤더·도감 상세)가 하나도 움직이지 않았다 — 디코드는 됐고(`583-a.gif: 41885 bytes, 73 frames`) 첫 틱에서 시계가 멈췄다
+  (`shown=false`, 45 초에 16 번, `shown=true` 는 한 줄도 없음).** 직접원인: `WinSpriteAnimator.isShown` 이 `GetParent` 로 올라갔다. `GetParent` 는 최상위 팝업에서 **owner** 를
+  돌려주고, 팝오버의 owner 는 앱의 숨은 싱크(클라이언트 0x0)라 교차가 비어 모든 스프라이트가 "안 보임"이었다. 칠할 때마다 시계가 다시 켜지고 다음 틱에 꺼져, 그림은 첫 프레임에 멈췄다.
+  **왜 못 걸렀나:** ① 스프라이트 시계 체크(`companion.spriteFrames`·`clockStops`)는 owner 없는 KitWindow 에서 돌았다 — 실제 팝오버의 창 구성(owner 있는 팝업)과 달랐다. ② 실제 팝오버를
+  여는 체크들은 스프라이트 시계를 보지 않았고, 러너의 "애니메이션 표시"가 꺼져 있어 실제 팝오버에서는 시계가 켜질 일 자체가 없었다(정지 그림이 정상). ③ 칠할 때 다시 켜지는 동작이
+  캡처를 정상으로 보이게 했다. **고침:** 부모 체인만(`WS_CHILD` 인 동안 `GetAncestor(GA_PARENT)`) 올라 최상위 창에서 멈춘다. 그리고 멈춘 시계가 칠하기 없이도 돌아온다: 뷰 자신이 다시
+  보일 때(`WM_SHOWWINDOW`, 보인 뒤에 확인)와 디스플레이가 깰 때(그때는 다시 칠하지 않는다), 꺼져 있는 동안 타이머 없이. **부류 스윕:** `GetParent` 로 오르는 곳 — `WinScrollArea.reveal`
+  (스크롤 영역을 찾을 뿐이라 owner 까지 가도 해 없음), `isShown`(고침). `isShown` 을 쓰는 동반자 헤더의 효과 시계·진화 라인 이동도 같은 고침으로 실제 팝오버에서 처음 돈다.
+  **회귀 테스트:** `popover.spriteShown` — 앱 싱크가 owner 인 실제 `WinPopover` 를 트레이 위치에 열고(고정 GIF, 애니메이션 켬) 홈 헤더와 도감 상세가 보임·시계·틱·프레임 이동을 갖는지,
+  스크롤 아웃/백, 칠할 것 없는 재표시, 디스플레이 꺼짐/켜짐에서 멈췄다 스스로 돌아오는지 본다. 고치기 전 걷기(`GetParent`)를 옆에 찍어 트리거(여기서 false)를 보인다.
+  **규칙:** 창 체인을 오를 때 `GetParent` 는 최상위 팝업의 owner 를 돌려준다 — 부모만 오를 땐 `WS_CHILD` 동안 `GetAncestor(GA_PARENT)`. 화면 상태 체크는 실제 창과 같은 소유 관계에서 돈다.
+- **(같은 로그) 플로팅 펫은 kit 11 에서 움직였다(`41 frames at the 0.1 s floor`, `89 clock fires, 89 ticks` / 10 s).** kit 10(windows-port #280+#281)과 사이의 펫 경로 차이는 잠금 판정
+  (SessionFlags 하나 → SessionFlags·입력 데스크톱), GIF 재시도, #283 확장(그리기 합성), 로그다. 이번 실행의 값으로 보면 kit 10 의 판정도 같았다(SessionFlags=0x1 이면 kit 10 도 잠기지
+  않음, 첫 GIF 요청이 성공해 재시도가 일하지 않음, 절전 꺼짐, #283 은 시계·프레임 선택을 건드리지 않음). 그래서 이 실행에서 움직인 것을 그 코드 변경이 설명하지 못한다. kit 10 세션에는
+  펫 로그가 없어(#285 에서 생김) 그때의 원인은 **증명되지 않았다** — kit 10 의 보고와 맞는 남은 설명은 그 세션들의 첫 GIF 요청 실패(kit 10 은 다시 묻지 않음)다.
+<!-- popover sprite shown (fix/windows-popover-sprite-shown) end -->

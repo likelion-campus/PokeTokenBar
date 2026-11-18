@@ -68,6 +68,7 @@ import WinSDK
 
     private(set) var stack: WinStack?
     private var area: WinScrollArea?
+    var scrollAreaForTesting: WinScrollArea? { area }   // fix/windows-popover-sprite-shown: the real popover's sprite check
     /// A scroll area made by a test window is its own to destroy.
     private var ownsArea = true
     // --- pinned panes: the update offer and plaza button above, the footer below, as the Mac pins them (begin) ---
