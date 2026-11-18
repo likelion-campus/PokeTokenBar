@@ -140,6 +140,9 @@ struct WinLook {
         return rest
     }
     var accent: COLORREF { palette.accent }
+    /// Accent-coloured text (a selected chip): a step darker in light, lighter in dark, as Windows 11's accent text colours, so it
+    /// reads on the chip's own accent tint (the plain accent was about 3:1 on it in dark).
+    var accentText: COLORREF { dark ? WinUIColors.blend(accent, 0x00FF_FFFF, 0.5) : WinUIColors.blend(accent, 0, 0.25) }
     /// Text on the accent fill: white, or black where the accent is light (Windows 11's dark convention).
     var onAccent: COLORREF {
         func channel(_ v: UInt32) -> Double {
@@ -157,7 +160,6 @@ struct WinLook {
     /// SELFTEST HOOK, not a setting: custom draw answers "do the default" (the guard's fault injection, `popover.customDraw.fault`).
     static var testDisabled = false
     private static let skipDefault: LRESULT = 0x0004  // CDRF_SKIPDEFAULT
-    private static let notifyItemDraw: LRESULT = 0x0020  // CDRF_NOTIFYITEMDRAW
 
     /// What the system sends a button or trackbar, painted here; nil (the system's own drawing) in high contrast and for stages
     /// that need no answer.
@@ -166,7 +168,6 @@ struct WinLook {
         return header.withMemoryRebound(to: NMCUSTOMDRAW.self, capacity: 1) { pointer -> LRESULT? in
             let nm = pointer.pointee
             guard let dc = nm.hdc else { return nil }
-            let rect = nm.rc
             switch c.kind {
             case .button, .checkbox, .radioGroup:
                 guard nm.dwDrawStage == 0x0001 /* CDDS_PREPAINT */ else { return nil }
@@ -177,25 +178,12 @@ struct WinLook {
                 paintButtonKinds(c, part, dc, client)
                 return skipDefault
             case .trackbar:
-                switch nm.dwDrawStage {
-                case 0x0001:  // CDDS_PREPAINT: the background, then ask for the parts
-                    c.customDrawCount += 1
-                    var client = RECT()
-                    _ = GetClientRect(part, &client)
-                    var fill = client
-                    _ = FillRect(dc, &fill, c.ctx.colors.brush(c.background))
-                    return notifyItemDraw
-                case 0x0001 | 0x10000:  // CDDS_ITEMPREPAINT
-                    let look = WinLook(c)
-                    switch nm.dwItemSpec {
-                    case 3: paintChannel(c, part, dc, look)  // TBCD_CHANNEL
-                    case 2: paintThumb(c, part, dc, rect, look)  // TBCD_THUMB
-                    default: break  // TBCD_TICS: the bar has no ticks
-                    }
-                    return skipDefault
-                default:
-                    return nil
-                }
+                // The whole bar in the first stage: the system's per-part stages (channel, thumb) were not delivered on the runner
+                // when asked for, so nothing here depends on them (the thumb's place comes from `TBM_GETTHUMBRECT`).
+                guard nm.dwDrawStage == 0x0001 /* CDDS_PREPAINT */ else { return nil }
+                c.customDrawCount += 1
+                paintTrackbar(c, part, dc)
+                return skipDefault
             default:
                 return nil
             }
@@ -212,6 +200,15 @@ struct WinLook {
         }
     }
 
+    private static func paintTrackbar(_ c: WinControl, _ part: HWND, _ dc: HDC) {
+        var client = RECT()
+        _ = GetClientRect(part, &client)
+        let look = WinLook(c)
+        fillBackground(c, dc, client)
+        paintChannel(c, part, dc, look)
+        paintThumb(c, part, dc, nativeThumb(part), look)
+    }
+
     /// The same pictures without `NM_CUSTOMDRAW`: when the system painted a control (`WM_PAINT`, `WM_PRINTCLIENT`) and custom draw
     /// did not run (a class that does not send it in some theme), the subclass paints over the system's picture. The selftest
     /// reports which path ran per class; this one is a safety net, not the design.
@@ -223,10 +220,7 @@ struct WinLook {
         case .button, .checkbox, .radioGroup:
             paintButtonKinds(c, part, dc, client)
         case .trackbar:
-            let look = WinLook(c)
-            fillBackground(c, dc, client)
-            paintChannel(c, part, dc, look)
-            paintThumb(c, part, dc, nativeThumb(part), look)
+            paintTrackbar(c, part, dc)
         default:
             break
         }
@@ -323,7 +317,7 @@ struct WinLook {
             fill = WinUIColors.blend(fill, look.ink, s.pressed ? 0.06 : 0.03)
         }
         WinAA.fillRound(dc, r, radius: radius, color: fill)
-        var ink = s.checked ? look.accent : look.palette.secondaryText
+        var ink = s.checked ? look.accentText : look.palette.secondaryText
         if s.disabled { ink = look.palette.disabled }
         let mark = c.chipMarks.indices.contains(i) && c.chipMarks[i] ? "\u{25CF} " : ""
         text(dc, mark + WinKit.text(of: part).replacingOccurrences(of: "&&", with: "&"), font: s.checked ? (c.boldFont ?? c.font) : c.font, color: ink,
