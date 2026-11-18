@@ -67,8 +67,12 @@ enum PopoverLabelOpacity {
     /// caption, "This week" / "This month", hints, "updated 0s ago", arrows) read as white on white. Tertiary 0.55 is about
     /// #737373 on white (4.7:1, WCAG AA); secondary is raised to 0.68 (#525252, 7.6:1) so primary > secondary > tertiary
     /// stays visible.
+    ///
+    /// Light layering (visual polish K1): text now sits on the #F3F3F3 base, not white. Over the base 0.55 would be 4.66:1 (below
+    /// today's 4.74:1 on white), so the tertiary opacity is 0.56 (4.80:1 over #F3F3F3, 5.3:1 over a white card); secondary 0.68
+    /// is 7.5:1 over the base.
     static let windowsLightSecondary = 0.68
-    static let windowsLightTertiary = 0.55
+    static let windowsLightTertiary = 0.56
     /// Dark (Task 16): white at these opacities over the dark card (#2B2B2B). The Mac's 0.55 / 0.25 give 5.4:1 / 2.2:1; tertiary
     /// 0.55 is 5.4:1 (AA) and secondary 0.72 is 8.1:1, so primary 0.85 > secondary > tertiary stays visible. Pinned by
     /// `PopoverLabelContrastTests`.

@@ -228,7 +228,7 @@ import WinSDK
         var line = WinCardView.Line(top: 8)
         if m.ownedAlready {
             // a passive item you own: "owned", no buy button
-            line.glyph = ("checkmark.seal.fill", WinCardKit.colorRef(.systemGreen))
+            line.glyph = ("checkmark.seal.fill", WinCardKit.colorRef(.systemGreen, ctx: ctx))
             if let c = WinCardKit.label(l.ownedAlready, .caption2, weight: 600, color: .systemGreen, in: child, ctx: ctx) { line.leading.append(c) }
         } else if state.confirming {
             let question = l.buyConfirm(ShopCardRules.quantityName(l: l, kind: m.kind, selectedQuantity: selected))

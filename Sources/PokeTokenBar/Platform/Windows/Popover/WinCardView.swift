@@ -57,8 +57,10 @@ import WinSDK
         self.iconSide = iconSide
         self.iconGap = iconGap
         let pal = ctx.colors.palette
-        // `Color.secondary` is black at half strength in light mode: 6 % of it is 3 % black over the window.
-        tint = ctx.highContrast || !tinted ? pal.window : WinUIColors.blend(pal.window, WinUIColors.rgb(0, 0, 0), 0.03)
+        // The tile is the card token in both appearances (K1): white on the grey base in light, lighter than the window in dark.
+        // (It was 3 % black over the window, which in dark mode darkened the tile where the Mac's `secondary.opacity(0.06)`
+        // lightens it.)
+        tint = ctx.highContrast || !tinted ? pal.window : pal.card
         let built = build(made.hwnd, ctx, tint)
         icon = built.icon
         lines = built.lines
@@ -207,7 +209,7 @@ import WinSDK
         _ = FillRect(dc, &rr, ctx.colors.brush(pal.window))
         defer { paintGlyphs(dc) }
         guard tinted, tint != pal.window || ctx.highContrast else { return }
-        if let pen = CreatePen(ctx.highContrast ? 0 : 5 /* PS_NULL */, 1, pal.text) {
+        if let pen = CreatePen(0 /* PS_SOLID */, max(1, ctx.px(1)), ctx.highContrast ? pal.text : pal.cardBorder) {  // the card's hairline (white on the grey base needs it)
             let oldPen = SelectObject(dc, UnsafeMutableRawPointer(pen))
             let oldBrush = SelectObject(dc, UnsafeMutableRawPointer(ctx.colors.brush(tint)))
             let radius = 2 * ctx.px(radiusDIP)

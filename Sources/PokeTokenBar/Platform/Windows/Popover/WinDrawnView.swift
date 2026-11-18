@@ -494,7 +494,7 @@ import WinSDK
     private func render(notify: Bool = true) {
         guard let part = hosted, !isDestroyed else { return }
         stats.renders += 1
-        let graphics = PlatformPlaza.graphics
+        let graphics = WinPopoverGraphics.shared
         setSize(part.size(width: hostedWidth, scale: ctx.scale, text: graphics.text), notify: notify)
         show(part.render(scale: ctx.scale, graphics: graphics))
     }

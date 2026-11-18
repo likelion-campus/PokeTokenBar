@@ -55,11 +55,11 @@ private struct CollectionFixtureNames: PokemonNameProviding {
         return HomeStores(store: base.store, companion: companion, team: base.team, state: base.state, directory: base.directory)
     }
 
-    private static func harness(_ count: Int, language: AppLanguage, log: Bool = false) async -> (HomeHarness, WinCollectionPage)? {
+    private static func harness(_ count: Int, language: AppLanguage, log: Bool = false, dpi: UINT? = nil) async -> (HomeHarness, WinCollectionPage)? {
         let stores = await seeded(count, language: language)
         stores.state.tab = .collection
         stores.state.showingCollectionLog = log
-        guard let h = HomeHarness(stores: stores, input: { HomeFixtures.update($0, now: $1) }, heightDIP: 700),
+        guard let h = HomeHarness(stores: stores, input: { HomeFixtures.update($0, now: $1) }, dpi: dpi, heightDIP: 700),
               let page = h.page.tabContent as? WinCollectionPage else { return nil }
         h.window.show(activate: false)
         await wait(0.3)
@@ -108,7 +108,29 @@ private struct CollectionFixtureNames: PokemonNameProviding {
         await emptyCheck(r)
         await homeLinksCheck(r)
         await detailCheck(r)
+        await captures150()
         await openCloseCheck(r, start: start)
+    }
+
+    /// K0: the grid and the detail page at 150 % (a context at 144 dpi), en and ko; captures only, no check of their own.
+    private static func captures150() async {
+        for language in [AppLanguage.en, .ko] {
+            if let (h, _) = await harness(120, language: language, dpi: 144) {
+                dump(h, "grid-\(language.rawValue)-150")
+                h.destroy()
+            }
+            if let (h, page) = await harness(20, language: language, dpi: 144) {
+                page.nameProvider = CollectionFixtureNames()
+                page.openEntry("7")
+                _ = await WindowsSelftest.waitUntil(timeout: 4) {
+                    if case .details? = page.detailPart.map({ $0.model.content }) { return page.detailPart?.model.identity.types.first?.text.contains("…") == false }
+                    return false
+                }
+                await wait(0.4)
+                dump(h, "detail-top-\(language.rawValue)-150")
+                h.destroy()
+            }
+        }
     }
 
     // MARK: collection.grid

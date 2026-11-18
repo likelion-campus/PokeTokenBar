@@ -417,6 +417,9 @@ enum HomeFixtures {
             Variant(name: "three-ru", language: .ru, input: { HomeFixtures.three($0, now: $1) }),
             Variant(name: "three-text150", input: { HomeFixtures.three($0, now: $1) }, textScale: 1.5),
             Variant(name: "three-150", input: { HomeFixtures.three($0, now: $1) }, dpi: 144),
+            // K0: the Korean and Japanese pages at 150 % too (a context at 144 dpi: the runner's display scale cannot be changed)
+            Variant(name: "three-ko-150", language: .ko, input: { HomeFixtures.three($0, now: $1, team: true) }, dpi: 144),
+            Variant(name: "three-ja-150", language: .ja, input: { HomeFixtures.three($0, now: $1) }, dpi: 144),
         ]
     }
 

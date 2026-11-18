@@ -9,20 +9,17 @@ import WinSDK
     static func label(_ text: String, _ style: PopoverTextStyle, weight: Int? = nil, role: WinUIColors.Role = .primary,
                       color: PopoverColorRole? = nil, wraps: Bool = false, maxLines: Int? = nil, in pane: HWND, ctx: WinUIContext) -> WinControl? {
         guard let c = WinControls.label(text, style: style, weight: weight, role: role, wraps: wraps, maxLines: maxLines, in: pane, ctx: ctx) else { return nil }
-        if let color { c.textColor = colorRef(color) }
+        if let color { c.textColor = colorRef(color, ctx: ctx) }
         return c
     }
 
-    /// The Mac's light-appearance value of a colour role as a `COLORREF`.
-    static func colorRef(_ role: PopoverColorRole) -> COLORREF {
-        let v = role.macValue(.light)
-        func byte(_ d: Double) -> UInt8 { UInt8(max(0, min(255, (d * 255).rounded()))) }
-        return WinUIColors.rgb(byte(v.red), byte(v.green), byte(v.blue))
-    }
+    /// A colour role's value in the page's appearance (light, dark or high contrast), as a `COLORREF`.
+    static func colorRef(_ role: PopoverColorRole, ctx: WinUIContext) -> COLORREF { ctx.colors.roleColor(role) }
 
-    /// The wallet's 24 pt bold total: the label made at `.largeBold`, then set in the Mac's size.
+    /// The wallet's total: the label made at `.largeBold`, then set at 24 DIP semibold in Segoe UI Variable Display (the Windows
+    /// ramp's display2; the Mac's is 24 pt bold).
     static func bigNumber(_ text: String, in pane: HWND, ctx: WinUIContext) -> WinControl? {
-        guard let c = WinControls.label(text, style: .largeBold, wraps: false, in: pane, ctx: ctx), let font = ctx.fonts.sized(24, weight: 700) else {
+        guard let c = WinControls.label(text, style: .largeBold, wraps: false, in: pane, ctx: ctx), let font = ctx.fonts.sized(24, weight: 600) else {
             return nil
         }
         WinKit.setFont(c.hwnd, font)

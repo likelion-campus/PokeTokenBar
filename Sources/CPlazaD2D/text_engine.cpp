@@ -223,17 +223,25 @@ TextMetrics TextEngine::metrics(IDWriteFontFace *face, double size) {
     return t;
 }
 
+void TextEngine::setLocale(const wchar_t *name) {
+    if (!name || !*name) return;
+    AcquireSRWLockExclusive(&lock);
+    localeName = name;
+    ReleaseSRWLockExclusive(&lock);
+}
+
 int TextEngine::format(int font, int weight, float size, Ref<IDWriteTextFormat> &out) {
     AcquireSRWLockShared(&lock);
+    const std::wstring locale = localeName;
     for (const FormatEntry &e : formats) {
-        if (e.font == font && e.weight == weight && e.size == size) { out = e.format; break; }
+        if (e.font == font && e.weight == weight && e.size == size && e.locale == locale) { out = e.format; break; }
     }
     ReleaseSRWLockShared(&lock);
     if (out) return 0;
     const Family f = family(font);
     Ref<IDWriteTextFormat> made;
     HRESULT hr = factory->CreateTextFormat(f.name.c_str(), f.collection, static_cast<DWRITE_FONT_WEIGHT>(weight), DWRITE_FONT_STYLE_NORMAL,
-                                           DWRITE_FONT_STRETCH_NORMAL, size, L"ko-kr", made.out());
+                                           DWRITE_FONT_STRETCH_NORMAL, size, locale.c_str(), made.out());
     if (FAILED(hr)) return fail("CreateTextFormat", hr);
     made->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
     Ref<IDWriteTextFormat1> withFallback;
@@ -245,6 +253,7 @@ int TextEngine::format(int font, int weight, float size, Ref<IDWriteTextFormat> 
     e.font = font;
     e.weight = weight;
     e.size = size;
+    e.locale = locale;
     e.format = made;
     formats.push_back(std::move(e));
     ReleaseSRWLockExclusive(&lock);

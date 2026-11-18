@@ -441,8 +441,14 @@ final class PopoverLabelContrastTests: XCTestCase {
     func testWindowsLightTextIsReadableOnWhite() {
         let tertiary = PopoverLabelOpacity.tertiary(.light, windows: true)
         let secondary = PopoverLabelOpacity.secondary(.light, windows: true)
-        XCTAssertEqual(tertiary, 0.55)
+        XCTAssertEqual(tertiary, 0.56, "raised from 0.55 when the light base became #F3F3F3 (K1): 4.80:1 over the base")
         XCTAssertEqual(secondary, 0.68)
+        // The text sits on the #F3F3F3 base as well as on white cards: the floor is the base, and it must not be
+        // below the 4.74:1 that 0.55 gave on white before the base changed.
+        let base: UInt32 = 0xF3F3F3
+        XCTAssertGreaterThanOrEqual(PopoverSurface.contrast(PopoverSurface.blend(base, 0x000000, tertiary), base), 4.74)
+        XCTAssertGreaterThanOrEqual(PopoverSurface.contrast(PopoverSurface.blend(base, 0x000000, secondary), base), 7)
+        XCTAssertGreaterThanOrEqual(PopoverSurface.contrast(PopoverSurface.blend(base, 0x000000, PopoverLabelOpacity.primary), base), 10)
         XCTAssertGreaterThanOrEqual(contrastOnWhite(tertiary), 4.5)
         XCTAssertGreaterThanOrEqual(contrastOnWhite(secondary), 7)
         XCTAssertGreaterThan(secondary, tertiary)
@@ -464,7 +470,7 @@ final class PopoverLabelContrastTests: XCTestCase {
     }
 
     func testTheDrawnPartsRoleColoursFollowTheWindowsValues() {
-        XCTAssertEqual(PopoverColorRole.tertiary.displayValue(.light, windows: true).rgba, 0x0000008C)
+        XCTAssertEqual(PopoverColorRole.tertiary.displayValue(.light, windows: true).rgba, 0x0000008F)
         XCTAssertEqual(PopoverColorRole.secondary.displayValue(.light, windows: true).rgba, 0x000000AD)
         XCTAssertEqual(PopoverColorRole.primary.displayValue(.light, windows: true), PopoverColorRole.primary.macValue(.light))
         XCTAssertEqual(PopoverColorRole.systemOrange.displayValue(.light, windows: true), PopoverColorRole.systemOrange.macValue(.light))

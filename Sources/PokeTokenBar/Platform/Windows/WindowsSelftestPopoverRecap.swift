@@ -146,6 +146,8 @@ private struct RecapFixtureProvider: UsageProvider {
             Variant(name: "week-de", language: .de, days: 120),
             Variant(name: "week-text150", days: 120, textScale: 1.5),
             Variant(name: "week-150", days: 120, dpi: 144),
+            Variant(name: "week-ko-150", language: .ko, days: 120, dpi: 144),  // K0: 150 % in Korean
+            Variant(name: "month-150", days: 120, scope: .month, dpi: 144),
         ]
     }
 

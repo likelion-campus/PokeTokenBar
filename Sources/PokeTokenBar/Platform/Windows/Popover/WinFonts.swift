@@ -8,6 +8,8 @@ import WinSDK
 /// MDL2 Assets (`WinGlyphs`), the 🔥/✨ fallbacks from Segoe UI Emoji. Fonts are made on first use and kept until `destroy`.
 @MainActor final class WinFonts {
     static let variableText = "Segoe UI Variable Text"
+    static let variableSmall = "Segoe UI Variable Small"
+    static let variableDisplay = "Segoe UI Variable Display"
     static let segoeUI = "Segoe UI"
     static let fluentIcons = "Segoe Fluent Icons"
     static let mdl2Assets = "Segoe MDL2 Assets"
@@ -36,10 +38,59 @@ import WinSDK
         iconFace = Self.isInstalled(Self.fluentIcons) ? Self.fluentIcons : Self.mdl2Assets
     }
 
-    /// The style's font, optionally at another weight (the section caption is `.caption` semibold on the Mac).
+    /// The style's font at its Windows step (`WinTypeRamp`), optionally at another weight (the section caption is `.caption`
+    /// semibold on the Mac). The optical-size family follows the size.
     func font(_ style: PopoverTextStyle, weight: Int? = nil) -> HFONT? {
-        let (faceName, lfWeight) = Self.face(base: face, weight: weight ?? style.weight)
-        return make(faceName, height: -Int32(style.pixelSize(dpi: Int(dpi), textScale: textScale)), weight: lfWeight)
+        let step = WinTypeRamp.step(style)
+        let w = weight.map(WinTypeRamp.weight) ?? step.weight
+        let (faceName, lfWeight) = Self.face(base: family(forDIP: step.size), weight: w)
+        return make(faceName, height: -Int32(pixelSize(step.size)), weight: lfWeight)
+    }
+
+    /// DIP to device pixels with the text-size factor.
+    func pixelSize(_ dip: CGFloat) -> Int { PopoverTextStyle.pixels(dip * CGFloat(textScale), dpi: Int(dpi)) }
+
+    /// The text face for a size: Segoe UI Variable Small (<= 12 DIP), Text (13-19) or Display (>= 20) on Windows 11 where the
+    /// family is installed and GDI links Hangul through it (`linksHangul`); else the plain text face (Windows 10: Segoe UI).
+    func family(forDIP dip: CGFloat) -> String {
+        guard face == Self.variableText else { return face }
+        let name: String
+        switch WinTypeRamp.optical(size: dip) {
+        case .small: name = Self.variableSmall
+        case .text: return face
+        case .display: name = Self.variableDisplay
+        }
+        return Self.isInstalled(name) && Self.linksHangul(name) ? name : face
+    }
+
+    /// Whether GDI draws Hangul through this family as through Malgun Gothic (font linking is per family name; a family
+    /// without a link would show boxes). Probed once per family: the advance of 한 at 64 px equals Malgun Gothic's. A machine
+    /// without Malgun Gothic cannot tell, and the family is used.
+    static func linksHangul(_ family: String) -> Bool {
+        if let known = hangulLinks[family] { return known }
+        let malgun = hangulAdvance("Malgun Gothic")
+        let ok = malgun == nil || hangulAdvance(family) == malgun
+        hangulLinks[family] = ok
+        if !ok { AppLog.write("popover kit: \(family) does not link Hangul; the text face is used for that size") }
+        return ok
+    }
+    private static var hangulLinks: [String: Bool] = [:]
+
+    private static func hangulAdvance(_ family: String) -> Int32? {
+        guard isInstalled(family) || family == "Malgun Gothic", let dc = CreateCompatibleDC(nil) else { return nil }
+        defer { _ = DeleteDC(dc) }
+        var lf = LOGFONTW()
+        lf.lfHeight = -64
+        lf.lfCharSet = 1
+        setFaceName(&lf, family)
+        guard let font = CreateFontIndirectW(&lf) else { return nil }
+        defer { _ = DeleteObject(UnsafeMutableRawPointer(font)) }
+        let old = SelectObject(dc, UnsafeMutableRawPointer(font))
+        defer { _ = SelectObject(dc, old) }
+        var size = SIZE()
+        let units: [UInt16] = [0xD55C]
+        guard GetTextExtentPoint32W(dc, units, 1, &size) else { return nil }
+        return size.cx
     }
 
     /// The icon font at `size` DIP (Fluent's crisp sizes are 16, 20, 24, 32).
@@ -51,14 +102,14 @@ import WinSDK
         make(Self.emojiFace, height: -Int32(PopoverTextStyle.pixels(size * CGFloat(textScale), dpi: Int(dpi))), weight: 400)
     }
 
-    /// A text font at `size` DIP in the text face (the Shop wallet's 24 pt bold: a size the Mac's text styles do not have).
+    /// A text font at `size` DIP (the Shop wallet's 24 DIP semibold Display: a size the text styles do not have).
     func sized(_ size: CGFloat, weight: Int) -> HFONT? {
-        let (faceName, lfWeight) = Self.face(base: face, weight: weight)
-        return make(faceName, height: -Int32(PopoverTextStyle.pixels(size * CGFloat(textScale), dpi: Int(dpi))), weight: lfWeight)
+        let (faceName, lfWeight) = Self.face(base: family(forDIP: size), weight: WinTypeRamp.weight(weight))
+        return make(faceName, height: -Int32(pixelSize(size)), weight: lfWeight)
     }
 
     /// `LOGFONTW.lfHeight` of a style (negative: the em height in pixels).
-    func height(_ style: PopoverTextStyle) -> Int32 { -Int32(style.pixelSize(dpi: Int(dpi), textScale: textScale)) }
+    func height(_ style: PopoverTextStyle) -> Int32 { -Int32(pixelSize(WinTypeRamp.step(style).size)) }
 
     var count: Int { made.count }
 
@@ -68,7 +119,8 @@ import WinSDK
     }
 
     /// GDI groups at most regular and bold under one family name: semibold is its own family ("Segoe UI Semibold",
-    /// "Segoe UI Variable Text Semibold"). Medium has no face in either family and draws regular.
+    /// "Segoe UI Variable Text Semibold"). Medium has no face in either family and draws regular. The popover uses semibold
+    /// where the Mac uses bold (`WinTypeRamp.weight`), so 700 is only for a caller that asks for it here.
     static func face(base: String, weight: Int) -> (String, Int32) {
         if weight >= 650 { return (base, 700) }
         if weight >= 550 {

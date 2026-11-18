@@ -6,8 +6,9 @@ import WinSDK
 // Stage 7 Task 19: the Shop and Bag tabs' selftest groups (`popover.shop`, `popover.bag`). Every state is SAMPLE data made here
 // (a companion state file with a wallet, an inventory and a made-up evolution line; nothing is read from this PC, nothing is
 // bought for real: Buy and Use are recorded). With `--dump-ui <dir>` the pages go to `<dir>/shop/` and `<dir>/bag/` as PNG
-// ("Sample-data capture, Windows CI runner"). Sprites: the item sprites come from a fixture source (a PNG made here, or none for
-// the emoji fallback) and the egg and Snorlax slots from a stub fetcher, so they show the egg glyph.
+// ("Sample-data capture, Windows CI runner"). Sprites: no sprite art is bundled (the app fetches it from PokeAPI into its cache),
+// so the item icons show their emoji (what the app shows before a sprite is cached) and the egg and Snorlax slots come from a
+// stub fetcher, so they show the egg glyph.
 
 extension WindowsSelftest {
     @MainActor static func popoverShopBagChecks(_ r: Recorder, _ app: WindowsAppDelegate) async {
@@ -68,15 +69,6 @@ private struct ShopBagFixturePoke: PokeProviding {
         return WinUIDump.Bitmap(width: Int(width), height: Int(height), bgra: Array(UnsafeBufferPointer(start: out, count: Int(width * height) * 4)))
     }
 
-    /// A 30 px square PNG made with the plaza canvas (the item sprite's stand-in).
-    private static func fixturePNG() -> Data? {
-        let graphics = PlatformPlaza.graphics
-        guard let canvas = graphics.makeCanvas(width: 30, height: 30, colorSpace: .sRGB) else { return nil }
-        canvas.setFillColor(PlazaColor(srgbRed: 1, green: 0.35, blue: 0.5))
-        canvas.fill(CGRect(x: 4, y: 4, width: 22, height: 22))
-        return canvas.makeImage().flatMap { graphics.encodePNG($0) }
-    }
-
     private static func companionJSON(used: Int, inventory: [ItemKind: Int] = [:], active: Bool, shiny: Bool = false) -> String {
         let inv = inventory.isEmpty ? "" : ",\"inventory\":{" + inventory.map { "\"\($0.key.rawValue)\":\($0.value)" }.sorted().joined(separator: ",") + "}"
         let mon = active
@@ -99,7 +91,7 @@ private struct ShopBagFixturePoke: PokeProviding {
         }
 
         static func make(tab: PopoverState.Tab, language: AppLanguage, used: Int, inventory: [ItemKind: Int] = [:], active: Bool, shiny: Bool = false,
-                         lineLoaded: Bool = false, sprites: Bool = true) async -> Harness? {
+                         lineLoaded: Bool = false, dpi: UINT? = nil) async -> Harness? {
             let stores = await HomeStores.make(language: language, companionJSON: WindowsSelftestPopoverShopBag.companionJSON(
                 used: used, inventory: inventory, active: active, shiny: shiny), poke: ShopBagFixturePoke())
             if lineLoaded {
@@ -108,9 +100,10 @@ private struct ShopBagFixturePoke: PokeProviding {
             }
             stores.state.tab = tab
             let record = Record()
-            let png = WindowsSelftestPopoverShopBag.fixturePNG()
-            let source = ItemFixtureSource(directory: stores.directory, answers: sprites ? ["rare-candy": png ?? Data(), "shiny-charm": png ?? Data()] : [:])
-            guard let h = HomeHarness(stores: stores, input: nil, recordActions: true, heightDIP: 640, configure: { page in
+            // No item art is bundled (the app fetches it from PokeAPI into its cache), so the captures show what the app shows
+            // before a sprite is cached: the item's emoji. (A made-up pink square stood here and made the captures useless.)
+            let source = ItemFixtureSource(directory: stores.directory, answers: [:])
+            guard let h = HomeHarness(stores: stores, input: nil, dpi: dpi, recordActions: true, heightDIP: 640, configure: { page in
                 page.tabChanged = { record.tabs.append($0) }
                 page.configureTabContent = { content in
                     let stub = { WinSpriteAnimator(fetcher: PlazaStubSpriteFetcher(log: { _ in }), animationsEnabled: { false }) }
@@ -151,19 +144,18 @@ private struct ShopBagFixturePoke: PokeProviding {
         var notes: [String] = []
         let dir = dumpDirectory("shop")
         let start = KitResources.now()
-        let rich = 1_000_000_000_000_000
+        let rich = 20_000_000_000  // 20B: affords every item (the dearest is 3B) and prints as a plausible wallet
 
         // 1. the states, in en and ko: what each shows
         for language in [AppLanguage.en, .ko] {
             let tag = language == .en ? "en" : "ko"
-            struct Variant { var name: String; var used: Int; var inventory: [ItemKind: Int]; var active: Bool; var shiny = false; var sprites = true }
+            struct Variant { var name: String; var used: Int; var inventory: [ItemKind: Int]; var active: Bool; var shiny = false }
             let variants = [Variant(name: "rich", used: rich, inventory: [:], active: true),
                             Variant(name: "poor", used: 0, inventory: [:], active: true),
-                            Variant(name: "egg", used: rich, inventory: [:], active: false, sprites: false),
+                            Variant(name: "egg", used: rich, inventory: [:], active: false),
                             Variant(name: "charm-owned", used: rich, inventory: [.shinyCharm: 1, .rareCandy: 4], active: true)]
             for v in variants {
-                guard let h = await Harness.make(tab: .shop, language: language, used: v.used, inventory: v.inventory, active: v.active, shiny: v.shiny,
-                                                 sprites: v.sprites), let page = h.shop, let model = page.last else {
+                guard let h = await Harness.make(tab: .shop, language: language, used: v.used, inventory: v.inventory, active: v.active, shiny: v.shiny), let page = h.shop, let model = page.last else {
                     problems.append("\(v.name) \(tag): no window or page"); continue
                 }
                 defer { h.destroy() }
@@ -209,6 +201,16 @@ private struct ShopBagFixturePoke: PokeProviding {
                 }
                 if let dir, let shot = print(h.home.window.hwnd) { _ = WinUIDump.write(shot, to: dir.appendingPathComponent("\(v.name)-\(tag).png")) }
             }
+        }
+        // K0: the Shop at 150 % (a context at 144 dpi), en and ko, with the cards that matter (a wallet that affords everything)
+        for language in [AppLanguage.en, .ko] {
+            let tag = language == .en ? "en" : "ko"
+            guard let dir, let h = await Harness.make(tab: .shop, language: language, used: rich, inventory: [.shinyCharm: 1, .rareCandy: 4], active: true, dpi: 144) else { continue }
+            defer { h.destroy() }
+            h.home.window.fitToContent()
+            h.home.window.show(activate: false)
+            await wait(0.5)
+            if let shot = print(h.home.window.hwnd) { _ = WinUIDump.write(shot, to: dir.appendingPathComponent("rich-\(tag)-150.png")) }
         }
         notes.append("4 states x en/ko: wallet, every card's texts, price lines, not-enough, owned mark, disabled egg Buy and locked hint, release note only with something to release")
 
@@ -280,7 +282,7 @@ private struct ShopBagFixturePoke: PokeProviding {
             } else { problems.append("shiny: no plain egg card") }
         } else { problems.append("no window for the shiny flow") }
 
-        // 4. the item sprites: a fixture PNG replaces the emoji; no sprite keeps the emoji; open and close leaves nothing
+        // 4. open and close leaves nothing
         var cycles: [KitResources] = []
         for _ in 0..<4 {
             guard let h = await Harness.make(tab: .shop, language: .en, used: rich, active: true) else { break }
@@ -331,6 +333,15 @@ private struct ShopBagFixturePoke: PokeProviding {
                 await wait(0.5)
                 let l = h.language
                 if let dir, let shot = print(h.home.window.hwnd) { _ = WinUIDump.write(shot, to: dir.appendingPathComponent("items-\(tag).png")) }  // before the flows below change the page
+                // K0: the same page at 150 % (a context at 144 dpi)
+                if let dir, let h150 = await Harness.make(tab: .bag, language: language, used: 0, inventory: [.rareCandy: 3, .mint: 2, .shinyCharm: 1], active: true,
+                                                         lineLoaded: true, dpi: 144) {
+                    h150.home.window.fitToContent()
+                    h150.home.window.show(activate: false)
+                    await wait(0.5)
+                    if let shot = print(h150.home.window.hwnd) { _ = WinUIDump.write(shot, to: dir.appendingPathComponent("items-\(tag)-150.png")) }
+                    h150.destroy()
+                }
                 for card in snap.model.cards {
                     if !h.has(card.name) || !h.has(card.description) { problems.append("items \(tag): \(card.kind) name or description missing") }
                     // (the candy's stepper reads ×1 too: a passive item's missing count can only be told apart above 1)

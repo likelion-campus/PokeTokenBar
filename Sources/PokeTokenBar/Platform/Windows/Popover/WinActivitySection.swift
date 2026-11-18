@@ -213,7 +213,7 @@ import WinSDK
         hideCard()
         menus += 1
         let items: [TrayMenuModel.Item?] = part.model.choices.map { TrayMenuModel.Item(title: $0.title, enabled: true, checked: $0.checked, action: .none) }
-        let rect = part.titleRect(graphics: PlatformPlaza.graphics)
+        let rect = part.titleRect(graphics: WinPopoverGraphics.shared)
         var at = POINT(x: Int32((rect.minX * ctx.scale).rounded()), y: Int32((rect.maxY * ctx.scale).rounded()) + ctx.px(2))
         _ = ClientToScreen(view.hwnd, &at)
         let owner = GetAncestor(view.hwnd, UINT(GA_ROOT)) ?? view.hwnd
@@ -225,7 +225,7 @@ import WinSDK
     /// Shows, moves or hides the day's card to match the selection.
     func updateCard() {
         guard !isDestroyed, let part = bars, active == .bars, let view = panelView,
-              let c = part.card(scale: ctx.scale, graphics: PlatformPlaza.graphics) else { hideCard(); return }
+              let c = part.card(scale: ctx.scale, graphics: WinPopoverGraphics.shared) else { hideCard(); return }
         var at = POINT(x: Int32((c.frame.minX * ctx.scale).rounded()), y: Int32((c.frame.minY * ctx.scale).rounded()))
         _ = ClientToScreen(view.hwnd, &at)
         if card == nil { card = WinHoverCard(owner: GetAncestor(view.hwnd, UINT(GA_ROOT)) ?? view.hwnd) }
