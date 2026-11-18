@@ -75,7 +75,10 @@ import WinSDK
         playback.shouldTick = { [weak self] in
             guard let self, let view = self.view else { return false }
             self.stats.ticks += 1
-            return Self.isShown(view.hwnd) && !self.displayAsleep()
+            let shown = Self.isShown(view.hwnd), asleep = self.displayAsleep()
+            // fix/windows-pet-still: a tick that stops the clock says why (it starts again only at the next paint)
+            if !shown || asleep { AppLog.write("popover sprites: the clock stops at a tick: shown=\(shown) displays asleep=\(asleep) (until the next paint)") }
+            return shown && !asleep
         }
         playback.onInvalidate = { [weak self] index in self?.invalidate(slot: index) }
     }
@@ -86,7 +89,26 @@ import WinSDK
         playback.isActive = shown && Self.isShown(view?.hwnd) && !displayAsleep()
     }
 
+    // --- fix/windows-pet-still: each slot's state in the log when it changes (never per frame) (begin) ---
+    private struct SlotState: Equatable { var subject: PlazaSpriteSubjectKey?, frames: Int, loading: Bool, animated: Bool, playing: Bool }
+    private var loggedSlots: [Int: SlotState] = [:]
+    private func noteSlot(_ index: Int) {
+        guard index < playback.models.count, let view, index < view.spriteSlots.count, view.spriteSlots[index].animated else { return }
+        let model = playback.models[index]
+        let state = SlotState(subject: view.spriteSlots[index].subject, frames: model.frames.count, loading: model.isLoading,
+                              animated: model.animated, playing: playback.isActive && playback.animationsEnabled)
+        guard loggedSlots[index] != state else { return }
+        loggedSlots[index] = state
+        let species = state.subject?.speciesID.map { String($0) } ?? "egg"
+        AppLog.write("popover sprite #\(species) shiny=\(state.subject?.shiny == true) (slot \(index)): \(state.frames) frames, "
+                     + "loading=\(state.loading) asked animated=\(state.animated) playing=\(state.playing) GIF asks=\(model.gifAsks) "
+                     + "(Show animations=\(playback.animationsEnabled), active=\(playback.isActive), shown=\(Self.isShown(view.hwnd)), "
+                     + "displays asleep=\(displayAsleep()), clock armed=\(playback.clock.isArmed))")
+    }
+    // --- fix/windows-pet-still (end) ---
+
     private func invalidate(slot index: Int) {
+        noteSlot(index)   // fix/windows-pet-still
         guard let view, !isDestroyed, index < view.spriteSlots.count else { return }
         var r = view.spriteSlots[index].frame
         r.origin.y -= 3          // the bob's travel
