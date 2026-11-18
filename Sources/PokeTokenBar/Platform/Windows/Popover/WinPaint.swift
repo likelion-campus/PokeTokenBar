@@ -21,7 +21,8 @@ import CPlazaD2D
     /// 0xAARRGGBB of a `COLORREF` (0x00BBGGRR).
     nonisolated static func argb(_ c: COLORREF, alpha: Double = 1) -> UInt32 {
         let a = UInt32((min(1, max(0, alpha)) * 255).rounded())
-        return a << 24 | (c & 0xFF) << 16 | (c & 0xFF00) | (c >> 16) & 0xFF
+        let red: UInt32 = c & 0xFF, green: UInt32 = (c >> 8) & 0xFF, blue: UInt32 = (c >> 16) & 0xFF
+        return (a << 24) | (red << 16) | (green << 8) | blue
     }
 
     /// A rounded rectangle over `r` (right and bottom exclusive): `fill`, then `stroke` inside the edge. `under` is the colour
@@ -29,9 +30,10 @@ import CPlazaD2D
     static func roundedRect(_ dc: HDC, _ r: RECT, radius: Int32, fill: Ink?, stroke: Ink? = nil, strokeWidth: Int32 = 1,
                             under: COLORREF, ctx: WinUIContext) {
         guard r.right > r.left, r.bottom > r.top else { return }
-        var shape = PTBPaintShape(x: 0, y: 0, w: Float(r.right - r.left), h: Float(r.bottom - r.top), radius: Float(radius),
-                                  fill: fill.map { argb($0.color, alpha: $0.alpha) } ?? 0,
-                                  stroke: stroke.map { argb($0.color, alpha: $0.alpha) } ?? 0,
+        let fillARGB: UInt32 = fill.map { argb($0.color, alpha: $0.alpha) } ?? 0
+        let strokeARGB: UInt32 = stroke.map { argb($0.color, alpha: $0.alpha) } ?? 0
+        let width = Float(r.right - r.left), height = Float(r.bottom - r.top)
+        var shape = PTBPaintShape(x: 0, y: 0, w: width, h: height, radius: Float(radius), fill: fillARGB, stroke: strokeARGB,
                                   strokeWidth: stroke == nil ? 0 : Float(strokeWidth))
         if ptb_paint_shapes(UnsafeMutableRawPointer(dc), r.left, r.top, r.right, r.bottom, &shape, 1) >= 0 { return }
         fallback(dc, r, radius: radius, fill: fill, stroke: stroke, strokeWidth: strokeWidth, under: under, ctx: ctx)
@@ -43,10 +45,12 @@ import CPlazaD2D
         guard r.right > r.left, r.bottom > r.top else { return }
         let w2 = max(2, ctx.px(2)), w1 = max(1, ctx.px(1))
         let w = Float(r.right - r.left), h = Float(r.bottom - r.top)
-        var shapes = [PTBPaintShape(x: 0, y: 0, w: w, h: h, radius: Float(radius), fill: 0, stroke: argb(outer), strokeWidth: Float(w2))]
+        var shapes: [PTBPaintShape] = []
+        shapes.append(PTBPaintShape(x: 0, y: 0, w: w, h: h, radius: Float(radius), fill: 0, stroke: argb(outer), strokeWidth: Float(w2)))
         if let inner {
             let inset = Float(w2)
-            shapes.append(PTBPaintShape(x: inset, y: inset, w: w - 2 * inset, h: h - 2 * inset, radius: max(0, Float(radius) - inset), fill: 0,
+            let innerRadius = max(0, Float(radius) - inset)
+            shapes.append(PTBPaintShape(x: inset, y: inset, w: w - 2 * inset, h: h - 2 * inset, radius: innerRadius, fill: 0,
                                         stroke: argb(inner), strokeWidth: Float(w1)))
         }
         if ptb_paint_shapes(UnsafeMutableRawPointer(dc), r.left, r.top, r.right, r.bottom, &shapes, UInt32(shapes.count)) >= 0 { return }
