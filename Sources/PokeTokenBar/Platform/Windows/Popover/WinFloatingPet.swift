@@ -290,6 +290,7 @@ import WinSDK
         playback.onInvalidate = { [weak self] _ in
             self?.render()
             self?.reveal()
+            self?.noteClock()   // fix/windows-pet-still: a GIF that came (or not) changes what the log says
         }
         playback.shouldTick = { [weak self] in self?.canAnimate ?? false }
         apply(model, first: true)
@@ -352,7 +353,56 @@ import WinSDK
             render()
         }
         playback.isActive = canAnimate
+        noteClock()   // fix/windows-pet-still
     }
+
+    // --- fix/windows-pet-still: why the pet moves or stands, in the user's log (begin) ---
+    /// What decides whether the pet moves, compared before anything is written (a frame changes none of it).
+    struct ClockState: Equatable {
+        var subject: PlazaSpriteSubjectKey
+        var frames: Int, loading: Bool, energySaver: Bool, gifOn: Bool
+        var active: Bool, visible: Bool, displayAsleep: Bool, locked: Bool, disconnected: Bool
+        var floor: TimeInterval
+
+        var moving: Bool { gifOn && active && frames > 1 }
+
+        /// The one reason a hatched pet stands still, first match (nil while it moves or for the egg, which has no GIF).
+        var stillReason: String? {
+            guard let species = subject.speciesID, !moving else { return nil }
+            if energySaver { return "Energy saver is on (Windows' battery or energy saver, as the Mac's Low Power Mode)" }
+            if !gifOn { return "animation is off for the pet" }
+            if !active {
+                let why = [!visible ? "not shown" : nil, displayAsleep ? "displays asleep" : nil, locked ? "session locked" : nil,
+                           disconnected ? "session disconnected" : nil].compactMap { $0 }
+                return "the clock is stopped (\(why.isEmpty ? "hidden" : why.joined(separator: ", ")))"
+            }
+            if !PokemonAssets.hasAnimatedSprite(speciesID: species) { return "#\(species) has no animated sprite (Gen V GIFs end at #649)" }
+            if loading { return "its GIF is loading" }
+            if frames == 1 { return "its GIF has one frame at the \(floor) s floor" }
+            return "no GIF for #\(species) yet (the download failed; asked again every 2-30 s)"
+        }
+    }
+    private(set) var loggedClock: ClockState?
+
+    /// One line in the app's log when what keeps the pet moving or still changes: the state and its inputs (never per frame).
+    func noteClock() {
+        guard !isDestroyed, revealed, let pet, let sprite = playback.models.first else { return }
+        let state = ClockState(subject: model.subject, frames: sprite.frames.count, loading: sprite.isLoading, energySaver: !model.animated,
+                               gifOn: playback.animationsEnabled, active: playback.isActive, visible: IsWindowVisible(hwnd),
+                               displayAsleep: pet.displayAsleep(), locked: locked, disconnected: disconnected, floor: model.frameFloor)
+        guard state != loggedClock else { return }
+        loggedClock = state
+        var status = SYSTEM_POWER_STATUS()
+        let power = GetSystemPowerStatus(&status)
+            ? withUnsafeBytes(of: status) { "ACLineStatus=\($0[0]) SystemStatusFlag=\($0[3])" } : "power status unread"
+        let what = state.moving ? "moving (\(state.frames) frames at the \(state.floor) s floor)"
+            : state.subject.speciesID == nil ? "an egg (no GIF)" : "still: \(state.stillReason ?? "")"
+        AppLog.write("floating pet: \(what); #\(state.subject.speciesID.map(String.init) ?? "egg") frames=\(state.frames) loading=\(state.loading) "
+                     + "GIF asks=\(sprite.gifAsks) energy saver=\(state.energySaver) (\(power)) Show animations=\(pet.animationsEnabled()) "
+                     + "clock=\(state.active) visible=\(state.visible) displays asleep=\(state.displayAsleep) locked=\(state.locked) "
+                     + "disconnected=\(state.disconnected)")
+    }
+    // --- fix/windows-pet-still (end) ---
 
     // MARK: - placement
 

@@ -234,3 +234,5 @@ PopoverPetTwinEquivalenceTests+Mac.swift
 # FloatingPetRendersMacTests: renders the Mac's SwiftUI FloatingPetView offscreen (ImageRenderer, AppKit) for the pet's capture states, the reference the Windows captures are put next to (env-gated writer; stage 7 Task 22)
 FloatingPetRendersMacTests.swift
 PopoverDexDetailImagesMac.swift
+# PopoverSpriteRetryTwinTests+Mac: drives the Mac's SpriteLoader.recoveringAnimationFrames (AppKit) against the shared sprite model's GIF retry (fix/windows-pet-still)
+PopoverSpriteRetryTwinTests+Mac.swift

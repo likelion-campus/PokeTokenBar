@@ -67,6 +67,16 @@ typealias PopoverSpriteFrames = [(image: PlazaImage, delay: TimeInterval)]
     /// A load is under way for the current subject (the floating pet keeps its last picture meanwhile instead of the 🥚).
     private(set) var isLoading = false
     // --- stage 7 Task 22 (end) ---
+    // --- the GIF asked again until it comes (fix/windows-pet-still) (begin) ---
+    /// The Mac's `SpriteLoader.recoveringAnimationFrames`: a species that has a GIF (`PokemonAssets.hasAnimatedSprite`) but got
+    /// none (its first download failed: no file yet, the network down at sign-in) keeps its still and asks again `firstRetry`
+    /// later, doubling to `maxRetry`, with no attempt limit, until the frames come or the subject changes (the task is
+    /// cancelled). A species without a GIF stops at its still. The wait is a seam (tests pass their own).
+    static let firstRetry: TimeInterval = 2, maxRetry: TimeInterval = 30
+    var waitBeforeRetry: @Sendable (TimeInterval) async throws -> Void = { try await Task.sleep(nanoseconds: UInt64($0 * 1_000_000_000)) }
+    /// How many times the current subject's GIF was asked for (1 when it came at once).
+    private(set) var gifAsks = 0
+    // --- (end) ---
     // --- stage 7 Task 9: the bob in device-pixel steps of the Mac's `.easeInOut(duration: 0.9).repeatForever` (begin) ---
     /// The bob's travel in DIP (the Mac's `.offset(y: -3)`).
     static let bobTravel: CGFloat = 3
@@ -157,21 +167,35 @@ typealias PopoverSpriteFrames = [(image: PlazaImage, delay: TimeInterval)]
                                        form: form, back: k.back))
         }
         if animated && frames.isEmpty {
+            gifAsks = 0
             launch { [self] in
-                var decoded = await fetcher.animated(speciesID: species, shiny: k.shiny, form: form, back: k.back)
-                if decoded.count < 2, k.back {   // a missing back sprite: the front stands in
-                    decoded = await fetcher.animated(speciesID: species, shiny: k.shiny, form: form, back: false)
+                var retry = Self.firstRetry, showedStill = false
+                while true {
+                    var decoded = await fetcher.animated(speciesID: species, shiny: k.shiny, form: form, back: k.back)
+                    if decoded.count < 2, k.back {   // a missing back sprite: the front stands in
+                        decoded = await fetcher.animated(speciesID: species, shiny: k.shiny, form: form, back: false)
+                    }
+                    guard !Task.isCancelled, generation == g else { return }
+                    gifAsks += 1
+                    let ready = PopoverSpriteFrameCap.capFrameRate(PopoverSpriteRules.framesToApply(decoded, cancelled: false), floor: frameFloor)  // the cap: stage 7 Task 22
+                    if !ready.isEmpty {
+                        memory.keepFrames(ready, for: id)
+                        frames = ready
+                        frameIndex = 0
+                        loaded()
+                        return
+                    }
+                    // No GIF (yet): the still once, then asked again (fix/windows-pet-still: the Mac's recovering loop).
+                    if !showedStill {
+                        await loadStill(species, k, form, g)
+                        showedStill = true
+                        loaded()
+                    }
+                    guard PokemonAssets.hasAnimatedSprite(speciesID: species), !Task.isCancelled, generation == g else { return }
+                    do { try await waitBeforeRetry(retry) } catch { return }
+                    guard !Task.isCancelled, generation == g else { return }
+                    retry = min(retry * 2, Self.maxRetry)
                 }
-                guard !Task.isCancelled, generation == g else { return }
-                let ready = PopoverSpriteFrameCap.capFrameRate(PopoverSpriteRules.framesToApply(decoded, cancelled: false), floor: frameFloor)  // the cap: stage 7 Task 22
-                if ready.isEmpty {
-                    await loadStill(species, k, form, g)
-                } else {
-                    memory.keepFrames(ready, for: id)
-                    frames = ready
-                    frameIndex = 0
-                }
-                loaded()
             }
         } else if frames.isEmpty {
             launch { [self] in
@@ -304,6 +328,8 @@ typealias PopoverSpriteFrames = [(image: PlazaImage, delay: TimeInterval)]
     /// Every slot's `PopoverSpriteModel.frameFloor` (the pet's animation quality); a change loads the slots again.
     var frameFloor: TimeInterval = 0 { didSet { if oldValue != frameFloor { update(slots: slots) } } }
     // --- stage 7 Task 22 (end) ---
+    /// The wait before a GIF that did not come is asked for again (`PopoverSpriteModel.waitBeforeRetry`; tests pass their own).
+    var waitBeforeRetry: (@Sendable (TimeInterval) async throws -> Void)?   // fix/windows-pet-still
 
     init(fetcher: any PlazaSpriteFetching, clock: PopoverAnimationClock = PopoverAnimationClock(), now: @escaping () -> Date = { Date() }) {
         self.fetcher = fetcher
@@ -319,6 +345,7 @@ typealias PopoverSpriteFrames = [(image: PlazaImage, delay: TimeInterval)]
         while models.count < new.count {
             let index = models.count
             let model = PopoverSpriteModel(fetcher: fetcher, memory: memory, now: now)
+            if let waitBeforeRetry { model.waitBeforeRetry = waitBeforeRetry }   // fix/windows-pet-still
             model.bobSteps = bobSteps  // stage 7 Task 9
             model.frameFloor = frameFloor  // stage 7 Task 22
             model.onChange = { [weak self] in self?.modelChanged(index) }
