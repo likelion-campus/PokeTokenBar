@@ -30,6 +30,8 @@ extension WindowsSelftest {
     }
 
     private(set) static var counts = Counts()
+    /// Per 60 Hz frame: what was painted, as `message@class widthxheight` and how often (the open-cost line prints it).
+    private(set) static var frameDetail: [[String: Int]] = []
     private static var root: HWND?
     private static var lastFrame = -1
     private static var hooks: [HHOOK] = []
@@ -38,6 +40,7 @@ extension WindowsSelftest {
         stop()
         self.root = root
         counts = Counts()
+        frameDetail = []
         lastFrame = -1
         let thread = GetCurrentThreadId()
         if let h = SetWindowsHookExW(4 /* WH_CALLWNDPROC */, { code, wParam, lParam in winPaintSpySent(code, wParam, lParam) }, nil, thread) { hooks.append(h) }
@@ -65,6 +68,13 @@ extension WindowsSelftest {
         if frame != lastFrame {
             counts.frames += 1
             lastFrame = frame
+        }
+        if !queued, counts.frames > 0 {
+            var r = RECT()
+            _ = GetWindowRect(h, &r)
+            let name = message == 0x000F ? "PAINT" : (message == 0x0014 ? "ERASE" : "NCPAINT")
+            if frameDetail.count < counts.frames { frameDetail.append([:]) }
+            frameDetail[counts.frames - 1]["\(name)@\(WinKit.className(h)) \(r.right - r.left)x\(r.bottom - r.top)", default: 0] += 1
         }
         if counts.firstMs == 0 { counts.firstMs = t }
         counts.lastMs = t
@@ -100,6 +110,7 @@ private func winPaintSpyQueued(_ code: Int32, _ wParam: WPARAM, _ lParam: LPARAM
         var spy = WinPaintSpy.Counts()
         /// K2: the antialiased painter's binds and the milliseconds they took during this change.
         var painter = ""
+        var frameNotes = ""
         var clickToSettledMs = 0.0
         var descendants = 0
         var stillOpen = false, foreground = false, visible = false
@@ -110,7 +121,7 @@ private func winPaintSpyQueued(_ code: Int32, _ wParam: WPARAM, _ lParam: LPARAM
             func ms(_ v: Double) -> String { String(Int(v.rounded())) }
             let slow = t.slow.map { "\($0.name) \(ms($0.ms))" }.joined(separator: ", ")
             let top = t.steps.sorted { $0.ms > $1.ms }.prefix(4).map { "\($0.name) \(ms($0.ms))" }.joined(separator: ", ")
-            let hooks = hooked ? "sent \(spy.sent) (on screen in a build \(spy.sentInBuild)), queued \(spy.queued), frames with a paint \(spy.frames) over \(ms(spy.lastMs - spy.firstMs)) ms, \(painter)"
+            let hooks = hooked ? "sent \(spy.sent) (on screen in a build \(spy.sentInBuild)), queued \(spy.queued), frames with a paint \(spy.frames) over \(ms(spy.lastMs - spy.firstMs)) ms, \(painter); paints by frame [\(frameNotes)]"
                 : "not watched (built before the window was shown)"
             return "\(name) [\(t.page) via \(t.via)]: click->settled \(ms(clickToSettledMs)) ms, build \(ms(t.buildMs)) ms in \(t.builds) build(s); "
                 + "layouts \(t.layouts) (on screen \(t.layoutsOnScreen)), refreshes \(t.refreshes), windows made \(t.windows) / in the window now \(descendants); "
@@ -312,6 +323,7 @@ private func winPaintSpyQueued(_ code: Int32, _ wParam: WPARAM, _ lParam: LPARAM
         s.arrived = await WindowsSelftest.waitUntil(timeout: 5) { until() }
         await wait(1.5)   // the page's queued passes, its paints
         s.spy = WinPaintSpy.counts
+        s.frameNotes = WinPaintSpy.frameDetail.enumerated().map { "f\($0.offset): " + $0.element.sorted { $0.key < $1.key }.map { "\($0.key) x\($0.value)" }.joined(separator: ", ") }.joined(separator: " | ")
         s.painter = "painter \(WinPaint.binds - binds0) binds \(Int((WinPaint.bindMs - bindMs0).rounded())) ms"
         WinPaintSpy.stop()
         s.report = WinOpenTrace.running
