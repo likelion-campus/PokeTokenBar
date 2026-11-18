@@ -6,6 +6,7 @@ param([Parameter(Mandatory)][ValidateRange(1, 5)][int]$Shard)
 . "$PSScriptRoot/ci-helpers.ps1"
 . "$PSScriptRoot/midnight-guard.ps1"
 . "$PSScriptRoot/idle-shards.ps1"
+. "$PSScriptRoot/idle-rules.ps1"   # the wake attribution's parsing and the animated windows' rule (tested: idle-rules.tests.ps1)
 Get-Process PokeTokenBar -ErrorAction SilentlyContinue | Stop-Process -Force
 $exe = Join-Path $PtbInstallDir 'PokeTokenBar.exe'
 $env:CLAUDE_CONFIG_DIR = Join-Path $env:PTB_FIXTURE 'claude'
@@ -45,30 +46,7 @@ if ($Shard -eq 1) {
 # The measured launches count where their main-thread wakes come from (WakeTrace: messages by id, timers, the app's own sources); the warm-up
 # launch above did not. Measure-App prints the difference between the snapshot at +28 s and the one at exit, per window.
 $env:PTB_WAKE_TRACE = '1'
-function ConvertFrom-WakeList([string]$List) {
-    $h = @{}
-    if ($List) { foreach ($pair in $List.Split(',')) { $k, $v = $pair.Split(':'); if ($k) { $h[$k] = [int]$v } } }
-    return $h
-}
-function Get-WakeDelta([string]$LogFile) {
-    $lines = @(Select-String -Path $LogFile -Pattern 'wake trace (start|exit):' -ErrorAction SilentlyContinue | Select-Object -Last 2 | ForEach-Object { $_.Line })
-    if ($lines.Count -lt 2 -or $lines[0] -notmatch 'wake trace start:' -or $lines[1] -notmatch 'wake trace exit:') { return $null }
-    $rx = 'loops=(\d+) messages_total=(\d+) messages=(\S*) timers=(\S*) sources=(\S*)\s*$'
-    $a = [regex]::Match($lines[0], $rx); $b = [regex]::Match($lines[1], $rx)
-    if (-not ($a.Success -and $b.Success)) { return $null }
-    function Get-WakeDiff($x, $y) {
-        $hx = ConvertFrom-WakeList $x; $hy = ConvertFrom-WakeList $y; $out = [ordered]@{}
-        foreach ($k in $hy.Keys) { $d = $hy[$k] - $(if ($hx.ContainsKey($k)) { $hx[$k] } else { 0 }); if ($d -gt 0) { $out[$k] = $d } }
-        return $out.GetEnumerator() | Sort-Object Value -Descending | ForEach-Object { "$($_.Key):$($_.Value)" }
-    }
-    return [ordered]@{
-        loops = [int]$b.Groups[1].Value - [int]$a.Groups[1].Value
-        messages = [int]$b.Groups[2].Value - [int]$a.Groups[2].Value
-        messageIds = @(Get-WakeDiff $a.Groups[3].Value $b.Groups[3].Value)
-        timerIds = @(Get-WakeDiff $a.Groups[4].Value $b.Groups[4].Value)
-        sources = @(Get-WakeDiff $a.Groups[5].Value $b.Groups[5].Value)
-    }
-}
+# (ConvertFrom-WakeList, Get-WakeDelta: idle-rules.ps1.)
 # The worker threads' side (WinHTTPFetch.Trace, the same switch and the same two points): fetches started and ended per host and
 # the failed ones by URLError code. A window with refresh off should show none; run 44143290510 would have shown ~500 to pokeapi.co.
 function Get-CountDiff([string]$x, [string]$y) {
@@ -113,7 +91,12 @@ function Measure-App([string]$Label, [int]$Seconds, [string]$Settings, [hashtabl
     $j = Get-Content "idle-$Label.json" -Raw | ConvertFrom-Json
     $wake = Get-WakeDelta (Join-Path $env:LOCALAPPDATA 'PokeTokenBar\Logs\PokeTokenBar.log')
     if ($wake) { "WAKES ${Label}: loops=$($wake.loops) messages=$($wake.messages) ids=[$($wake.messageIds -join ' ')] timers=[$($wake.timerIds -join ' ')] sources=[$($wake.sources -join ' ')]" }
-    $summary.windows[$Label] = [ordered]@{ wake = $wake; seconds = $Seconds; pass = ($code -eq 0); budget = $Budget; processCycles = $j.processCycles; cyclesPerSec = $j.processCyclesPerSec; cpuSeconds = $j.processCpuSeconds; contextSwitchesPerMin = $j.contextSwitchesPerMin; mainThreadContextSwitches = $j.mainThreadContextSwitches; privateMB = "$($j.privateMBStart) -> $($j.privateMBEnd)"; handles = "$($j.handlesStart) -> $($j.handlesEnd)"; threads = @($j.threads | Where-Object { $_.contextSwitches -gt 0 } | Select-Object tid, main, name, start, contextSwitches, cycles) }
+    # Every window is measured with the trace on, so a missing attribution is a broken measurement, not an empty one: it fails (until
+    # the follow-up of run 44297197674, 17 windows had none in every run and their clock rules passed with nothing to look at).
+    $wakeOK = [bool]$wake
+    if (-not $wakeOK) { "FAIL ${Label}: no wake attribution (no parsable 'wake trace start/exit' pair in the app log)" }
+    $verdicts[$Label] = $verdicts[$Label] -and $wakeOK
+    $summary.windows[$Label] = [ordered]@{ wake = $wake; seconds = $Seconds; pass = ($code -eq 0) -and $wakeOK; budget = $Budget; processCycles = $j.processCycles; cyclesPerSec = $j.processCyclesPerSec; cpuSeconds = $j.processCpuSeconds; contextSwitchesPerMin = $j.contextSwitchesPerMin; mainThreadContextSwitches = $j.mainThreadContextSwitches; privateMB = "$($j.privateMBStart) -> $($j.privateMBEnd)"; handles = "$($j.handlesStart) -> $($j.handlesEnd)"; threads = @($j.threads | Where-Object { $_.contextSwitches -gt 0 } | Select-Object tid, main, name, start, contextSwitches, cycles) }
     $fetches = Get-FetchDelta (Join-Path $env:LOCALAPPDATA 'PokeTokenBar\Logs\PokeTokenBar.log')
     if ($fetches) { "FETCHES ${Label}: started=$($fetches.started) ended=$($fetches.ended) hosts=[$($fetches.hosts -join ' ')] failures=[$($fetches.failures -join ' ')]" }
     $summary.windows[$Label].fetches = $fetches
@@ -174,11 +157,24 @@ if ((Test-InShard 'popover-kit-open-120s' $Shard)) {
 }
 # --- stage 7 Task 3: the popover kit open and still (end) ---
 # --- stage 7 Task 8: an animated sprite open (begin) ---
-# The fixture GIF (5 frames at 0.1 s) in a drawn part, popover kit window open: the cost of an animating popover. The
-# budget is loose (first numbers; Task 8 report): what it must show is that it is bounded and that nothing else wakes.
+# The fixture GIF (5 frames at 0.1 s) in a drawn part, popover kit window open: the cost of an animating popover. Judged on the work
+# the app did (Test-AnimatedWork: clock fires at the GIF's rate, two messages a fire at most); main cs a minute is a runaway catch at 1000
+# only (it was a budget of 800: the same work measured 624-760 in 14 runs, and the companion window's twin 662-824).
+# The probe's line says the GIF's own rate (`gif rate=N/s`, from its frame delays).
+$animatedMaxMainCsPerMin = 1000
+function Test-AnimatedWindow([string]$Label, [string]$ProbeLine) {
+    $w = $summary.windows[$Label]
+    $rate = if ($ProbeLine -match 'gif rate=([0-9.]+)/s') { [double]$Matches[1] } else { 0 }
+    $minutes = $w.seconds / 60
+    $judged = Test-AnimatedWork $w.wake $rate $w.seconds ([math]::Round($w.mainThreadContextSwitches / $minutes, 1)) $animatedMaxMainCsPerMin
+    $w.animatedWork = $judged.detail
+    "ANIMATED ${Label}: $($judged.detail)"
+    $verdicts[$Label] = $verdicts[$Label] -and $judged.ok
+}
 if ((Test-InShard 'popover-sprite-open-120s' $Shard)) {
-    Measure-App 'popover-sprite-open-120s' 120 $off @{ MaxMainCsPerMin = 800; MaxProcessCsPerMin = 6000; MaxProcessCyclesPerSec = 60000000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 } @('--popover-sprite-idle-probe')
+    Measure-App 'popover-sprite-open-120s' 120 $off @{ MaxMainCsPerMin = $animatedMaxMainCsPerMin; MaxProcessCsPerMin = 6000; MaxProcessCyclesPerSec = 60000000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 } @('--popover-sprite-idle-probe')
     $summary.windows['popover-sprite-open-120s'].spriteLog = @(Select-String -Path $logFile -Pattern 'popover sprite idle probe' -ErrorAction SilentlyContinue | Select-Object -Last 1 | ForEach-Object { $_.Line })
+    Test-AnimatedWindow 'popover-sprite-open-120s' ($summary.windows['popover-sprite-open-120s'].spriteLog | Select-Object -Last 1)
 }
 # --- stage 7 Task 8: an animated sprite open (end) ---
 # Object counts (D18). An open window is held to what it held when the probe had finished its navigation (GDI and USER flat: slack 2;
@@ -261,13 +257,14 @@ if ((Test-InShard 'popover-recap-open-120s' $Shard)) {
 # the runner's animations off); the bob alone measured 216.5 main cs/min in run 43889052204 (Task 9 report).
 $companionBudgets = @{
     wiggle = @{ MaxMainCsPerMin = 2400; MaxProcessCsPerMin = 6000; MaxProcessCyclesPerSec = 60000000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 }
-    animated = @{ MaxMainCsPerMin = 800; MaxProcessCsPerMin = 6000; MaxProcessCyclesPerSec = 60000000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 }
+    animated = @{ MaxMainCsPerMin = $animatedMaxMainCsPerMin; MaxProcessCsPerMin = 6000; MaxProcessCyclesPerSec = 60000000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 }   # judged by Test-AnimatedWindow
 }
 foreach ($mode in 'wiggle', 'animated') {
     $label = "popover-companion-$mode-120s"
     if (-not (Test-InShard $label $Shard)) { continue }
     Measure-App $label 120 $off $companionBudgets[$mode] @('--popover-companion-idle-probe', $mode)
     $summary.windows[$label].companionLog = @(Select-String -Path $logFile -Pattern 'popover companion idle probe' -ErrorAction SilentlyContinue | Select-Object -Last 1 | ForEach-Object { $_.Line })
+    if ($mode -eq 'animated') { Test-AnimatedWindow $label ($summary.windows[$label].companionLog | Select-Object -Last 1) }
 }
 # --- stage 7 Task 9: Home with the companion header open (end) ---
 # --- stage 7 idle gates: the popover's pages open and left alone (begin) ---

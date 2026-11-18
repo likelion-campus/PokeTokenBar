@@ -91,7 +91,11 @@ extension WindowsSelftestPopover {
             spriteIdleWindow = w
             w.show(activate: WindowsSelftest.onCI)
             _ = await WindowsSelftest.waitUntil(timeout: 5) { page.animator?.playback.models.first?.isAnimating == true }
-            AppLog.write("popover sprite idle probe: open dpi=\(w.ctx.dpi) animating=\(page.animator?.playback.models.first?.isAnimating == true) armed=\(page.animator?.playback.clock.isArmed == true)")
+            // `gif rate`: frames a second from the GIF's own delays, the idle gate's measure of the clock (Test-AnimatedWork).
+            let frames = page.animator?.playback.models.first?.frames ?? []
+            let length = frames.reduce(0) { $0 + $1.delay }
+            AppLog.write("popover sprite idle probe: open dpi=\(w.ctx.dpi) animating=\(page.animator?.playback.models.first?.isAnimating == true) armed=\(page.animator?.playback.clock.isArmed == true) "
+                         + String(format: "gif rate=%.3f/s", length > 0 ? Double(frames.count) / length : 0))
         }
     }
 
