@@ -543,7 +543,7 @@ jobs:
         run: |
           $j = Get-Content st.json -Raw | ConvertFrom-Json
           $names = 'pet.show', 'pet.hide', 'pet.toggles', 'pet.noActivate', 'pet.drag', 'pet.savedOrigin', 'pet.clamp', 'pet.dpi',
-                   'pet.clickActions', 'pet.menu', 'pet.zOrder', 'pet.animation', 'pet.idle', 'pet.capture', 'pet.resources'
+                   'pet.clickActions', 'pet.menu', 'pet.zOrder', 'pet.animation', 'pet.lateGIF', 'pet.idle', 'pet.capture', 'pet.resources'
           $bad = @()
           foreach ($n in $names) {
               $c = $j.checks | Where-Object { $_.name -eq $n }
