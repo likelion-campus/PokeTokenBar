@@ -29,30 +29,6 @@ import CPlazaD2D
         return code
     }
 
-    /// Runs `body` on a memory DC the size of `r`'s lower right (pane coordinates, so the body draws as it always did), filled with
-    /// `background`, then copies `r` to `dc` in one blit: the painter blends shapes over what the DC holds, which is cheap on a
-    /// memory bitmap and a read-back of the window's surface on a window DC. Falls back to drawing on `dc` itself.
-    static func buffered(_ dc: HDC, _ r: RECT, background: HBRUSH?, _ body: (HDC) -> Void) {
-        let w = r.right - r.left, h = r.bottom - r.top
-        guard w > 0, h > 0, Int64(r.right) * Int64(r.bottom) <= 6_000_000, let mem = CreateCompatibleDC(dc) else { body(dc); return }
-        defer { _ = DeleteDC(mem) }
-        var info = BITMAPINFO()
-        info.bmiHeader.biSize = DWORD(MemoryLayout<BITMAPINFOHEADER>.size)
-        info.bmiHeader.biWidth = r.right
-        info.bmiHeader.biHeight = -r.bottom
-        info.bmiHeader.biPlanes = 1
-        info.bmiHeader.biBitCount = 32
-        var bits: UnsafeMutableRawPointer?
-        guard let bitmap = CreateDIBSection(dc, &info, 0, &bits, nil, 0), bits != nil else { body(dc); return }
-        defer { _ = DeleteObject(UnsafeMutableRawPointer(bitmap)) }
-        let old = SelectObject(mem, UnsafeMutableRawPointer(bitmap))
-        defer { _ = SelectObject(mem, old) }
-        var fill = r
-        _ = FillRect(mem, &fill, background)
-        body(mem)
-        _ = BitBlt(dc, r.left, r.top, w, h, mem, r.left, r.top, DWORD(SRCCOPY))
-    }
-
     /// 0xAARRGGBB of a `COLORREF` (0x00BBGGRR).
     nonisolated static func argb(_ c: COLORREF, alpha: Double = 1) -> UInt32 {
         let a = UInt32((min(1, max(0, alpha)) * 255).rounded())
@@ -90,7 +66,17 @@ import CPlazaD2D
         if let clip {
             bounds = RECT(left: max(bounds.left, clip.left), top: max(bounds.top, clip.top), right: min(bounds.right, clip.right), bottom: min(bounds.bottom, clip.bottom))
         }
-        guard bounds.right > bounds.left, bounds.bottom > bounds.top else { return }
+        guard bounds.right > bounds.left, bounds.bottom > bounds.top, let seen = visible(dc, bounds) else { return }
+        bounds = seen
+        // A DC with an origin of its own (a child's, in WM_PRINTCLIENT): the painter's bind takes device coordinates, so it would draw
+        // somewhere else; those rare edge paints are the plain GDI shape.
+        var origin = POINT()
+        if GetViewportOrgEx(dc, &origin), origin.x != 0 || origin.y != 0 {
+            for item in drawn where intersects(item.rect, bounds) {
+                fallback(dc, item.rect, radius: item.radius, fill: item.fill, stroke: item.stroke, strokeWidth: item.strokeWidth, under: under, ctx: ctx)
+            }
+            return
+        }
         var shapes: [PTBPaintShape] = []
         for item in drawn where intersects(item.rect, bounds) {
             let fillARGB: UInt32 = item.fill.map { argb($0.color, alpha: $0.alpha) } ?? 0
@@ -123,6 +109,20 @@ import CPlazaD2D
         }
         if bind(dc, r, &shapes) >= 0 { return }
         fallback(dc, r, radius: radius, fill: nil, stroke: Ink(color: outer), strokeWidth: w2, under: outer, ctx: ctx)
+    }
+
+    /// `rect` cut to the DC's clip box (what can actually reach the screen: a themed control asks its parent for its background with
+    /// WM_PRINTCLIENT, and the paint then covers the whole pane while only the control's rectangle is open); nil when nothing is.
+    static func visible(_ dc: HDC, _ rect: RECT) -> RECT? {
+        var box = RECT()
+        let kind = GetClipBox(dc, &box)
+        var out = rect
+        if kind >= 2 /* SIMPLEREGION, COMPLEXREGION */ {
+            out = RECT(left: max(rect.left, box.left), top: max(rect.top, box.top), right: min(rect.right, box.right), bottom: min(rect.bottom, box.bottom))
+        } else if kind == 1 /* NULLREGION */ {
+            return nil
+        }
+        return out.right > out.left && out.bottom > out.top ? out : nil
     }
 
     /// Whether `a` and `b` overlap (a card outside the dirty rect is not drawn).

@@ -70,6 +70,12 @@ import WinSDK
         // dispatches them, and a tracking loop that DefWindowProc runs on a non-client click (a scroll bar's arrow or thumb,
         // even without WinModalPump.begin) must read its own button-up. Handing it WM_NULL left the loop holding the capture
         // (post-merge review of the kit; defect log, the modal-loop entry).
+        // Page Up/Down, Home and End on a scrolling page, when the focused control does not use them (the Mac's scroll view takes them).
+        if message == UINT(WM_KEYDOWN), let target = m.pointee.hwnd, WinModalPump.depth == 0, !inMenuOrMoveLoop(),
+           WinScrollArea.handlePageKey(target, vk: Int(m.pointee.wParam)) {
+            m.pointee.message = UINT(WM_NULL)
+            return
+        }
         let isMouse = (0x0200...0x020E).contains(message) || (0x00A0...0x00AD).contains(message)
         if !dialogs.isEmpty, !isMouse, let target = m.pointee.hwnd {
             for bits in dialogs {

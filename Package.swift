@@ -84,7 +84,7 @@ if windowsBuild {
                 linkerSettings: [
                     .linkedLibrary("d2d1"), .linkedLibrary("dwrite"), .linkedLibrary("d3d11"), .linkedLibrary("dxgi"),
                     .linkedLibrary("dcomp"), .linkedLibrary("windowscodecs"), .linkedLibrary("dwmapi"),
-                    .linkedLibrary("ole32"), .linkedLibrary("dxguid"),
+                    .linkedLibrary("ole32"), .linkedLibrary("dxguid"), .linkedLibrary("oleacc"), .linkedLibrary("oleaut32"),
                     // Delay-loaded: a PC without one of these still starts the tray app, and nothing maps the graphics DLLs
                     // until the plaza draws (ptb_gfx_probe checks each with LoadLibraryEx before any call goes through).
                     .linkedLibrary("delayimp"),
