@@ -164,6 +164,32 @@ final class PopoverActivityTests: XCTestCase {
         XCTAssertNil(part.selectedDate, "above a short bar is not the bar")
     }
 
+    /// `home.activityHover` scanned for the tallest bar's first pixel at the window's content width (332) while the panel is hosted at 311:
+    /// on some dates that pixel is a neighbour (or a gap) at 311, and the first `size(width:)` of a render moved `date(at:)` to 311 under the pointer.
+    /// A point found at the part's own width holds one pixel to the right in every month; one found at another width does not on some days.
+    func testAPointFoundAtThePartsOwnWidthStaysOnItsColumn() async throws {
+        let graphics = PlatformPlaza.graphics
+        var otherWidthMisses = 0
+        for day in 1...14 {
+            let part = try part([day: 100_000_000, 15: 2_000])
+            let target = String(format: "2026-07-%02d", day)
+            func firstPoint(_ part: TrendBarsPart) -> CGPoint? {
+                let h = part.size(width: part.width, scale: 1, text: graphics.text).height
+                for y in stride(from: CGFloat(0), to: h, by: 1) { for x in stride(from: CGFloat(0), to: 400, by: 1) where part.date(at: CGPoint(x: x, y: y), graphics: graphics) == target { return CGPoint(x: x, y: y) } }
+                return nil
+            }
+            _ = part.size(width: 311, scale: 1, text: graphics.text)
+            let own = try XCTUnwrap(firstPoint(part), "day \(day)")
+            XCTAssertEqual(part.width, 311)
+            XCTAssertEqual(part.date(at: CGPoint(x: own.x + 1, y: own.y), graphics: graphics), target, "day \(day): +1 px stays on the column")
+            _ = part.size(width: 332, scale: 1, text: graphics.text)
+            let wide = try XCTUnwrap(firstPoint(part), "day \(day) at 332")
+            _ = part.size(width: 311, scale: 1, text: graphics.text)
+            if part.date(at: CGPoint(x: wide.x + 1, y: wide.y), graphics: graphics) != target { otherWidthMisses += 1 }
+        }
+        XCTAssertGreaterThan(otherWidthMisses, 0, "the point of another width is not the same column at 311 (the old check's trap)")
+    }
+
     func testTheCardNamesTheDayAndEachProvider() async throws {
         let part = try part([9: 100_000_000, 15: 2_000], stacked: true)
         let graphics = PlatformPlaza.graphics

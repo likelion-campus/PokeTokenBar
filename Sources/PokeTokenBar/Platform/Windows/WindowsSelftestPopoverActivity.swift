@@ -220,7 +220,9 @@ enum ActivityFixtures {
     /// The point (DIP) over `date` in the bars' band.
     private static func point(of date: String, _ part: TrendBarsPart) -> CGPoint? {
         let graphics = PlatformPlaza.graphics
-        let height = part.size(width: PopoverWindowMetrics.contentWidth, scale: 1, text: graphics.text).height
+        // at the width the panel is hosted at (`part.width`, 311 DIP in the kit window), not the window's content width (332): a column found
+        // at another width is somewhere else in the live part, and `size(width:)` changes the width the part's hits lay out at
+        let height = part.size(width: part.width, scale: 1, text: graphics.text).height
         for y in stride(from: CGFloat(0), to: height, by: 1) {
             for x in stride(from: CGFloat(0), to: 400, by: 1) where part.date(at: CGPoint(x: x, y: y), graphics: graphics) == date { return CGPoint(x: x, y: y) }
         }
