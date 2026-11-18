@@ -568,14 +568,14 @@ jobs:
               else { "PASS ${n}: $($c.detail)" }
           }
           if ($bad.Count -gt 0) { throw "floating pet extras: $($bad -join ', ')" }
-      - name: Agent link checks ran (link.receive, link.forward; link.registration and link.shell from the installed copy)
+      - name: Agent link checks ran (link.receive, link.forward, link.coldStart; link.registration and link.shell from the installed copy)
         timeout-minutes: 5
         if: (success() || failure())
         shell: pwsh
         run: |
           $j = Get-Content st.json -Raw | ConvertFrom-Json
           $bad = @()
-          foreach ($n in 'link.receive', 'link.forward', 'link.registration', 'link.shell') {
+          foreach ($n in 'link.receive', 'link.forward', 'link.coldStart', 'link.registration', 'link.shell') {
               $c = $j.checks | Where-Object { $_.name -eq $n }
               # This bundle copy is not the registered one: its registration and shell checks say skipped (the installed selftest runs them).
               $mayskip = $n -in 'link.registration', 'link.shell'
@@ -1298,7 +1298,7 @@ jobs:
           # The checks that only mean something from a packaged copy must have run for real, not been skipped.
           $j = Get-Content st-installed.json -Raw | ConvertFrom-Json
           foreach ($name in 'packaged.processName', 'packaged.version', 'packaged.modules', 'log.writes', 'com.uiThreadSTA', 'plaza.resources', 'plaza.codec.png', 'plaza.codec.gif',
-                            'link.receive', 'link.forward', 'link.registration', 'link.shell') {   # stage 7 Task 23: the registered link, end to end
+                            'link.receive', 'link.forward', 'link.coldStart', 'link.registration', 'link.shell') {   # stage 7 Task 23: the registered link, end to end
               $c = $j.checks | Where-Object { $_.name -eq $name }
               Assert-That ($c -and $c.ok -and $c.detail -notlike 'skipped*') "installed.$name" $c.detail
           }

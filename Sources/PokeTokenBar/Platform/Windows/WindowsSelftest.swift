@@ -919,11 +919,11 @@ enum WindowsSelftest {
             self.ready = ready
         }
 
-        static func start(_ arguments: [String], ready: Bool) throws -> Helper {
+        static func start(_ arguments: [String], ready: Bool, environment overrides: [String: String] = [:]) throws -> Helper {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: executablePath())
             process.arguments = arguments
-            var env = ProcessInfo.processInfo.environment
+            var env = ProcessInfo.processInfo.environment.merging(overrides) { $1 }   // stage 7 Task 23: a link start's own state folder
             var event: HANDLE?
             if ready {
                 let name = "Local\\PokeTokenBar-selftest-\(UUID().uuidString)"
