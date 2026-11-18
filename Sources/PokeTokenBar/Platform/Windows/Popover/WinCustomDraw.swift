@@ -23,83 +23,10 @@ enum WinButtonStyle: Equatable, Sendable {
     case secondary, primary, plain
 }
 
-/// A rectangle in device pixels as numbers (shapes are placed at fractional positions).
-struct WinFRect: Equatable {
-    var x: Double, y: Double, width: Double, height: Double
-    var minX: Double { x }
-    var minY: Double { y }
-    var maxX: Double { x + width }
-    var maxY: Double { y + height }
-    var midX: Double { x + width / 2 }
-    var midY: Double { y + height / 2 }
-    func insetBy(dx: Double, dy: Double) -> WinFRect { WinFRect(x: x + dx, y: y + dy, width: width - 2 * dx, height: height - 2 * dy) }
-}
-
-/// Antialiased rounded shapes for GDI device contexts: the shape's coverage is computed per pixel from its distance field and
-/// alpha-blended through a small DIB, so the corners are smooth without GDI+ (no background thread, no startup) and without
-/// Direct2D. A local helper until the popover's shared painter (K2) lands; the shapes can move to it then.
-enum WinAA {
-    /// A filled rounded rectangle (`radius` is clamped to half the shorter side: a capsule or a circle when large).
-    static func fillRound(_ dc: HDC, _ rect: WinFRect, radius: Double, color: COLORREF, alpha: Double = 1) {
-        paint(dc, rect, radius: radius, stroke: nil, belowY: nil, color: color, alpha: alpha)
-    }
-
-    /// The outline of a rounded rectangle, `stroke` pixels thick, inside `rect`. With `belowY` only the part of the outline lower
-    /// than that row is drawn (the darker bottom edge of a raised control).
-    static func ring(_ dc: HDC, _ rect: WinFRect, radius: Double, stroke: Double, color: COLORREF, alpha: Double = 1, belowY: Double? = nil) {
-        paint(dc, rect, radius: radius, stroke: stroke, belowY: belowY, color: color, alpha: alpha)
-    }
-
-    private static func paint(_ dc: HDC, _ rect: WinFRect, radius: Double, stroke: Double?, belowY: Double?, color: COLORREF, alpha: Double) {
-        guard rect.width > 0, rect.height > 0, alpha > 0 else { return }
-        let x0 = Int(rect.minX.rounded(.down)) - 1, y0 = Int(rect.minY.rounded(.down)) - 1
-        let w = Int(rect.maxX.rounded(.up)) + 1 - x0, h = Int(rect.maxY.rounded(.up)) + 1 - y0
-        guard w > 0, h > 0 else { return }
-        var info = BITMAPINFO()
-        info.bmiHeader.biSize = DWORD(MemoryLayout<BITMAPINFOHEADER>.size)
-        info.bmiHeader.biWidth = Int32(w)
-        info.bmiHeader.biHeight = -Int32(h)  // top-down
-        info.bmiHeader.biPlanes = 1
-        info.bmiHeader.biBitCount = 32
-        info.bmiHeader.biCompression = 0  // BI_RGB
-        guard let mem = CreateCompatibleDC(dc) else { return }
-        defer { _ = DeleteDC(mem) }
-        var bits: UnsafeMutableRawPointer?
-        guard let dib = CreateDIBSection(mem, &info, 0 /* DIB_RGB_COLORS */, &bits, nil, 0), let bits else { return }
-        defer { _ = DeleteObject(UnsafeMutableRawPointer(dib)) }
-        let old = SelectObject(mem, UnsafeMutableRawPointer(dib))
-        defer { _ = SelectObject(mem, old) }
-
-        let pixels = bits.bindMemory(to: UInt32.self, capacity: w * h)
-        let cx = rect.midX, cy = rect.midY, hw = rect.width / 2, hh = rect.height / 2
-        let r = max(0, min(radius, hw, hh))
-        let red = Double(color & 0xFF), green = Double((color >> 8) & 0xFF), blue = Double((color >> 16) & 0xFF)
-        func clamp(_ v: Double) -> Double { min(1, max(0, v)) }
-        for row in 0..<h {
-            let py = Double(y0 + row) + 0.5
-            for col in 0..<w {
-                let px = Double(x0 + col) + 0.5
-                let qx = abs(px - cx) - (hw - r), qy = abs(py - cy) - (hh - r)
-                let outside = (max(qx, 0) * max(qx, 0) + max(qy, 0) * max(qy, 0)).squareRoot()
-                let d = outside + min(max(qx, qy), 0) - r  // signed distance to the shape's edge (negative inside)
-                var coverage = clamp(0.5 - d)
-                if let stroke { coverage -= clamp(0.5 - d - stroke) }
-                if let belowY, py < belowY { coverage = 0 }
-                let a = coverage * alpha
-                if a <= 0 { pixels[row * w + col] = 0; continue }
-                let alpha8 = UInt32((a * 255).rounded())
-                let rr = UInt32((red * a).rounded()), gg = UInt32((green * a).rounded()), bb = UInt32((blue * a).rounded())
-                pixels[row * w + col] = alpha8 << 24 | rr << 16 | gg << 8 | bb  // premultiplied BGRA
-            }
-        }
-        let blend = BLENDFUNCTION(BlendOp: 0 /* AC_SRC_OVER */, BlendFlags: 0, SourceConstantAlpha: 255, AlphaFormat: 1 /* AC_SRC_ALPHA */)
-        _ = GdiAlphaBlend(dc, Int32(x0), Int32(y0), Int32(w), Int32(h), mem, 0, 0, Int32(w), Int32(h), blend)
-    }
-}
-
 /// The colours of the custom-drawn controls: Windows 11's control tokens (microsoft-ui-xaml `Common_themeresources_any.xaml`
 /// values, alpha-composited over what is behind the control), light and dark. High contrast never gets here.
 struct WinLook {
+    let ctx: WinUIContext
     let palette: WinUIColors.Palette
     let dark: Bool
     /// What is behind the control (the page or the card).
@@ -108,6 +35,7 @@ struct WinLook {
     let scale: Double
 
     @MainActor init(_ c: WinControl) {
+        ctx = c.ctx
         palette = c.ctx.colors.palette
         dark = c.ctx.dark
         bg = c.background
@@ -116,6 +44,8 @@ struct WinLook {
 
     /// DIP to device pixels, as a number (shapes are drawn at fractional sizes; strokes are whole device pixels).
     func px(_ dip: Double) -> Double { dip * scale }
+    /// DIP to whole device pixels.
+    func ipx(_ dip: Double) -> Int32 { Int32((dip * scale).rounded()) }
     /// A 1 DIP stroke in whole device pixels (never 1.5 px at 150 %): 1 px up to 175 %, 2 px from 200 %.
     var hairlinePx: Double { scale >= 1.9 ? 2 : 1 }
 
@@ -128,15 +58,16 @@ struct WinLook {
     var hover: Double { dark ? 0.06 : 0.037 }
     var pressed: Double { dark ? 0.042 : 0.024 }
     /// The control's stroke and its darker bottom edge (Windows 11's "elevation" border).
-    var stroke: COLORREF { mix(bg, dark ? 0.07 : 0.10) }
-    var bottomEdge: COLORREF { mix(bg, dark ? 0.09 : 0.16) }
+    /// Dark: white 30 % over the card is about 2.7:1 against it (Windows' own 7 % was nearly invisible on a card); light: black 12 %.
+    var stroke: COLORREF { mix(bg, dark ? 0.30 : 0.12) }
+    var bottomEdge: COLORREF { mix(bg, dark ? 0.36 : 0.20) }
     /// A switch's off border, a slider's track, a separator.
     var strong: COLORREF { mix(bg, dark ? 0.544 : 0.446) }
     /// A push button's fill at rest, hovered and pressed.
     func buttonFill(hot: Bool, pressed: Bool) -> COLORREF {
-        let rest = dark ? WinUIColors.blend(bg, 0x00FF_FFFF, 0.06) : WinUIColors.blend(bg, 0x00FF_FFFF, 0.70)
-        if pressed { return dark ? WinUIColors.blend(bg, 0x00FF_FFFF, 0.033) : WinUIColors.blend(rest, 0, 0.06) }
-        if hot { return dark ? WinUIColors.blend(bg, 0x00FF_FFFF, 0.084) : WinUIColors.blend(rest, 0, 0.04) }
+        let rest = dark ? WinUIColors.blend(bg, 0x00FF_FFFF, 0.09) : WinUIColors.blend(bg, 0x00FF_FFFF, 0.70)
+        if pressed { return dark ? WinUIColors.blend(bg, 0x00FF_FFFF, 0.05) : WinUIColors.blend(rest, 0, 0.06) }
+        if hot { return dark ? WinUIColors.blend(bg, 0x00FF_FFFF, 0.13) : WinUIColors.blend(rest, 0, 0.04) }
         return rest
     }
     var accent: COLORREF { palette.accent }
@@ -200,15 +131,6 @@ struct WinLook {
         }
     }
 
-    private static func paintTrackbar(_ c: WinControl, _ part: HWND, _ dc: HDC) {
-        var client = RECT()
-        _ = GetClientRect(part, &client)
-        let look = WinLook(c)
-        fillBackground(c, dc, client)
-        paintChannel(c, part, dc, look)
-        paintThumb(c, part, dc, nativeThumb(part), look)
-    }
-
     /// The same pictures without `NM_CUSTOMDRAW`: when the system painted a control (`WM_PAINT`, `WM_PRINTCLIENT`) and custom draw
     /// did not run (a class that does not send it in some theme), the subclass paints over the system's picture. The selftest
     /// reports which path ran per class; this one is a safety net, not the design.
@@ -243,9 +165,14 @@ struct WinLook {
 
     // MARK: - drawing helpers
 
-    private static func rectD(_ r: RECT) -> WinFRect {
-        WinFRect(x: Double(r.left), y: Double(r.top), width: Double(r.right - r.left), height: Double(r.bottom - r.top))
+    private static func ink(_ color: COLORREF, _ alpha: Double = 1) -> WinPaint.Ink { WinPaint.Ink(color: color, alpha: alpha) }
+
+    /// One bind of the painter for a control's shapes, kept inside `client` (a segment's track reaches past its window).
+    private static func shapes(_ dc: HDC, _ items: [WinPaint.Item], _ look: WinLook, _ client: RECT) {
+        WinPaint.roundedRects(dc, items, under: look.bg, ctx: look.ctx, clip: client)
     }
+
+    private static func inset(_ r: RECT, _ d: Int32) -> RECT { RECT(left: r.left + d, top: r.top + d, right: r.right - d, bottom: r.bottom - d) }
 
     private static func text(_ dc: HDC, _ s: String, font: HFONT?, color: COLORREF, in rect: RECT, flags: UINT) {
         var box = rect
@@ -256,17 +183,24 @@ struct WinLook {
         _ = SelectObject(dc, old)
     }
 
-    /// The focus ring of a custom-drawn control: 2 DIP in the text colour outside, 1 DIP in the page colour inside, so it shows
-    /// on any surface (Windows 11's focus visual). `rect` is the outer edge.
-    private static func focusRing(_ dc: HDC, _ rect: WinFRect, radius: Double, _ look: WinLook) {
-        let outer = max(2, look.px(2)).rounded()
-        WinAA.ring(dc, rect, radius: radius, stroke: outer, color: look.dark ? 0x00FF_FFFF : 0)
-        WinAA.ring(dc, rect.insetBy(dx: outer, dy: outer), radius: max(0, radius - outer), stroke: look.hairlinePx, color: look.bg)
+    /// The focus ring (K2's painter: 2 DIP outer in the text colour, 1 DIP inner in the page colour inside it), drawn inside `rect`.
+    private static func focusRing(_ dc: HDC, _ rect: RECT, radius: Int32, _ look: WinLook) {
+        WinPaint.focusRing(dc, rect, radius: radius, ctx: look.ctx, outer: look.dark ? 0x00FF_FFFF : 0,
+                           inner: rect.bottom - rect.top >= look.ipx(20) ? look.bg : nil)
     }
 
     private static func fillBackground(_ c: WinControl, _ dc: HDC, _ client: RECT) {
         var r = client
         _ = FillRect(dc, &r, c.ctx.colors.brush(c.background))
+    }
+
+    /// A raised surface: `body` over a band of the bottom-edge colour one hairline lower (Windows 11's darker bottom edge), with the stroke.
+    private static func raised(_ r: RECT, radius: Int32, fill: COLORREF, edge: COLORREF, stroke: COLORREF?, _ look: WinLook) -> [WinPaint.Item] {
+        let band = Int32(look.hairlinePx)
+        let body = RECT(left: r.left, top: r.top, right: r.right, bottom: r.bottom - band)
+        let under = RECT(left: r.left, top: r.top + band, right: r.right, bottom: r.bottom)
+        return [WinPaint.Item(rect: under, radius: radius, fill: ink(edge), stroke: nil),
+                WinPaint.Item(rect: body, radius: radius, fill: ink(fill), stroke: stroke.map { ink($0) }, strokeWidth: Int32(look.hairlinePx))]
     }
 
     // MARK: - segmented control
@@ -275,34 +209,32 @@ struct WinLook {
         fillBackground(c, dc, client)
         let n = c.parts.count
         guard let i = c.parts.firstIndex(of: part), n > 0 else { return }
-        let r = rectD(client)
-        let radius = look.px(6)
-        // The track: the whole control's rounded rectangle, drawn here as this segment's slice (the neighbours' sides reach
-        // outside the window and are clipped).
+        let radius = look.ipx(6)
+        // The track: the whole control's rounded rectangle, drawn as this segment's slice (the neighbours' sides reach outside the
+        // window and are clipped).
         let reach = radius * 2
-        let trackRect = WinFRect(x: r.minX - (i > 0 ? reach : 0), y: r.minY, width: r.width + (i > 0 ? reach : 0) + (i < n - 1 ? reach : 0), height: r.height)
-        WinAA.fillRound(dc, trackRect, radius: radius, color: look.track)
-        let inset = look.px(2)
-        let thumb = r.insetBy(dx: inset, dy: inset)
-        let thumbRadius = look.px(4)
-        var ink = look.palette.text
+        let trackRect = RECT(left: client.left - (i > 0 ? reach : 0), top: client.top, right: client.right + (i < n - 1 ? reach : 0), bottom: client.bottom)
+        var list = [WinPaint.Item(rect: trackRect, radius: radius, fill: ink(look.track), stroke: nil)]
+        let thumb = inset(client, look.ipx(2))
+        let thumbRadius = look.ipx(4)
+        var textInk = look.palette.text
         if s.checked {
-            WinAA.fillRound(dc, thumb, radius: thumbRadius, color: look.thumb)
-            WinAA.ring(dc, thumb, radius: thumbRadius, stroke: look.hairlinePx, color: look.stroke)
-            WinAA.ring(dc, thumb, radius: thumbRadius, stroke: look.hairlinePx, color: look.bottomEdge, belowY: Double(thumb.maxY) - thumbRadius)
+            list.append(contentsOf: raised(thumb, radius: thumbRadius, fill: look.thumb, edge: look.bottomEdge, stroke: look.stroke, look))
         } else if !s.disabled, s.pressed || s.hot {
-            WinAA.fillRound(dc, thumb, radius: thumbRadius, color: look.ink, alpha: s.pressed ? look.pressed : look.hover)
-            if s.pressed { ink = look.palette.secondaryText }
+            list.append(WinPaint.Item(rect: thumb, radius: thumbRadius, fill: ink(look.ink, s.pressed ? look.pressed : look.hover), stroke: nil))
+            if s.pressed { textInk = look.palette.secondaryText }
         }
         // a thin separator between two unselected neighbours (hidden next to the raised segment)
         if i < n - 1, !s.checked, WinKit.send(c.parts[i + 1], 0x00F0 /* BM_GETCHECK */) != 1 {
-            let h = look.px(12)
-            WinAA.fillRound(dc, WinFRect(x: r.maxX - look.hairlinePx, y: r.midY - h / 2, width: look.hairlinePx, height: h), radius: 0, color: look.strong, alpha: 0.5)
+            let h = look.ipx(12), w = Int32(look.hairlinePx), mid = (client.top + client.bottom) / 2
+            list.append(WinPaint.Item(rect: RECT(left: client.right - w, top: mid - h / 2, right: client.right, bottom: mid - h / 2 + h), radius: 0,
+                                      fill: ink(look.strong, 0.5), stroke: nil))
         }
-        if s.disabled { ink = look.palette.disabled }
-        text(dc, WinKit.text(of: part).replacingOccurrences(of: "&&", with: "&"), font: c.font, color: ink,
+        shapes(dc, list, look, client)
+        if s.disabled { textInk = look.palette.disabled }
+        text(dc, WinKit.text(of: part).replacingOccurrences(of: "&&", with: "&"), font: c.font, color: textInk,
              in: client, flags: UINT(DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS))
-        if s.focusRing { focusRing(dc, r.insetBy(dx: 0, dy: 0), radius: look.px(5), look) }
+        if s.focusRing { focusRing(dc, inset(client, look.ipx(1)), radius: look.ipx(5), look) }
     }
 
     // MARK: - capsule chips
@@ -310,112 +242,123 @@ struct WinLook {
     private static func paintChip(_ c: WinControl, _ part: HWND, _ dc: HDC, _ client: RECT, _ look: WinLook, _ s: ButtonState) {
         fillBackground(c, dc, client)
         guard let i = c.parts.firstIndex(of: part) else { return }
-        let r = rectD(client)
-        let radius = r.height / 2
+        let radius = (client.bottom - client.top) / 2
         var fill = s.checked ? WinUIColors.blend(look.bg, look.accent, 0.15) : look.mix(look.bg, 0.05)
-        if !s.disabled, s.pressed || s.hot {
-            fill = WinUIColors.blend(fill, look.ink, s.pressed ? 0.06 : 0.03)
-        }
-        WinAA.fillRound(dc, r, radius: radius, color: fill)
-        var ink = s.checked ? look.accentText : look.palette.secondaryText
-        if s.disabled { ink = look.palette.disabled }
+        if !s.disabled, s.pressed || s.hot { fill = WinUIColors.blend(fill, look.ink, s.pressed ? 0.06 : 0.03) }
+        shapes(dc, [WinPaint.Item(rect: client, radius: radius, fill: ink(fill), stroke: nil)], look, client)
+        var textInk = s.checked ? look.accentText : look.palette.secondaryText
+        if s.disabled { textInk = look.palette.disabled }
         let mark = c.chipMarks.indices.contains(i) && c.chipMarks[i] ? "\u{25CF} " : ""
-        text(dc, mark + WinKit.text(of: part).replacingOccurrences(of: "&&", with: "&"), font: s.checked ? (c.boldFont ?? c.font) : c.font, color: ink,
+        text(dc, mark + WinKit.text(of: part).replacingOccurrences(of: "&&", with: "&"), font: s.checked ? (c.boldFont ?? c.font) : c.font, color: textInk,
              in: client, flags: UINT(DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS))
-        if s.focusRing { focusRing(dc, r, radius: radius, look) }
+        if s.focusRing { focusRing(dc, client, radius: radius, look) }
     }
 
     // MARK: - push buttons
 
     private static func paintButton(_ c: WinControl, _ part: HWND, _ dc: HDC, _ client: RECT, _ look: WinLook, _ s: ButtonState) {
         fillBackground(c, dc, client)
-        let r = rectD(client).insetBy(dx: 0, dy: 0)
-        let radius = look.px(4)
-        var ink = look.palette.text
+        let radius = look.ipx(4)
+        var textInk = look.palette.text
+        var list: [WinPaint.Item] = []
         switch c.buttonStyle {
         case .secondary:
-            WinAA.fillRound(dc, r, radius: radius, color: look.buttonFill(hot: s.hot && !s.disabled, pressed: s.pressed && !s.disabled))
-            WinAA.ring(dc, r, radius: radius, stroke: look.hairlinePx, color: look.stroke)
-            if !s.disabled { WinAA.ring(dc, r, radius: radius, stroke: look.hairlinePx, color: look.bottomEdge, belowY: Double(r.maxY) - radius) }
-            if s.pressed, !s.disabled { ink = look.palette.secondaryText }
+            let fill = look.buttonFill(hot: s.hot && !s.disabled, pressed: s.pressed && !s.disabled)
+            if s.disabled {
+                list = [WinPaint.Item(rect: client, radius: radius, fill: ink(fill), stroke: ink(look.stroke), strokeWidth: Int32(look.hairlinePx))]
+            } else {
+                list = raised(client, radius: radius, fill: fill, edge: look.bottomEdge, stroke: look.stroke, look)
+            }
+            if s.pressed, !s.disabled { textInk = look.palette.secondaryText }
         case .primary:
             var fill = look.accent
-            ink = look.onAccent
+            textInk = look.onAccent
             if s.disabled {
                 fill = look.mix(look.bg, look.dark ? 0.158 : 0.217)
-                ink = look.dark ? look.palette.disabled : 0x00FF_FFFF
-            } else if s.pressed {
-                fill = WinUIColors.blend(look.bg, look.accent, 0.8)
-                ink = WinUIColors.blend(fill, ink, 0.7)
-            } else if s.hot {
-                fill = WinUIColors.blend(look.bg, look.accent, 0.9)
+                textInk = look.dark ? look.palette.disabled : 0x00FF_FFFF
+                list = [WinPaint.Item(rect: client, radius: radius, fill: ink(fill), stroke: nil)]
+            } else {
+                if s.pressed {
+                    fill = WinUIColors.blend(look.bg, look.accent, 0.8)
+                    textInk = WinUIColors.blend(fill, textInk, 0.7)
+                } else if s.hot {
+                    fill = WinUIColors.blend(look.bg, look.accent, 0.9)
+                }
+                list = raised(client, radius: radius, fill: fill, edge: WinUIColors.blend(fill, 0, 0.25), stroke: nil, look)
             }
-            WinAA.fillRound(dc, r, radius: radius, color: fill)
-            if !s.disabled { WinAA.ring(dc, r, radius: radius, stroke: look.hairlinePx, color: WinUIColors.blend(fill, 0, 0.2), belowY: Double(r.maxY) - radius) }
         case .plain:
-            if !s.disabled, s.pressed || s.hot { WinAA.fillRound(dc, r, radius: radius, color: look.ink, alpha: s.pressed ? look.pressed : look.hover) }
+            if !s.disabled, s.pressed || s.hot {
+                list = [WinPaint.Item(rect: client, radius: radius, fill: ink(look.ink, s.pressed ? look.pressed : look.hover), stroke: nil)]
+            }
         }
-        if s.disabled { ink = look.palette.disabled }
-        text(dc, WinKit.text(of: part).replacingOccurrences(of: "&&", with: "&"), font: c.font, color: ink,
+        shapes(dc, list, look, client)
+        if s.disabled, c.buttonStyle != .primary || !look.dark { textInk = look.palette.disabled }
+        text(dc, WinKit.text(of: part).replacingOccurrences(of: "&&", with: "&"), font: c.font, color: textInk,
              in: client, flags: UINT(DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS))
-        if s.focusRing { focusRing(dc, r, radius: radius + look.px(1), look) }
+        if s.focusRing { focusRing(dc, client, radius: radius + look.ipx(1), look) }
     }
 
     // MARK: - switch
 
-    /// The switch the check box is drawn as: the label at the left, a 40 x 20 DIP track at the right.
-    static func switchTrack(in client: RECT, _ look: WinLook) -> WinFRect {
-        let w = look.px(40), h = look.px(20)
-        let r = rectD(client)
-        let right = r.maxX - look.px(3)  // room for the focus ring
-        return WinFRect(x: right - w, y: (r.midY - h / 2).rounded(), width: w, height: h)
+    /// The switch the check box is drawn as: the label at the left, a 40 x 20 DIP track at the right (client pixels).
+    static func switchTrack(in client: RECT, _ look: WinLook) -> RECT {
+        let w = look.ipx(40), h = look.ipx(20)
+        let right = client.right - look.ipx(3)  // room for the focus ring
+        let top = (client.top + client.bottom - h) / 2
+        return RECT(left: right - w, top: top, right: right, bottom: top + h)
     }
 
     private static func paintSwitch(_ c: WinControl, _ part: HWND, _ dc: HDC, _ client: RECT, _ look: WinLook, _ s: ButtonState) {
         fillBackground(c, dc, client)
         let track = switchTrack(in: client, look)
         let on = WinKit.send(part, 0x00F0 /* BM_GETCHECK */) == 1
-        let radius = track.height / 2
-        let knobDiameter = look.px(s.pressed ? 14 : (s.hot ? 14 : 12))
-        let knobWidth = s.pressed ? look.px(17) : knobDiameter
-        let margin = look.px(4)
-        var knobColor: COLORREF
+        let radius = (track.bottom - track.top) / 2
+        let knobH = look.ipx(s.pressed || s.hot ? 14 : 12)
+        let knobW = s.pressed ? look.ipx(17) : knobH
+        let margin = look.ipx(4) + (look.ipx(12) - knobH) / 2
+        let knobColor: COLORREF
+        var list: [WinPaint.Item] = []
         if on {
             var fill = look.accent
-            knobColor = look.onAccent
+            var knob = look.onAccent
             if s.disabled {
                 fill = look.mix(look.bg, look.dark ? 0.158 : 0.217)
-                knobColor = look.dark ? look.palette.disabled : 0x00FF_FFFF
+                knob = look.dark ? look.palette.disabled : 0x00FF_FFFF
             } else if s.hot || s.pressed {
                 fill = WinUIColors.blend(look.bg, look.accent, 0.9)
             }
-            WinAA.fillRound(dc, track, radius: radius, color: fill)
+            knobColor = knob
+            list.append(WinPaint.Item(rect: track, radius: radius, fill: ink(fill), stroke: nil))
         } else {
             let border = s.disabled ? look.palette.disabled : look.strong
-            WinAA.fillRound(dc, track, radius: radius, color: look.mix(look.bg, s.hot && !s.disabled ? 0.058 : 0.024))
-            WinAA.ring(dc, track, radius: radius, stroke: look.hairlinePx, color: border)
             knobColor = border
+            list.append(WinPaint.Item(rect: track, radius: radius, fill: ink(look.mix(look.bg, s.hot && !s.disabled ? 0.058 : 0.024)),
+                                      stroke: ink(border), strokeWidth: Int32(look.hairlinePx)))
         }
-        let knobX = on ? track.maxX - margin - knobWidth - (look.px(12) - knobDiameter) / 2 : track.minX + margin + (look.px(12) - knobDiameter) / 2
-        let knob = WinFRect(x: knobX, y: track.midY - knobDiameter / 2, width: knobWidth, height: knobDiameter)
-        WinAA.fillRound(dc, knob, radius: knobDiameter / 2, color: knobColor)
+        let knobLeft = on ? track.right - margin - knobW : track.left + margin
+        let knobTop = (track.top + track.bottom - knobH) / 2
+        list.append(WinPaint.Item(rect: RECT(left: knobLeft, top: knobTop, right: knobLeft + knobW, bottom: knobTop + knobH), radius: knobH / 2, fill: ink(knobColor), stroke: nil))
+        shapes(dc, list, look, client)
         // the label, left of the switch (wraps within the row's height, cut with an ellipsis)
         var box = client
-        box.right = Int32(track.minX.rounded()) - Int32(look.px(12))
-        guard box.right > box.left else { return }
-        let label = WinKit.text(of: part).replacingOccurrences(of: "&&", with: "&")
-        let ink = s.disabled ? look.palette.disabled : look.palette.text
-        let oneLine = c.ctx.measure(label, font: c.font).cx <= box.right - box.left
-        if oneLine {
-            text(dc, label, font: c.font, color: ink, in: box, flags: UINT(DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS))
-        } else {
-            let wrapped = c.ctx.measure(label, font: c.font, width: box.right - box.left)
-            let height = min(wrapped.cy, client.bottom - client.top)
-            box.top = max(client.top, (client.top + client.bottom - height) / 2)
-            box.bottom = box.top + height
-            text(dc, label, font: c.font, color: ink, in: box, flags: UINT(DT_LEFT | DT_TOP | DT_WORDBREAK | DT_END_ELLIPSIS))
+        box.right = track.left - look.ipx(12)
+        if box.right > box.left {
+            let label = WinKit.text(of: part).replacingOccurrences(of: "&&", with: "&")
+            let textInk = s.disabled ? look.palette.disabled : look.palette.text
+            if c.ctx.measure(label, font: c.font).cx <= box.right - box.left {
+                text(dc, label, font: c.font, color: textInk, in: box, flags: UINT(DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS))
+            } else {
+                let wrapped = c.ctx.measure(label, font: c.font, width: box.right - box.left)
+                let height = min(wrapped.cy, client.bottom - client.top)
+                box.top = max(client.top, (client.top + client.bottom - height) / 2)
+                box.bottom = box.top + height
+                text(dc, label, font: c.font, color: textInk, in: box, flags: UINT(DT_LEFT | DT_TOP | DT_WORDBREAK | DT_END_ELLIPSIS))
+            }
         }
-        if s.focusRing { focusRing(dc, track.insetBy(dx: -look.px(3), dy: -look.px(3)), radius: radius + look.px(3), look) }
+        if s.focusRing {
+            let d = look.ipx(3)
+            focusRing(dc, RECT(left: track.left - d, top: track.top - d, right: track.right + d, bottom: track.bottom + d), radius: radius + d, look)
+        }
     }
 
     // MARK: - slider
@@ -427,42 +370,35 @@ struct WinLook {
         return r
     }
 
-    private static func paintChannel(_ c: WinControl, _ part: HWND, _ dc: HDC, _ look: WinLook) {
+    private static func paintTrackbar(_ c: WinControl, _ part: HWND, _ dc: HDC) {
         var client = RECT()
         _ = GetClientRect(part, &client)
+        let look = WinLook(c)
+        fillBackground(c, dc, client)
         let disabled = !IsWindowEnabled(part)
         let thumb = nativeThumb(part)
-        let height = look.px(4)
-        let edge = look.px(5)  // the bar's window reaches this far past the track's row (see `WinControl.frame`)
-        let r = rectD(client)
-        let track = WinFRect(x: r.minX + edge, y: (r.midY - height / 2).rounded(), width: r.width - 2 * edge, height: height)
-        WinAA.fillRound(dc, track, radius: height / 2, color: disabled ? look.palette.disabled : look.strong)
-        let centre = Double(thumb.left + thumb.right) / 2
-        if centre > track.minX {
-            let filled = WinFRect(x: track.minX, y: track.minY, width: min(track.width, centre - track.minX), height: track.height)
-            WinAA.fillRound(dc, filled, radius: height / 2, color: disabled ? look.palette.disabled : look.accent)
-        }
-    }
-
-    private static func paintThumb(_ c: WinControl, _ part: HWND, _ dc: HDC, _ nativeRect: RECT, _ look: WinLook) {
-        var client = RECT()
-        _ = GetClientRect(part, &client)
-        let disabled = !IsWindowEnabled(part)
-        let focused = GetFocus() == part && WinKit.send(part, 0x0129) & 0x1 == 0 || c.isForced(part, c.testFocus)
+        let focused = (GetFocus() == part && WinKit.send(part, 0x0129) & 0x1 == 0) || c.isForced(part, c.testFocus)
         let dragging = GetCapture() == part || c.isForced(part, c.testPressed)
         let hot = c.hotPart == part || c.isForced(part, c.testHot)
-        let d = look.px(20)
-        let centre = (x: Double(nativeRect.left + nativeRect.right) / 2, y: Double(client.top + client.bottom) / 2)
-        let thumb = WinFRect(x: centre.x - d / 2, y: centre.y - d / 2, width: d, height: d)
-        WinAA.fillRound(dc, thumb, radius: d / 2, color: look.thumb)
-        WinAA.ring(dc, thumb, radius: d / 2, stroke: look.hairlinePx, color: look.stroke)
-        WinAA.ring(dc, thumb, radius: d / 2, stroke: look.hairlinePx, color: look.bottomEdge, belowY: Double(thumb.midY) + d / 4)
-        let dot = look.px(dragging ? 10 : (hot ? 14 : 12))
-        WinAA.fillRound(dc, WinFRect(x: centre.x - dot / 2, y: centre.y - dot / 2, width: dot, height: dot), radius: dot / 2,
-                        color: disabled ? look.palette.disabled : look.accent)
+        let h = look.ipx(4), edge = look.ipx(5)  // the bar's window reaches 5 DIP past the track's row (see `WinControl.frame`)
+        let midY = (client.top + client.bottom) / 2
+        let track = RECT(left: client.left + edge, top: midY - h / 2, right: client.right - edge, bottom: midY - h / 2 + h)
+        let centreX = (thumb.left + thumb.right) / 2
+        let d = look.ipx(20)
+        let thumbRect = RECT(left: centreX - d / 2, top: midY - d / 2, right: centreX - d / 2 + d, bottom: midY - d / 2 + d)
+        let dot = look.ipx(dragging ? 10 : (hot ? 14 : 12))
+        let dotRect = RECT(left: centreX - dot / 2, top: midY - dot / 2, right: centreX - dot / 2 + dot, bottom: midY - dot / 2 + dot)
+        var list = [WinPaint.Item(rect: track, radius: h / 2, fill: ink(disabled ? look.palette.disabled : look.strong), stroke: nil)]
+        if centreX > track.left {
+            list.append(WinPaint.Item(rect: RECT(left: track.left, top: track.top, right: min(track.right, centreX), bottom: track.bottom), radius: h / 2,
+                                      fill: ink(disabled ? look.palette.disabled : look.accent), stroke: nil))
+        }
+        list.append(contentsOf: raised(thumbRect, radius: d / 2, fill: look.thumb, edge: look.bottomEdge, stroke: look.stroke, look))
+        list.append(WinPaint.Item(rect: dotRect, radius: dot / 2, fill: ink(disabled ? look.palette.disabled : look.accent), stroke: nil))
+        shapes(dc, list, look, client)
         if focused {
-            let outer = thumb.insetBy(dx: -look.px(3), dy: -look.px(3))
-            focusRing(dc, outer, radius: outer.width / 2, look)
+            let g = look.ipx(3)
+            focusRing(dc, RECT(left: thumbRect.left - g, top: thumbRect.top - g, right: thumbRect.right + g, bottom: thumbRect.bottom + g), radius: d / 2 + g, look)
         }
     }
 }

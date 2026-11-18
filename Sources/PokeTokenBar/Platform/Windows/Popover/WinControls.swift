@@ -269,7 +269,9 @@ enum WinEditKind: Equatable, Sendable {
             // thumb at either end is not cut (the system's thumb is about 11 px wide, ours 20 DIP).
             let reach = min(ctx.px(5), gap - 1)
             WinKit.move(parts[0], RECT(left: r.left - reach, top: r.top, right: r.right - valueW - gap + reach, bottom: r.bottom))
-            WinKit.move(parts[1], RECT(left: r.right - valueW, top: r.top, right: r.right, bottom: r.bottom))
+            // the value text is one line, centred on the track (a static draws from its top edge)
+            let line = ctx.lineHeight(font), top = r.top + max(0, (r.bottom - r.top - line) / 2)
+            WinKit.move(parts[1], RECT(left: r.right - valueW, top: top, right: r.right, bottom: top + line))
         case .stepper where parts.count == 2:
             let arrows = ctx.px(17)
             WinKit.move(parts[0], RECT(left: r.left, top: r.top, right: r.right - arrows, bottom: r.bottom))

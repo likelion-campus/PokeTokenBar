@@ -168,7 +168,7 @@ extension WindowsSelftest {
             _ = GetClientRect(on.hwnd, &client)
             let look = WinLook(on)
             let track = WinCustomDraw.switchTrack(in: client, look)
-            let x = Int(track.midX), y = Int(track.midY)
+            let x = Int((track.left + track.right) / 2), y = Int((track.top + track.bottom) / 2)
             let onPixel = onShot.rgb(x, y), offPixel = offShot.rgb(x, y)
             if !near(onPixel, look.accent) { problems.append("an on switch is \(hex(onPixel)), expected the accent \(hex(from: look.accent))") }
             if near(offPixel, look.accent, tolerance: 40) { problems.append("an off switch is as accent as an on one (\(hex(offPixel)))") }
@@ -185,6 +185,17 @@ extension WindowsSelftest {
             let look = WinLook(primary)
             let corner = p.rgb(p.width / 2, 3)
             if !near(corner, look.accent) { problems.append("the primary button is \(hex(corner)), expected the accent \(hex(from: look.accent))") }
+            // The button's edge against the card it sits on (a flat dark button was the complaint): WCAG contrast ratio of the stroke pixel.
+            func lum(_ c: (r: Int, g: Int, b: Int)) -> Double {
+                func ch(_ v: Int) -> Double { let s = Double(v) / 255; return s <= 0.03928 ? s / 12.92 : pow((s + 0.055) / 1.055, 2.4) }
+                return 0.2126 * ch(c.r) + 0.7152 * ch(c.g) + 0.0722 * ch(c.b)
+            }
+            let edgePixel = e.rgb(0, e.height / 2), cardPixel = e.rgb(e.width / 2, 3)
+            let hi = max(lum(edgePixel), lum(cardPixel)), lo = min(lum(edgePixel), lum(cardPixel))
+            let ratio = (hi + 0.05) / (lo + 0.05)
+            let want = dark ? 2.4 : 1.15
+            if ratio < want { problems.append("a secondary button's edge is \(String(format: "%.2f", ratio)):1 against its card, expected at least \(want):1") }
+            notes.append("button edge \(hex(edgePixel)) on card \(hex(cardPixel)) = \(String(format: "%.2f", ratio)):1")
             notes.append("button text contrast enabled \(Int(strong)) disabled \(Int(weak)); primary \(hex(corner))")
         }
         // The slider's accent fill reaches the thumb: the track left of the thumb is the accent, right of it the strong stroke.
