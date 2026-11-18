@@ -83,14 +83,8 @@ public static class PtbCiProc {
 # ISCC.exe, as the build job's installer step finds it; installs Inno Setup when this runner image lacks it (the updates job
 # is a fresh runner that never ran the build job's step).
 function Get-Iscc {
-    $iscc = (Get-Command iscc.exe -ErrorAction SilentlyContinue).Source
-    if (-not $iscc) { $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe' }
-    if (-not (Test-Path $iscc)) {
-        choco install innosetup -y --no-progress | Out-Host
-        $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
-    }
-    if (-not (Test-Path $iscc)) { throw "ISCC.exe not found at $iscc (also not after choco install innosetup)" }
-    $iscc
+    # The pinned Inno Setup (build-pins.json), installed when the image has another one.
+    (& "$PSScriptRoot/ensure-inno.ps1" | Select-Object -Last 1)
 }
 
 # Starts a setup exe (or an uninstaller) and waits for IT only (Start-Process -Wait would also wait for the app Setup

@@ -92,3 +92,17 @@ image had 14.51 wanting Clang 20). `scripts/windows/select-msvc-toolset.ps1`, ru
 `msvc-toolset: <version> (needs clang N, have M) image <ImageVersion>`; it fails when none fits. Seeds record the toolset (`seed-meta.json`
 `msvc`) and are refused when it differs; `windows-release.json` carries `msvcToolset` (required by `check_release_manifest`).
 A newer Swift toolchain is a separate decision (it is the release toolchain).
+
+## Pinned build inputs (and how to bump each)
+Everything the Windows installer is built from that the repository does not contain, what pins it, where the build records it, and how to move it.
+`windows-release.json` carries `swift`, `msvcToolset`, `windowsSdk`, `innoSetup`, `openssl` and `runnerImage`; `check_release_manifest` requires them.
+| input | pinned by | recorded as | how to bump |
+|---|---|---|---|
+| third-party actions | commit SHA with the tag in a comment (all of `.github`) | the workflow file (the release pin step requires the workflow and the two local actions to equal the dispatched ref's) | `gh api repos/<owner>/<repo>/git/ref/tags/<tag> --jq .object.sha` (a tag object: `git/tags/<sha>` -> `.object.sha`), replace the SHA and the comment in every file (`grep -rn "uses: <owner>/<repo>@" .github`). `compnerd/gha-setup-swift` is a SHA of `main` (no release has the options used): `gh api repos/compnerd/gha-setup-swift/commits/main --jq .sha`; run windows.yml and light windows-app after |
+| Swift toolchain | `.github/actions/windows-swift` (`swift-6.3.2-release`) | `swift` | a decision for the user (it is the release toolchain); change the two inputs of the action together |
+| MSVC toolset | `select-msvc-toolset.ps1` (newest 14.4x+ whose STL accepts the clang) | `msvcToolset`, seed meta `msvc` | automatic; a Swift bump changes which toolsets qualify |
+| Windows SDK | not chosen (clang takes the newest installed) | `windowsSdk` | recorded only; to pin, set `WindowsSDKVersion` in `select-msvc-toolset.ps1` |
+| Inno Setup | `scripts/windows/build-pins.json` (`innosetup`); `ensure-inno.ps1` installs that version with chocolatey when the image has another | `innoSetup`; the manifest script fails if it differs from the pin | edit `build-pins.json` (a version `choco search innosetup --exact --all-versions` lists), run light windows-app (installer + installed selftest) |
+| OpenSSL (vcpkg) | `builtin-baseline` in `windows/vcpkg.json` (a vcpkg commit: 0bcada16, 2026-10-15, holds openssl 3.6.5; the newest commit tried, 9ee11c38, failed with 'no version database entry for vcpkg-cmake' on the runner's vcpkg tool) | `openssl` from `opensslv.h`; the manifest script fails unless the selftest's runtime `openssl` is the same | `gh api repos/microsoft/vcpkg/commits/master --jq .sha` into `builtin-baseline` (the vcpkg cache key includes the file, so the next run reinstalls); check `ports/openssl/vcpkg.json` at that commit for the version; run windows.yml + light windows-app |
+| swift-crypto | NOT pinned (`from: "3.0.0"`, `Package.resolved` ignored); see the options in the hand-over note | the selftest prints no version of it | decision pending |
+| runner image | not pinned (`windows-latest`) | `runnerImage` in the manifest and in seed meta | n/a |
