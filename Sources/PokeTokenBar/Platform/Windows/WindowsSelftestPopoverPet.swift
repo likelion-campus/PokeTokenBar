@@ -1009,10 +1009,12 @@ private struct PetGifFetcher: PlazaSpriteFetching {
         let real = WinFloatingPet.sessionNow()
         var lockedRaw: Int32 = -1, disconnectedRaw: Int32 = -1
         let read = ptb_session_state(&lockedRaw, &disconnectedRaw)
-        let realOK = read == 1 && !real.locked
+        let raw = WinFloatingPet.sessionRaw()   // fix/windows-pet-still: the values the rule reads, and the input desktop
+        let realOK = read == 1 && !real.locked && raw.desktop == 1
         ok = ok && lockedStill && unlockedLater && realOK
         notes.append("a window made while the session is locked (FIXTURE state) -> shown=\(lockedShown), clock off=\(lockedStill), WTS_SESSION_UNLOCK -> on=\(unlockedLater); "
-                     + "this session read (WTSSessionInfoEx)=\(read) locked=\(real.locked) disconnected=\(real.disconnected) (read and unlocked on the runner=\(realOK); the disconnect is only told by WM_WTSSESSION_CHANGE)")
+                     + "this session read (WTSSessionInfoEx)=\(read) locked=\(real.locked) disconnected=\(real.disconnected) (SessionFlags=0x\(String(raw.flags, radix: 16)) "
+                     + "SessionState=\(raw.state) input desktop=\(raw.desktop); read, unlocked and on the user's desktop on the runner=\(realOK); the disconnect is only told by WM_WTSSESSION_CHANGE)")
         r.add("pet.animation", ok, notes.joined(separator: "; "))
     }
 

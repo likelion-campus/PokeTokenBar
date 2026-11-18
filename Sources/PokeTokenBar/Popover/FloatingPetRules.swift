@@ -420,6 +420,22 @@ enum FloatingPetMenu {
 
 /// What the pet shows now: `FloatingPetController.sync` / `show` and the `SpriteView` arguments of `FloatingPetView.body` as
 /// one value (pinned twins). The view rebuilds when it changes and does nothing when it does not.
+// --- fix/windows-pet-still: the session's lock state when the pet is made (begin) ---
+/// Windows only: whether the session is locked when the pet's window is made (later the lock and unlock messages move it). Locked
+/// only when Windows says so twice: `WTSSessionInfoEx`'s SessionFlags is LOCK (0) AND the input desktop is not the user's own
+/// (the lock screen's secure desktop refuses a user's process). A LOCK while the user's desktop takes input, an unknown flag
+/// (0xFFFFFFFF) or a value it could not read is unlocked: a PC that reported LOCK while unlocked would otherwise keep the pet
+/// still for good (user report, kit 10). Behind a real lock screen both say locked, so the pet never animates there.
+enum FloatingPetSession {
+    static let lockFlag: UInt32 = 0, unknownFlag: UInt32 = 0xFFFF_FFFF
+
+    /// `inputDesktop`: 1 the user's "Default" desktop, 0 another one or refused (the secure desktop), -1 opened but unnamed.
+    static func locked(sessionFlags: UInt32, inputDesktop: Int32) -> Bool {
+        sessionFlags == lockFlag && inputDesktop == 0
+    }
+}
+// --- fix/windows-pet-still (end) ---
+
 struct FloatingPetModel: Equatable {
     /// The pet is on screen: the setting is on and the displays are awake (`sync`).
     var visible: Bool

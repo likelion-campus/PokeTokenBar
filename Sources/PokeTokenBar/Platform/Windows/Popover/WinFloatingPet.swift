@@ -183,10 +183,17 @@ import WinSDK
     }
 
     /// This session now (`WTSQuerySessionInformationW`, `WTSSessionInfoEx`); unlocked and connected when it cannot be read.
+    /// Locked only when the input desktop agrees (`FloatingPetSession`, fix/windows-pet-still).
     static func sessionNow() -> (locked: Bool, disconnected: Bool) {
-        var locked: Int32 = 0, disconnected: Int32 = 0
-        _ = ptb_session_state(&locked, &disconnected)
-        return (locked != 0, disconnected != 0)
+        let raw = sessionRaw()
+        return (FloatingPetSession.locked(sessionFlags: raw.flags, inputDesktop: raw.desktop), raw.state == 4 /* WTSDisconnected */)
+    }
+
+    /// The raw values behind it (the log line says them): SessionFlags, SessionState (0xFFFFFFFF when unread), the input desktop.
+    static func sessionRaw() -> (flags: UInt32, state: UInt32, desktop: Int32) {
+        var flags: UInt32 = 0, state: UInt32 = 0
+        _ = ptb_session_raw(&flags, &state)
+        return (flags, state, ptb_input_desktop_default())
     }
 
     /// The monitors now (`EnumDisplayMonitors`, effective DPI) in the shared placement's terms.
@@ -397,10 +404,12 @@ import WinSDK
             ? withUnsafeBytes(of: status) { "ACLineStatus=\($0[0]) SystemStatusFlag=\($0[3])" } : "power status unread"
         let what = state.moving ? "moving (\(state.frames) frames at the \(state.floor) s floor)"
             : state.subject.speciesID == nil ? "an egg (no GIF)" : "still: \(state.stillReason ?? "")"
+        let session = WinFloatingPet.sessionRaw()
         AppLog.write("floating pet: \(what); #\(state.subject.speciesID.map(String.init) ?? "egg") frames=\(state.frames) loading=\(state.loading) "
                      + "GIF asks=\(sprite.gifAsks) energy saver=\(state.energySaver) (\(power)) Show animations=\(pet.animationsEnabled()) "
                      + "clock=\(state.active) visible=\(state.visible) displays asleep=\(state.displayAsleep) locked=\(state.locked) "
-                     + "disconnected=\(state.disconnected)")
+                     + "disconnected=\(state.disconnected) (SessionFlags=0x\(String(session.flags, radix: 16)) SessionState=\(session.state) "
+                     + "input desktop=\(session.desktop))")
     }
     // --- fix/windows-pet-still (end) ---
 

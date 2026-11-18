@@ -66,7 +66,7 @@ final class PopoverSpriteRetryTwinTests: XCTestCase {
         let model = PopoverSpriteModel(fetcher: NoGIF(), memory: PopoverSpriteMemory())
         model.waitBeforeRetry = recorder.wait
         model.show(PlazaSpriteSubjectKey(speciesID: 25), animated: true, bob: false)
-        for _ in 0..<2_000 where recorder.delays.count < rounds { await Task.yield() }
+        for _ in 0..<4_000 where recorder.delays.count < rounds || model.gifAsks < rounds { await Task.yield(); try? await Task.sleep(nanoseconds: 100_000) }
         defer { model.release() }
         XCTAssertEqual(recorder.delays, macWaits, "the shared model waits as the Mac's loop does")
         XCTAssertEqual(macWaits, [2, 4, 8, 16, 30, 30, 30, 30])

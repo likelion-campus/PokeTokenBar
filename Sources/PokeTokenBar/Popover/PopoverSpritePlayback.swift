@@ -72,7 +72,7 @@ typealias PopoverSpriteFrames = [(image: PlazaImage, delay: TimeInterval)]
     /// none (its first download failed: no file yet, the network down at sign-in) keeps its still and asks again `firstRetry`
     /// later, doubling to `maxRetry`, with no attempt limit, until the frames come or the subject changes (the task is
     /// cancelled). A species without a GIF stops at its still. The wait is a seam (tests pass their own).
-    static let firstRetry: TimeInterval = 2, maxRetry: TimeInterval = 30
+    nonisolated static let firstRetry: TimeInterval = 2, maxRetry: TimeInterval = 30
     var waitBeforeRetry: @Sendable (TimeInterval) async throws -> Void = { try await Task.sleep(nanoseconds: UInt64($0 * 1_000_000_000)) }
     /// How many times the current subject's GIF was asked for (1 when it came at once).
     private(set) var gifAsks = 0
@@ -168,34 +168,26 @@ typealias PopoverSpriteFrames = [(image: PlazaImage, delay: TimeInterval)]
         }
         if animated && frames.isEmpty {
             gifAsks = 0
+            let fetcher = self.fetcher, floor = frameFloor, wait = waitBeforeRetry
             launch { [self] in
-                var retry = Self.firstRetry, showedStill = false
-                while true {
-                    var decoded = await fetcher.animated(speciesID: species, shiny: k.shiny, form: form, back: k.back)
-                    if decoded.count < 2, k.back {   // a missing back sprite: the front stands in
-                        decoded = await fetcher.animated(speciesID: species, shiny: k.shiny, form: form, back: false)
-                    }
-                    guard !Task.isCancelled, generation == g else { return }
-                    gifAsks += 1
-                    let ready = PopoverSpriteFrameCap.capFrameRate(PopoverSpriteRules.framesToApply(decoded, cancelled: false), floor: frameFloor)  // the cap: stage 7 Task 22
-                    if !ready.isEmpty {
-                        memory.keepFrames(ready, for: id)
-                        frames = ready
-                        frameIndex = 0
-                        loaded()
-                        return
-                    }
-                    // No GIF (yet): the still once, then asked again (fix/windows-pet-still: the Mac's recovering loop).
-                    if !showedStill {
-                        await loadStill(species, k, form, g)
-                        showedStill = true
-                        loaded()
-                    }
-                    guard PokemonAssets.hasAnimatedSprite(speciesID: species), !Task.isCancelled, generation == g else { return }
-                    do { try await waitBeforeRetry(retry) } catch { return }
-                    guard !Task.isCancelled, generation == g else { return }
-                    retry = min(retry * 2, Self.maxRetry)
+                let first = await Self.ask(fetcher, species: species, key: k, form: form, floor: floor)
+                guard !Task.isCancelled, generation == g else { return }
+                gifAsks = 1
+                if !first.isEmpty {
+                    play(first, id: id)
+                    return
                 }
+                // No GIF (yet): the still once, then the GIF asked for again (fix/windows-pet-still: the Mac's recovering loop).
+                await loadStill(species, k, form, g)
+                loaded()
+                guard PokemonAssets.hasAnimatedSprite(speciesID: species), !Task.isCancelled, generation == g else { return }
+                // The waits and the asks run off the main thread: a GIF that keeps failing wakes no main-thread code, one wait
+                // (the task's sleep) at a time, until the frames come or the task is cancelled (a new subject, the slot released).
+                let late = await Self.askUntilItComes(fetcher, species: species, key: k, form: form, floor: floor, wait: wait)
+                guard !Task.isCancelled, generation == g else { return }
+                gifAsks += late.asks
+                guard !late.frames.isEmpty else { return }
+                play(late.frames, id: id)
             }
         } else if frames.isEmpty {
             launch { [self] in
@@ -205,6 +197,43 @@ typealias PopoverSpriteFrames = [(image: PlazaImage, delay: TimeInterval)]
         }
         reschedule()
     }
+
+    // --- fix/windows-pet-still (begin) ---
+    /// The frames that came, shown from the first (`loaded` starts their clock).
+    private func play(_ ready: PopoverSpriteFrames, id: String) {
+        memory.keepFrames(ready, for: id)
+        frames = ready
+        frameIndex = 0
+        loaded()
+    }
+
+    /// One ask for the GIF: its frames as the slot plays them (a missing back sprite: the front stands in), capped at `floor`.
+    nonisolated private static func ask(_ fetcher: any PlazaSpriteFetching, species: Int, key k: PlazaSpriteSubjectKey, form: PokemonForm?,
+                                        floor: TimeInterval) async -> PopoverSpriteFrames {
+        var decoded = await fetcher.animated(speciesID: species, shiny: k.shiny, form: form, back: k.back)
+        if decoded.count < 2, k.back {   // a missing back sprite: the front stands in
+            decoded = await fetcher.animated(speciesID: species, shiny: k.shiny, form: form, back: false)
+        }
+        return PopoverSpriteFrameCap.capFrameRate(PopoverSpriteRules.framesToApply(decoded, cancelled: false), floor: floor)  // the cap: stage 7 Task 22
+    }
+
+    /// `recoveringAnimationFrames`' loop after its first ask: wait `firstRetry`, ask, doubling the wait to `maxRetry`, with no
+    /// attempt limit, until the frames come (with the asks it took) or the task is cancelled (nothing).
+    @concurrent nonisolated private static func askUntilItComes(_ fetcher: any PlazaSpriteFetching, species: Int, key: PlazaSpriteSubjectKey,
+                                                                form: PokemonForm?, floor: TimeInterval,
+                                                                wait: @Sendable (TimeInterval) async throws -> Void) async -> (frames: PopoverSpriteFrames, asks: Int) {
+        var retry = firstRetry, asks = 0
+        while !Task.isCancelled {
+            do { try await wait(retry) } catch { return ([], asks) }
+            guard !Task.isCancelled else { return ([], asks) }
+            let frames = await ask(fetcher, species: species, key: key, form: form, floor: floor)
+            asks += 1
+            if !frames.isEmpty { return (frames, asks) }
+            retry = min(retry * 2, maxRetry)
+        }
+        return ([], asks)
+    }
+    // --- fix/windows-pet-still (end) ---
 
     private func loadStill(_ species: Int, _ k: PlazaSpriteSubjectKey, _ form: PokemonForm?, _ g: Int) async {
         var image = await fetcher.still(speciesID: species, shiny: k.shiny, form: form, back: k.back)
