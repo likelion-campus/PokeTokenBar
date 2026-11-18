@@ -19,6 +19,18 @@ public enum WindowsApp {
     }
 
     @MainActor private static func run(_ arguments: [String]) -> Never {
+        // --- stage 7 Task 23: a `poketokenbar:` link (WinAgentLink) (begin) ---
+        // Before any other argument is read: a link's start reads nothing but the link. A running app takes it and this start
+        // ends; with none running it becomes a plain start (no flag of the link's command line survives) and the link is dropped.
+        var arguments = arguments
+        var startedByLink = false
+        if let link = AgentLinkRules.link(in: arguments) {
+            let name = WinSingleInstance.mutexName(stateDirectory: AppStatePaths.directory(), defaultDirectory: WindowsAppDelegate.defaultStateDirectory)
+            if WinAgentLink.forward(link, mutexName: name) { WindowsApp.exit(0, .link) }
+            arguments = Array(arguments.prefix(1))
+            startedByLink = true
+        }
+        // --- stage 7 Task 23 (end) ---
         WinTimeZone.publishSystemZone()  // before anything reads TimeZone.current (its own Windows lookup fails on a localized zone name)
         if arguments.contains("--version") {
             try? FileHandle.standardOutput.write(contentsOf: Data(((WindowsInstall.version ?? "0.0.0-dev") + "\n").utf8))
@@ -57,6 +69,7 @@ public enum WindowsApp {
         WindowsSelftestUpdate.prepare(arguments)  // stage 8 Task 6: the CI-only update flags (the loopback feed, before the checker exists)
 
         let app = WindowsAppDelegate(arguments: arguments)
+        app.startedByLink = startedByLink   // Task 23
         guard app.launch() else { WindowsApp.exit(app.yielded ? 3 : 1, .launchFailed) }
         WindowsInstall.leaveInstallFolder()  // not the install folder: Setup updates it, and what the app starts inherits it
         if arguments.contains("--selftest") {
@@ -122,7 +135,7 @@ extension WindowsApp {
     /// The selftest's helper only: told each step of the exit as it completes (`tray removed`, `team shutdown done`).
     @MainActor static var exitStepObserver: ((String) -> Void)?
 
-    enum ExitReason: String { case menu, endSession, closeRequest, selftest, helper, launchFailed, update }
+    enum ExitReason: String { case menu, endSession, closeRequest, selftest, helper, launchFailed, update, link }
 
     /// The cooperative part of the exit (the team's goodbye and the socket thread) shares this much, counted from the start
     /// of `exit`. Setup waits 30 s for the app to close and then refuses, so the whole exit stays far below that; healthy
@@ -132,6 +145,9 @@ extension WindowsApp {
     /// The only way Windows code leaves the process (scan-enforced): settings are lost unless synchronized (F2), and
     /// the log line is lost unless flushed.
     @MainActor static func exit(_ code: Int32, _ reason: ExitReason) -> Never {
+        // Task 23: a link handed to the running app. This start set nothing up (no settings, crash marker, log, tray or team)
+        // and writes nothing: a hook may open a link for every tool call.
+        if reason == .link { crtExit(code) }
         let began = Date()
         WinModalPump.cancelModalLoops()  // an exit asked for inside a modal loop closes the menu first
         if WakeTrace.enabled {  // the idle gate's attribution
@@ -196,13 +212,16 @@ private func crtExit(_ code: Int32) -> Never {
     private(set) var showRequests = 0
 
     init(arguments: [String]) { self.arguments = arguments }
+    /// Task 23: this start came from a `poketokenbar:` link while no app ran. It starts as a plain start; if an app appears
+    /// meanwhile, it yields quietly (a link never opens the popover).
+    var startedByLink = false
 
     /// The Mac's `applicationDidFinishLaunching` order. false = yielded to a running instance, or failed (logged).
     func launch() -> Bool {
         _ = RunLoop.main  // 1 (F4; before any window)
         mutexName = WinSingleInstance.mutexName(stateDirectory: AppStatePaths.directory(),
                                                 defaultDirectory: Self.defaultStateDirectory)
-        if WinSingleInstance.acquire(name: mutexName, quietly: arguments.contains("--autostart")) == .yielded {  // 2 (before anything that writes)
+        if WinSingleInstance.acquire(name: mutexName, quietly: arguments.contains("--autostart") || startedByLink) == .yielded {  // 2 (before anything that writes)
             yielded = true
             AppLog.writeAndFlush("duplicate instance: yielding to the instance already running (\(mutexName))")
             return false
@@ -227,6 +246,7 @@ private func crtExit(_ code: Int32) -> Never {
             self?.secondLaunch()  // stage 7 Task 4: the popover (ruling 3); was the "already running" balloon
             return 0
         }
+        WinAgentLink.install(on: sink) { WinFloatingPet.current?.handleAgentEvent($0) }  // stage 7 Task 23: links from a second start (nil pet: dropped, as on the Mac)
         if !WinMessageHook.install() { AppLog.write("text input stays ANSI: no WH_GETMESSAGE hook") }  // 7
         WinAppUserModelID.set()  // before any notification: the toast is attributed to the id the installer put on the shortcut
         Platform.current = WindowsPlatform.live(window: sink)  // 8
