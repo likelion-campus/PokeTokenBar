@@ -1382,6 +1382,22 @@ struct KitResources: CustomStringConvertible {
             let row = section.addToggle(label, isOn: label.hasSuffix("hover"))
             row.control?.forceState(hot: hot ? 0 : nil, pressed: pressed ? 0 : nil, focus: focus ? 0 : nil)
         }
+        let names = ["English", "한국어", "日本語"]
+        for (label, hot, pressed, focus, off) in [("Drop-down hover", true, false, false, false), ("Drop-down pressed", true, true, false, false),
+                                                  ("Drop-down focus ring", false, false, true, false), ("Drop-down disabled", false, false, false, true)] {
+            let row = section.addRow(label) { pane, ctx in WinControls.combo(names, selected: 1, in: pane, ctx: ctx) }
+            row.control?.forceState(hot: hot ? 0 : nil, pressed: pressed ? 0 : nil, focus: focus ? 0 : nil)
+            if off { row.control?.isEnabled = false }
+        }
+        let stepHot = section.addRow("Stepper hover (upper), pressed (lower)") { pane, ctx in
+            WinControls.stepper(range: 1...5, step: 1, value: 3, format: { "×\($0)" }, in: pane, ctx: ctx)
+        }
+        stepHot.control?.forceHalves(hot: 1, pressed: 2)
+        section.addRow("Stepper at its upper end") { pane, ctx in
+            WinControls.stepper(range: 1...5, step: 1, value: 5, format: { "×\($0)" }, in: pane, ctx: ctx)
+        }
+        let field = section.addRow("Field focus ring") { pane, ctx in WinControls.edit(.text(cue: "Nickname"), text: "Pika", width: 140, in: pane, ctx: ctx) }
+        field.control?.forceState(hot: nil, pressed: nil, focus: 0)
         let seg = section.addRow("Segment hover, focus", style: .full) { pane, ctx in
             WinControls.radioGroup(["Used", "Remaining", "Third"], selected: 0, in: pane, ctx: ctx)
         }
@@ -1650,7 +1666,7 @@ nonisolated(unsafe) private let editProbeSubclass: SUBCLASSPROC = { h, m, w, l, 
             return CGRect(x: CGFloat(r.left), y: CGFloat(r.top), width: CGFloat(r.right - r.left), height: CGFloat(r.bottom - r.top))
         }
         if !PopoverStackLayout.isReadingOrder(tabRects) { problems.append("Tab order is not the reading order") }
-        let leaves = zip(nodes, handles).filter { $0.0.visible && !Self.containers.contains($0.0.cls) && $0.0.cls != "msctls_updown32" }
+        let leaves = zip(nodes, handles).filter { $0.0.visible && !Self.containers.contains($0.0.cls) }
         var overlaps: [String] = []
         for i in leaves.indices {
             for j in leaves.indices where j > i {
@@ -1693,13 +1709,22 @@ nonisolated(unsafe) private let editProbeSubclass: SUBCLASSPROC = { h, m, w, l, 
             return nil
         }
         if !unnamed.isEmpty { problems.append("fields without a label before them: \(unnamed)") }
+        // K4: a drop-down and a stepper are buttons: their window text is their accessible name, "label: value", so one with no label
+        // (or no value) is read without a name. (The check above did not know them: they are no ComboBox any more.)
+        let unnamedButtons = zip(nodes, handles).compactMap { n, h -> String? in
+            guard n.visible, n.cls == "Button", let c = WinControl.control(h), c.kind == .combo || c.kind == .stepper else { return nil }
+            let hasLabel = c.accessibleLabel != nil, hasValue = c.kind == .stepper || !c.comboShown.isEmpty
+            return hasLabel && hasValue && n.text.contains(": ") ? nil : "\(c.kind) '\(n.text.prefix(20))'"
+        }
+        if !unnamedButtons.isEmpty { problems.append("drop-downs or steppers without 'label: value' as their name: \(unnamedButtons)") }
+
         let shownHidden = nodes.filter { $0.text == Self.hiddenMarker && $0.visible }.count
         if shownHidden > 0 { problems.append("a hidden row shows (\(shownHidden) windows)") }
         let hangul = Set(nodes.flatMap { $0.text.unicodeScalars.filter { (0xAC00...0xD7A3).contains($0.value) }.map { UInt16($0.value) } })
         let missingHangul = Self.missingGlyphs(Array(hangul), face: "Malgun Gothic")
         // R9: a machine without Malgun Gothic (a server image) draws Hangul as boxes: reported, not failed; with the font, a missing glyph fails.
         if !missingHangul.isEmpty, WinFonts.isInstalled("Malgun Gothic") { problems.append("Hangul without a glyph in Malgun Gothic: \(missingHangul.count)") }
-        let summary = "unlabelled fields=\(unnamed.count); hidden row windows shown=\(shownHidden) of \(nodes.filter { $0.text == Self.hiddenMarker }.count); \(stops.count) Tab stops, \(tabOrder.count) reached in reading order=\(PopoverStackLayout.isReadingOrder(tabRects)); "
+        let summary = "unlabelled fields=\(unnamed.count + unnamedButtons.count); hidden row windows shown=\(shownHidden) of \(nodes.filter { $0.text == Self.hiddenMarker }.count); \(stops.count) Tab stops, \(tabOrder.count) reached in reading order=\(PopoverStackLayout.isReadingOrder(tabRects)); "
             + "\(leaves.count) visible controls; \(hangul.count) Hangul syllables, \(missingHangul.count) without a glyph in Malgun Gothic (GDI's link for Hangul, "
             + "installed=\(WinFonts.isInstalled("Malgun Gothic"))); problems=\(problems.isEmpty ? "none" : problems.joined(separator: "; "))"
         return Result(ok: problems.isEmpty, summary: summary)

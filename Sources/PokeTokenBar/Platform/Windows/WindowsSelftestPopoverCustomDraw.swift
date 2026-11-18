@@ -97,12 +97,12 @@ extension WindowsSelftest {
         return Shot(width: w, height: h, bgra: Array(UnsafeRawBufferPointer(start: bits, count: w * h * 4)))
     }
 
-    private static func near(_ a: (r: Int, g: Int, b: Int), _ c: COLORREF, tolerance: Int = 4) -> Bool {
+    static func near(_ a: (r: Int, g: Int, b: Int), _ c: COLORREF, tolerance: Int = 4) -> Bool {
         abs(a.r - Int(c & 0xFF)) <= tolerance && abs(a.g - Int((c >> 8) & 0xFF)) <= tolerance && abs(a.b - Int((c >> 16) & 0xFF)) <= tolerance
     }
 
-    private static func byte(_ v: Int) -> String { (v < 16 ? "0" : "") + String(v, radix: 16, uppercase: true) }
-    private static func hex(_ a: (r: Int, g: Int, b: Int)) -> String { "#" + byte(a.r) + byte(a.g) + byte(a.b) }
+    static func byte(_ v: Int) -> String { (v < 16 ? "0" : "") + String(v, radix: 16, uppercase: true) }
+    static func hex(_ a: (r: Int, g: Int, b: Int)) -> String { "#" + byte(a.r) + byte(a.g) + byte(a.b) }
 
     /// One appearance: the problems found (empty = all proved) and a note of the measured values.
     static func evaluate(dark: Bool, highContrast: Bool) async -> (problems: [String], note: String) {
@@ -213,7 +213,7 @@ extension WindowsSelftest {
         return (problems, notes.joined(separator: "; "))
     }
 
-    private static func hex(from c: COLORREF) -> String { hex((r: Int(c & 0xFF), g: Int((c >> 8) & 0xFF), b: Int((c >> 16) & 0xFF))) }
+    static func hex(from c: COLORREF) -> String { hex((r: Int(c & 0xFF), g: Int((c >> 8) & 0xFF), b: Int((c >> 16) & 0xFF))) }
 
     static func run(_ r: WindowsSelftest.Recorder) async {
         var problems: [String] = []

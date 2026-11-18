@@ -211,7 +211,7 @@ import WinSDK
                 if !m.isPassive, let count = WinCardKit.label("×\(m.count)", .caption, weight: 700, role: .secondary, in: child, ctx: ctx) { title.leading.append(count) }
                 if m.showsCandyStepper {
                     if let name = WinControls.label(m.name, wraps: false, in: child, ctx: ctx) { title.unseen.append(name) }
-                    let stepper = WinControls.stepper(range: 1...m.maxCandyCount, step: 1, value: candy, format: { "×\($0)" }, in: child, ctx: ctx)
+                    let stepper = WinControls.stepper(range: 1...m.maxCandyCount, step: 1, value: candy, format: { "×\($0)" }, name: m.name, in: child, ctx: ctx)
                     stepper?.onValue = { [weak self] v in
                         guard let self else { return }
                         var s = self.itemStates[.rareCandy] ?? ItemState()

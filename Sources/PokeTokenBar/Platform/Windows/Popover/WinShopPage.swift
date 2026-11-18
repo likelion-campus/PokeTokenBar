@@ -206,7 +206,7 @@ import WinSDK
                 if m.showsQuantity {
                     // the stepper's accessible name is the static before it: the item's name (`.accessibilityLabel(l.itemName(kind))`)
                     if let name = WinControls.label(m.name, wraps: false, in: child, ctx: ctx) { title.unseen.append(name) }
-                    let stepper = WinControls.stepper(range: 1...m.maxQuantity, step: 1, value: selected, format: { "×\($0)" }, in: child, ctx: ctx)
+                    let stepper = WinControls.stepper(range: 1...m.maxQuantity, step: 1, value: selected, format: { "×\($0)" }, name: m.name, in: child, ctx: ctx)
                     stepper?.onValue = { [weak self] v in
                         guard let self else { return }
                         var s = self.itemStates[m.kind] ?? ItemState()

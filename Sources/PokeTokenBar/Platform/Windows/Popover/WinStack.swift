@@ -286,6 +286,7 @@ import WinSDK
         let labelControl = label.flatMap { WinControls.label($0, in: pane, ctx: ctx) }
         let nameControl = label == nil ? accessibleName.flatMap { WinControls.label($0, wraps: false, in: pane, ctx: ctx) } : nil
         let control = make(pane, ctx)
+        if let label, let control, control.kind == .combo || control.kind == .stepper { control.setAccessibleLabel(label) }  // K4: "Label: value"
         let hintControl = hint.flatMap { WinControls.label($0, style: .caption2, role: .tertiary, in: pane, ctx: ctx) }
         let row = WinRow(style: style, label: labelControl, hint: hintControl, control: control)
         row.nameLabel = nameControl

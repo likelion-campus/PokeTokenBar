@@ -411,11 +411,7 @@ private struct PetGifFetcher: PlazaSpriteFetching {
         // Settings: Animation (G4) in General, the pet group (G12) with enable, back view, size (while on).
         if let p = await openPopover(settings: true), let page = p.pageForTesting as? WinSettingsPage, let rows = page.petRowsForTesting {
             let q = rows.animationQualityRow?.control
-            let qualityTitles = q.map { c in (0..<3).map { i -> String in
-                var buf = [UInt16](repeating: 0, count: 128)
-                let n = buf.withUnsafeMutableBufferPointer { p in SendMessageW(c.hwnd, 0x0148 /* CB_GETLBTEXT */, WPARAM(i), LPARAM(Int(bitPattern: p.baseAddress))) }
-                return n > 0 ? String(decoding: buf.prefix(Int(n)), as: UTF16.self) : ""
-            } } ?? []
+            let qualityTitles = q.map { c in (0..<3).map { c.itemTitle($0) } } ?? []
             let sizeHiddenOff = rows.sizeRow?.isVisible == false
             let backViewInGroup = rows.backViewRow != nil
             if let c = rows.enableRow?.control { WinKit.send(c.parts[0], 0x00F5 /* BM_CLICK */) }
@@ -438,7 +434,7 @@ private struct PetGifFetcher: PlazaSpriteFetching {
                 pet.window.map { w in w.frame.right - w.frame.left == Int32((192 * CGFloat(w.dpi) / 96).rounded()) } == true
             }
             if let c = q, let parent = GetParent(c.hwnd) {
-                WinKit.send(c.hwnd, 0x014E /* CB_SETCURSEL */, 2)
+                c.selection = 2
                 let id = Int(GetDlgCtrlID(c.hwnd))
                 _ = SendMessageW(parent, UINT(WM_COMMAND), WPARAM(UInt(id & 0xFFFF) | (1 << 16) /* CBN_SELCHANGE */), LPARAM(Int(bitPattern: UnsafeMutableRawPointer(c.hwnd))))
             }

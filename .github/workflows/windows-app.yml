@@ -551,6 +551,22 @@ jobs:
           }
           if ($bad.Count -gt 0) { throw "custom draw: $($bad -join ', ')" }
       # --- visual polish K3 (end) ---
+      # --- visual polish K4: drop-down, stepper, field frame, MSAA (begin) ---
+      - name: K4 controls ran (popover.dropDown, popover.stepper, popover.field, popover.msaa, popover.k4.fault)
+        timeout-minutes: 5
+        if: (success() || failure())
+        shell: pwsh
+        run: |
+          $j = Get-Content st.json -Raw | ConvertFrom-Json
+          $names = 'popover.dropDown', 'popover.stepper', 'popover.field', 'popover.msaa', 'popover.k4.fault'
+          $bad = @()
+          foreach ($n in $names) {
+              $c = $j.checks | Where-Object { $_.name -eq $n }
+              if (-not $c) { $bad += "$n missing" } elseif (-not $c.ok) { $bad += "$n FAIL: $($c.detail)" } elseif ($c.detail -like 'skipped*') { $bad += "$n skipped on CI" }
+              else { "PASS ${n}: $($c.detail)" }
+          }
+          if ($bad.Count -gt 0) { throw "K4: $($bad -join ', ')" }
+      # --- visual polish K4 (end) ---
       # --- stage 7 Task 22: the floating pet (begin) ---
       - name: Floating pet checks ran (pet.*, captures in ui-dump/pet)
         timeout-minutes: 5
