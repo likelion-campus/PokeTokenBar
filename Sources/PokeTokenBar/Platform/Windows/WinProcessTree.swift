@@ -20,15 +20,20 @@ import WinSDK
 /// `ProcessTreeSelection`). A Job Object around the root right after `process.run()` would remove the guessing; it is not done
 /// here.
 enum WinProcessTree {
-    /// Ends `process` (with corelibs' terminate code) and its descendants (exit code 1), deepest first. False when `process`
-    /// could not be pinned (it is not running, or corelibs' handle was already closed), so nothing at all is ended, or when
-    /// `TerminateProcess` on the root failed.
+    /// Ends `process` (with corelibs' terminate code), then its descendants (exit code 1), deepest first. The root goes first
+    /// so that its exit code is always corelibs' (a shim whose child has ended would otherwise often exit by itself first);
+    /// everything is chosen and held before anything is ended. False when `process` could not be pinned (it is not running, or
+    /// corelibs' handle was already closed), so nothing at all is ended, or when `TerminateProcess` on the root failed.
     @discardableResult
     static func terminate(_ process: Process) -> Bool {
         guard let root = pin(process) else { return false }
         defer { CloseHandle(root) }
-        endDescendants(of: root)
-        return TerminateProcess(root, UINT(0xC000_0000 | 15))  // what corelibs' Process.terminate() uses (SIGTERM)
+        var opened: [DWORD: (handle: HANDLE, created: UInt64)] = [:]
+        defer { for entry in opened.values { CloseHandle(entry.handle) } }
+        let tree = descendants(of: root, opened: &opened)
+        let ended = TerminateProcess(root, UINT(0xC000_0000 | 15))  // what corelibs' Process.terminate() uses (SIGTERM)
+        for pid in tree { if let entry = opened[pid] { TerminateProcess(entry.handle, 1) } }
+        return ended
     }
 
     /// A handle of our own to `process`'s process object, or nil. corelibs sets `isRunning` to false before it closes
@@ -46,26 +51,24 @@ enum WinProcessTree {
         return copy
     }
 
-    private static func endDescendants(of root: HANDLE) {
+    /// The root's descendants, deepest first, as chosen on the second snapshot. `opened` receives every handle opened on the
+    /// way (the caller ends the chosen ones through them, and closes them all).
+    private static func descendants(of root: HANDLE, opened: inout [DWORD: (handle: HANDLE, created: UInt64)]) -> [DWORD] {
         let rootPID = GetProcessId(root), me = GetCurrentProcessId()
         guard let rootCreated = creationTime(of: root), let meCreated = creationTime(of: GetCurrentProcess()),
-              let first = snapshot() else { return }
+              let first = snapshot() else { return [] }
         func select(_ snapshot: (links: [ProcessTreeSelection.Link], time: UInt64), _ created: (DWORD) -> UInt64?) -> [DWORD] {
             ProcessTreeSelection.descendants(of: rootPID, rootCreated: rootCreated, current: me, currentCreated: meCreated,
                                              links: snapshot.links, snapshotTime: snapshot.time, created: created)
         }
-        var opened: [DWORD: (handle: HANDLE, created: UInt64)] = [:]
-        defer { for process in opened.values { CloseHandle(process.handle) } }
         _ = select(first) { pid in
             guard let handle = OpenProcess(DWORD(PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION), false, pid) else { return nil }
             guard let time = creationTime(of: handle) else { CloseHandle(handle); return nil }
             opened[pid] = (handle, time)
             return time
         }
-        guard !opened.isEmpty, let second = snapshot() else { return }
-        for pid in select(second, { opened[$0]?.created }) {
-            if let process = opened[pid] { TerminateProcess(process.handle, 1) }
-        }
+        guard !opened.isEmpty, let second = snapshot() else { return [] }
+        return select(second) { opened[$0]?.created }
     }
 
     /// Every process's id and recorded parent id, and the time read just after (no process in it was created later, unless the

@@ -3152,7 +3152,8 @@ read_when:
   (1) 어느 스냅숏보다 먼저 루트를 붙잡는다 — corelibs `processHandle` 을 `DuplicateHandle` 하고, 그 뒤에도 `process.isRunning` 이고 `GetProcessId(사본) == pid` 일 때만 쓴다.
   swift-corelibs-foundation 6.3.2 는 `isRunning = false` 를 쓴 *뒤에* 그 핸들을 닫으므로(`terminateRunLoop`), 복사 뒤에도 실행 중이면 복사한 값은 아직 그 핸들이었다.
   붙잡지 못하면(이미 끝났거나 corelibs 가 닫았다) 아무것도 끝내지 않는다. (2) 첫 스냅숏을 걸으며 후보를 연다. (3) 모두 연 뒤 둘째 스냅숏을 찍어, 이미 연 핸들의 생성 시각으로만
-  같은 규칙을 다시 돌리고 그 결과만 그 핸들로 끝낸다. (4) 루트는 붙잡은 핸들로만 끝내고(corelibs 와 같은 코드 0xC000000F), 반환값은 그 `TerminateProcess` 의 결과다.
+  같은 규칙을 다시 돌리고 그 결과만 그 핸들로 끝낸다. (4) 다 고르고 붙잡은 뒤 루트를 먼저, 붙잡은 핸들로만 끝낸다(corelibs 와 같은 코드 0xC000000F — 자식이 먼저 끝나면
+  shim 이 제 코드로 먼저 나가는 일이 잦았다). 그다음 자손을 깊은 쪽부터. 반환값은 루트의 `TerminateProcess` 결과다.
   corelibs `terminate()` 는 윈도에서 부르지 않는다. `ProcessRunner` 가 시간 초과 때 2 s 뒤 id 로 하던 `forceKill` 은 `PlatformCompat.forceKillIfStillRunning` 으로 옮겨 윈도에서는
   하지 않는다(`TerminateProcess` 는 무시할 수 없고, 2 s 뒤의 id 는 다른 프로세스의 것일 수 있다). 맥은 둘 다 그대로다(`process.terminate()`, 2 s 뒤 실행 중이면 `SIGKILL`).
   테스트는 자식 핸들을 붙잡아 두고 그 핸들로 정리하며, PowerShell 기동을 60 s 까지 기다린다(15 s 를 넘긴 적이 있다, run 44168716060).
