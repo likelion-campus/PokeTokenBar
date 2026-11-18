@@ -3,6 +3,7 @@
 var SAMPLE_MEMBER_PREFIX = "00000000-0000-4000-8000-";
 var SAMPLE_TEAM_PREFIX = "t_sample_";
 var SAMPLE_ACCOUNT_PREFIX = "sample_";
+var SAMPLE_ENT_USER_PREFIX = "user_sample_";
 
 // Which columns (1-based) carry sample keys in each data tab.
 var SAMPLE_KEYS = [
@@ -11,7 +12,9 @@ var SAMPLE_KEYS = [
   { tab: TAB_PEOPLE, cols: COLS_PEOPLE, keys: [[1, SAMPLE_MEMBER_PREFIX]] },
   { tab: TAB_DEPTS, cols: COLS_DEPTS, keys: [[1, SAMPLE_TEAM_PREFIX]] },
   { tab: TAB_TEAMLABELS, cols: COLS_TEAMLABELS, keys: [[1, SAMPLE_TEAM_PREFIX], [2, SAMPLE_MEMBER_PREFIX]] },
-  { tab: TAB_DEVICES, cols: COLS_DEVICES, keys: [[1, SAMPLE_MEMBER_PREFIX]] }
+  { tab: TAB_DEVICES, cols: COLS_DEVICES, keys: [[1, SAMPLE_MEMBER_PREFIX]] },
+  { tab: TAB_ENT_RAW, cols: COLS_ENT_RAW, keys: [[2, SAMPLE_ENT_USER_PREFIX]] },
+  { tab: TAB_ENT_PEOPLE, cols: COLS_ENT_PEOPLE, keys: [[1, SAMPLE_ENT_USER_PREFIX]] }
 ];
 
 function withScriptLock(fn) {
@@ -24,11 +27,24 @@ function withScriptLock(fn) {
   }
 }
 
-// The 7 data tabs plus the 3 dashboards and the plan tab; existing tabs are left alone.
+// The 10 data tabs plus the 3 dashboards and the plan tab; existing tabs are left alone.
 function ensureAllTabs(ss) {
   ensureSheets(ss);
   DASHBOARD_TABS.map(function (d) { return d.name; }).concat([TAB_PLAN]).forEach(function (name) {
     if (!ss.getSheetByName(name)) ss.insertSheet(name);
+  });
+}
+
+// A new tab has 26 columns; a data tab only needs its own width. Trimming keeps the grid small, but a
+// tab with content past its width (the owner's own notes) is left alone.
+function trimDataColumns(ss) {
+  TAB_SPECS.forEach(function (spec) {
+    var sheet = ss.getSheetByName(spec.name);
+    if (!sheet) return;
+    var max = sheet.getMaxColumns();
+    if (max > spec.cols.length && sheet.getLastColumn() <= spec.cols.length) {
+      sheet.deleteColumns(spec.cols.length + 1, max - spec.cols.length);
+    }
   });
 }
 
@@ -78,7 +94,8 @@ function withDocumentLock(fn) {
 
 // Reading and rendering run without the script lock, so a slow refresh never makes a report wait: only
 // the dashboards and the plan are written, and by refreshAll alone (hence the document lock). The script
-// lock is taken only for the tab creation and the 참고팀이름 write.
+// lock is taken only for the tab creation, the Enterprise write (one short block after the fetching) and
+// the 참고팀이름 write.
 function refreshAll() {
   withDocumentLock(refreshAllLocked);
 }
@@ -89,10 +106,27 @@ function refreshAllLocked() {
   var nowMs = Date.now();
   var today = localDateString(nowMs, tz);
   withScriptLock(function () { ensureAllTabs(ss); });
+  // The pull records its own failures; the catch is for anything unexpected, so the dashboards still render.
+  try {
+    pullEnterprise(ss, nowMs, tz);
+  } catch (e) {
+    console.error("pullEnterprise failed: " + (e && e.message));
+    try {
+      var prev = entReadStatus() || {};
+      PropertiesService.getDocumentProperties().setProperty(ENT_STATUS_PROP, JSON.stringify({
+        lastRunMs: prev.lastRunMs || null, newestDate: prev.newestDate || null,
+        error: entCut("불러오기 실패: " + (e && e.message))
+      }));
+    } catch (e2) {
+      console.error("recording the pull failure failed: " + (e2 && e2.message));
+    }
+  }
   var data = readAll(ss, tz);
   withScriptLock(function () { writeSuggestedTeamNames(ss, data); });
   DASHBOARD_TABS.forEach(function (d) {
-    renderDashboard(ss.getSheetByName(d.name), computeDashboard(data, d.kind, today), nowMs, tz);
+    var sheet = ss.getSheetByName(d.name);
+    var lastRow = renderDashboard(sheet, computeDashboard(data, d.kind, today), nowMs, tz);
+    renderEnterpriseSection(sheet, lastRow + 3, computeEnterpriseSection(data.enterprise, d.kind, today), data.enterprise, tz);
   });
   renderPlan(ss.getSheetByName(TAB_PLAN), computePlan(data, nowMs, tz), nowMs, tz);
 }
@@ -118,7 +152,10 @@ function arrangeTabs(ss) {
 
 function setup() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  withScriptLock(function () { ensureAllTabs(ss); });
+  withScriptLock(function () {
+    ensureAllTabs(ss);
+    trimDataColumns(ss);
+  });
   arrangeTabs(ss);
   ScriptApp.getProjectTriggers().forEach(function (t) {
     if (t.getHandlerFunction() === "refreshAll") ScriptApp.deleteTrigger(t);
@@ -132,6 +169,8 @@ function onOpen(e) {
     .addItem("지금 새로 고침", "refreshAll")
     .addItem("샘플 데이터 넣기", "seedSampleData")
     .addItem("샘플 데이터 지우기", "clearSampleData")
+    .addItem("Enterprise API 키 넣기", "setEnterpriseKey")
+    .addItem("Enterprise API 키 지우기", "clearEnterpriseKey")
     .addToUi();
 }
 
@@ -189,7 +228,7 @@ function seedSampleData() {
   withScriptLock(function () {
     ensureAllTabs(ss);
     removeSampleRows(ss);
-    var raw = [], limits = [], people = [], depts = [], labels = [], devices = [];
+    var raw = [], limits = [], people = [], depts = [], labels = [], devices = [], entRaw = [], entPeople = [];
     var idx = 0;
     SAMPLE_DEPTS.forEach(function (dept) {
       depts.push([dept.team, dept.name, dept.label, today]);
@@ -218,6 +257,9 @@ function seedSampleData() {
           for (var w = 0; w < 5; w++) {
             var resetsAt = reset - w * weekMs;
             var used = w === 0 ? 15 + ((n * 13) % 70) : Math.min(100, 30 + ((n * 11 + w * 23) % 71));
+            // Two fixed Max accounts so the plan tab shows both suggestions: a full-week one (n = 1) and a quiet one (n = 3).
+            if (ai === 0 && w > 0 && n === 1) used = 100;
+            if (ai === 0 && w > 0 && n === 3) used = 20;
             var readAt = w === 0 ? nowMs - hourMs : resetsAt - hourMs;
             limits.push([a[1], a[0], msToIso(resetsAt), id, dept.team, a[2], "sample.example",
               used, used, msToIso(readAt)]);
@@ -226,12 +268,38 @@ function seedSampleData() {
         idx++;
       });
     });
+    // Enterprise members: two per department plus one with no 부서, over the same days a real backfill covers.
+    var entFirst = periodRange("lastMonth", today).prevStart;
+    if (entFirst < ENT_FIRST_DATE) entFirst = ENT_FIRST_DATE;
+    var entLast = dateToDayNumber(utcDateString(nowMs - DAY_MS));
+    var entUsers = [];
+    SAMPLE_DEPTS.forEach(function (dept) {
+      entUsers.push({ dept: dept.name, code: dept.name === "개발팀" });
+      entUsers.push({ dept: dept.name, code: dept.name === "개발팀" });
+    });
+    entUsers.push({ dept: "", code: false });
+    entUsers.forEach(function (u, i) {
+      var nn = ("0" + (i + 1)).slice(-2);
+      var id = SAMPLE_ENT_USER_PREFIX + nn;
+      var email = "sample-ent-" + nn + "@sample.example";
+      entPeople.push([id, email, u.dept, entFirst]);
+      var level = 1 + ((i * 7) % 5);
+      for (var d = dateToDayNumber(entFirst); d <= entLast; d++) {
+        if ((i + d) % 6 === 0) continue;   // some days with no activity at all
+        var chat = level * 12 + ((d * 5 + i * 3) % 11);
+        var zero = (i + d) % 9 === 0;      // a row that exists with 0 messages
+        entRaw.push([dayNumberToString(d), id, email, zero ? 0 : chat, zero ? 0 : Math.ceil(chat / 4),
+          zero ? 0 : (i % 3 === 0 ? Math.round(chat / 3) : 0), u.code ? 1 + ((d + i) % 4) : 0, nowIso]);
+      }
+    });
     appendRows(ss.getSheetByName(TAB_RAW), COLS_RAW.length, raw);
     appendRows(ss.getSheetByName(TAB_LIMITS), COLS_LIMITS.length, limits);
     appendRows(ss.getSheetByName(TAB_PEOPLE), COLS_PEOPLE.length, people);
     appendRows(ss.getSheetByName(TAB_DEPTS), COLS_DEPTS.length, depts);
     appendRows(ss.getSheetByName(TAB_TEAMLABELS), COLS_TEAMLABELS.length, labels);
     appendRows(ss.getSheetByName(TAB_DEVICES), COLS_DEVICES.length, devices);
+    appendRows(ss.getSheetByName(TAB_ENT_RAW), COLS_ENT_RAW.length, entRaw);
+    appendRows(ss.getSheetByName(TAB_ENT_PEOPLE), COLS_ENT_PEOPLE.length, entPeople);
   });
   refreshAll();
 }
@@ -240,4 +308,23 @@ function clearSampleData() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   withScriptLock(function () { removeSampleRows(ss); });
   refreshAll();
+}
+
+// The key goes to the owner's UserProperties only (never a cell, the status or an alert) and is used by
+// the owner's own refreshes. Pasting it runs one refresh so the first pull starts right away.
+function setEnterpriseKey() {
+  var ui = SpreadsheetApp.getUi();
+  var res = ui.prompt("Enterprise API 키", "Anthropic 관리자 화면에서 만든 Analytics API 키를 붙여 넣으세요. 이 키는 소유자 계정에만 저장됩니다.", ui.ButtonSet.OK_CANCEL);
+  if (res.getSelectedButton() !== ui.Button.OK) return;
+  var key = String(res.getResponseText()).trim();
+  if (!key) return;
+  PropertiesService.getUserProperties().setProperty(ENT_KEY_PROP, key);
+  refreshAll();
+  ui.alert("Enterprise API 키를 저장하고 불러왔습니다.\n" +
+    enterpriseStatusLine(entReadStatus(), true, Session.getScriptTimeZone()));
+}
+
+function clearEnterpriseKey() {
+  PropertiesService.getUserProperties().deleteProperty(ENT_KEY_PROP);
+  SpreadsheetApp.getUi().alert("키를 지웠습니다. 이미 불러온 데이터는 그대로 남습니다.");
 }

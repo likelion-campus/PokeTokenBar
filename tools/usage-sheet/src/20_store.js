@@ -9,7 +9,10 @@ var TAB_SPECS = [
   { name: TAB_TEAMLABELS, cols: COLS_TEAMLABELS, textCols: [], hidden: true },
   { name: TAB_DEVICES, cols: COLS_DEVICES, textCols: [], hidden: true },
   // 값 stays text so a typed "70%" is not turned into 0.7.
-  { name: TAB_SETTINGS, cols: COLS_SETTINGS, textCols: [2] }
+  { name: TAB_SETTINGS, cols: COLS_SETTINGS, textCols: [2] },
+  { name: TAB_ENT_RAW, cols: COLS_ENT_RAW, textCols: [1] },
+  { name: TAB_ENT_PEOPLE, cols: COLS_ENT_PEOPLE, textCols: [4] },
+  { name: TAB_ENT_LOG, cols: COLS_ENT_LOG, textCols: [1], hidden: true }
 ];
 
 // Creates every missing data tab. Existing tabs are left alone, so it is idempotent.
@@ -374,5 +377,6 @@ function readAll(ss, tz) {
     return { team: r[0], memberId: r[1], label: String(r[2]) };
   });
   var settings = parseSettings(rowsOf(TAB_SETTINGS, COLS_SETTINGS));
-  return { usage: usage, limits: limits, people: people, depts: depts, teamLabels: teamLabels, settings: settings };
+  return { usage: usage, limits: limits, people: people, depts: depts, teamLabels: teamLabels, settings: settings,
+    enterprise: readEnterprise(ss, tz) };
 }

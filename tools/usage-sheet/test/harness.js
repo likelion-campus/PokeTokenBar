@@ -22,7 +22,7 @@ function formatInZone(date, tz, pattern) {
 // Fakes are in-memory and only as wide as the script uses.
 //   SpreadsheetApp.getActiveSpreadsheet() -> one fake spreadsheet:
 //     getSheetByName, insertSheet, getSheets, deleteSheet
-//   Sheet: getName, getLastRow, getLastColumn, getMaxRows, insertRowsAfter, getRange(row, col, numRows?, numCols?) [strict about the 1000-row grid]
+//   Sheet: getName, getLastRow, getLastColumn, getMaxRows, getMaxColumns (26), deleteColumns, insertRowsAfter, getRange(row, col, numRows?, numCols?) [strict about the 1000-row grid]
 //     [getValues/setValues/setValue/setNumberFormat/clearContent], appendRow, hideSheet,
 //     isSheetHidden, setColumnWidth (sheet._widths), spreadsheet setActiveSheet/getActiveSheet/moveActiveSheet, sheet._ops (set/clear log), sheet._cellsRead, deleteRow, deleteRows, getCharts/insertChart/removeChart, newChart (recording builder),
 //     setFrozenRows, clear. Test-only inspection: sheet._rows, sheet._formats (col -> format).
@@ -33,6 +33,15 @@ function formatInZone(date, tz, pattern) {
 //   Session.getScriptTimeZone().
 //   ScriptApp: newTrigger(fn).timeBased().everyHours(n).create(), getProjectTriggers, deleteTrigger (fakes.triggers).
 //   SpreadsheetApp.getUi().createMenu(t).addItem(l, fn).addToUi() records into fakes.menus.
+//   UrlFetchApp.fetch(url, opts): answers from fakes.http.handler(url, opts) -> { code, body } (body an object or a raw
+//     string); records {url, opts} in fakes.http.requests; like Apps Script it throws on a code >= 400 unless
+//     opts.muteHttpExceptions is true. The response has getResponseCode() and getContentText().
+//   PropertiesService.getUserProperties() / getDocumentProperties(): separate in-memory stores (getProperty,
+//     setProperty, deleteProperty), reachable as fakes.props.user / fakes.props.doc (plain objects).
+//   Utilities.sleep(ms): records into fakes.sleeps.
+//   SpreadsheetApp.getUi().prompt(title, msg, buttons) answers fakes.ui.next ({ button, text }); alert(msg) records
+//     into fakes.ui.alerts; ButtonSet.OK_CANCEL, Button.OK / Button.CANCEL. The chart builder has setNumHeaders(n); build() throws when it was never called.
+//   fakes.clock.advance(ms): moves what Date.now() and new Date() return inside the script (frozen otherwise).
 // Later tasks extend the returned object with more fakes.
 // Like real Sheets, a string written by setValues is parsed as typed input unless the column is
 // plain text ("@") or the string starts with an apostrophe (stripped, stored as text).
@@ -48,7 +57,7 @@ function coerce(v, textFormat) {
 
 function makeSheet(name) {
   const sheet = {
-    _name: name, _rows: [], _hidden: false, _formats: {}, _charts: [], _frozen: 0, _maxRows: 1000, _cellsRead: 0, _ops: [], _widths: {},
+    _name: name, _rows: [], _hidden: false, _formats: {}, _charts: [], _frozen: 0, _maxRows: 1000, _maxCols: 26, _cellsRead: 0, _ops: [], _widths: {},
     getName: () => name,
     getLastRow() {
       for (let i = sheet._rows.length - 1; i >= 0; i--) {
@@ -62,6 +71,12 @@ function makeSheet(name) {
       return w;
     },
     getMaxRows: () => sheet._maxRows,
+    getMaxColumns: () => sheet._maxCols,
+    deleteColumns(start, howMany) {
+      if (start < 1 || howMany < 1 || start + howMany - 1 > sheet._maxCols) throw new Error("fake deleteColumns: bad range");
+      sheet._rows.forEach((r) => { if (r.length >= start) r.splice(start - 1, howMany); });
+      sheet._maxCols -= howMany;
+    },
     insertRowsAfter(after, n) { if (after > sheet._maxRows) throw new Error("fake insertRowsAfter: bad position"); sheet._maxRows += n; },
     getRange(row, col, numRows, numCols) {
       const nr = numRows === undefined ? 1 : numRows;
@@ -69,6 +84,7 @@ function makeSheet(name) {
       if (row < 1 || col < 1 || nr < 1 || nc < 1) throw new Error("fake getRange: bad coordinates");
       // Like real Sheets: a range past the grid throws (a new tab has 1000 rows).
       if (row + nr - 1 > sheet._maxRows) throw new Error("fake getRange: coordinates outside the dimensions");
+      if (col + nc - 1 > sheet._maxCols) throw new Error("fake getRange: columns outside the dimensions");
       return {
         _a1: { row, col, numRows: nr, numCols: nc },
         setFontWeight() { return this; },
@@ -130,7 +146,12 @@ function makeSheet(name) {
         addRange(r) { chart.ranges.push(r._a1); return b; },
         setPosition(row, col, ox, oy) { chart.position = { row, col, offsetX: ox, offsetY: oy }; return b; },
         setOption(k, v) { chart.options[k] = v; return b; },
-        build() { return chart; },
+        setNumHeaders(n) { chart.numHeaders = n; return b; },
+        build() {
+          // Real Sheets guesses the header count when it is unset and can drop the first data row (an empty bar).
+          if (chart.numHeaders === undefined) throw new Error("fake chart: setNumHeaders was never called");
+          return chart;
+        },
       };
       return b;
     },
@@ -163,7 +184,36 @@ function makeFakes(opts) {
   const lockStats = { acquired: 0, released: 0, held: false, docAcquired: 0, docHeld: false };
   const triggers = [];
   const menus = [];
+  const http = { handler: null, requests: [] };
+  const props = { user: Object.create(null), doc: Object.create(null) };
+  const sleeps = [];
+  const ui = { next: { button: "OK", text: "" }, alerts: [], prompts: [] };
+  function propertyStore(store) {
+    return {
+      getProperty: (k) => (k in store ? store[k] : null),
+      setProperty(k, v) { store[k] = String(v); },
+      deleteProperty(k) { delete store[k]; },
+    };
+  }
   return {
+    http,
+    props,
+    sleeps,
+    ui,
+    UrlFetchApp: {
+      fetch(url, opts) {
+        http.requests.push({ url, opts });
+        if (!http.handler) throw new Error("fake UrlFetchApp: no handler set");
+        const r = http.handler(url, opts);
+        if (r.code >= 400 && !(opts && opts.muteHttpExceptions)) throw new Error(`Request failed for ${url} returned code ${r.code}`);
+        const text = typeof r.body === "string" ? r.body : JSON.stringify(r.body);
+        return { getResponseCode: () => r.code, getContentText: () => text };
+      },
+    },
+    PropertiesService: {
+      getUserProperties: () => propertyStore(props.user),
+      getDocumentProperties: () => propertyStore(props.doc),
+    },
     ss,
     lockStats,
     triggers,
@@ -180,6 +230,13 @@ function makeFakes(opts) {
     SpreadsheetApp: {
       getActiveSpreadsheet: () => ss,
       getUi: () => ({
+        ButtonSet: { OK_CANCEL: "OK_CANCEL" },
+        Button: { OK: "OK", CANCEL: "CANCEL" },
+        prompt(title, msg, buttons) {
+          ui.prompts.push({ title, msg, buttons });
+          return { getSelectedButton: () => ui.next.button, getResponseText: () => ui.next.text };
+        },
+        alert(msg) { ui.alerts.push(msg); },
         createMenu(title) {
           const menu = { title, items: [] };
           const b = { addItem(label, fn) { menu.items.push([label, fn]); return b; }, addToUi() { menus.push(menu); return b; } };
@@ -203,6 +260,7 @@ function makeFakes(opts) {
     },
     Utilities: {
       formatDate: formatInZone,
+      sleep(ms) { sleeps.push(ms); },
       DigestAlgorithm: { SHA_256: "SHA_256" },
       Charset: { UTF_8: "UTF_8" },
       computeDigest(alg, value) {
@@ -228,12 +286,15 @@ function loadScript(opts) {
   const fakes = makeFakes(o);
   const pinned = o.nowMs === undefined ? DEFAULT_NOW_MS : o.nowMs;
   // Date.now() and new Date() inside the script return the pinned time, like a frozen clock.
+  // fakes.clock.advance(ms) moves that clock forward (default: it never moves).
+  const clock = { offset: 0, advance(ms) { clock.offset += ms; } };
   class PinnedDate extends Date {
-    constructor(...a) { if (a.length) super(...a); else super(pinned); }
-    static now() { return pinned; }
+    constructor(...a) { if (a.length) super(...a); else super(pinned + clock.offset); }
+    static now() { return pinned + clock.offset; }
   }
   const ctx = vm.createContext({ console, Date: PinnedDate, Math, JSON, ...fakes });
   vm.runInContext(buildSource(), ctx, { filename: "Code.gs" });
+  fakes.clock = clock;
   ctx.fakes = fakes;
   ctx.nowMs = o.nowMs === undefined ? DEFAULT_NOW_MS : o.nowMs;
   ctx.tz = o.tz || DEFAULT_TZ;

@@ -20,14 +20,14 @@ function body(ss, tab) {
   return last < 2 ? [] : plain(sheet.getRange(2, 1, last - 1, sheet.getLastColumn()).getValues());
 }
 
-test("setup creates 11 tabs and one hourly trigger, and is idempotent", () => {
+test("setup creates 14 tabs and one hourly trigger, and is idempotent", () => {
   const { S, ss } = fresh();
   S.setup();
-  assert.equal(ss.getSheets().length, 11);
+  assert.equal(ss.getSheets().length, 14);
   assert.equal(S.fakes.triggers.length, 1);
   assert.equal(S.fakes.triggers[0].getHandlerFunction(), "refreshAll");
   S.setup();
-  assert.equal(ss.getSheets().length, 11);
+  assert.equal(ss.getSheets().length, 14);
   assert.equal(S.fakes.triggers.length, 1);
 });
 
@@ -142,13 +142,14 @@ test("refreshAll releases every lock, even when rendering throws", () => {
   assert.equal(S.fakes.lockStats.released, S.fakes.lockStats.acquired);
 });
 
-test("onOpen builds the menu with three items in order", () => {
+test("onOpen builds the menu with five items in order", () => {
   const { S } = fresh();
   S.onOpen({});
   assert.equal(S.fakes.menus.length, 1);
   assert.equal(S.fakes.menus[0].title, "사용량 대시보드");
   assert.deepEqual(plain(S.fakes.menus[0].items), [
     ["지금 새로 고침", "refreshAll"], ["샘플 데이터 넣기", "seedSampleData"], ["샘플 데이터 지우기", "clearSampleData"],
+    ["Enterprise API 키 넣기", "setEnterpriseKey"], ["Enterprise API 키 지우기", "clearEnterpriseKey"],
   ]);
 });
 
@@ -195,8 +196,8 @@ test("setup puts the dashboards and the plan first, opens 이번 달 and drops t
   const names = ss.getSheets().map((s) => s.getName());
   assert.deepEqual(names.slice(0, 4), ["이번 달", "지난 7일", "지난달", "플랜"]);
   assert.equal(names.includes("시트1"), false);
-  assert.equal(names.length, 11);
-  assert.deepEqual(names.slice(4, 9), ["원본", "한도", "사람", "부서", "설정"]);
+  assert.equal(names.length, 14);
+  assert.deepEqual(names.slice(4, 11), ["원본", "한도", "사람", "부서", "설정", "엔터프라이즈 원본", "엔터프라이즈 사람"]);
   assert.equal(ss.getActiveSheet().getName(), "이번 달");
 });
 
@@ -239,4 +240,91 @@ test("two refreshes never overlap: refreshAll holds the document lock, not the s
   assert.throws(() => S.refreshAll(), /already held/);
   sheet.clear = clear;
   S.refreshAll();   // the lock was released after the throw
+});
+
+const REAL_ENT_USER = "user_real_01HZ";
+
+test("every dashboard chart sets one header row (the empty 부서 bar in real Sheets)", () => {
+  const { S, ss } = fresh();
+  S.setup();
+  S.seedSampleData();
+  let charts = 0;
+  ["이번 달", "지난 7일", "지난달"].forEach((name) => {
+    ss.getSheetByName(name).getCharts().forEach((c) => { charts++; assert.equal(c.numHeaders, 1); });
+  });
+  assert.ok(charts >= 9, "two team charts and one Enterprise chart on each dashboard");
+});
+
+test("seed fills the Enterprise section and gives the plan one up and one down suggestion", () => {
+  const { S, ss } = fresh();
+  S.setup();
+  S.seedSampleData();
+  const rawRows = body(ss, "엔터프라이즈 원본");
+  assert.ok(rawRows.length > 0);
+  rawRows.forEach((r) => {
+    assert.match(r[1], /^user_sample_/);
+    assert.match(r[2], /^sample-ent-\d\d@sample\.example$/);
+  });
+  const dates = rawRows.map((r) => r[0]).sort();
+  assert.equal(dates[0], "2026-09-01", "starts at the backfill start (prevStart of lastMonth)");
+  assert.equal(dates[dates.length - 1], "2026-11-15", "ends yesterday, UTC");
+  const ppl = body(ss, "엔터프라이즈 사람");
+  assert.equal(ppl.length, 9);
+  assert.equal(ppl.filter((r) => r[2] === "").length, 1);
+  const ent = S.readAll(ss, TZ).enterprise;
+  ["thisMonth", "last7", "lastMonth"].forEach((kind) => {
+    const m = plain(S.computeEnterpriseSection(ent, kind, "2026-11-16"));
+    assert.equal(m.hasData, true, kind);
+    assert.ok(m.depts.length >= 3, kind);
+    assert.ok(m.unassigned.people >= 1 && m.unassigned.messages > 0, kind);
+  });
+  const sheet = ss.getSheetByName("플랜");
+  const cells = plain(sheet.getRange(1, 1, sheet.getLastRow(), 13).getValues()).flat().map(String);
+  assert.ok(cells.some((c) => c.startsWith("올리기 검토")));
+  assert.ok(cells.some((c) => c.startsWith("내리기 검토")));
+});
+
+test("clearSampleData removes every user_sample_ row and keeps a real Enterprise row", () => {
+  const { S, ss } = fresh();
+  S.setup();
+  S.seedSampleData();
+  const raw = ss.getSheetByName("엔터프라이즈 원본");
+  raw.getRange(raw.getLastRow() + 1, 1, 1, 8).setValues([["2026-11-14", REAL_ENT_USER, "real@x.com", 5, 1, 0, 0, "2026-11-15T01:00:00.000Z"]]);
+  const peopleTab = ss.getSheetByName("엔터프라이즈 사람");
+  peopleTab.getRange(peopleTab.getLastRow() + 1, 1, 1, 4).setValues([[REAL_ENT_USER, "real@x.com", "개발", "2026-11-15"]]);
+  S.clearSampleData();
+  assert.deepEqual(body(ss, "엔터프라이즈 원본").map((r) => r[1]), [REAL_ENT_USER]);
+  assert.deepEqual(body(ss, "엔터프라이즈 사람").map((r) => r[0]), [REAL_ENT_USER]);
+});
+
+test("seeding twice keeps one set of Enterprise sample rows", () => {
+  const { S, ss } = fresh();
+  S.setup();
+  S.seedSampleData();
+  const n = body(ss, "엔터프라이즈 원본").length;
+  S.seedSampleData();
+  assert.equal(body(ss, "엔터프라이즈 원본").length, n);
+  assert.equal(body(ss, "엔터프라이즈 사람").length, 9);
+});
+
+test("setup trims every data tab to its width and leaves dashboards and the plan at 26 columns", () => {
+  const { S, ss } = fresh();
+  S.setup();
+  S.TAB_SPECS.forEach((spec) => {
+    assert.equal(ss.getSheetByName(spec.name).getMaxColumns(), spec.cols.length, spec.name);
+  });
+  ["이번 달", "지난 7일", "지난달", "플랜"].forEach((n) => assert.equal(ss.getSheetByName(n).getMaxColumns(), 26, n));
+  S.setup();   // idempotent: nothing left to delete
+  S.TAB_SPECS.forEach((spec) => assert.equal(ss.getSheetByName(spec.name).getMaxColumns(), spec.cols.length));
+});
+
+test("setup leaves a data tab alone when it has content beyond its width", () => {
+  const { S, ss } = fresh();
+  S.ensureAllTabs(ss);
+  const limits = ss.getSheetByName("한도");
+  limits.getRange(2, 12).setValue("내 메모");
+  S.setup();
+  assert.equal(limits.getMaxColumns(), 26);
+  assert.equal(limits.getRange(2, 12).getValues()[0][0], "내 메모");
+  assert.equal(ss.getSheetByName("원본").getMaxColumns(), S.COLS_RAW.length, "other tabs are still trimmed");
 });

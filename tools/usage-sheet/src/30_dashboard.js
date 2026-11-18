@@ -229,6 +229,7 @@ function renderDashboard(sheet, model, nowMs, tz) {
         .setChartType(Charts.ChartType.BAR)
         .addRange(sheet.getRange(spec.labels[0], spec.labels[1], n + 1, 1))
         .addRange(sheet.getRange(spec.values[0], spec.values[1], n + 1, 1))
+        .setNumHeaders(1)
         .setPosition(4, 10, spec.offsetX, 0)
         .setOption("title", spec.title)
         .setOption("width", CHART_WIDTH)
@@ -240,4 +241,5 @@ function renderDashboard(sheet, model, nowMs, tz) {
   }
 
   [120, 100, 100, 100, 30, 130, 110, 100].forEach(function (px, i) { sheet.setColumnWidth(i + 1, px); });
+  return lastRow;
 }
