@@ -363,9 +363,23 @@ enum ActivityFixtures {
         let pixelsPainted = after.paintPixels - before.paintPixels
         let whole = Int(view.pixelSize.cx) * Int(view.pixelSize.cy)
         let rendersBefore = view.stats.renders
+        let statsBefore = view.stats
         cursor(over: item.hwnd, px + 1, py)  // the same column again
         await wait(0.3)
         let noRepeat = view.stats.renders == rendersBefore
+        // what a repeat was: where the pointer was, who was under it, what the card covered, what the view did (shown only when it repeats)
+        var repeatNote = ""
+        if !noRepeat {
+            var pos = POINT(), cardRect = RECT(), itemRect = RECT()
+            _ = GetCursorPos(&pos)
+            if let c = h.section.card?.hwnd { _ = GetWindowRect(c, &cardRect) }
+            _ = GetWindowRect(item.hwnd, &itemRect)
+            let under = WindowFromPoint(pos).map { WinKit.className($0) } ?? "-"
+            let st = view.stats
+            repeatNote = " [repeat: pointer (\(pos.x),\(pos.y)) item \(itemRect.left),\(itemRect.top)-\(itemRect.right),\(itemRect.bottom) card \(cardRect.left),\(cardRect.top)-\(cardRect.right),\(cardRect.bottom) "
+                + "under=\(under) selected=\(bars.selectedDate ?? "-") renders +\(st.renders - statsBefore.renders) hits +\(st.hits - statsBefore.hits) paints +\(st.paints - statsBefore.paints) "
+                + "partial +\(st.partialPaints - statsBefore.partialPaints) px=\(px),\(py) point=\(p.x),\(p.y) scale=\(scale)]"
+        }
         // over the caption's title (its own button): no day
         cursor(over: title.hwnd, 3, 3)
         await wait(0.3)
@@ -382,7 +396,7 @@ enum ActivityFixtures {
         let quiet = view.stats == quietStart
         r.add("home.activityHover", shown && cardOK && partial >= 1 && made == 0 && bars_made <= 2 && pixelsPainted < whole / 2 && noRepeat && caption && again && gone && quiet,
               "pointer over \(target): selected=\(selected ?? "-") card shown=\(shown) inked=\(cardOK); repaints: partial +\(partial) (expected >= 1), the chart made \(made) texts (expected 0) and \(bars_made) pictures (the bars it changes, <= 2) again "
-              + ", painted \(pixelsPainted) px of \(whole); the same column again re-rendered=\(!noRepeat); over the title selects nothing=\(caption); back on the column=\(again); "
+              + ", painted \(pixelsPainted) px of \(whole); the same column again re-rendered=\(!noRepeat)\(repeatNote); over the title selects nothing=\(caption); back on the column=\(again); "
               + "left: selection and card gone=\(gone); one second later nothing ran=\(quiet); the hover took \(String(format: "%.0f", hoverMs)) ms incl. the 400 ms wait")
     }
 
