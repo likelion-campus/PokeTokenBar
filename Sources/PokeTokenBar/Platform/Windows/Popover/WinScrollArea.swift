@@ -187,9 +187,10 @@ import WinSDK
     private func layoutLane() {
         var client = RECT()
         _ = GetClientRect(viewport.hwnd, &client)
-        WinKit.move(lane.hwnd, RECT(left: max(0, client.right - laneWidth), top: 0, right: client.right, bottom: client.bottom))
         let shows = PopoverScrollMath.showsBar(content: CGFloat(contentHeight), viewport: CGFloat(viewportHeight))
-        _ = ShowWindow(lane.hwnd, shows ? 4 /* SW_SHOWNOACTIVATE */ : 0 /* SW_HIDE */)
+        // Placed and shown (or hidden) in one call, never activating (SWP_SHOWWINDOW / SWP_HIDEWINDOW, SWP_NOACTIVATE).
+        _ = SetWindowPos(lane.hwnd, nil, max(0, client.right - laneWidth), 0, min(laneWidth, client.right), client.bottom,
+                         UINT(SWP_NOZORDER | SWP_NOACTIVATE) | (shows ? 0x0040 : 0x0080))
         if !shows { hover = false; grab = nil }
         _ = InvalidateRect(lane.hwnd, nil, false)
     }

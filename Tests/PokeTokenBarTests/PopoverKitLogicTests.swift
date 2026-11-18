@@ -352,7 +352,7 @@ final class PopoverScrollMathTests: XCTestCase {
         let bottom = PopoverScrollMath.thumb(content: 2000, viewport: 500, offset: 1500, track: 500, minLength: 24)
         XCTAssertEqual(bottom?.bottom, 500, "scrolled to the end, the thumb rests on the track's end")
         let middle = PopoverScrollMath.thumb(content: 2000, viewport: 500, offset: 750, track: 500, minLength: 24)
-        XCTAssertEqual(middle?.top, 187.5.rounded())
+        XCTAssertEqual(middle?.top, CGFloat(188), "187.5 rounds away from zero")
         XCTAssertEqual(PopoverScrollMath.thumb(content: 2000, viewport: 500, offset: 9999, track: 500, minLength: 24)?.bottom, 500, "an offset past the end is clamped")
         XCTAssertEqual(PopoverScrollMath.thumb(content: 100_000, viewport: 500, offset: 0, track: 500, minLength: 24)?.length, 24, "a long page keeps a grabbable thumb")
         XCTAssertNil(PopoverScrollMath.thumb(content: 500, viewport: 500, offset: 0, track: 500, minLength: 24), "a page that fits has no thumb")
