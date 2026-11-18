@@ -82,5 +82,21 @@ Check (-not (Test-AnimatedWork $companion 0 120 700 1000).ok) 'no GIF rate in th
 # the sprite window's own shape (one WM_PAINT a fire): a second timer still fails, two messages a fire are allowed
 Check (-not (Judge 1221 (1222 + 1221 + 20) 700).ok) 'sprite-open: a second timer and a little more fails'
 
+# ---- the moving pets (Test-TimerWork): the measured shape passes, a second timer, a double-rate clock and a stopped one fail
+function Pet([string]$Source, [int]$Fires, [int]$Cs, [int]$Min, [int]$Max, [int]$Messages = 1) {
+    Test-TimerWork @{ messages = $Messages; sources = @("${Source}:$Fires") } @($Source) $Min $Max $Cs
+}
+# pet-animated in 44315731795: animationClock 300, main 320 in 120 s, 1 message; pet-working: the bob at 0.5 s (about 240 fires), main 291-298
+Check ((Pet 'animationClock' 300 320 180 400).ok) 'pet-animated as measured (300 fires, 320 main cs) passes'
+Check ((Pet 'petBob' 240 298 192 265).ok) 'pet-working as measured (about 240 bob fires, 298 main cs) passes'
+Check (-not (Pet 'animationClock' 300 (320 + 300) 180 400).ok) 'pet-animated: a second timer at the frame rate (unattributed: switches without fires) fails'
+Check (-not (Pet 'petBob' 240 (298 + 240) 192 265).ok) 'pet-working: a second timer at the bob rate fails'
+Check (-not (Pet 'animationClock' 600 640 180 400).ok) 'pet-animated: the clock at twice the floor rate fails'
+Check (-not (Pet 'petBob' 480 540 192 265).ok) 'pet-working: the bob at twice its rate fails'
+Check (-not (Pet 'animationClock' 0 4 180 400).ok) 'pet-animated: a stopped clock fails'
+Check (-not (Pet 'petBob' 0 4 192 265).ok) 'pet-working: a stopped bob (or one that is not counted) fails'
+Check (-not (Pet 'petBob' 240 298 192 265 (2 * 240 + 30)).ok) 'pet-working: a repaint storm (messages over 2 a fire) fails'
+Check (-not (Test-TimerWork $null @('petBob') 192 265 298).ok) 'pet: no attribution fails'
+
 "$script:count checks, $script:failed failed"
 if ($script:failed -gt 0) { exit 1 }

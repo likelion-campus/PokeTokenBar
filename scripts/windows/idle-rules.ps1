@@ -81,3 +81,31 @@ function Test-AnimatedWork($Wake, [double]$Rate, [int]$Seconds, [double]$MainCsP
     if ($bad.Count -gt 0) { return @{ ok = $false; detail = "$text; FAILED: $($bad -join '; ')" } }
     return @{ ok = $true; detail = $text }
 }
+
+# Fires of the named WakeTrace sources in a window.
+function Get-SourceFires($Wake, [string[]]$Names) {
+    $fires = 0
+    foreach ($src in @($Wake.sources)) {
+        $at = $src.LastIndexOf(':')
+        if ($at -gt 0 -and $Names -contains $src.Substring(0, $at)) { $fires += [int]$src.Substring($at + 1) }
+    }
+    return $fires
+}
+
+# A window that animates on a timer of its own (the floating pet: its GIF clock, the working agent's bob) judged on the work: the attributed
+# fires within their band, at most two messages a fire + 10, and the main thread at most $CsPerFire switches a fire + $CsSlack over the
+# window (one switch a fire is the work itself; a second timer, unattributed, adds switches without fires). Cycles are left to the
+# runaway catch (pet-working read 3.09 M cycles/s against a budget of 2.6 M with its usual 145 main switches a minute: 44315731795).
+function Test-TimerWork($Wake, [string[]]$Sources, [int]$MinFires, [int]$MaxFires, [int]$MainCs, [double]$CsPerFire = 1.5, [int]$CsSlack = 60) {
+    if (-not $Wake) { return @{ ok = $false; detail = 'no wake attribution: the window could not be judged' } }
+    $fires = Get-SourceFires $Wake $Sources
+    $maxMessages = 2 * $fires + 10
+    $maxCs = [math]::Floor($CsPerFire * $fires + $CsSlack)
+    $bad = @()
+    if ($fires -lt $MinFires -or $fires -gt $MaxFires) { $bad += "fires $fires outside $MinFires-$MaxFires" }
+    if ($Wake.messages -gt $maxMessages) { $bad += "messages $($Wake.messages) > $maxMessages (2 per fire + 10)" }
+    if ($MainCs -gt $maxCs) { $bad += "main cs $MainCs > $maxCs ($CsPerFire per fire + $CsSlack: work that is not the timer's)" }
+    $text = "$($Sources -join '+') fires $fires (allowed $MinFires-$MaxFires), messages $($Wake.messages) (at most $maxMessages), main cs $MainCs (at most $maxCs)"
+    if ($bad.Count -gt 0) { return @{ ok = $false; detail = "$text; FAILED: $($bad -join '; ')" } }
+    return @{ ok = $true; detail = $text }
+}

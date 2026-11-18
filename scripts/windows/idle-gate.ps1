@@ -304,7 +304,9 @@ foreach ($page in 'settings', 'shop', 'bag', 'collection', 'collection-log', 'de
 # cycles of one window spread ~1.5x run to run, see normal-300s). Each window checks the probe's own line: what it measured.
 $petBudgets = @{
     still = $budget
-    animated = @{ MaxMainCsPerMin = 270; MaxProcessCsPerMin = 470; MaxProcessCyclesPerSec = 3000000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 }
+    # animated and working: judged on the work (Test-TimerWork below); main cs a minute and cycles are runaway catches only (follow-up of
+    # 44315731795: pet-working's cycles read 1.50-3.09 M/s over 9 runs with the same work, against a budget set from one run).
+    animated = @{ MaxMainCsPerMin = 400; MaxProcessCsPerMin = 470; MaxProcessCyclesPerSec = 5000000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 }
     hidden = $budget
     # --- stage 7 Task 23 (begin) ---
     # 'bubble': an agent's waiting bubble stays until it is answered, drawn once: the closed app's budget (full run 44221855413:
@@ -313,7 +315,7 @@ $petBudgets = @{
     # measurement (main 137/min, process 277 cs/min, 1.35 M cycles/s) with the animated pet's headroom: main 190/min (~1.4x; a
     # second bob would be 240, a frame timer left at 30 fps 1800), process cs 420 (1.5x), cycles 2.6 M (1.9x).
     bubble = $budget
-    working = @{ MaxMainCsPerMin = 190; MaxProcessCsPerMin = 420; MaxProcessCyclesPerSec = 2600000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 }
+    working = @{ MaxMainCsPerMin = 400; MaxProcessCsPerMin = 420; MaxProcessCyclesPerSec = 5000000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 }
     # --- stage 7 Task 23 (end) ---
 }
 $petWant = @{
@@ -340,6 +342,10 @@ function Test-PetObjects([string]$Label, [string[]]$Lines) {
 # Clock fires (the wake attribution's 'animationClock' / 'popoverClock', from +28 s to exit): none for a still or a hidden pet; for the
 # animated one the GIF's frames at the 0.4 s floor (at most 2.5 a second over ~125 s: about 310; frames the cap merged last longer),
 # 180-400 (an unapplied floor fires at the GIF's own 50-100 ms frames: 1250 or more; the main thread measured 326 wakes in all).
+$petWork = @{
+    animated = @{ sources = @('animationClock', 'popoverClock'); min = 180; max = 400 }
+    working = @{ sources = @('petBob'); min = 192; max = 265 }   # 0.8 x 2/s x 120 s .. 2/s x 130 s + 5
+}
 $petClockFires = @{ still = @(0, 0); hidden = @(0, 0); animated = @(180, 400); bubble = @(0, 0); working = @(0, 0) }   # Task 23: the bob is no clock
 foreach ($mode in 'still', 'animated', 'hidden', 'bubble', 'working') {
     $label = "pet-$mode-120s"
@@ -359,6 +365,15 @@ foreach ($mode in 'still', 'animated', 'hidden', 'bubble', 'working') {
         $range = $petClockFires[$mode]
         $summary.windows[$label].clockFires = "$fires (expected $($range[0])-$($range[1]))"
         if ($fires -lt $range[0] -or $fires -gt $range[1]) { $verdicts[$label] = $false }
+    }
+    # The work of the two moving pets: the GIF clock's fires (the band above) or the bob's (every 0.5 s with 10 % tolerance: about 2 a
+    # second over ~122 s), and the main thread at most 1.5 switches a fire + 60 (measured 1.07 a fire animated, 1.24 working).
+    if ($petWork.ContainsKey($mode)) {
+        $spec = $petWork[$mode]
+        $judged = Test-TimerWork $w $spec.sources $spec.min $spec.max ([int]$summary.windows[$label].mainThreadContextSwitches)
+        $summary.windows[$label].timerWork = $judged.detail
+        "TIMER WORK ${label}: $($judged.detail)"
+        $verdicts[$label] = $verdicts[$label] -and $judged.ok
     }
 }
 # --- stage 7 Task 22 (end) ---
