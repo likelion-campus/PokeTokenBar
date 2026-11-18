@@ -91,7 +91,8 @@ extension WindowsSelftest {
         defer { _ = DeleteObject(UnsafeMutableRawPointer(dib)) }
         let old = SelectObject(dc, UnsafeMutableRawPointer(dib))
         defer { _ = SelectObject(dc, old) }
-        guard PrintWindow(hwnd, dc, UINT(1) /* PW_CLIENTONLY */) else { return nil }
+        // WM_PRINTCLIENT is what a button, a radio button and a trackbar paint from (PrintWindow on a child gave no picture on the runner)
+        _ = WinKit.send(hwnd, 0x0318 /* WM_PRINTCLIENT */, Int(bitPattern: UnsafeMutableRawPointer(dc)), 0x0004 | 0x0008 /* PRF_CLIENT | PRF_ERASEBKGND */)
         _ = GdiFlush()
         return Shot(width: w, height: h, bgra: Array(UnsafeRawBufferPointer(start: bits, count: w * h * 4)))
     }

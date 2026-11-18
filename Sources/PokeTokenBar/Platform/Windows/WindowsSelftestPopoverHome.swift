@@ -671,14 +671,14 @@ enum HomeFixtures {
         }
         var notes: [String] = []
         var ok = foreground
-        // the provider tabs (capsule buttons, as the Mac's): Tab moves to the next one, Space presses it
+        // the provider tabs (capsule chips of one radio group, K3; they were separate push buttons): one Tab stop, the Right arrow
+        // moves to the next chip and selects it
         if focus("Claude Code") {
-            WindowsSelftestPopover.tap(0x09)  // VK_TAB
-            WindowsSelftestPopover.tap(0x20)  // VK_SPACE
+            WindowsSelftestPopover.tap(0x27)  // VK_RIGHT
             await wait(0.3)
             let pressed = h.recordedActions.contains(.selectProvider("codex"))
             ok = ok && pressed
-            notes.append("Tab, Space on the Claude Code tab -> select codex=\(pressed)")
+            notes.append("Right arrow on the Claude Code chip -> select codex=\(pressed)")
         } else { ok = false; notes.append("no Claude Code tab stop") }
         // the plaza button: Enter
         if let plaza = model.plazaButton, focus(plaza.label) {

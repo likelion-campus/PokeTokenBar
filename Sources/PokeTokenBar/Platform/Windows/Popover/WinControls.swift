@@ -137,6 +137,8 @@ enum WinEditKind: Equatable, Sendable {
         default: false
         }
     }
+    /// Whether `part` is painted by `WinCustomDraw` (a slider's value text is an ordinary static).
+    func drawsItself(_ part: HWND) -> Bool { usesCustomDraw && (kind != .trackbar || part == hwnd) }
     // --- visual polish K3 (end) ---
     private(set) var isDestroyed = false
     /// Counts the selftest reads.
@@ -357,12 +359,12 @@ enum WinEditKind: Equatable, Sendable {
         case 0x0007:  // WM_SETFOCUS: keyboard focus inside a scroll area brings the control into view
             if GetKeyState(0x01 /* VK_LBUTTON */) >= 0 { WinScrollArea.reveal(hwnd) }
             c.onFocus?(true)
-            if c.usesCustomDraw { _ = InvalidateRect(hwnd, nil, false) }  // the focus ring is ours to draw
+            if c.drawsItself(hwnd) { _ = InvalidateRect(hwnd, nil, false) }  // the focus ring is ours to draw
             return nil
         case 0x0008:  // WM_KILLFOCUS: a field commits when the focus leaves it
             if c.kind == .edit { c.commitIfChanged() }
             c.onFocus?(false)
-            if c.usesCustomDraw { _ = InvalidateRect(hwnd, nil, false) }
+            if c.drawsItself(hwnd) { _ = InvalidateRect(hwnd, nil, false) }
             return nil
         case 0x0087 where c.onKey != nil:  // stage 7 Task 12: a drawn item that answers the arrow keys
             var code = DefSubclassProc(hwnd, message, wParam, lParam) | 0x0001  // DLGC_WANTARROWS
@@ -436,7 +438,7 @@ enum WinEditKind: Equatable, Sendable {
         case 0x020A where (c.kind == .combo || c.kind == .trackbar) && GetFocus() != hwnd:  // WM_MOUSEWHEEL: the page scrolls
             return SendMessageW(GetParent(hwnd), message, wParam, lParam)
         // --- visual polish K3: hover of a custom-drawn control (begin) ---
-        case 0x000F where c.usesCustomDraw && !c.ctx.highContrast && !WinCustomDraw.testDisabled:  // WM_PAINT: the safety net (see `paintFallback`)
+        case 0x000F where c.drawsItself(hwnd) && !c.ctx.highContrast && !WinCustomDraw.testDisabled:  // WM_PAINT: the safety net (see `paintFallback`)
             let before = c.customDrawCount
             let dirty = GetUpdateRect(hwnd, nil, false)  // an empty update region paints nothing, with or without custom draw
             let result = DefSubclassProc(hwnd, message, wParam, lParam)
@@ -445,12 +447,12 @@ enum WinEditKind: Equatable, Sendable {
                 _ = ReleaseDC(hwnd, dc)
             }
             return result
-        case 0x0318 where c.usesCustomDraw && !c.ctx.highContrast && !WinCustomDraw.testDisabled:  // WM_PRINTCLIENT
+        case 0x0318 where c.drawsItself(hwnd) && !c.ctx.highContrast && !WinCustomDraw.testDisabled:  // WM_PRINTCLIENT
             let before = c.customDrawCount
             let result = DefSubclassProc(hwnd, message, wParam, lParam)
             if c.customDrawCount == before, let dc = HDC(bitPattern: UInt(wParam)) { WinCustomDraw.paintFallback(c, hwnd, dc) }
             return result
-        case 0x0200 where c.usesCustomDraw && c.hotPart != hwnd:  // WM_MOUSEMOVE: hover look until WM_MOUSELEAVE (no timer: Windows says when it leaves)
+        case 0x0200 where c.drawsItself(hwnd) && c.hotPart != hwnd:  // WM_MOUSEMOVE: hover look until WM_MOUSELEAVE (no timer: Windows says when it leaves)
             let before = c.hotPart
             c.hotPart = hwnd
             var tme = TRACKMOUSEEVENT(cbSize: DWORD(MemoryLayout<TRACKMOUSEEVENT>.size), dwFlags: 0x0002 /* TME_LEAVE */, hwndTrack: hwnd, dwHoverTime: 0)
@@ -458,11 +460,11 @@ enum WinEditKind: Equatable, Sendable {
             if let before { _ = InvalidateRect(before, nil, false) }
             _ = InvalidateRect(hwnd, nil, false)
             return nil
-        case 0x02A3 where c.usesCustomDraw:  // WM_MOUSELEAVE
+        case 0x02A3 where c.drawsItself(hwnd):  // WM_MOUSELEAVE
             if c.hotPart == hwnd { c.hotPart = nil }
             _ = InvalidateRect(hwnd, nil, false)
             return nil
-        case 0x0014 where c.usesCustomDraw && !c.ctx.highContrast:  // WM_ERASEBKGND: custom draw paints every pixel (no flicker from a background pass)
+        case 0x0014 where c.drawsItself(hwnd) && !c.ctx.highContrast:  // WM_ERASEBKGND: custom draw paints every pixel (no flicker from a background pass)
             return 1
         // --- visual polish K3 (end) ---
         case 0x0200 where c.kind == .glyphButton && !c.hot:  // WM_MOUSEMOVE: hover look until WM_MOUSELEAVE
