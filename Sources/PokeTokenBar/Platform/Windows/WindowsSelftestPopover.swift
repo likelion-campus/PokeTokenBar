@@ -1447,11 +1447,11 @@ struct KitResources: CustomStringConvertible {
             row.control?.forceState(hot: hot ? 0 : nil, pressed: pressed ? 0 : nil, focus: focus ? 0 : nil)
             if off { row.control?.isEnabled = false }
         }
-        let stepHot = section.addRow("Stepper hover (upper), pressed (lower)") { pane, ctx in
+        let stepHot = section.addRow("Stepper hover, pressed") { pane, ctx in
             WinControls.stepper(range: 1...5, step: 1, value: 3, format: { "×\($0)" }, in: pane, ctx: ctx)
         }
         stepHot.control?.forceHalves(hot: 1, pressed: 2)
-        section.addRow("Stepper at its upper end") { pane, ctx in
+        section.addRow("Stepper at its end") { pane, ctx in
             WinControls.stepper(range: 1...5, step: 1, value: 5, format: { "×\($0)" }, in: pane, ctx: ctx)
         }
         let field = section.addRow("Field focus ring") { pane, ctx in WinControls.edit(.text(cue: "Nickname"), text: "Pika", width: 140, in: pane, ctx: ctx) }
