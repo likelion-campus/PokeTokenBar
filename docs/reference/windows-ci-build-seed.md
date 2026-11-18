@@ -83,3 +83,12 @@ toolchain limit and retry), artifact `ptb-seed-release`. What is different:
   BoringSSL and swift-crypto (about 7 of 17 min) and makes a push without source changes nearly free.
 - The exe is deleted before the build (the `.res` passed as `-Xlinker` is not tracked by llbuild).
 - `windows-release.json` carries `cleanBuild: true`; `release-manifest.ps1` and `team_release.py` refuse anything else.
+
+## MSVC toolset (C/C++ targets)
+The MSVC STL refuses a clang older than it expects (`yvals_core.h`: `STL1000 ... expected Clang N or newer`) and Swift 6.3.2 brings clang 20,
+while the runner image adds Visual Studio toolsets without notice (image 20261116.315.1: 14.52 wants Clang 22 and 14.51 is gone; the previous
+image had 14.51 wanting Clang 20). `scripts/windows/select-msvc-toolset.ps1`, run by `.github/actions/windows-swift`, takes the newest installed
+14.4x+ toolset whose STL accepts this clang, exports `VCToolsInstallDir`/`VCToolsVersion`/`PTB_MSVC_TOOLSET` and prints
+`msvc-toolset: <version> (needs clang N, have M) image <ImageVersion>`; it fails when none fits. Seeds record the toolset (`seed-meta.json`
+`msvc`) and are refused when it differs; `windows-release.json` carries `msvcToolset` (required by `check_release_manifest`).
+A newer Swift toolchain is a separate decision (it is the release toolchain).

@@ -89,7 +89,7 @@ function Test-SeedArchive([string[]]$Names, [string[]]$Verbose, [string]$Workspa
 
 # Layer 3. What the metadata may claim. Returns Clean (build from scratch), Reason, UseResolved (Package.resolved may be used: only
 # when Package.swift is the file the seed was built with, otherwise a changed dependency list would never resolve).
-function Test-SeedMeta($Meta, [datetime]$Now, [int]$MaxChain, [int]$MaxAgeHours, [string]$SwiftNow, [string]$ImageNow, [string]$PackageSwiftNow) {
+function Test-SeedMeta($Meta, [datetime]$Now, [int]$MaxChain, [int]$MaxAgeHours, [string]$SwiftNow, [string]$ImageNow, [string]$PackageSwiftNow, [string]$MsvcNow = '') {
     function Bad([string]$why) { [pscustomobject]@{ Clean = $true; Reason = $why; UseResolved = $false } }
     if ($null -eq $Meta) { return Bad 'no metadata' }
     $chain = $Meta.chainLength
@@ -104,5 +104,6 @@ function Test-SeedMeta($Meta, [datetime]$Now, [int]$MaxChain, [int]$MaxAgeHours,
     if (($nowU - $cleanAt).TotalHours -ge $MaxAgeHours) { return Bad "the last clean build is $([math]::Round(($nowU - $cleanAt).TotalHours, 1)) h old (limit $MaxAgeHours)" }
     if ($Meta.sha -isnot [string] -or $Meta.sha -notmatch '^[0-9a-f]{40}$') { return Bad 'sha is not a commit id' }
     if ([string]$Meta.swift -ne $SwiftNow -or [string]$Meta.image -ne $ImageNow) { return Bad "built with '$($Meta.swift)' on '$($Meta.image)', this run has '$SwiftNow' on '$ImageNow'" }
+    if ([string]$Meta.msvc -ne $MsvcNow) { return Bad "built against MSVC toolset '$($Meta.msvc)', this run uses '$MsvcNow'" }
     [pscustomobject]@{ Clean = $false; Reason = 'metadata accepted'; UseResolved = ([string]$Meta.packageSwift -ne '' -and [string]$Meta.packageSwift -eq $PackageSwiftNow) }
 }

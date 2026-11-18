@@ -3290,3 +3290,23 @@ read_when:
   **규칙:** 게이트 규칙이 읽을 값이 없으면 통과가 아니라 실패다. 로그 줄을 정규식으로 읽을 때는 값 안의 공백·구분자를 실제 줄로 시험한다. 측정 예산은 런너가 흔드는 양(전환 수)보다
   앱이 한 일(발화·메시지)에 건다.
 <!-- gate robustness (ci/windows-gate-robustness) end -->
+
+<!-- msvc toolset pin (ci/windows-msvc-toolset-pin) begin -->
+## 러너 이미지가 바꾼 고정 안 된 빌드 입력: MSVC 툴셋 (2026-11-18, 이미지 20261116.315.1)
+- **증상:** 새 `windows-latest` 이미지에 걸린 모든 빌드(windows.yml, windows-app, 릴리스 게이트)가 C++ 타깃(CPlazaD2D 등)에서
+  `_EMIT_STL_ERROR(STL1000, "Unexpected compiler version, expected Clang 22 or newer.")` 로 컴파일 실패. 같은 코드가 이전 이미지(20261103.298.1)에서는 통과.
+- **직접 원인:** 이미지가 VS 툴셋을 14.29/14.44/14.51 에서 14.29/14.44/14.52 로 바꿨다. clang 은 `VCToolsInstallDir` 가 없으면 가장 새 툴셋(14.52, STL 이 clang 22 요구)을
+  고르는데 Swift 6.3.2 의 clang 은 20 이다.
+- **왜 못 걸렀나:** 툴체인은 고정했지만(`swift-6.3.2-release`) 그 컴파일러가 맞물리는 STL 은 이미지가 정하는데 빌드 신원(시드 메타·릴리스 매니페스트)에 툴셋이 없었고,
+  이미지 버전은 기록돼도 "이 툴셋이면 된다"를 확인하는 검사가 없었다. 이미지 롤아웃은 점진적이라 같은 날 이미지가 섞여 한쪽만 실패했다.
+- **고침:** `scripts/windows/select-msvc-toolset.ps1` 이 설치된 툴셋의 `yvals_core.h` 가 요구하는 clang 버전을 읽어, 우리 clang 이 받아들이는 가장 새 14.4x+ 툴셋을
+  `VCToolsInstallDir` 로 고정(없으면 실패). `windows-swift` 액션에서 실행하므로 windows.yml·windows-app·cache lab 이 모두 받는다. 새 이미지에서 14.44.35207, 이전 이미지에서
+  14.51.36231 을 골랐고 둘 다 windows.yml 전체(4 조각 + render)가 통과. 시드는 툴셋이 다르면 쓰지 않고(`seed-meta.json` msvc), `windows-release.json` 에 `msvcToolset` 을 남긴다.
+- **다른 고정 안 된 입력 점검(고정됨 / 안 됨):**
+  고정됨 — Swift 툴체인(6.3.2, 작업 이름·버전 고정), MSVC 툴셋(이제 선택·기록), 시드의 Swift·이미지·툴셋·Package.swift 메타, 릴리스의 이미지 버전 기록.
+  고정 안 됨 — runs-on `windows-latest`(이미지 롤링), Windows SDK(clang 이 가장 새 `10.0.x`; 두 이미지 모두 10.0.26100.0 이라 아직 같음), Inno Setup(이미지 것, 없으면 choco 최신),
+  PowerShell 7(이미지), WARP/GPU 렌더러(OS 와 함께 바뀜: 유휴 예산과 광장 렌더 비교가 영향받음), vcpkg OpenSSL(`windows/vcpkg.json` 에 baseline 없음 → 항상 최신 3.x),
+  swift-crypto(`from: "3.0.0"` 부동), `compnerd/gha-setup-swift@main`(브랜치 참조), 액션 `@v4/@v5` 태그.
+  **후속 제안(사용자 결정):** 액션을 SHA 로, vcpkg baseline 을 고정, SDK 버전도 선택·기록.
+- **규칙:** 컴파일러를 고정하면 그것과 맞물리는 헤더·툴셋도 고르고 기록한다. 러너 이미지가 정하는 입력은 빌드 신원에 남기고, 다르면 캐시를 쓰지 않는다.
+<!-- msvc toolset pin end -->

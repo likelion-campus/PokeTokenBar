@@ -79,6 +79,8 @@ Expect ([bool]$env:ImageVersion) 'ImageVersion (the build job runner image) is e
 
 # The split workflow builds in one job and writes the manifest in another: the build job passes its toolchain's version.
 $swift = [string]$env:PTB_SWIFT_VERSION
+$msvc = [string]$env:PTB_MSVC_TOOLSET
+Expect ($msvc -match '^14\.\d+\.\d+$') "PTB_MSVC_TOOLSET is '$msvc', expected the MSVC toolset the build job compiled against"
 Expect ($swift -match '^\d+(\.\d+)+$') "PTB_SWIFT_VERSION is '$swift', expected the build job's toolchain version"
 
 $manifest = [ordered]@{
@@ -92,6 +94,7 @@ $manifest = [ordered]@{
     runAttempt  = [int]$env:GITHUB_RUN_ATTEMPT
     runnerImage = $env:ImageVersion
     swift       = $swift
+    msvcToolset = $msvc
     installer   = [ordered]@{
         name           = $name
         size           = (Get-Item $setup).Length

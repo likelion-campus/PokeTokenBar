@@ -108,6 +108,7 @@ jobs:
       ptb_build_id: ${{ steps.ptbbuild.outputs.artifact-id }}  # the slices unpack THIS artifact (a name can exist twice after a re-run)
       installer_sha256: ${{ steps.buildid.outputs.installer_sha256 }}
       image: ${{ steps.buildid.outputs.image }}
+      msvc: ${{ steps.buildid.outputs.msvc }}
       level: ${{ env.PTB_LEVEL }}
       fast: ${{ env.PTB_FAST }}
       clean: ${{ steps.seed.outputs.clean || 'true' }}   # true = built from scratch (level full, release mode, kit/* and clean_build always are)
@@ -291,6 +292,7 @@ jobs:
           $h = (Get-FileHash $f[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
           "installer_sha256=$h" >> $env:GITHUB_OUTPUT
           "image=$env:ImageVersion" >> $env:GITHUB_OUTPUT
+          "msvc=$env:PTB_MSVC_TOOLSET" >> $env:GITHUB_OUTPUT
           "installer $($f[0].Name) sha256 $h, runner image $env:ImageVersion"
       # The installer is a CI artifact only (short retention): nothing is attached to a release or uploaded elsewhere.
       - uses: actions/upload-artifact@v4
@@ -1705,6 +1707,7 @@ jobs:
           RELEASE_SHA: ${{ inputs.release_sha }}
           RELEASE_VERSION: ${{ inputs.release_version }}
           PTB_SWIFT_VERSION: ${{ needs.build.outputs.swift }}
+          PTB_MSVC_TOOLSET: ${{ needs.build.outputs.msvc }}
           PTB_BUILD_SHA256: ${{ needs.build.outputs.installer_sha256 }}
           PTB_CLEAN_BUILD: ${{ needs.build.outputs.clean }}
           ImageVersion: ${{ needs.build.outputs.image }}

@@ -62,7 +62,7 @@ $meta = $null
 try { $meta = Get-Content seed-in/seed-meta.json -Raw | ConvertFrom-Json } catch { Go-Clean "seed-meta.json of run $seed is not JSON" $seed; return }
 $swiftNow = ((swift --version 2>&1 | Select-Object -First 1) -as [string]).Trim()
 $pkgNow = (git rev-parse HEAD:Package.swift)
-$verdict = Test-SeedMeta $meta ([datetime]::UtcNow) $MaxChain $MaxAgeHours $swiftNow ([string]$env:ImageVersion) $pkgNow
+$verdict = Test-SeedMeta $meta ([datetime]::UtcNow) $MaxChain $MaxAgeHours $swiftNow ([string]$env:ImageVersion) $pkgNow ([string]$env:PTB_MSVC_TOOLSET)
 if ($verdict.Clean) { Go-Clean "seed of run ${seed}: $($verdict.Reason)" $seed; return }
 "seed run ${seed}: chain length $($meta.chainLength), last clean build $($meta.cleanAt), built from $($meta.sha)"
 
