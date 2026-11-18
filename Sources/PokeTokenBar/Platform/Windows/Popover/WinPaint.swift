@@ -17,6 +17,41 @@ import CPlazaD2D
     }
 
     private static var loggedFallback = false
+    /// Binds of the painter and the milliseconds they took, since the process started (the open-cost selftest prints them).
+    private(set) static var binds = 0
+    private(set) static var bindMs = 0.0
+
+    private static func bind(_ dc: HDC, _ b: RECT, _ shapes: inout [PTBPaintShape]) -> Int32 {
+        let t0 = WinOpenTrace.now()
+        let code = ptb_paint_shapes(UnsafeMutableRawPointer(dc), b.left, b.top, b.right, b.bottom, &shapes, UInt32(shapes.count))
+        binds += 1
+        bindMs += WinOpenTrace.now() - t0
+        return code
+    }
+
+    /// Runs `body` on a memory DC the size of `r`'s lower right (pane coordinates, so the body draws as it always did), filled with
+    /// `background`, then copies `r` to `dc` in one blit: the painter blends shapes over what the DC holds, which is cheap on a
+    /// memory bitmap and a read-back of the window's surface on a window DC. Falls back to drawing on `dc` itself.
+    static func buffered(_ dc: HDC, _ r: RECT, background: HBRUSH?, _ body: (HDC) -> Void) {
+        let w = r.right - r.left, h = r.bottom - r.top
+        guard w > 0, h > 0, Int64(r.right) * Int64(r.bottom) <= 6_000_000, let mem = CreateCompatibleDC(dc) else { body(dc); return }
+        defer { _ = DeleteDC(mem) }
+        var info = BITMAPINFO()
+        info.bmiHeader.biSize = DWORD(MemoryLayout<BITMAPINFOHEADER>.size)
+        info.bmiHeader.biWidth = r.right
+        info.bmiHeader.biHeight = -r.bottom
+        info.bmiHeader.biPlanes = 1
+        info.bmiHeader.biBitCount = 32
+        var bits: UnsafeMutableRawPointer?
+        guard let bitmap = CreateDIBSection(dc, &info, 0, &bits, nil, 0), bits != nil else { body(dc); return }
+        defer { _ = DeleteObject(UnsafeMutableRawPointer(bitmap)) }
+        let old = SelectObject(mem, UnsafeMutableRawPointer(bitmap))
+        defer { _ = SelectObject(mem, old) }
+        var fill = r
+        _ = FillRect(mem, &fill, background)
+        body(mem)
+        _ = BitBlt(dc, r.left, r.top, w, h, mem, r.left, r.top, DWORD(SRCCOPY))
+    }
 
     /// 0xAARRGGBB of a `COLORREF` (0x00BBGGRR).
     nonisolated static func argb(_ c: COLORREF, alpha: Double = 1) -> UInt32 {
@@ -66,7 +101,7 @@ import CPlazaD2D
                                         strokeWidth: item.stroke == nil ? 0 : Float(item.strokeWidth)))
         }
         guard !shapes.isEmpty else { return }
-        if ptb_paint_shapes(UnsafeMutableRawPointer(dc), bounds.left, bounds.top, bounds.right, bounds.bottom, &shapes, UInt32(shapes.count)) >= 0 { return }
+        if bind(dc, bounds, &shapes) >= 0 { return }
         for item in drawn where intersects(item.rect, bounds) {
             fallback(dc, item.rect, radius: item.radius, fill: item.fill, stroke: item.stroke, strokeWidth: item.strokeWidth, under: under, ctx: ctx)
         }
@@ -86,7 +121,7 @@ import CPlazaD2D
             shapes.append(PTBPaintShape(x: inset, y: inset, w: w - 2 * inset, h: h - 2 * inset, radius: innerRadius, fill: 0,
                                         stroke: argb(inner), strokeWidth: Float(w1)))
         }
-        if ptb_paint_shapes(UnsafeMutableRawPointer(dc), r.left, r.top, r.right, r.bottom, &shapes, UInt32(shapes.count)) >= 0 { return }
+        if bind(dc, r, &shapes) >= 0 { return }
         fallback(dc, r, radius: radius, fill: nil, stroke: Ink(color: outer), strokeWidth: w2, under: outer, ctx: ctx)
     }
 

@@ -136,6 +136,15 @@ import WinSDK
             for _ in 0..<rounds { WinPaint.roundedRects(big.dc, (0..<8).map(item), under: white, ctx: ctx) }
             let batched = Date().timeIntervalSince(t1) * 1000 / Double(rounds)
             timing = String(format: "8 cards on a page: %.2f ms as 8 binds, %.2f ms as one bind", separate, batched)
+            // the same 8 binds on a window DC (what a WM_PAINT hands out): a read-back of the window's surface would show here
+            if let screen = GetDC(w.hwnd) {
+                let t2 = Date()
+                for _ in 0..<rounds { for i in 0..<8 { WinPaint.roundedRects(screen, [item(i)], under: white, ctx: ctx) } }
+                let onWindow = Date().timeIntervalSince(t2) * 1000 / Double(rounds)
+                _ = ReleaseDC(w.hwnd, screen)
+                _ = InvalidateRect(w.hwnd, nil, true)
+                timing += String(format: "; on a window DC %.2f ms as 8 binds", onWindow)
+            }
         }
         var drawn: UInt64 = 0, failed: UInt64 = 0
         ptb_paint_stats(&drawn, &failed)
