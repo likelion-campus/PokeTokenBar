@@ -104,7 +104,7 @@ function Test-TimerWork($Wake, [string[]]$Sources, [int]$MinFires, [int]$MaxFire
     $bad = @()
     if ($fires -lt $MinFires -or $fires -gt $MaxFires) { $bad += "fires $fires outside $MinFires-$MaxFires" }
     if ($Wake.messages -gt $maxMessages) { $bad += "messages $($Wake.messages) > $maxMessages (2 per fire + 10)" }
-    if ($MainCs -gt $maxCs) { $bad += "main cs $MainCs > $maxCs ($CsPerFire per fire + $CsSlack: work that is not the timer's)" }
+    if ($MainCs -gt $maxCs) { $bad += "main cs $MainCs > $maxCs ($CsPerFire per fire + ${CsSlack}: work that is not the timer's)" }
     $text = "$($Sources -join '+') fires $fires (allowed $MinFires-$MaxFires), messages $($Wake.messages) (at most $maxMessages), main cs $MainCs (at most $maxCs)"
     if ($bad.Count -gt 0) { return @{ ok = $false; detail = "$text; FAILED: $($bad -join '; ')" } }
     return @{ ok = $true; detail = $text }
