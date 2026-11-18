@@ -67,6 +67,14 @@ enum PlazaStoreGIF {
     }
 }
 
+/// The report lines already written (once each per process).
+final class PlazaReportedKeys: @unchecked Sendable {
+    private let lock = NSLock()
+    private var seen: Set<String> = []
+    /// True the first time `line` is given.
+    func first(_ line: String) -> Bool { lock.withLock { seen.insert(line).inserted } }
+}
+
 /// What the loader keeps in memory: decoded animations (the Mac's `animationCache`, 16 sets, oldest out first) and the
 /// cropped egg (once). Lock-guarded; the decoding runs off the main actor.
 final class PlazaSpriteMemory: @unchecked Sendable {
@@ -131,22 +139,42 @@ struct PlazaStoreSpriteFetcher: PlazaSpriteFetching {
         return await Self.loadEgg(source: source, graphics: graphics, memory: memory)
     }
 
+    // --- fix/windows-pet-still: what the GIF loader found, in Windows' log (begin) ---
+    /// Windows sets it at launch (`AppLog.write`): one line per sprite and answer, what each variant gave (the file, its bytes,
+    /// the frames decoded). The real path had never run in CI (every check used a fixture source). Nil on the Mac and in tests.
+    nonisolated(unsafe) static var report: (@Sendable (String) -> Void)?
+    nonisolated private static let reported = PlazaReportedKeys()
+    // --- (end) ---
+
     @concurrent private static func loadFrames(source: any PlazaSpriteSource, decode: PlazaGIFFrameDecoder,
                                                memory: PlazaSpriteMemory, speciesID: Int, shiny: Bool,
                                                form: PokemonForm?, back: Bool) async -> [(image: PlazaImage, delay: TimeInterval)] {
+        var notes: [String] = []
+        func said(_ outcome: String) {
+            guard let report else { return }
+            let line = "sprites: GIF #\(speciesID) shiny=\(shiny) form=\(form.map { "\($0)" } ?? "none") back=\(back): "
+                + notes.joined(separator: ", ") + " -> " + outcome
+            if reported.first(line) { report(line) }
+        }
         for variant in shiny ? [true, false] : [false] {
-            if !back, Task.isCancelled { return [] }
-            let key = source.directory.appendingPathComponent(
-                SpriteStore.cacheKey(speciesID: speciesID, animated: true, shiny: variant, form: form, back: back)).path
+            if !back, Task.isCancelled { said("cancelled"); return [] }
+            let name = SpriteStore.cacheKey(speciesID: speciesID, animated: true, shiny: variant, form: form, back: back)
+            let key = source.directory.appendingPathComponent(name).path
             if let kept = memory.frames(for: key) { return kept }
             guard let data = await source.data(speciesID: speciesID, animated: true, shiny: variant, form: form, back: back)
-            else { continue }
+            else {
+                notes.append("\(name).gif: no data")
+                continue
+            }
             let frames = decode(data)
+            notes.append("\(name).gif: \(data.count) bytes, \(frames.count) frames")
             if !frames.isEmpty {
                 memory.keep(frames, for: key)
+                said("\(frames.count) frames")
                 return frames
             }
         }
+        said("no frames (the still shows)")
         return []
     }
 

@@ -122,7 +122,7 @@ import Foundation
         }
         func cardBackground(_ top: CGFloat, _ h: CGFloat) {
             ops.append(Op(y: top, h: h) { canvas, space, off in
-                p.roundedRect(CGRect(x: 0, y: top + off, width: cw, height: h), radius: 9, fill: PopoverColorRole.secondary.plazaShapeColor(alpha: 0.07), stroke: nil, lineWidth: 0, canvas: canvas, space: space)
+                p.roundedRect(CGRect(x: 0, y: top + off, width: cw, height: h), radius: 9, fill: PopoverColorRole.secondary.plazaTileColor(alpha: 0.07), stroke: nil, lineWidth: 0, canvas: canvas, space: space)
             })
         }
         func statRow(_ s: DexDetailModel.Stat, scale: Int, x: CGFloat, y: CGFloat, width w: CGFloat) -> CGFloat {

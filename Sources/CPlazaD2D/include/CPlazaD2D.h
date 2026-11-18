@@ -237,6 +237,12 @@ int ptb_window_session_notify(void *hwnd, int on);
 /* stage 7 Task 22: this session now (WTSQuerySessionInformationW, WTSSessionInfoEx): *locked 1 at the lock screen,
  * *disconnected 1 when no console or remote connection is attached. Returns 1 when read, 0 (both 0) when not. */
 int ptb_session_state(int *locked, int *disconnected);
+/* fix/windows-pet-still: WTSINFOEX_LEVEL1's SessionFlags (0 LOCK, 1 UNLOCK, 0xFFFFFFFF unknown) and SessionState, raw (both
+ * 0xFFFFFFFF when not read; returns 1 when read). */
+int ptb_session_raw(uint32_t *sessionFlags, uint32_t *sessionState);
+/* 1 when the input desktop is "Default" (the user's own), 0 when it is another or refuses this process (the secure desktop of
+ * the lock screen or a UAC prompt), -1 when its name cannot be read. */
+int ptb_input_desktop_default(void);
 uint32_t ptb_window_dpi(void *hwnd);                  /* GetDpiForWindow, 96 when unknown */
 /* The window rect (left, top, right, bottom relative to the client's origin) for a w x h client at `dpi`. */
 int ptb_window_frame_for_client(uint32_t style, uint32_t exStyle, uint32_t dpi, int32_t w, int32_t h, int32_t out[4]);

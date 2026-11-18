@@ -50,6 +50,7 @@ import WinSDK
 
     init(store: UsageStore, companion: CompanionStore, popover: WinPopover? = nil, now: @escaping () -> Date = { Date() },
          calendar: @escaping () -> Calendar = { RecapPeriod.calendar() }, onBack: @escaping () -> Void) {
+        WinPopoverLanguage.apply(companion.language)
         self.store = store
         self.companion = companion
         self.popover = popover

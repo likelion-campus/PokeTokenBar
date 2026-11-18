@@ -16,6 +16,18 @@ extension PopoverColorRole {
         let v = macValue(appearance)
         return PlazaColor(srgbRed: v.red, green: v.green, blue: v.blue, alpha: v.alpha * alpha)
     }
+
+    /// The fill of a TILE or card drawn by a part on the page (a Pokédex cell, the detail card, a catch-log card, the companion's
+    /// sprite box). The Mac tints the page with the role at `alpha` (`Color.secondary.opacity(0.06)`), exactly as before.
+    /// Windows layers surfaces as Windows 11 does (visual polish K1): the same fill as the native cards beside the part, white
+    /// in light and the card grey (the dark window lifted by `PopoverSurface.darkCardStep`) in dark, a black tint on a grey base
+    /// would read darker than those cards. High contrast keeps the shape colour.
+    func plazaTileColor(_ appearance: PopoverAppearance = .current, alpha: Double) -> PlazaColor {
+        guard PopoverPlatform.isWindows, PopoverAppearanceState.highContrast == nil else { return plazaShapeColor(appearance, alpha: alpha) }
+        if appearance == .light { return PlazaColor(srgbRed: 1, green: 1, blue: 1, alpha: 1) }
+        let card = PopoverSurface.blend(PopoverSurface.darkWindow, 0xFFFFFF, PopoverSurface.darkCardStep)
+        return PlazaColor(srgbRed: Double(card >> 16 & 0xFF) / 255, green: Double(card >> 8 & 0xFF) / 255, blue: Double(card & 0xFF) / 255, alpha: 1)
+    }
 }
 
 /// The limit row's bar (stage 7, D7; the Mac's `LimitProgressBar`): a 6 pt track in a 12 pt line, the fill from
