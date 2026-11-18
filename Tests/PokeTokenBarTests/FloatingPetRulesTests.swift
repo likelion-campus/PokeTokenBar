@@ -7,6 +7,27 @@ import XCTest
 /// playback. The Mac twins' equivalence is in `PopoverPetTwinEquivalenceTests+Mac`.
 @MainActor
 final class FloatingPetRulesTests: XCTestCase {
+    // --- fix/windows-pet-still: the lock state when the pet is made (begin) ---
+    /// Locked only when SessionFlags says LOCK and the input desktop is not the user's: a LOCK read while the user's desktop takes
+    /// input (the kit 10 PC's suspected misread), an unknown flag or an unnamed desktop is unlocked; a real lock screen (LOCK and the
+    /// secure desktop refusing) stays locked.
+    func testTheSessionIsLockedOnlyWhenTheFlagAndTheDesktopAgree() async {
+        let cases: [(UInt32, Int32, Bool)] = [
+            (0, 0, true),            // LOCK, the secure desktop: a real lock screen
+            (0, 1, false),           // LOCK, but the user's desktop takes input: misread
+            (0, -1, false),          // LOCK, a desktop that opened without a name: not the secure one
+            (1, 0, false),           // UNLOCK (a UAC prompt's secure desktop is not a lock)
+            (1, 1, false),
+            (0xFFFF_FFFF, 0, false), // unknown
+            (0xFFFF_FFFF, 1, false),
+            (7, 0, false),           // anything else
+        ]
+        for (flags, desktop, locked) in cases {
+            XCTAssertEqual(FloatingPetSession.locked(sessionFlags: flags, inputDesktop: desktop), locked, "flags \(flags) desktop \(desktop)")
+        }
+    }
+    // --- fix/windows-pet-still (end) ---
+
     // MARK: placement (the Mac's terms: y up)
 
     private let screen = CGRect(x: 0, y: 0, width: 1920, height: 1080)

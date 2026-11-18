@@ -52,6 +52,14 @@ private final class FakeSource: PlazaSpriteSource, @unchecked Sendable {
     }
 }
 
+/// Report lines, in order (fix/windows-pet-still).
+private final class ReportLines: @unchecked Sendable {
+    private let lock = NSLock()
+    private var lines: [String] = []
+    func add(_ line: String) { lock.withLock { lines.append(line) } }
+    var all: [String] { lock.withLock { lines } }
+}
+
 /// Two GIF frames named by the first byte of the "GIF" data: the test decoder reads `[count, delay-in-hundredths...]`.
 private let decoder: PlazaGIFFrameDecoder = { data in
     let b = [UInt8](data)
@@ -102,6 +110,24 @@ final class PlazaStoreSpriteFetcherTests: XCTestCase {
         XCTAssertNil(still)
         XCTAssertEqual(source.calls, ["25-back-a", "25-back-s"], "a back ask never reads the front files")
     }
+
+    // --- fix/windows-pet-still: the loader's answer in the log (Windows sets `report`) (begin) ---
+    func testTheReportNamesEachVariantTriedWithItsBytesAndFramesOncePerAnswer() async {
+        let lines = ReportLines()
+        PlazaStoreSpriteFetcher.report = { lines.add($0) }
+        defer { PlazaStoreSpriteFetcher.report = nil }
+        let source = FakeSource(table: ["9132-sha": Data(), "9132-a": Data([2, 10, 10])])
+        let frames = await fetcher(source).animated(speciesID: 9132, shiny: true, form: nil, back: false)
+        XCTAssertEqual(frames.count, 2)
+        _ = await fetcher(source).animated(speciesID: 9132, shiny: true, form: nil, back: false)   // a new fetcher, the same answer
+        let missing = FakeSource()
+        _ = await fetcher(missing).animated(speciesID: 9133, shiny: false, form: nil, back: false)
+        XCTAssertEqual(lines.all, [
+            "sprites: GIF #9132 shiny=true form=none back=false: 9132-sha.gif: 0 bytes, 0 frames, 9132-a.gif: 3 bytes, 2 frames -> 2 frames",
+            "sprites: GIF #9133 shiny=false form=none back=false: 9133-a.gif: no data -> no frames (the still shows)",
+        ], "one line per sprite and answer, the same answer not again")
+    }
+    // --- fix/windows-pet-still (end) ---
 
     func testAnUndecodableGIFFallsThroughToThePlainOne() async {
         let source = FakeSource(table: ["25-sha": Data(), "25-a": Data([1, 10])])
