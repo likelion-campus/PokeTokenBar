@@ -54,14 +54,17 @@ final class WindowsProcessTests: XCTestCase {
         p.standardError = FileHandle.nullDevice
         try p.run()
 
+        // PowerShell's first start on a busy runner took over 15 s once (run 44168716060): up to 60 s.
         var childPid: DWORD?
-        for _ in 0..<150 where childPid == nil {
+        for _ in 0..<600 where childPid == nil {
             try await Task.sleep(nanoseconds: 100_000_000)
             if let s = try? String(contentsOf: pidFile, encoding: .ascii),
                let n = DWORD(s.trimmingCharacters(in: .whitespacesAndNewlines)) { childPid = n }
         }
         let child = try XCTUnwrap(childPid, "the shim's child never started")
-        defer { PlatformCompat.forceKill(pid: Int32(child)) }
+        // Held from now on: the clean-up ends this process, never whatever gets its id after it has gone.
+        let childHandle = try XCTUnwrap(OpenProcess(DWORD(PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION), false, child))
+        defer { TerminateProcess(childHandle, 1); CloseHandle(childHandle) }
         XCTAssertTrue(isAlive(child))
 
         PlatformCompat.terminate(p)   // plain `p.terminate()` left the child running (run 43567771725)
