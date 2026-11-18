@@ -61,6 +61,9 @@ private struct CollectionFixtureNames: PokemonNameProviding {
         stores.state.showingCollectionLog = log
         guard let h = HomeHarness(stores: stores, input: { HomeFixtures.update($0, now: $1) }, dpi: dpi, heightDIP: 700),
               let page = h.page.tabContent as? WinCollectionPage else { return nil }
+        // The window is as tall as the page (update offer + the Mac's 520 pt scroller + footer), as the popover sizes itself: a fixed
+        // 700 DIP left the scroller 519 px when the offer grew by a pixel with the K1 type ramp, which brought the page's native bar back.
+        h.window.fitToContent()
         h.window.show(activate: false)
         await wait(0.3)
         return (h, page)
