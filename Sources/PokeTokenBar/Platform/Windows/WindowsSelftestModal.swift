@@ -196,9 +196,12 @@ extension WindowsSelftest {
         _ = await waitStable(timeout: 30, quiet: 2) { !app.store.isRefreshing }
         let after = await modalIdleWindow(app)
         if let idleBefore, let after {
-            r.add("modalPump.idle", idleBefore.mainFound && after.found && after.cs <= after.budget,
+            // Over the budget, ONE burst is tolerated when it is a broadcast another process sent (IdleBurstAttribution: what arrived
+            // is recorded; follow-up of 44297197674). An unattributed burst, a posted message or a second burst still fails.
+            r.add("modalPump.idle", idleBefore.mainFound && after.found && after.verdict.ok,
                   "10 s windows, main_thread_cs before the menu=\(idleBefore.mainContextSwitches) (not judged: the same window without the menu) -> after=\(after.cs) "
-                    + "budget \(after.budget) = 3 + 5 per known timer wake + 60 per store refresh; \(after.detail); before-window wake timeline [\(idleBefore.wakes)]")
+                    + "budget \(after.budget) = 3 + 5 per known timer wake + 60 per store refresh; verdict: \(after.verdict.note); \(after.detail); "
+                    + "before-window wake timeline [\(idleBefore.wakes)]")
         } else {
             r.add("modalPump.idle", false, "measurement failed")
         }
@@ -208,15 +211,21 @@ extension WindowsSelftest {
     /// (`WinDefaultsSync`, lands in a 10 s window one time in three; 1 cs in nine runs, 5 cs in the run that used to fail, since its
     /// plist sync waits on the disk), the 2 s debounce flush after a settings write, the day timer, and a store refresh (about 45 cs,
     /// every 120 s). Each is counted from its own counter and budgeted like `idle.window` does; the old limit (before + 3) ignored them.
-    @MainActor static func modalIdleWindow(_ app: WindowsAppDelegate, seconds: Double = 10, settle: Bool = true) async -> (found: Bool, cs: Int, budget: Int, detail: String)? {
+    @MainActor static func modalIdleWindow(_ app: WindowsAppDelegate, seconds: Double = 10, settle: Bool = true) async
+        -> (found: Bool, cs: Int, budget: Int, verdict: IdleBurstAttribution.Verdict, detail: String)? {
         if settle { _ = await waitStable(timeout: 30, quiet: 2) { !app.store.isRefreshing } }
         let w0 = knownWakes(app)
-        guard let t = await IdleTimeline.measure(seconds: seconds, mainThread: WindowsApp.mainThreadID) else { return nil }
+        WinMessageArrivals.begin()   // what reaches the main thread in the window, sent from outside or posted
+        let measured = await IdleTimeline.measure(seconds: seconds, mainThread: WindowsApp.mainThreadID)
+        let arrivals = WinMessageArrivals.end()
+        guard let t = measured else { return nil }
         let w1 = knownWakes(app)
         let explained = (w1.safety - w0.safety) + (w1.debounce - w0.debounce) + (w1.day - w0.day)
         let budget = 3 + 5 * explained + 60 * (w1.refreshes - w0.refreshes)
-        return (t.mainFound, t.mainContextSwitches, budget,
-                "cycles \(t.mainCycles); known wakes \(w1.minus(w0)); wake timeline [\(t.wakes)]; debounce pending at the start: \(w0.pending)")
+        let verdict = IdleBurstAttribution.judge(cs: t.mainContextSwitches, budget: budget, wakes: t.samples, arrivals: arrivals)
+        return (t.mainFound, t.mainContextSwitches, budget, verdict,
+                "cycles \(t.mainCycles); known wakes \(w1.minus(w0)); wake timeline [\(t.wakes)]; debounce pending at the start: \(w0.pending); "
+                  + "arrived: \(IdleBurstAttribution.listing(arrivals))")
     }
 
     struct KnownWakes {

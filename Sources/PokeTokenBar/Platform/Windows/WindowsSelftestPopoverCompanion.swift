@@ -710,8 +710,10 @@ struct WinFixtureSpriteSource: PlazaSpriteSource {
             idleProbe = h
             await wait(2)
             let model = h.section?.header?.view.sprites?.playback.models.first
+            let length = (model?.frames ?? []).reduce(0) { $0 + $1.delay }   // `gif rate`: the idle gate's measure of the clock
             AppLog.write("popover companion idle probe: mode=\(mode) animations=\(animations) picture=\(model?.current == nil ? "none" : "loaded") "
-                         + "gif frames=\(model?.frames.count ?? 0) sprite clock armed=\(h.section?.header?.view.sprites?.playback.clock.isArmed == true) "
+                         + "gif frames=\(model?.frames.count ?? 0) " + String(format: "gif rate=%.3f/s ", length > 0 ? Double(model?.frames.count ?? 0) / length : 0)
+                         + "sprite clock armed=\(h.section?.header?.view.sprites?.playback.clock.isArmed == true) "
                          + "effect clock armed=\(h.section?.effectClock.isArmed == true) \(KitResources.now())")
         }
     }
