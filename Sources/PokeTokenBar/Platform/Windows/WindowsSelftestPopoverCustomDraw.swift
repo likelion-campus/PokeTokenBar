@@ -190,7 +190,9 @@ extension WindowsSelftest {
                 func ch(_ v: Int) -> Double { let s = Double(v) / 255; return s <= 0.03928 ? s / 12.92 : pow((s + 0.055) / 1.055, 2.4) }
                 return 0.2126 * ch(c.r) + 0.7152 * ch(c.g) + 0.0722 * ch(c.b)
             }
-            let edgePixel = e.rgb(0, e.height / 2), cardPixel = e.rgb(e.width / 2, 3)
+            let cardColour = WinLook(enabled).bg  // the card behind the button (the button's own fill is not what the edge is against)
+            let edgePixel = e.rgb(0, e.height / 2)
+            let cardPixel = (r: Int(cardColour & 0xFF), g: Int((cardColour >> 8) & 0xFF), b: Int((cardColour >> 16) & 0xFF))
             let hi = max(lum(edgePixel), lum(cardPixel)), lo = min(lum(edgePixel), lum(cardPixel))
             let ratio = (hi + 0.05) / (lo + 0.05)
             let want = dark ? 2.4 : 1.15
