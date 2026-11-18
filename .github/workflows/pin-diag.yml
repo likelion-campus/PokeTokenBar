@@ -11,6 +11,10 @@ jobs:
       - shell: pwsh
         run: |
           "image $env:ImageVersion"
+          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' /? 2>&1 | Select-Object -First 3
+          Get-Content 'C:\Program Files (x86)\Inno Setup 6\unins000.dat' -TotalCount 0 -ErrorAction SilentlyContinue
+          (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Inno Setup 6_is1' -ErrorAction SilentlyContinue).DisplayVersion
+          (Get-ItemProperty 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Inno Setup 6_is1' -ErrorAction SilentlyContinue).DisplayVersion
           $i = Get-Command iscc.exe -ErrorAction SilentlyContinue; if ($i) { $i.Source; (Get-Item $i.Source).VersionInfo.ProductVersion } 
           $p = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'; if (Test-Path $p) { "ISCC $p " + (Get-Item $p).VersionInfo.FileVersion + ' ' + (Get-Item $p).VersionInfo.ProductVersion }
           choco list --local-only innosetup
