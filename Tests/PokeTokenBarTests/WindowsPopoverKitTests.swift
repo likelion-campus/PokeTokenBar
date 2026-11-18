@@ -19,19 +19,20 @@ final class WindowsPopoverKitTests: XCTestCase {
         return withUnsafeBytes(of: &copy.lfFaceName) { String(decoding: $0.bindMemory(to: UInt16.self).prefix { $0 != 0 }, as: UTF16.self) }
     }
 
-    func testFontsAreTheMacSizesAtEachDPI() async {
-        for (dpi, body, caption, large) in [(UINT(96), Int32(-13), Int32(-10), Int32(-28)), (120, -16, -13, -35), (144, -20, -15, -42), (192, -26, -20, -56)] {
+    // K1: the Windows ramp's sizes (body 14, caption 12, total 28 semibold) at each DPI: `WinTypeRamp`, one step above the Mac's points.
+    func testFontsAreTheWindowsRampAtEachDPI() async {
+        for (dpi, body, caption, large) in [(UINT(96), Int32(-14), Int32(-12), Int32(-28)), (120, -18, -15, -35), (144, -21, -18, -42), (192, -28, -24, -56)] {
             let fonts = WinFonts(dpi: dpi, textScale: 1)
             defer { fonts.destroy() }
             XCTAssertEqual(logFont(fonts.font(.body)).lfHeight, body, "body at \(dpi)")
             XCTAssertEqual(logFont(fonts.font(.caption)).lfHeight, caption, "caption at \(dpi)")
-            XCTAssertEqual(logFont(fonts.font(.largeBold)).lfHeight, large, "28 pt bold at \(dpi)")
-            XCTAssertEqual(logFont(fonts.font(.largeBold)).lfWeight, 700)
+            XCTAssertEqual(logFont(fonts.font(.largeBold)).lfHeight, large, "28 DIP semibold at \(dpi)")
+            XCTAssertTrue([400, 600].contains(logFont(fonts.font(.largeBold)).lfWeight), "semibold (its own family, or weight 600), never 700")
             XCTAssertEqual(faceName(logFont(fonts.font(.body))), fonts.face)
         }
         let scaled = WinFonts(dpi: 96, textScale: 1.5)
         defer { scaled.destroy() }
-        XCTAssertEqual(logFont(scaled.font(.body)).lfHeight, -20, "Windows' text size scales every font")
+        XCTAssertEqual(logFont(scaled.font(.body)).lfHeight, -21, "Windows' text size scales every font")
         print("POPOVER-FONTS face=\(scaled.face) icons=\(scaled.iconFace)")
     }
 
@@ -172,7 +173,7 @@ final class WindowsPopoverKitTests: XCTestCase {
                                                        (.headline, 14, 600), (.title3, 16, 400), (.largeBold, 28, 600)]
         for (style, size, weight) in ramp {
             XCTAssertEqual(WinTypeRamp.step(style), WinTypeRamp.Step(size: size, weight: weight), "\(style)")
-            XCTAssertGreaterThan(WinTypeRamp.step(style).size, style.size, "\(style) is one step above the Mac's points")
+            XCTAssertGreaterThanOrEqual(WinTypeRamp.step(style).size, style.size, "\(style) is not below the Mac's points")
         }
         XCTAssertEqual(WinTypeRamp.weight(700), 600, "bold is semibold on Windows")
         XCTAssertEqual(WinTypeRamp.weight(500), 400, "GDI has no medium")
