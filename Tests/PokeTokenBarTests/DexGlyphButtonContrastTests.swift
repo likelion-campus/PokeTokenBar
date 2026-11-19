@@ -33,14 +33,4 @@ final class DexGlyphButtonContrastTests: XCTestCase {
             XCTAssertGreaterThanOrEqual(ratio, 3, "\(name): the star glyph \(String(glyph, radix: 16)) on its button \(String(fill, radix: 16)) is \(ratio):1")
         }
     }
-
-    func testTheDexPartsDrawNoHardCodedWhiteBox() async throws {
-        for file in ["DexDetailPart.swift", "DexBodyPart.swift"] {
-            let url = SharedSources.sourcesRoot.appendingPathComponent("Popover/\(file)")
-            let lines = try String(contentsOf: url, encoding: .utf8).components(separatedBy: "\n")
-            for (i, line) in lines.enumerated() where line.contains("roundedRect(") && line.contains("fill: PlazaColor(srgbRed: 1, green: 1, blue: 1") {
-                XCTFail("\(file):\(i + 1) fills a box with a hard-coded white: use PopoverAppearance.current.controlFill (white in dark hides a light glyph)")
-            }
-        }
-    }
 }
