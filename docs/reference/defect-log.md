@@ -3290,3 +3290,35 @@ read_when:
   **규칙:** 게이트 규칙이 읽을 값이 없으면 통과가 아니라 실패다. 로그 줄을 정규식으로 읽을 때는 값 안의 공백·구분자를 실제 줄로 시험한다. 측정 예산은 런너가 흔드는 양(전환 수)보다
   앱이 한 일(발화·메시지)에 건다.
 <!-- gate robustness (ci/windows-gate-robustness) end -->
+
+<!-- msvc toolset pin (ci/windows-msvc-toolset-pin) begin -->
+## 러너 이미지가 바꾼 고정 안 된 빌드 입력: MSVC 툴셋 (2026-11-18, 이미지 20261116.315.1)
+- **증상:** 새 `windows-latest` 이미지에 걸린 모든 빌드(windows.yml, windows-app, 릴리스 게이트)가 C++ 타깃(CPlazaD2D 등)에서
+  `_EMIT_STL_ERROR(STL1000, "Unexpected compiler version, expected Clang 22 or newer.")` 로 컴파일 실패. 같은 코드가 이전 이미지(20261103.298.1)에서는 통과.
+- **직접 원인:** 이미지가 VS 툴셋을 14.29/14.44/14.51 에서 14.29/14.44/14.52 로 바꿨다. clang 은 `VCToolsInstallDir` 가 없으면 가장 새 툴셋(14.52, STL 이 clang 22 요구)을
+  고르는데 Swift 6.3.2 의 clang 은 20 이다.
+- **왜 못 걸렀나:** 툴체인은 고정했지만(`swift-6.3.2-release`) 그 컴파일러가 맞물리는 STL 은 이미지가 정하는데 빌드 신원(시드 메타·릴리스 매니페스트)에 툴셋이 없었고,
+  이미지 버전은 기록돼도 "이 툴셋이면 된다"를 확인하는 검사가 없었다. 이미지 롤아웃은 점진적이라 같은 날 이미지가 섞여 한쪽만 실패했다.
+- **고침:** `scripts/windows/select-msvc-toolset.ps1` 이 설치된 툴셋의 `yvals_core.h` 가 요구하는 clang 버전을 읽어, 우리 clang 이 받아들이는 가장 새 14.4x+ 툴셋을
+  `VCToolsInstallDir` 로 고정(없으면 실패). `windows-swift` 액션에서 실행하므로 windows.yml·windows-app·cache lab 이 모두 받는다. 새 이미지에서 14.44.35207, 이전 이미지에서
+  14.51.36231 을 골랐고 둘 다 windows.yml 전체(4 조각 + render)가 통과. 시드는 툴셋이 다르면 쓰지 않고(`seed-meta.json` msvc), `windows-release.json` 에 `msvcToolset` 을 남긴다.
+- **다른 고정 안 된 입력 점검(고정됨 / 안 됨):**
+  고정됨 — Swift 툴체인(6.3.2, 작업 이름·버전 고정), MSVC 툴셋(이제 선택·기록), 시드의 Swift·이미지·툴셋·Package.swift 메타, 릴리스의 이미지 버전 기록.
+  고정 안 됨 — runs-on `windows-latest`(이미지 롤링), Windows SDK(clang 이 가장 새 `10.0.x`; 두 이미지 모두 10.0.26100.0 이라 아직 같음), Inno Setup(이미지 것, 없으면 choco 최신),
+  PowerShell 7(이미지), WARP/GPU 렌더러(OS 와 함께 바뀜: 유휴 예산과 광장 렌더 비교가 영향받음), vcpkg OpenSSL(`windows/vcpkg.json` 에 baseline 없음 → 항상 최신 3.x),
+  swift-crypto(`from: "3.0.0"` 부동), `compnerd/gha-setup-swift@main`(브랜치 참조), 액션 `@v4/@v5` 태그.
+  **후속 제안(사용자 결정):** 액션을 SHA 로, vcpkg baseline 을 고정, SDK 버전도 선택·기록.
+- **규칙:** 컴파일러를 고정하면 그것과 맞물리는 헤더·툴셋도 고르고 기록한다. 러너 이미지가 정하는 입력은 빌드 신원에 남기고, 다르면 캐시를 쓰지 않는다.
+<!-- msvc toolset pin end -->
+
+<!-- pet frames on screen (fix/windows-pet-and-detail-animation) begin -->
+- **(사용자 PC, kit 10–15) 플로팅 펫이 움직이지 않았다 — 로그는 "moving", 시계는 10 초에 92 번 돌았는데 화면의 그림은 그대로였다.** 사용자가 본 것: 펫 크기를 바꾸면 곧바로 커진다,
+  "뒷모습"을 켜도 변화 없음, 쓰다듬어도 하트가 안 보이는데 포인터를 움직일 때마다 GIF 의 다른 프레임이 보인다. 직접원인: `WinPetWindow.render()` 가 같은 자리의 새 프레임을
+  `UpdateLayeredWindow(hwnd, nil, nil, nil, …)`(자리·크기 NULL = "바뀌지 않음")로 올렸다. 그 호출은 성공하고 창의 비트도 바뀌지만, 그 PC(Windows 11 25H2, Intel UHD 620)에서는
+  다른 일(포인터 위 툴팁·말풍선 창, 새 크기)이 그 자리를 다시 합성할 때까지 화면에 나오지 않았다. 크기 변경은 자리·크기를 넘기는 호출이라 보였다. **왜 못 걸렀나:** 펫 체크는
+  전부 모델(프레임 번호·틱)과 `renders`(호출의 성공)를 셌고 화면의 픽셀을 본 적이 없다. kit 10 의 같은 보고는 내려받기·잠금 판정 쪽에서 원인을 찾았고("증명되지 않음"),
+  kit 11 로그의 "moving" 을 화면이 움직인다는 증거로 읽었다. **고침:** 모든 갱신에 자리와 크기를 넘긴다(다른 레이어드 창 — 호버 카드·콜아웃 — 은 이미 그랬다). **부류 스윕:**
+  `UpdateLayeredWindow` 호출 전수 — 펫 하나만 NULL 을 넘겼다. **회귀 테스트:** `pet.pixelsMove` — 실제 GIF·0.1 s 하한의 펫 상자를 화면에서 0.25 s 간격으로 열두 번 캡처해 프레임·그린
+  그림·화면이 각각 바뀌는지 본다. 앱은 시계 점검 뒤 같은 다섯 번의 눈(프레임·그린 그림·화면·펫 창 수)을 로그에 남긴다. **규칙:** 움직임 체크는 모델이 아니라 화면 픽셀로 판정한다
+  — 호출 성공·틱 수는 화면에 닿았다는 증거가 아니다. kit 10 의 앞선 결론("첫 GIF 요청 실패")은 이 원인으로 대체된다.
+<!-- pet frames on screen (fix/windows-pet-and-detail-animation) end -->

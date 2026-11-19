@@ -28,6 +28,11 @@ $dir = $pick.Dir.TrimEnd('\') + '\'
 "VCToolsInstallDir=$dir" >> $env:GITHUB_ENV
 "VCToolsVersion=$($pick.Version)" >> $env:GITHUB_ENV
 "PTB_MSVC_TOOLSET=$($pick.Version)" >> $env:GITHUB_ENV
-$line = "msvc-toolset: $($pick.Version) (needs clang $($pick.Need), have $have) image $env:ImageVersion"
+# The Windows SDK clang compiles against: the newest installed one (clang takes the highest under Windows Kits\10\Include). Recorded, not chosen.
+$sdk = Get-ChildItem (Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\Include') -Directory -ErrorAction SilentlyContinue |
+    Where-Object { Test-Path (Join-Path $_.FullName 'um\windows.h') } | Sort-Object { [version]$_.Name } -Descending | Select-Object -First 1 -ExpandProperty Name
+if (-not $sdk) { throw 'no Windows SDK with um\windows.h under Windows Kits\10\Include' }
+"PTB_WINSDK=$sdk" >> $env:GITHUB_ENV
+$line = "msvc-toolset: $($pick.Version) (needs clang $($pick.Need), have $have) image $env:ImageVersion, Windows SDK $sdk"
 $line
 if ($env:GITHUB_STEP_SUMMARY) { $line >> $env:GITHUB_STEP_SUMMARY }

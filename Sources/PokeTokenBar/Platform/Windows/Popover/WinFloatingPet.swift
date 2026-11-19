@@ -437,6 +437,8 @@ import WinSDK
     static let clockCheckDelayMs: UINT = 10_000
     private var clockCheck: (since: Date, ticks: Int, fires: Int, arms: Int)?
     private(set) var clockChecks: [String] = []
+    private(set) var pixelChecks: [String] = []   // fix/windows-pet-and-detail-animation
+    private var lastPresentError: DWORD = 0   // fix/windows-pet-and-detail-animation: the last failed UpdateLayeredWindow's error
 
     /// One line in the app's log when what keeps the pet moving or still changes: the state and its inputs (never per frame).
     func noteClock() {
@@ -904,13 +906,13 @@ import WinSDK
         var source = POINT(x: 0, y: 0)
         var destination = POINT(x: win.left, y: win.top)
         var blend = BLENDFUNCTION(BlendOp: 0 /* AC_SRC_OVER */, BlendFlags: 0, SourceConstantAlpha: 255, AlphaFormat: 1 /* AC_SRC_ALPHA */)
-        // A new frame of the same window: only the picture (no place or size: no window-position work for every frame).
-        let same = drawnFrame.map { $0.left == win.left && $0.top == win.top && $0.right == win.right && $0.bottom == win.bottom } ?? false
+        // Every picture with its place and size, a new frame of the same window included (fix/windows-pet-and-detail-animation):
+        // without them (NULL position and size, "not changing") the call succeeded and the window's bits changed, but a user's
+        // PC (Windows 11, kit 15) never put them on the screen until something else made it compose the pet again (a pointer
+        // over it, a new size): the GIF's frames, the back view and the hearts all stood still while the clock ticked.
         // A place or a size of the window's own choosing: a WM_DPICHANGED sent from inside is not a new DPI (review I2).
         inOwnUpdate = true
-        let done = same
-            ? UpdateLayeredWindow(hwnd, nil, nil, nil, surface.dc, &source, 0, &blend, 0x0000_0002 /* ULW_ALPHA */)
-            : UpdateLayeredWindow(hwnd, nil, &destination, &size, surface.dc, &source, 0, &blend, 0x0000_0002 /* ULW_ALPHA */)
+        let done = UpdateLayeredWindow(hwnd, nil, &destination, &size, surface.dc, &source, 0, &blend, 0x0000_0002 /* ULW_ALPHA */)
         inOwnUpdate = false
         if done {
             pet.stats.renders += 1
@@ -918,6 +920,7 @@ import WinSDK
             drawnFrame = win
         } else {
             pet.stats.renderFailures += 1
+            lastPresentError = GetLastError()   // fix/windows-pet-and-detail-animation
             if !loggedFailure {
                 loggedFailure = true
                 AppLog.write("floating pet: UpdateLayeredWindow \(width)x\(height) failed: \(GetLastError())")
@@ -1197,7 +1200,52 @@ import WinSDK
             + "active=\(playback.isActive) frame floor \(model.frameFloor) s"
         clockChecks.append(line)
         AppLog.write(line + (playback.clock.fireCount == check.fires ? " — THE CLOCK NEVER FIRED" : ""))
+        lookAtThePixels()   // fix/windows-pet-and-detail-animation
     }
+
+    // --- fix/windows-pet-and-detail-animation: what the screen shows, not only the model (begin) ---
+    /// This process's top-level windows of the pet's class, shown or not: a second, stale pet would show here.
+    static func petWindows() -> Int {
+        var count = 0, after: HWND? = nil
+        let me = GetCurrentProcessId()
+        while let next = FindWindowExW(nil, after, WinStr.w(className), nil) {
+            var pid: DWORD = 0
+            _ = GetWindowThreadProcessId(next, &pid)
+            if pid == me { count += 1 }
+            after = next
+        }
+        return count
+    }
+
+    /// The frame shown, the picture this window drew (its surface) and the screen at the pet's box (captured, hashed, dropped).
+    func pixelSample() -> (frame: Int, picture: Int, screen: Int) {
+        let f = frame
+        let shot = WinUIDump.screenshot(x: Int(f.left), y: Int(f.top), w: Int(f.right - f.left), h: Int(f.bottom - f.top))
+        return (playback.models.first?.frameIndex ?? -1, snapshot()?.bgra.hashValue ?? 0, shot?.bgra.hashValue ?? 0)
+    }
+
+    /// After each clock check: five looks 0.5 s apart, in one log line. A model whose frames move while the
+    /// picture or the screen does not is told apart from a clock that does not run (every check before measured the model).
+    private func lookAtThePixels() {
+        let renders0 = pet?.stats.renders ?? 0, failures0 = pet?.stats.renderFailures ?? 0
+        Task { @MainActor [weak self] in
+            var looks: [(frame: Int, picture: Int, screen: Int)] = []
+            for i in 0..<5 {
+                if i > 0 { try? await Task.sleep(nanoseconds: 500_000_000) }
+                guard let self, !self.isDestroyed else { return }
+                looks.append(self.pixelSample())
+            }
+            guard let self, !self.isDestroyed else { return }
+            let line = "floating pet: 5 looks over 2 s: frames \(looks.map { String($0.frame) }.joined(separator: ",")), "
+                + "presents with place and size +\((self.pet?.stats.renders ?? 0) - renders0) (failed +\((self.pet?.stats.renderFailures ?? 0) - failures0), "
+                + "last error \(self.lastPresentError)), distinct pictures it drew \(Set(looks.map { $0.picture }).count), "
+                + "distinct screens at the pet \(Set(looks.map { $0.screen }).count) (1 = the screen did not change); "
+                + "this process's pet windows \(Self.petWindows()) (1 expected)"
+            self.pixelChecks.append(line)
+            AppLog.write(line)
+        }
+    }
+    // --- fix/windows-pet-and-detail-animation (end) ---
 
     private func release() {
         _ = KillTimer(hwnd, Self.clockCheckTimerID)   // fix/windows-pet-still

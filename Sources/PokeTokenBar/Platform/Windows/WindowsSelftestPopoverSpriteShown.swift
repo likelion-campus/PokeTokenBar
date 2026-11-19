@@ -7,7 +7,8 @@ import WinSDK
 // (`GetParent` of a popup is the owner), the app's hidden sink, whose empty client area meets nothing. The sprite checks ran in a
 // KitWindow, which has no owner. This one opens the real popover (`WinPopover`, owned by the app's sink as the app's is, at the tray
 // position, Home inside its scroller), with the bundled FIXTURE GIF for #1 and animation on (the runner's "Show animations" is off),
-// and judges the header and the Collection detail: shown, the clock running, the frame moving. Then a clock stops and comes back by
+// and judges the header and the Collection detail (reached by a real click on its grid cell, as a person does): shown, the clock
+// running, the frame moving, the screen at the sprite's slot changing. Then a clock stops and comes back by
 // itself: the header scrolled out of Home's viewport made short (the fixture's Home fits the popover) and back (its paint); the
 // detail's pane hidden and shown again (the view gets no WM_SHOWWINDOW, only its paint); displays off and on (no paint: the wake).
 // The walk before the fix is printed beside (the trigger: it reads false here). CI only (the popover takes the foreground). Fixture
@@ -41,29 +42,45 @@ extension WindowsSelftest {
         return true
     }
 
-    /// Two seconds of one view's clock: shown, armed, ticks and frames moved.
-    struct Run { var shown: Bool, before: Bool, armed: Bool, ticks: Int, frames: Int, moved: Bool, at: RECT }
+    /// Two seconds of one view's clock: shown, armed, ticks and frames moved, and the screen at the sprite's slot (eight looks
+    /// 0.25 s apart, `ptb_capture_screen`: what the person sees, not the model; fix/windows-pet-and-detail-animation).
+    struct Run { var shown: Bool, before: Bool, armed: Bool, ticks: Int, frames: Int, moved: Bool, at: RECT, screens: Int, slot: RECT }
 
-    static func measure(_ animator: WinSpriteAnimator, _ view: HWND, _ popover: HWND) async -> Run {
+    /// The first sprite slot of `view` on the screen (device pixels).
+    static func slotOnScreen(_ view: WinDrawnView) -> RECT? {
+        guard let slot = view.spriteSlots.first(where: { $0.subject != nil }) else { return nil }
+        let s = view.ctx.scale
+        var origin = POINT(x: Int32((slot.frame.minX * s).rounded()), y: Int32((slot.frame.minY * s).rounded()))
+        guard ClientToScreen(view.hwnd, &origin) else { return nil }
+        return RECT(left: origin.x, top: origin.y, right: origin.x + Int32((slot.frame.width * s).rounded()), bottom: origin.y + Int32((slot.frame.height * s).rounded()))
+    }
+
+    static func measure(_ animator: WinSpriteAnimator, _ view: WinDrawnView, _ popover: HWND) async -> Run {
         _ = await WindowsSelftest.waitUntil(timeout: 3) { animator.playback.models.first?.isAnimating == true && animator.playback.clock.isArmed }
         var at = RECT()
         _ = GetWindowRect(popover, &at)
+        let slot = slotOnScreen(view) ?? RECT()
         let ticks0 = animator.playback.ticks, index0 = animator.playback.models.first?.frameIndex ?? -1
-        var moved = false
-        _ = await WindowsSelftest.waitUntil(timeout: 2) {
+        var moved = false, screens: [Int] = []
+        for i in 0..<8 {
+            if i > 0 { _ = await WindowsSelftest.waitUntil(timeout: 0.25) { false } }
             if (animator.playback.models.first?.frameIndex ?? -1) != index0 { moved = true }
-            return false
+            if slot.right > slot.left, let shot = WinUIDump.screenshot(x: Int(slot.left), y: Int(slot.top), w: Int(slot.right - slot.left), h: Int(slot.bottom - slot.top)) {
+                screens.append(shot.bgra.hashValue)
+            }
         }
-        return Run(shown: WinSpriteAnimator.isShown(view), before: ownerWalkShown(view), armed: animator.playback.clock.isArmed,
-                   ticks: animator.playback.ticks - ticks0, frames: animator.playback.models.first?.frames.count ?? 0, moved: moved, at: at)
+        return Run(shown: WinSpriteAnimator.isShown(view.hwnd), before: ownerWalkShown(view.hwnd), armed: animator.playback.clock.isArmed,
+                   ticks: animator.playback.ticks - ticks0, frames: animator.playback.models.first?.frames.count ?? 0, moved: moved, at: at,
+                   screens: Set(screens).count, slot: slot)
     }
 
     static func describe(_ name: String, _ m: Run) -> String {
         "\(name): popover at (\(m.at.left),\(m.at.top)) \(m.at.right - m.at.left)x\(m.at.bottom - m.at.top), \(m.frames) frames, shown=\(m.shown) "
-            + "(the walk before the fix read \(m.before)), in 2 s: \(m.ticks) ticks, the frame moved=\(m.moved), clock armed=\(m.armed)"
+            + "(the walk before the fix read \(m.before)), in 2 s: \(m.ticks) ticks, the frame moved=\(m.moved), clock armed=\(m.armed), "
+            + "distinct screens at the slot (\(m.slot.left),\(m.slot.top)) \(m.slot.right - m.slot.left)x\(m.slot.bottom - m.slot.top): \(m.screens) of 8"
     }
 
-    static func good(_ m: Run) -> Bool { m.shown && m.armed && m.ticks >= 8 && m.moved && m.frames > 1 }
+    static func good(_ m: Run) -> Bool { m.shown && m.armed && m.ticks >= 8 && m.moved && m.frames > 1 && m.screens >= 2 }
 
     /// The app's displays-off / on, as Windows sends it to the sink (`GUID_CONSOLE_DISPLAY_STATE`).
     static func display(_ sink: HWND, _ state: UInt32) {
@@ -131,7 +148,7 @@ extension WindowsSelftest {
         notes.append("the popover's owner is the app's sink=\(owner == app.sink.hwnd), a child window=\(GetWindowLongW(window, -16) & 0x4000_0000 != 0)")
 
         // 1. The header (Home, inside the scroller).
-        let h = await measure(headerSprites, header.view.hwnd, window)
+        let h = await measure(headerSprites, header.view, window)
         notes.append(describe("Home's header #1", h))
 
         // Scrolled out of Home's scroller and back (its paint). The viewport is made 80 px tall so the header can leave it whatever
@@ -168,13 +185,26 @@ extension WindowsSelftest {
             return
         }
         dex.animationsEnabled = { true }
-        dex.openEntry("1")
+        // As the person does it: a real click on the grid's cell for #1 (fix/windows-pet-and-detail-animation; was `openEntry`).
+        let cells: [WinControl] = {
+            guard let grid = dex.dexView else { return [] }
+            let list = (grid.drawing?.drawing.accessibility ?? []).filter { $0.role != .scrollArea }
+            return zip(grid.items, list).filter { $0.1.action?.action == DexBodyPart.cellAction }.map(\.0)
+        }()
+        var cell = RECT()
+        if let first = cells.first { _ = GetWindowRect(first.hwnd, &cell) }
+        guard cell.right > cell.left else {
+            r.add(name, false, (notes + ["the Collection grid has no cell to click (\(cells.count) cells)"]).joined(separator: "; "))
+            return
+        }
+        await WindowsSelftestPopoverPet.realClick(at: POINT(x: (cell.left + cell.right) / 2, y: (cell.top + cell.bottom) / 2))
         _ = await WindowsSelftest.waitUntil(timeout: 4) { dex.detailView?.sprites?.playback.models.first?.isAnimating == true }
+        notes.append("the grid cell clicked at (\((cell.left + cell.right) / 2),\((cell.top + cell.bottom) / 2)) -> the detail opened=\(dex.isShowingDetail) (\(dex.stats.opened))")
         guard let detail = dex.detailView, let detailSprites = detail.sprites else {
             r.add(name, false, (notes + ["the Collection detail of #1 has no sprite"]).joined(separator: "; "))
             return
         }
-        let d = await measure(detailSprites, detail.hwnd, window)
+        let d = await measure(detailSprites, detail, window)
         notes.append(describe("the Collection detail #1", d))
 
         // 3. Stopped and back by itself: its pane hidden and shown (its paint), displays off and on.

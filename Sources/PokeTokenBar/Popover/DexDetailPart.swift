@@ -208,7 +208,7 @@ import Foundation
             let segs = [(a.normal, !a.isShiny), (a.shiny, a.isShiny)]
             ops.append(Op(y: y, h: h) { canvas, space, off in
                 let rr = r.offsetBy(dx: 0, dy: off)
-                p.roundedRect(rr, radius: 6, fill: PlazaColor(srgbRed: 1, green: 1, blue: 1, alpha: 0.9), stroke: PopoverColorRole.secondary.plazaShapeColor(alpha: 0.3), lineWidth: 0.5, canvas: canvas, space: space)
+                p.roundedRect(rr, radius: 6, fill: PopoverAppearance.current.controlFill(alpha: 0.9), stroke: PopoverColorRole.secondary.plazaShapeColor(alpha: 0.3), lineWidth: 0.5, canvas: canvas, space: space)
                 for (i, (title, on)) in segs.enumerated() {
                     let sr = CGRect(x: rr.minX + CGFloat(i) * rr.width / 2, y: rr.minY, width: rr.width / 2, height: rr.height).insetBy(dx: 1.5, dy: 1.5)
                     if on { p.roundedRect(sr, radius: 5, fill: DexPainter.tint(accent, 0.18), stroke: accent, lineWidth: 1, canvas: canvas, space: space) }
@@ -282,7 +282,7 @@ import Foundation
                 if let s = id.shinyLine { p.draw(s, f.callout, color: primary, x: ox, centerY: colTop + off + shinyStart + p.metrics(f.callout).height / 2, canvas: canvas, space: space) }
                 if let s = id.raising { p.draw(s, f.callout, color: accent, x: ox, centerY: colTop + off + raisingStart + p.metrics(f.callout).height / 2, canvas: canvas, space: space) }
                 let rb = CGRect(x: ox, y: colTop + off + repStart, width: 26, height: repH)
-                p.roundedRect(rb, radius: 5, fill: PlazaColor(srgbRed: 1, green: 1, blue: 1, alpha: 0.9), stroke: PopoverColorRole.secondary.plazaShapeColor(alpha: 0.4), lineWidth: 0.5, canvas: canvas, space: space)
+                p.roundedRect(rb, radius: 5, fill: PopoverAppearance.current.controlFill(alpha: 0.9), stroke: PopoverColorRole.secondary.plazaShapeColor(alpha: 0.4), lineWidth: 0.5, canvas: canvas, space: space)
                 p.drawGlyph(id.isRepresentative ? "arrow.triangle.2.circlepath" : "star", fallback: id.isRepresentative ? "↻" : "☆", size: 11, bold: false, color: primary, in: rb, canvas: canvas, space: space)
             })
             slots.append(SpriteSlot(frame: CGRect(x: 0, y: top + (blockH - sprite) / 2, width: sprite, height: sprite),
@@ -301,7 +301,7 @@ import Foundation
             let r = CGRect(x: 0, y: y, width: w, height: h)
             ops.append(Op(y: y, h: h) { canvas, space, off in
                 let rr = r.offsetBy(dx: 0, dy: off)
-                p.roundedRect(rr, radius: 5, fill: PlazaColor(srgbRed: 1, green: 1, blue: 1, alpha: 0.9), stroke: PopoverColorRole.secondary.plazaShapeColor(alpha: 0.4), lineWidth: 0.5, canvas: canvas, space: space)
+                p.roundedRect(rr, radius: 5, fill: PopoverAppearance.current.controlFill(alpha: 0.9), stroke: PopoverColorRole.secondary.plazaShapeColor(alpha: 0.4), lineWidth: 0.5, canvas: canvas, space: space)
                 var l = p.line(current, font)
                 if l.width > w - 30, let cut = p.text.truncated(l, width: w - 30, ellipsis: p.line("…", font)) { l = cut }
                 canvas.setFillColor(primary)
@@ -329,7 +329,7 @@ import Foundation
             let r = CGRect(x: (cw - bw) / 2, y: y, width: bw, height: bh)
             ops.append(Op(y: y, h: bh) { canvas, space, off in
                 let rr = r.offsetBy(dx: 0, dy: off)
-                p.roundedRect(rr, radius: 5, fill: PlazaColor(srgbRed: 1, green: 1, blue: 1, alpha: 0.9), stroke: PopoverColorRole.secondary.plazaShapeColor(alpha: 0.4), lineWidth: 0.5, canvas: canvas, space: space)
+                p.roundedRect(rr, radius: 5, fill: PopoverAppearance.current.controlFill(alpha: 0.9), stroke: PopoverColorRole.secondary.plazaShapeColor(alpha: 0.4), lineWidth: 0.5, canvas: canvas, space: space)
                 p.draw(retry, bf, color: primary, x: rr.midX - ceil(p.line(retry, bf).width) / 2, centerY: rr.midY, canvas: canvas, space: space)
             })
             button(r, label: retry, action: PlazaPanelHit(action: Self.retryAction, index: nil), key: "retry")

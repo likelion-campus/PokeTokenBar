@@ -108,11 +108,16 @@ jobs:
       ptb_build_id: ${{ steps.ptbbuild.outputs.artifact-id }}  # the slices unpack THIS artifact (a name can exist twice after a re-run)
       installer_sha256: ${{ steps.buildid.outputs.installer_sha256 }}
       image: ${{ steps.buildid.outputs.image }}
+      msvc: ${{ steps.buildid.outputs.msvc }}
+      winsdk: ${{ steps.buildid.outputs.winsdk }}
+      openssl: ${{ steps.buildid.outputs.openssl }}
+      inno: ${{ steps.buildid.outputs.inno }}
+      swift_crypto: ${{ steps.buildid.outputs.swift_crypto }}
       level: ${{ env.PTB_LEVEL }}
       fast: ${{ env.PTB_FAST }}
       clean: ${{ steps.seed.outputs.clean || 'true' }}   # true = built from scratch (level full, release mode, kit/* and clean_build always are)
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
         with:
           ref: ${{ inputs.release_sha }}  # empty outside release mode: the event's own commit
       - name: Release pin
@@ -197,7 +202,7 @@ jobs:
         if: steps.build.outcome == 'success'
         shell: pwsh
         run: ./scripts/windows/seed-save.ps1 -Clean '${{ steps.seed.outputs.clean || 'true' }}'
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         if: steps.build.outcome == 'success' && github.event_name != 'pull_request'   # a pull request leaves no seed
         with:
           name: ptb-seed-release
@@ -235,13 +240,7 @@ jobs:
         if: (success() || failure()) && steps.package.outcome == 'success'
         shell: pwsh
         run: |
-          $iscc = (Get-Command iscc.exe -ErrorAction SilentlyContinue).Source
-          if (-not $iscc) { $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe' }
-          if (-not (Test-Path $iscc)) {
-              choco install innosetup -y --no-progress
-              $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
-          }
-          if (-not (Test-Path $iscc)) { throw 'ISCC.exe not found after choco install innosetup' }
+          $iscc = (& ./scripts/windows/ensure-inno.ps1 | Select-Object -Last 1)
           $v = (Get-Content bundle\PokeTokenBar.version -Raw).Trim()
           $next = ($v -replace '\d+$', { [string]([int]$_.Value + 1) })
           $jobs = @(@{ Src = 'bundle'; Ver = $v; Out = 'installer-out' })
@@ -291,9 +290,20 @@ jobs:
           $h = (Get-FileHash $f[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
           "installer_sha256=$h" >> $env:GITHUB_OUTPUT
           "image=$env:ImageVersion" >> $env:GITHUB_OUTPUT
+          "msvc=$env:PTB_MSVC_TOOLSET" >> $env:GITHUB_OUTPUT
+          "winsdk=$env:PTB_WINSDK" >> $env:GITHUB_OUTPUT
+          "inno=$env:PTB_INNO_VERSION" >> $env:GITHUB_OUTPUT
+          # swift-crypto floats (Package.swift): record what this build resolved; drift from build-pins.json is a warning here, a failure at release.
+          $sc = (& ./scripts/windows/resolved-swift-crypto.ps1 -Strict:('${{ inputs.release_sha }}' -ne '') | Select-Object -Last 1)
+          "swift_crypto=$sc" >> $env:GITHUB_OUTPUT
+          # The OpenSSL the app links (vcpkg, pinned by the builtin-baseline in windows/vcpkg.json): the header's own version string.
+          $ssl = [regex]::Match((Get-Content (Join-Path $env:PTB_OPENSSL_DIR 'include/openssl/opensslv.h') -Raw), '#\s*define\s+OPENSSL_VERSION_STR\s+"([^"]+)"').Groups[1].Value
+          if (-not $ssl) { throw 'no OPENSSL_VERSION_STR in opensslv.h' }
+          "openssl=$ssl" >> $env:GITHUB_OUTPUT
+          "toolset $env:PTB_MSVC_TOOLSET, Windows SDK $env:PTB_WINSDK, Inno Setup $env:PTB_INNO_VERSION, OpenSSL $ssl"
           "installer $($f[0].Name) sha256 $h, runner image $env:ImageVersion"
       # The installer is a CI artifact only (short retention): nothing is attached to a release or uploaded elsewhere.
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         if: always()
         with:
           overwrite: true
@@ -302,7 +312,7 @@ jobs:
           retention-days: 3
           if-no-files-found: warn
       # What the other jobs unpack (they need neither the toolchain nor a build).
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         id: ptbbuild
         if: always() && steps.package.outcome == 'success'
         with:
@@ -316,7 +326,7 @@ jobs:
             installer-next
             iscc-defines.json
           if-no-files-found: error
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         if: always()
         with:
           overwrite: true
@@ -337,7 +347,7 @@ jobs:
       bundle: ${{ steps.bundle-selftest.outcome }}
       artifact_id: ${{ steps.up.outputs.artifact-id }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
         with:
           ref: ${{ inputs.release_sha }}  # empty outside release mode: the event's own commit
       - uses: ./.github/actions/windows-slice
@@ -542,7 +552,7 @@ jobs:
         shell: pwsh
         run: |
           $j = Get-Content st.json -Raw | ConvertFrom-Json
-          $names = 'popover.customDraw', 'popover.customDraw.fault'
+          $names = 'popover.customDraw', 'popover.customDraw.fault', 'popover.hoverRepaint', 'popover.hoverRepaint.fault'
           $bad = @()
           foreach ($n in $names) {
               $c = $j.checks | Where-Object { $_.name -eq $n }
@@ -575,7 +585,7 @@ jobs:
         run: |
           $j = Get-Content st.json -Raw | ConvertFrom-Json
           $names = 'pet.show', 'pet.hide', 'pet.toggles', 'pet.noActivate', 'pet.drag', 'pet.savedOrigin', 'pet.clamp', 'pet.dpi',
-                   'pet.clickActions', 'pet.menu', 'pet.zOrder', 'pet.animation', 'pet.lateGIF', 'pet.idle', 'pet.capture', 'pet.resources'
+                   'pet.clickActions', 'pet.menu', 'pet.zOrder', 'pet.animation', 'pet.lateGIF', 'pet.pixelsMove', 'pet.idle', 'pet.capture', 'pet.resources'
           $bad = @()
           foreach ($n in $names) {
               $c = $j.checks | Where-Object { $_.name -eq $n }
@@ -702,7 +712,7 @@ jobs:
           Copy-Item -ErrorAction SilentlyContinue (Join-Path $env:LOCALAPPDATA '*.plist') collected
           Copy-Item -ErrorAction SilentlyContinue install.log, install-next.log, uninstall.log collected
           Get-ChildItem collected | ForEach-Object { $_.Name }
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         id: up
         if: always()
         with:
@@ -717,7 +727,7 @@ jobs:
             lang-probe
             collected
           if-no-files-found: warn
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         if: always()
         with:
           overwrite: true
@@ -725,7 +735,7 @@ jobs:
           retention-days: 7
           path: ui-dump/kit
           if-no-files-found: warn
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         if: always()
         with:
           overwrite: true
@@ -733,7 +743,7 @@ jobs:
           retention-days: 7
           path: ui-dump/popover
           if-no-files-found: warn
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         if: always()
         with:
           overwrite: true
@@ -741,7 +751,7 @@ jobs:
           retention-days: 7
           path: ui-dump/settings
           if-no-files-found: warn
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         if: always()
         with:
           overwrite: true
@@ -749,7 +759,7 @@ jobs:
           retention-days: 7
           path: ui-dump/recap
           if-no-files-found: warn
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         if: always()
         with:
           overwrite: true
@@ -757,14 +767,14 @@ jobs:
           retention-days: 7
           path: ui-dump/home
           if-no-files-found: warn
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         if: always()
         with:
           overwrite: true
           name: ui-companion
           retention-days: 7
           path: ui-dump/companion
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         if: always()
         with:
           overwrite: true
@@ -780,7 +790,7 @@ jobs:
     outputs:
       artifact_id: ${{ steps.up.outputs.artifact-id }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
         with:
           ref: ${{ inputs.release_sha }}  # empty outside release mode: the event's own commit
       - uses: ./.github/actions/windows-slice
@@ -1226,7 +1236,7 @@ jobs:
           Copy-Item -ErrorAction SilentlyContinue (Join-Path $env:LOCALAPPDATA '*.plist') collected
           Copy-Item -ErrorAction SilentlyContinue install.log, install-next.log, uninstall.log collected
           Get-ChildItem collected | ForEach-Object { $_.Name }
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         id: up
         if: always()
         with:
@@ -1258,7 +1268,7 @@ jobs:
       artifact_id: ${{ steps.up.outputs.artifact-id }}
       stamps_id: ${{ steps.upstamps.outputs.artifact-id }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
         with:
           ref: ${{ inputs.release_sha }}  # empty outside release mode: the event's own commit
       - uses: ./.github/actions/windows-slice
@@ -1467,7 +1477,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path stamps | Out-Null
           if (Test-Path install-stamps.json) { Copy-Item install-stamps.json stamps }
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         id: upstamps
         if: always()
         with:
@@ -1486,7 +1496,7 @@ jobs:
           Copy-Item -ErrorAction SilentlyContinue (Join-Path $env:LOCALAPPDATA '*.plist') collected
           Copy-Item -ErrorAction SilentlyContinue install.log, install-next.log, uninstall.log collected
           Get-ChildItem collected | ForEach-Object { $_.Name }
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         id: up
         if: always()
         with:
@@ -1511,7 +1521,7 @@ jobs:
       failedUpdateRelaunch: ${{ steps.failed-update-relaunch.outcome }}
       inAppUpdate: ${{ steps.in-app-update.outcome }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
         with:
           ref: ${{ inputs.release_sha }}  # empty outside release mode: the event's own commit
       - uses: ./.github/actions/windows-slice
@@ -1545,7 +1555,7 @@ jobs:
           Copy-Item -ErrorAction SilentlyContinue (Join-Path $env:LOCALAPPDATA '*.plist') collected
           Copy-Item -ErrorAction SilentlyContinue install.log, install-next.log, uninstall.log collected
           Get-ChildItem collected | ForEach-Object { $_.Name }
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         if: always()
         with:
           overwrite: true
@@ -1565,7 +1575,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 50
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
         with:
           ref: ${{ inputs.release_sha }}  # empty outside release mode: the event's own commit
       - uses: ./.github/actions/windows-slice
@@ -1621,7 +1631,7 @@ jobs:
           Copy-Item -ErrorAction SilentlyContinue (Join-Path $env:LOCALAPPDATA '*.plist') collected
           Copy-Item -ErrorAction SilentlyContinue install.log, install-next.log, uninstall.log collected
           Get-ChildItem collected | ForEach-Object { $_.Name }
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         if: always()
         with:
           overwrite: true
@@ -1658,23 +1668,23 @@ jobs:
           }
           if ($bad.Count -gt 0) { Write-Host "::error::windows-app: $($bad -join ', ')"; exit 1 }
           'PASS windows-app: every required job passed'
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
         if: success()
         with:
           ref: ${{ inputs.release_sha }}
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4
         if: success()
         with:
           artifact-ids: ${{ needs.selftest-bundle.outputs.artifact_id }}
           merge-multiple: true
           path: parts/bundle-job
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4
         if: success()
         with:
           artifact-ids: ${{ needs.selftest-process.outputs.artifact_id }}
           merge-multiple: true
           path: parts/process-job
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4
         if: success()
         with:
           artifact-ids: ${{ needs.installer.outputs.artifact_id }}
@@ -1701,13 +1711,13 @@ jobs:
               Write-Host "::warning title=chat.realIMEEngaged::light run: the real Korean IME engaged in no selftest process (harness, not judged): $($ime -join ' | ')"
           }
       # ---- release mode: the manifest and the artifact windows-release (only a run where every job passed) ----
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4
         if: success() && inputs.release_sha != ''
         with:
           artifact-ids: ${{ needs.build.outputs.ptb_build_id }}
           merge-multiple: true
           path: .
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4
         if: success() && inputs.release_sha != ''
         with:
           artifact-ids: ${{ needs.installer.outputs.stamps_id }}
@@ -1721,6 +1731,11 @@ jobs:
           RELEASE_SHA: ${{ inputs.release_sha }}
           RELEASE_VERSION: ${{ inputs.release_version }}
           PTB_SWIFT_VERSION: ${{ needs.build.outputs.swift }}
+          PTB_MSVC_TOOLSET: ${{ needs.build.outputs.msvc }}
+          PTB_WINSDK: ${{ needs.build.outputs.winsdk }}
+          PTB_OPENSSL_VERSION: ${{ needs.build.outputs.openssl }}
+          PTB_INNO_VERSION: ${{ needs.build.outputs.inno }}
+          PTB_SWIFT_CRYPTO_VERSION: ${{ needs.build.outputs.swift_crypto }}
           PTB_BUILD_SHA256: ${{ needs.build.outputs.installer_sha256 }}
           PTB_CLEAN_BUILD: ${{ needs.build.outputs.clean }}
           ImageVersion: ${{ needs.build.outputs.image }}
@@ -1750,7 +1765,7 @@ jobs:
           }
           $env:PTB_STEPS = $steps | ConvertTo-Json -Depth 5
           ./scripts/windows/release-manifest.ps1 -Out windows-release
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         if: success() && inputs.release_sha != ''
         with:
           overwrite: true

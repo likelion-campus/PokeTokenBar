@@ -215,7 +215,61 @@ extension WindowsSelftest {
 
     static func hex(from c: COLORREF) -> String { hex((r: Int(c & 0xFF), g: Int((c >> 8) & 0xFF), b: Int((c >> 16) & 0xFF))) }
 
+    /// Hover costs one repaint on entering a segment and none while the pointer moves inside it; no repaint erases the background first, and
+    /// every picture reaches the screen in one blit (a repaint that drew its steps on the window's own DC flashed the bare track).
+    static func hoverEvaluate() async -> (problems: [String], note: String) {
+        var problems: [String] = []
+        let page = CustomDrawPage()
+        guard let w = KitWindow(heightDIP: 700, register: true, origin: POINT(x: 0, y: 0), build: { _, s in page.build(s) }) else { return (["no window"], "") }
+        defer { w.destroy() }
+        w.fitToContent()
+        w.show(activate: false)
+        _ = RedrawWindow(w.hwnd, nil, nil, UINT(0x0001 | 0x0004 | 0x0080 | 0x0100))
+        await wait(0.4)
+        guard let seg = page.segments, let on = page.on, let enabled = page.enabled else { return (["controls missing"], "") }
+        func settle() { for c in [seg, on, enabled] { for p in c.parts { _ = UpdateWindow(p) } } }
+        func counts() -> (paints: Int, erases: Int) {
+            var paints = 0, erases = 0
+            for c in [seg, on, enabled] { paints += c.customDrawCount; erases += c.eraseCount }
+            return (paints, erases)
+        }
+        func move(_ p: HWND, _ n: Int) {
+            var r = RECT()
+            _ = GetClientRect(p, &r)
+            for i in 0..<n { _ = SendMessageW(p, 0x0200 /* WM_MOUSEMOVE */, 0, LPARAM((Int(r.bottom) / 2) << 16 | (4 + i % max(1, Int(r.right) - 8)))); settle() }
+        }
+        settle()
+        let before = counts(), blits0 = WinCustomDraw.blits
+        // 30 moves inside each of the three segments in turn
+        var perSegment: [Int] = []
+        for p in seg.parts {
+            let b = counts().paints
+            move(p, 30)
+            perSegment.append(counts().paints - b)
+        }
+        // the push button and the switch too
+        for c in [enabled, on] {
+            let b = counts().paints
+            move(c.hwnd, 30)
+            perSegment.append(counts().paints - b)
+        }
+        let after = counts(), blits = WinCustomDraw.blits - blits0
+        let paints = after.paints - before.paints, erases = after.erases - before.erases
+        // entering a segment repaints it and the one it left: at most 2; the 29 further moves repaint nothing
+        if perSegment.contains(where: { $0 > 2 }) { problems.append("a run of 30 moves inside one control repainted \(perSegment) times (at most 2 each: the entered and the left)") }
+        // an erase request is answered with "done" (nothing is drawn); the first paint of a window may still carry one, a move must not
+        if erases > perSegment.count { problems.append("hovering asked for \(erases) background erases for \(perSegment.count) controls: they grow with the moves") }
+        if blits != paints { problems.append("\(paints) paints but \(blits) whole-picture blits: a paint drew in steps on the window's own DC") }
+        return (problems, "repaints per control \(perSegment), erases \(erases), blits \(blits) of \(paints) paints")
+    }
+
     static func run(_ r: WindowsSelftest.Recorder) async {
+        let hover = await hoverEvaluate()
+        r.add("popover.hoverRepaint", hover.problems.isEmpty, hover.note + (hover.problems.isEmpty ? "" : " | PROBLEMS: " + hover.problems.joined(separator: "; ")))
+        WinCustomDraw.testUnbuffered = true
+        let flicker = await hoverEvaluate()
+        WinCustomDraw.testUnbuffered = false
+        r.add("popover.hoverRepaint.fault", !flicker.problems.isEmpty, "painting on the window's DC (the old behaviour): \(flicker.problems.count) problems found as expected (\(flicker.note))")
         var problems: [String] = []
         var notes: [String] = []
         for (name, dark, high) in [("light", false, false), ("dark", true, false), ("high contrast", false, true)] {

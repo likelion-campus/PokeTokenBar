@@ -151,6 +151,8 @@ enum WinEditKind: Equatable, Sendable {
     /// How many times custom draw painted a window of this control (the selftest proves it ran: a control that silently
     /// fell back to the system's drawing shows 0).
     var customDrawCount = 0
+    /// Erase requests this control answered (a custom-drawn control draws every pixel itself: the selftest counts them).
+    var eraseCount = 0
     /// How many times the subclass painted over the system's picture because custom draw did not run (a safety net; 0 when it works).
     var fallbackPaintCount = 0
     /// Whether this kind is repainted by `WinCustomDraw` (not in high contrast: the system draws those).
@@ -546,10 +548,14 @@ enum WinEditKind: Equatable, Sendable {
             _ = InvalidateRect(hwnd, nil, false)
             return nil
         case 0x02A3 where c.drawsItself(hwnd):  // WM_MOUSELEAVE
-            if c.hotPart == hwnd { c.hotPart = nil }
-            _ = InvalidateRect(hwnd, nil, false)
+            // Only a window that is still the hot one repaints: moving to a neighbour segment already repainted both of them.
+            if c.hotPart == hwnd {
+                c.hotPart = nil
+                _ = InvalidateRect(hwnd, nil, false)
+            }
             return nil
         case 0x0014 where c.drawsItself(hwnd) && !c.ctx.highContrast:  // WM_ERASEBKGND: custom draw paints every pixel (no flicker from a background pass)
+            c.eraseCount += 1
             return 1
         // --- visual polish K3 (end) ---
         case 0x0200 where c.kind == .glyphButton && !c.hot:  // WM_MOUSEMOVE: hover look until WM_MOUSELEAVE

@@ -3,7 +3,7 @@ description: Swift 6.3.2 plus a cached static OpenSSL (vcpkg x64-windows-static-
 runs:
   using: composite
   steps:
-    - uses: compnerd/gha-setup-swift@main
+    - uses: compnerd/gha-setup-swift@57fe462cd3c7b05ae8fcff79b00719312e305257  # main as of 2026-10-29; bump: docs/reference/windows-ci-build-seed.md, "Pinned build inputs"
       with:
         swift-version: swift-6.3.2-release
         swift-build: 6.3.2-RELEASE
@@ -13,7 +13,7 @@ runs:
       shell: pwsh
       run: ${{ github.workspace }}/scripts/windows/select-msvc-toolset.ps1
     - id: vcpkg-cache
-      uses: actions/cache@v4
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
       with:
         path: C:/vcpkg/installed
         key: vcpkg-openssl-x64-windows-static-md-${{ runner.os }}-${{ env.ImageVersion }}-${{ hashFiles('windows/vcpkg.json') }}
@@ -27,6 +27,12 @@ runs:
           Write-Host "vcpkg cache: HIT"
         } else {
           Write-Host "vcpkg cache: MISS"
+          # The runner's vcpkg checkout is older than the baseline in windows/vcpkg.json: fetch that commit so vcpkg can read its versions/baseline.json.
+          $baseline = (Get-Content "$env:GITHUB_WORKSPACE\windows\vcpkg.json" -Raw | ConvertFrom-Json).'builtin-baseline'
+          if ($baseline) {
+              git -C $env:VCPKG_INSTALLATION_ROOT fetch --no-tags origin $baseline
+              if ($LASTEXITCODE -ne 0) { git -C $env:VCPKG_INSTALLATION_ROOT fetch --no-tags --unshallow origin; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } }
+          }
           & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install --triplet x64-windows-static-md --x-manifest-root="$env:GITHUB_WORKSPACE\windows" --x-install-root=C:\vcpkg\installed
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         }

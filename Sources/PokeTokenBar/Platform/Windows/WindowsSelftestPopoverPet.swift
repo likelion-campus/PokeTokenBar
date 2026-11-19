@@ -107,7 +107,7 @@ private struct PetGifFetcher: PlazaSpriteFetching {
 
 @MainActor enum WindowsSelftestPopoverPet {
     static let names = ["pet.show", "pet.hide", "pet.toggles", "pet.noActivate", "pet.drag", "pet.savedOrigin", "pet.clamp", "pet.dpi",
-                        "pet.clickActions", "pet.menu", "pet.zOrder", "pet.animation", "pet.lateGIF", "pet.idle", "pet.capture", "pet.resources"]
+                        "pet.clickActions", "pet.menu", "pet.zOrder", "pet.animation", "pet.lateGIF", "pet.pixelsMove", "pet.idle", "pet.capture", "pet.resources"]
 
     static func run(_ r: WindowsSelftest.Recorder, _ app: WindowsAppDelegate) async {
         WinFloatingPet.spriteFetcherOverride = WindowsSelftestPopoverCompanion.fixtureFetcher()
@@ -125,6 +125,7 @@ private struct PetGifFetcher: PlazaSpriteFetching {
         await zOrderCheck(r, app)
         await animationCheck(r)
         await lateGIFCheck(r)   // fix/windows-pet-still
+        await pixelsMoveCheck(r)   // fix/windows-pet-and-detail-animation
         await idleCheck(r)
         await captureCheck(r)
         await resourcesCheck(r, start: start)
@@ -1032,6 +1033,41 @@ private struct PetGifFetcher: PlazaSpriteFetching {
             return await inner.data(speciesID: speciesID, animated: animated, shiny: shiny, form: form, back: back)
         }
         func eggData() async -> Data? { await inner.eggData() }
+    }
+
+    // MARK: - pet.pixelsMove (fix/windows-pet-and-detail-animation): the SCREEN changes, not only the model
+
+    /// A user's PC (kit 15) saw a still pet while the log said moving with the clock firing: every check so far measured the model
+    /// (frame index, ticks, renders). This one looks at pixels: a pet with a real PokeAPI GIF (the FIXTURE folder) at the 0.1 s floor
+    /// (the user's Smooth), twelve looks 0.25 s apart at its box: the frame index, the picture its window drew (its surface) and
+    /// the screen there (`ptb_capture_screen`, CAPTUREBLT: layered windows included). Judged: the frames, the pictures and the
+    /// screen each change.
+    static func pixelsMoveCheck(_ r: WindowsSelftest.Recorder) async {
+        guard WindowsSelftestPopoverCompanion.spriteDirectory != nil else {
+            r.add("pet.pixelsMove", true, "skipped: no PTB_SELFTEST_SPRITES (the FIXTURE folder)")
+            return
+        }
+        let h = await PetHarness.make(.hatched, quality: .smooth)
+        defer { h.destroy() }
+        guard await h.waitShown(), let w = h.window else {
+            r.add("pet.pixelsMove", false, "the pet did not show")
+            return
+        }
+        _ = await WindowsSelftest.waitUntil(timeout: 4) { w.playback.models.first?.isAnimating == true && w.playback.clock.isArmed }
+        await wait(0.5)
+        let ticks0 = w.playback.ticks, renders0 = h.pet.stats.renders
+        var looks: [(frame: Int, picture: Int, screen: Int)] = []
+        for i in 0..<12 {
+            if i > 0 { await wait(0.25) }
+            looks.append(w.pixelSample())
+        }
+        let frames = Set(looks.map { $0.frame }).count, pictures = Set(looks.map { $0.picture }).count, screens = Set(looks.map { $0.screen }).count
+        let ticks = w.playback.ticks - ticks0, renders = h.pet.stats.renders - renders0
+        let gif = w.playback.models.first?.frames.count ?? 0
+        r.add("pet.pixelsMove", gif > 1 && ticks > 0 && frames >= 3 && pictures >= 3 && screens >= 3,
+              "#\(w.model.subject.speciesID.map { String($0) } ?? "egg") \(gif) frames at the \(w.model.frameFloor) s floor, 12 looks over 2.75 s: "
+                + "\(ticks) ticks, \(renders) renders, frames \(looks.map { String($0.frame) }.joined(separator: ",")); distinct frames \(frames), "
+                + "distinct pictures it drew \(pictures), distinct screens at the box \(screens) (each >= 3)")
     }
 
     /// The user's report (kit 10: a hatched pet that never moved): the GIF's first read fails, the still shows, the pet asks
