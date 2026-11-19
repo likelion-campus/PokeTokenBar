@@ -69,6 +69,9 @@ and agent reactions, and the `poketokenbar:` link.
 | Buy/Use buttons are native buttons repainted by the kit | see the push-button row |
 | The Pokédex chip rows are cut at the right edge with no fade | the Mac's `ScrollView` chip rows (`CompanionView.swift`) are cut the same way; they scroll sideways (Shift+wheel here) |
 | Pokédex grid cell height is what the 520 pt page leaves (about 89 pt, Mac about 91) | fixed page height |
+| The Collection pager's arrows are stroked paths (not font glyphs), in the label colours | the font-glyph arrows came out blank on a real PC ("the paging arrows cannot be seen"); `DexPagerInkTests` and `popover.glyphContrast` hold them to 3:1 (disabled 1.5:1) |
+| Solid type and rarity badges: white text on every fill, as the Mac | same as the Mac, but white is below 3:1 on some fills (electric 1.5, ice 1.8, grass 2.0, ground 1.9, fairy 2.0, bug 2.1, steel 2.3, rock 2.3, normal 2.4, flying 2.6, water 2.9; light uncommon 2.2, legendary 2.3). Kept for Mac parity (lead's decision 2026-11-19, to be raised with the user); exempt from the contrast tests |
+| The selected chip's check and the tinted badge text (RAISING) move the accent towards black (light) or white (dark) until 3:1 on their own tint | the Mac's accent is 2.5:1 (check on its 22 % tint) and 2.7:1 (badge on its 14 % tint) in light, now 3.3:1; dark is unchanged (3.7 and 4.2). The same rule as the controls' `legible` (`PopoverSurface.legible`) |
 | Grid cells take arrow keys and Page Up/Down; chip rows scroll with Shift+wheel or a horizontal wheel | keyboard access; no trackpad swipe |
 
 ## Look

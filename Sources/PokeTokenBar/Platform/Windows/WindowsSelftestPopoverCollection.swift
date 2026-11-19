@@ -290,6 +290,43 @@ private struct CollectionFixtureNames: PokemonNameProviding {
         guard let (h, page) = await harness(120, language: .en), let view = page.dexView else { r.add("collection.paging", false, "no page"); return }
         defer { h.destroy() }
         func footer() -> String { page.dexPart?.model.footer.pageText ?? "-" }
+        dump(h, "pager-first")   // page 1 of 8: the previous arrow is the disabled one
+        // what is on the real window, not what the part would draw: the enabled arrow's pixels against the window (the user's report was
+        // about this, and the offscreen check in popover.glyphContrast could not see a paint path that hides the arrow)
+        func liveArrow(_ action: String, _ label: String) {
+            guard let item = items(view, action).first, let shot = capture(h.window.hwnd) else { problems.append("\(label): no item or capture"); return }
+            let rc = WinKit.rect(item.hwnd, in: h.window.hwnd), inView = WinKit.rect(item.hwnd, in: view.hwnd)
+            let ratio = glyphRatio(shot, fillAt: (Int(rc.left) + 2, Int(rc.top) + 2), x0: Int(rc.left) + 2, y0: Int(rc.top) + 2, x1: Int(rc.right) - 2, y1: Int(rc.bottom) - 2)
+            notes.append("live \(label) \(String(format: "%.1f", ratio)):1 (window box \(rc.left),\(rc.top)-\(rc.right),\(rc.bottom); picture pixels there \(view.pictureInk(inView)))")
+            // DIAGNOSTICS (why the picture's ink is not on the window): which item windows cover the arrow's box, the item painted alone, and the
+            // view painted with the item hidden
+            var covering: [String] = []
+            for other in view.items {
+                let o = WinKit.rect(other.hwnd, in: view.hwnd)
+                if o.left < inView.right, o.right > inView.left, o.top < inView.bottom, o.bottom > inView.top {
+                    covering.append("\(other.text) [\(o.left),\(o.top)-\(o.right),\(o.bottom)] visible=\(IsWindowVisible(other.hwnd)) z=\(GetWindow(other.hwnd, 3 /* GW_HWNDPREV */) == nil ? "top" : "behind")")
+                }
+            }
+            var alone = "n/a"
+            var w: UInt32 = 0, ht: UInt32 = 0
+            var out: UnsafeMutablePointer<UInt8>?
+            if ptb_window_print(UnsafeMutableRawPointer(item.hwnd), &w, &ht, &out) == 0, let out {
+                let bmp = WinUIDump.Bitmap(width: Int(w), height: Int(ht), bgra: Array(UnsafeBufferPointer(start: out, count: Int(w * ht) * 4)))
+                ptb_plaza_free(out)
+                alone = String(format: "%.2f", glyphRatio(bmp, fillAt: (2, 2), x0: 2, y0: 2, x1: Int(w) - 2, y1: Int(ht) - 2))
+            }
+            _ = ShowWindow(item.hwnd, 0 /* SW_HIDE */)
+            _ = InvalidateRect(view.hwnd, nil, false)
+            _ = UpdateWindow(view.hwnd)
+            var without = "n/a"
+            if let shot2 = capture(h.window.hwnd) {
+                without = String(format: "%.2f", glyphRatio(shot2, fillAt: (Int(rc.left) + 2, Int(rc.top) + 2), x0: Int(rc.left) + 2, y0: Int(rc.top) + 2, x1: Int(rc.right) - 2, y1: Int(rc.bottom) - 2))
+            }
+            _ = ShowWindow(item.hwnd, 5 /* SW_SHOW */)
+            notes.append("DIAG \(label): covering \(covering); item alone \(alone):1; view with the item hidden \(without):1")
+            if ratio < 3 { problems.append("the \(label) arrow is \(String(format: "%.2f", ratio)):1 on the real window (picture pixels in its box: \(view.pictureInk(inView)))") }
+        }
+        liveArrow(DexBodyPart.nextAction, "next (page 1)")
         // the wheel: a notch down (negative delta) is the next page
         _ = SendMessageW(view.hwnd, 0x020A, WPARAM(UInt(bitPattern: Int(-120)) << 16), 0)
         await wait(0.2)
@@ -300,9 +337,16 @@ private struct CollectionFixtureNames: PokemonNameProviding {
         await wait(0.2)
         let afterNext = footer()
         if afterNext != "3 / 8" { problems.append("next: \(afterNext)") }
+        dump(h, "pager-middle")   // page 3 of 8: both arrows enabled
+        var guardCount = 0
+        while footer() != "8 / 8", guardCount < 10 { press(items(view, DexBodyPart.nextAction).first); await wait(0.15); guardCount += 1 }
+        if footer() != "8 / 8" { problems.append("last page: \(footer())") }
+        dump(h, "pager-last")     // page 8 of 8: the next arrow is the disabled one
+        liveArrow(DexBodyPart.prevAction, "previous (page 8)")
         press(items(view, DexBodyPart.prevAction).first)
         await wait(0.2)
-        if footer() != "2 / 8" { problems.append("previous: \(footer())") }
+        if footer() != "7 / 8" { problems.append("previous: \(footer())") }
+        for _ in 0..<5 { press(items(view, DexBodyPart.prevAction).first); await wait(0.1) }
         // the keyboard: focus a cell, End, Page Down
         h.window.show(activate: true)
         await wait(0.3)

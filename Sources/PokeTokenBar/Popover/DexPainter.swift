@@ -56,6 +56,22 @@ import Foundation
         }
     }
 
+    /// A chevron drawn as a stroked path (round caps and joins), centred in `rect`: the pager's arrows. A font glyph went through the
+    /// platform's glyph raster, whose picture came out blank on a real PC ("the paging arrows blend into the background"), and a missing
+    /// icon font would do the same; a path needs no font and takes exactly the colour it is given.
+    func drawChevron(forward: Bool, in rect: CGRect, color: PlazaColor, canvas: any PlazaCanvas, space: PlazaPanelSpace) {
+        let box = space.canvas(rect)
+        let cx = box.midX, cy = box.midY
+        let halfH: CGFloat = 5, halfW: CGFloat = 2.5
+        let tip = forward ? cx + halfW : cx - halfW, back = forward ? cx - halfW : cx + halfW
+        canvas.saveState()
+        canvas.setStrokeColor(color)
+        canvas.setLineJoin(.round)
+        canvas.strokePath(PlazaPath(points: [CGPoint(x: back, y: cy + halfH), CGPoint(x: tip, y: cy), CGPoint(x: back, y: cy - halfH)]),
+                          lineWidth: 1.8, cap: .round)
+        canvas.restoreState()
+    }
+
     /// A capsule: filled, with an outline of `lineWidth` inside its edge.
     func capsule(_ r: CGRect, fill: PlazaColor?, stroke: PlazaColor?, lineWidth: CGFloat, canvas: any PlazaCanvas, space: PlazaPanelSpace) {
         if let fill {
@@ -88,12 +104,32 @@ import Foundation
         return CGSize(width: ceil(line(s, font).width) + 10, height: metrics(font).height + 2)
     }
 
+    static func rgb(_ c: PlazaColor) -> UInt32 {
+        UInt32((c.red * 255).rounded()) << 16 | UInt32((c.green * 255).rounded()) << 8 | UInt32((c.blue * 255).rounded())
+    }
+
+    /// The window the Dex parts sit on, by appearance (the high-contrast theme's own window).
+    static var windowRGB: UInt32 {
+        if let hc = PopoverAppearanceState.highContrast { return hc.window }
+        return PopoverAppearance.current == .dark ? PopoverSurface.darkWindow : PopoverSurface.lightWindow
+    }
+
+    /// `ink` (an accent or a tint) as text or a glyph on its own `fraction` tint over the window: the Mac's colour where it reaches 3:1, else
+    /// moved towards black or white until it does (`PopoverSurface.legible`). High contrast keeps the theme's colours.
+    static func legibleInk(_ ink: PlazaColor, onTint fraction: Double) -> PlazaColor {
+        guard PopoverAppearanceState.highContrast == nil else { return ink }
+        let window = windowRGB
+        let fill = PopoverSurface.blend(window, rgb(ink), fraction)
+        let out = PopoverSurface.legible(rgb(ink), over: fill, dark: PopoverAppearance.current == .dark)
+        return PlazaColor(srgbRed: Double((out >> 16) & 0xFF) / 255, green: Double((out >> 8) & 0xFF) / 255, blue: Double(out & 0xFF) / 255, alpha: ink.alpha)
+    }
+
     /// A badge in `r`: `.solid` white on the tint, `.tinted` the tint on a faint tint.
     func badge(_ s: String, size: CGFloat, tint: PlazaColor, solid: Bool, in r: CGRect, canvas: any PlazaCanvas, space: PlazaPanelSpace) {
         let font = PlazaFont.system(size: size, weight: .bold)
         capsule(r, fill: solid ? tint : PlazaColor(srgbRed: tint.red, green: tint.green, blue: tint.blue, alpha: tint.alpha * 0.14), stroke: nil,
                 lineWidth: 0, canvas: canvas, space: space)
-        draw(s, font, color: solid ? .white : tint, x: r.minX + 5, centerY: r.midY, canvas: canvas, space: space)
+        draw(s, font, color: solid ? .white /* Mac parity: white on every type and rarity fill, below 3:1 on some (lead's decision 2026-11-19) */ : Self.legibleInk(tint, onTint: 0.14), x: r.minX + 5, centerY: r.midY, canvas: canvas, space: space)
     }
 
     /// `color` at `fraction` of its own alpha.
@@ -178,8 +214,8 @@ extension DexPainter {
         x += ceil(line(spec.label, f.label).width) + Self.chipGap
         draw(spec.count, f.count, color: spec.countColor, x: x, centerY: cy, canvas: canvas, space: space)
         x += ceil(line(spec.count, f.count).width) + Self.chipGap
-        if spec.selected {
-            drawGlyph("checkmark", fallback: "✓", size: 9, bold: true, color: spec.accent, in: CGRect(x: x, y: cy - 5, width: 9, height: 10),
+        if spec.selected {   // the accent, moved towards black/white where it is under 3:1 on its own 22 % tint (2.5:1 in light)
+            drawGlyph("checkmark", fallback: "✓", size: 9, bold: true, color: Self.legibleInk(spec.accent, onTint: 0.22), in: CGRect(x: x, y: cy - 5, width: 9, height: 10),
                       canvas: canvas, space: space)
         }
         canvas.restoreState()

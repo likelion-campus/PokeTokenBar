@@ -234,6 +234,16 @@ import WinSDK
         bytes.withUnsafeBytes { bits.copyMemory(from: $0.baseAddress!, byteCount: min($0.count, w * h * 4)) }
     }
 
+    /// SELFTEST: how many pixels of the composed picture inside `r` (view pixels) are not fully transparent.
+    func pictureInk(_ r: RECT) -> Int {
+        guard let bits else { return -1 }
+        let w = Int(pixelSize.cx), h = Int(pixelSize.cy)
+        let p = bits.assumingMemoryBound(to: UInt8.self)
+        var n = 0
+        for y in max(0, Int(r.top))..<min(h, Int(r.bottom)) { for x in max(0, Int(r.left))..<min(w, Int(r.right)) where p[(y * w + x) * 4 + 3] != 0 { n += 1 } }
+        return n
+    }
+
     private func makeBitmap() {
         releaseBitmap()
         var info = BITMAPINFO()
@@ -367,8 +377,13 @@ import WinSDK
     /// `AlphaBlend` (premultiplied source, `AC_SRC_ALPHA`) of a piece of the picture.
     private func blit(into dc: HDC?, from source: POINT, size: SIZE, at dest: POINT) {
         guard let memDC, size.cx > 0, size.cy > 0 else { return }
+        // An item may reach past the picture (the pager's 28-pt buttons are taller than the 18-pt footer, as the Mac's hit areas are): GdiAlphaBlend
+        // draws NOTHING when its source rectangle leaves the bitmap, which left those items blank over the arrows. Only the part inside is copied.
+        let left = max(0, -source.x), top = max(0, -source.y)
+        let cx = min(size.cx, pixelSize.cx - source.x) - left, cy = min(size.cy, pixelSize.cy - source.y) - top
+        guard cx > 0, cy > 0 else { return }
         let blend = BLENDFUNCTION(BlendOp: 0 /* AC_SRC_OVER */, BlendFlags: 0, SourceConstantAlpha: 255, AlphaFormat: 1 /* AC_SRC_ALPHA */)
-        _ = GdiAlphaBlend(dc, dest.x, dest.y, size.cx, size.cy, memDC, source.x, source.y, size.cx, size.cy, blend)
+        _ = GdiAlphaBlend(dc, dest.x + left, dest.y + top, cx, cy, memDC, source.x + left, source.y + top, cx, cy, blend)
     }
 
     // MARK: - accessibility children

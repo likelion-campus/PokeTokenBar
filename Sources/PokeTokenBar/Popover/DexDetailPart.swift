@@ -273,7 +273,7 @@ import Foundation
                 for (t, r) in zip(id.types, typeRects) {
                     let rr = CGRect(x: ox + r.minX, y: colTop + off + r.minY, width: r.width, height: r.height)
                     p.capsule(rr, fill: t.tint.color, stroke: nil, lineWidth: 0, canvas: canvas, space: space)
-                    p.draw(t.text, f.badge, color: .white, x: rr.minX + 7, centerY: rr.midY, canvas: canvas, space: space)
+                    p.draw(t.text, f.badge, color: .white /* Mac parity, as the solid badges: below 3:1 on some type colours (lead's decision 2026-11-19) */, x: rr.minX + 7, centerY: rr.midY, canvas: canvas, space: space)
                 }
                 canvas.setFillColor(secondary)
                 for (i, l) in noteLines.enumerated() {
