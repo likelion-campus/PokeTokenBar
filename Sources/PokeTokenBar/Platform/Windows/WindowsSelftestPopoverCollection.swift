@@ -253,6 +253,7 @@ private struct CollectionFixtureNames: PokemonNameProviding {
         guard let (h, page) = await harness(120, language: .en), let view = page.dexView else { r.add("collection.paging", false, "no page"); return }
         defer { h.destroy() }
         func footer() -> String { page.dexPart?.model.footer.pageText ?? "-" }
+        dump(h, "pager-first")   // page 1 of 8: the previous arrow is the disabled one
         // the wheel: a notch down (negative delta) is the next page
         _ = SendMessageW(view.hwnd, 0x020A, WPARAM(UInt(bitPattern: Int(-120)) << 16), 0)
         await wait(0.2)
@@ -263,9 +264,15 @@ private struct CollectionFixtureNames: PokemonNameProviding {
         await wait(0.2)
         let afterNext = footer()
         if afterNext != "3 / 8" { problems.append("next: \(afterNext)") }
+        dump(h, "pager-middle")   // page 3 of 8: both arrows enabled
+        var guardCount = 0
+        while footer() != "8 / 8", guardCount < 10 { press(items(view, DexBodyPart.nextAction).first); await wait(0.15); guardCount += 1 }
+        if footer() != "8 / 8" { problems.append("last page: \(footer())") }
+        dump(h, "pager-last")     // page 8 of 8: the next arrow is the disabled one
         press(items(view, DexBodyPart.prevAction).first)
         await wait(0.2)
-        if footer() != "2 / 8" { problems.append("previous: \(footer())") }
+        if footer() != "7 / 8" { problems.append("previous: \(footer())") }
+        for _ in 0..<5 { press(items(view, DexBodyPart.prevAction).first); await wait(0.1) }
         // the keyboard: focus a cell, End, Page Down
         h.window.show(activate: true)
         await wait(0.3)
