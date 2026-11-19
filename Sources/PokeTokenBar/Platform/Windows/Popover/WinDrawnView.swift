@@ -377,8 +377,13 @@ import WinSDK
     /// `AlphaBlend` (premultiplied source, `AC_SRC_ALPHA`) of a piece of the picture.
     private func blit(into dc: HDC?, from source: POINT, size: SIZE, at dest: POINT) {
         guard let memDC, size.cx > 0, size.cy > 0 else { return }
+        // An item may reach past the picture (the pager's 28-pt buttons are taller than the 18-pt footer, as the Mac's hit areas are): GdiAlphaBlend
+        // draws NOTHING when its source rectangle leaves the bitmap, which left those items blank over the arrows. Only the part inside is copied.
+        let left = max(0, -source.x), top = max(0, -source.y)
+        let cx = min(size.cx, pixelSize.cx - source.x) - left, cy = min(size.cy, pixelSize.cy - source.y) - top
+        guard cx > 0, cy > 0 else { return }
         let blend = BLENDFUNCTION(BlendOp: 0 /* AC_SRC_OVER */, BlendFlags: 0, SourceConstantAlpha: 255, AlphaFormat: 1 /* AC_SRC_ALPHA */)
-        _ = GdiAlphaBlend(dc, dest.x, dest.y, size.cx, size.cy, memDC, source.x, source.y, size.cx, size.cy, blend)
+        _ = GdiAlphaBlend(dc, dest.x + left, dest.y + top, cx, cy, memDC, source.x + left, source.y + top, cx, cy, blend)
     }
 
     // MARK: - accessibility children
