@@ -75,7 +75,7 @@ struct WinLook {
     /// reads on the chip's own accent tint (the plain accent was about 3:1 on it in dark).
     var accentText: COLORREF { dark ? WinUIColors.blend(accent, 0x00FF_FFFF, 0.5) : WinUIColors.blend(accent, 0, 0.25) }
     /// A selected chip's text: the accent text colour, moved further if the chip's current fill (hover and press tint it) leaves it under 3:1.
-    func chipInk(fill: COLORREF) -> COLORREF { ctx.colors.legible(accentText, over: fill) }
+    @MainActor func chipInk(fill: COLORREF) -> COLORREF { ctx.colors.legible(accentText, over: fill) }
     /// Text on the accent fill: white, or black where the accent is light (Windows 11's dark convention).
     var onAccent: COLORREF {
         func channel(_ v: UInt32) -> Double {
