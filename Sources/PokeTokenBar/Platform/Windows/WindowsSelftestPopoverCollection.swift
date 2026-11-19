@@ -444,6 +444,19 @@ private struct CollectionFixtureNames: PokemonNameProviding {
             if windows > 80 || slots > 12 { problems.append("\(language): \(windows) child windows, \(slots) sprite slots") }
             // the top of the page as it opens (identity, stats): captured with its names loaded
             dump(h, "detail-top-\(language.rawValue)")
+            // the representative star / arrow: its glyph ink against its own box (K4 glyph contrast; it was near-white on white in dark mode)
+            func starContrast(_ state: String) {
+                guard let item = items(view, DexDetailPart.repAction).first, let shot = WindowsSelftestPopoverContrast.capture(h.window.hwnd) else {
+                    problems.append("\(language): no capture of the detail button (\(state))"); return
+                }
+                let rc = WinKit.rect(item.hwnd, in: h.window.hwnd)
+                let mid = Int(rc.top + rc.bottom) / 2
+                let m = WindowsSelftestPopoverContrast.measure(shot, fill: (Int(rc.left) + 3, mid),
+                                                              region: RECT(left: rc.left + 3, top: rc.top + 3, right: rc.right - 3, bottom: rc.bottom - 3))
+                notes.append("\(language): detail \(state) glyph \(String(format: "%.2f", m.ratio)):1")
+                if m.ratio < WindowsSelftestPopoverContrast.floor { problems.append("\(language): the detail button's glyph (\(state)) is \(String(format: "%.2f", m.ratio)):1 against its box") }
+            }
+            starContrast("not representative")
             // the card under "Individual / Actual stats / Known moves" has its text and bars on it (not a blank tile)
             if let percent = ink(of: view.hwnd, in: h.window.hwnd, fromY: 35, toY: 70) {
                 notes.append("\(language): ink in the detail card \(Double(Int(percent * 10)) / 10) %")
@@ -479,6 +492,8 @@ private struct CollectionFixtureNames: PokemonNameProviding {
             press(items(view, DexDetailPart.repAction).first)
             _ = await WindowsSelftest.waitUntil(timeout: 3) { h.stores.companion.representativeSpeciesID == 7 }
             if h.stores.companion.representativeSpeciesID != 7 { problems.append("\(language): the button did not set the representative") }
+            await wait(0.4)
+            starContrast("representative")
             // Back returns to the grid on that species' page
             press(items(view, DexDetailPart.backAction).first)
             await wait(0.3)

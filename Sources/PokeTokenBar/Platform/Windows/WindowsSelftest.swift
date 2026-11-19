@@ -118,6 +118,7 @@ enum WindowsSelftest {
         await popoverKitChecks(r, app)  // stage 7 task 3 (WindowsSelftestPopover.swift): leaves no window behind
         await popoverCustomDrawChecks(r, app)  // visual polish K3 (WindowsSelftestPopoverCustomDraw.swift): custom-drawn controls; leaves no window behind
         await popoverK4Checks(r, app)  // visual polish K4 (WindowsSelftestPopoverK4.swift): drop-down, stepper, field frame, MSAA; leaves no window behind
+        await WindowsSelftestPopoverContrast.run(r)  // visual polish K4: glyph ink against its own fill, every glyph button, light/dark/high contrast
         await popoverWindowChecks(r, app)  // stage 7 task 4 (WindowsSelftestPopoverWindow.swift): leaves no window behind
         await settingsChecks(r, app)  // stage 7 task 6 (WindowsSelftestSettings.swift): the Settings page; leaves the team off and no window behind
         await teamChecks(r, app)  // Task 19 (WindowsSelftestTeam.swift); shuts its transports down before the idle window

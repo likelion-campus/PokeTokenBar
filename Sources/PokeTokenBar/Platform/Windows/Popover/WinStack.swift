@@ -14,6 +14,8 @@ import WinSDK
     var paint: ((HDC, RECT) -> Void)?
     private var router: WinControlRouter?
     private(set) var paints = 0
+    /// Erase requests the pane answered (a child repainting under the pointer must not make its parent erase or paint: the selftest counts both).
+    private(set) var erases = 0
 
     init(parent: HWND, ctx: WinUIContext, rect: RECT) throws {
         self.ctx = ctx
@@ -21,7 +23,7 @@ import WinSDK
         window = try WinSinkWindow(className: Self.className, title: "", style: style, exStyle: 0x0001_0000 /* WS_EX_CONTROLPARENT */,
                                    x: rect.left, y: rect.top, width: rect.right - rect.left, height: rect.bottom - rect.top, parent: parent)
         router = WinControlRouter(window: window)
-        window.on(0x0014 /* WM_ERASEBKGND */) { [weak self] _, _ in WinOpenTrace.note(.erase, self?.hwnd); return 1 }  // WM_PAINT draws everything (no flicker)
+        window.on(0x0014 /* WM_ERASEBKGND */) { [weak self] _, _ in self?.erases += 1; WinOpenTrace.note(.erase, self?.hwnd); return 1 }  // WM_PAINT draws everything (no flicker)
         window.on(0x000F /* WM_PAINT */) { [weak self] _, _ in self?.onPaint() }
         window.on(0x0318 /* WM_PRINTCLIENT */) { [weak self] wParam, _ in
             guard let self, let dc = HDC(bitPattern: UInt(wParam)) else { return nil }

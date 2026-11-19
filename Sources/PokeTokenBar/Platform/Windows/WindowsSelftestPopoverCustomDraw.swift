@@ -24,6 +24,8 @@ extension WindowsSelftest {
 @MainActor final class CustomDrawPage {
     var segments: WinControl?, chips: WinControl?, on: WinControl?, off: WinControl?
     var enabled: WinControl?, disabled: WinControl?, primary: WinControl?, small: WinControl?, slider: WinControl?
+    /// K4 additions the hover check moves over: the tab strip's kind (a tall radio group that fills its row), a drop-down and a stepper.
+    var strip: WinControl?, dropDown: WinControl?, stepper: WinControl?
 
     func build(_ s: WinStack) {
         let section = s.addSection("Custom draw")
@@ -41,6 +43,11 @@ extension WindowsSelftest {
             WinControls.trackbar(range: 0...10, step: 1, value: 4, format: { "\($0)" }, width: 170, in: pane, ctx: ctx)
         }.control
         disabled?.isEnabled = false
+        strip = section.addRow(nil, style: .full) { pane, ctx in
+            WinControls.radioGroup(["Home", "Collection", "Shop", "Bag"], selected: 0, tall: true, fillsRow: true, in: pane, ctx: ctx)
+        }.control
+        dropDown = section.addRow("Drop-down") { pane, ctx in WinControls.combo(["English", "한국어", "日本語"], selected: 0, in: pane, ctx: ctx) }.control
+        stepper = section.addRow("Stepper") { pane, ctx in WinControls.stepper(range: 1...5, step: 1, value: 3, format: { "×\($0)" }, in: pane, ctx: ctx) }.control
     }
 }
 
@@ -216,51 +223,72 @@ extension WindowsSelftest {
     static func hex(from c: COLORREF) -> String { hex((r: Int(c & 0xFF), g: Int((c >> 8) & 0xFF), b: Int((c >> 16) & 0xFF))) }
 
     /// Hover costs one repaint on entering a segment and none while the pointer moves inside it; no repaint erases the background first, and
-    /// every picture reaches the screen in one blit (a repaint that drew its steps on the window's own DC flashed the bare track).
-    static func hoverEvaluate() async -> (problems: [String], note: String) {
+    /// every picture reaches the screen in one blit (a repaint that drew its steps on the window's own DC flashed the bare track). The
+    /// controls' PARENT pane must not paint or erase at all while the pointer moves over them (K4 adds the tab strip's kind, the drop-down
+    /// and both halves of the stepper). `parentRepaints` is the fault: the pane is invalidated once per control, so the counters must see it.
+    static func hoverEvaluate(parentRepaints: Bool = false) async -> (problems: [String], note: String) {
         var problems: [String] = []
         let page = CustomDrawPage()
-        guard let w = KitWindow(heightDIP: 700, register: true, origin: POINT(x: 0, y: 0), build: { _, s in page.build(s) }) else { return (["no window"], "") }
+        guard let w = KitWindow(heightDIP: 900, register: true, origin: POINT(x: 0, y: 0), build: { _, s in page.build(s) }) else { return (["no window"], "") }
         defer { w.destroy() }
         w.fitToContent()
         w.show(activate: false)
         _ = RedrawWindow(w.hwnd, nil, nil, UINT(0x0001 | 0x0004 | 0x0080 | 0x0100))
         await wait(0.4)
-        guard let seg = page.segments, let on = page.on, let enabled = page.enabled else { return (["controls missing"], "") }
-        func settle() { for c in [seg, on, enabled] { for p in c.parts { _ = UpdateWindow(p) } } }
+        guard let seg = page.segments, let on = page.on, let enabled = page.enabled, let strip = page.strip, let dd = page.dropDown,
+              let stepper = page.stepper, let pane = w.stack?.pane else { return (["controls missing"], "") }
+        let all = [seg, strip, on, enabled, dd, stepper]
+        func settle() {
+            for c in all { for p in c.parts { _ = UpdateWindow(p) } }
+            _ = UpdateWindow(pane.hwnd)
+        }
         func counts() -> (paints: Int, erases: Int) {
             var paints = 0, erases = 0
-            for c in [seg, on, enabled] { paints += c.customDrawCount; erases += c.eraseCount }
+            for c in all { paints += c.customDrawCount; erases += c.eraseCount }
             return (paints, erases)
         }
-        func move(_ p: HWND, _ n: Int) {
+        func move(_ p: HWND, _ n: Int, x: ((RECT, Int) -> Int)? = nil, y: ((RECT) -> Int)? = nil) {
             var r = RECT()
             _ = GetClientRect(p, &r)
-            for i in 0..<n { _ = SendMessageW(p, 0x0200 /* WM_MOUSEMOVE */, 0, LPARAM((Int(r.bottom) / 2) << 16 | (4 + i % max(1, Int(r.right) - 8)))); settle() }
+            for i in 0..<n {
+                let px = x?(r, i) ?? (4 + i % max(1, Int(r.right) - 8)), py = y?(r) ?? Int(r.bottom) / 2
+                _ = SendMessageW(p, 0x0200 /* WM_MOUSEMOVE */, 0, LPARAM(py << 16 | px))
+                settle()
+            }
         }
         settle()
-        let before = counts(), blits0 = WinCustomDraw.blits
-        // 30 moves inside each of the three segments in turn
-        var perSegment: [Int] = []
-        for p in seg.parts {
+        let before = counts(), blits0 = WinCustomDraw.blits, paneBefore = (paints: pane.paints, erases: pane.erases)
+        // 30 moves inside each of the three segments in turn, then the tab strip's kind
+        var perControl: [String] = [], perCount: [Int] = []
+        func run(_ name: String, _ body: () -> Void) {
             let b = counts().paints
-            move(p, 30)
-            perSegment.append(counts().paints - b)
+            body()
+            if parentRepaints { _ = InvalidateRect(pane.hwnd, nil, true); settle() }
+            perControl.append(name)
+            perCount.append(counts().paints - b)
         }
-        // the push button and the switch too
-        for c in [enabled, on] {
-            let b = counts().paints
-            move(c.hwnd, 30)
-            perSegment.append(counts().paints - b)
-        }
+        for (i, p) in seg.parts.enumerated() { run("segment \(i + 1)") { move(p, 30) } }
+        for (i, p) in strip.parts.enumerated() { run("tab \(i + 1)") { move(p, 30) } }
+        // the push button, the switch and the drop-down
+        run("button") { move(enabled.hwnd, 30) }
+        run("switch") { move(on.hwnd, 30) }
+        run("drop-down") { move(dd.hwnd, 30) }
+        // both halves of the stepper: the spin box is the right 18 DIP, the upper half above the middle
+        let spinX: (RECT, Int) -> Int = { r, i in Int(r.right) - Int(stepper.ctx.px(CGFloat(2 + i % 12))) - 1 }
+        run("stepper upper") { move(stepper.hwnd, 30, x: spinX, y: { r in Int(r.bottom) / 4 }) }
+        run("stepper lower") { move(stepper.hwnd, 30, x: spinX, y: { r in Int(r.bottom) * 3 / 4 }) }
         let after = counts(), blits = WinCustomDraw.blits - blits0
         let paints = after.paints - before.paints, erases = after.erases - before.erases
-        // entering a segment repaints it and the one it left: at most 2; the 29 further moves repaint nothing
-        if perSegment.contains(where: { $0 > 2 }) { problems.append("a run of 30 moves inside one control repainted \(perSegment) times (at most 2 each: the entered and the left)") }
+        let parent = (paints: pane.paints - paneBefore.paints, erases: pane.erases - paneBefore.erases)
+        let shown = zip(perControl, perCount).map { "\($0) \($1)" }.joined(separator: ", ")
+        // entering a control repaints it and the one it left: at most 2; the 29 further moves repaint nothing
+        if perCount.contains(where: { $0 > 2 }) { problems.append("a run of 30 moves inside one control repainted [\(shown)] times (at most 2 each: the entered and the left)") }
         // an erase request is answered with "done" (nothing is drawn); the first paint of a window may still carry one, a move must not
-        if erases > perSegment.count { problems.append("hovering asked for \(erases) background erases for \(perSegment.count) controls: they grow with the moves") }
+        if erases > perCount.count { problems.append("hovering asked for \(erases) background erases for \(perCount.count) runs: they grow with the moves") }
         if blits != paints { problems.append("\(paints) paints but \(blits) whole-picture blits: a paint drew in steps on the window's own DC") }
-        return (problems, "repaints per control \(perSegment), erases \(erases), blits \(blits) of \(paints) paints")
+        // the parent pane: hovering must not repaint or erase it (it would flash the page colour behind the control)
+        if parent.paints != 0 || parent.erases != 0 { problems.append("the parent pane painted \(parent.paints) and erased \(parent.erases) times while the pointer moved over its controls (must be 0)") }
+        return (problems, "repaints per run [\(shown)], erases \(erases), blits \(blits) of \(paints) paints; parent pane paints \(parent.paints) erases \(parent.erases)")
     }
 
     static func run(_ r: WindowsSelftest.Recorder) async {
@@ -269,7 +297,11 @@ extension WindowsSelftest {
         WinCustomDraw.testUnbuffered = true
         let flicker = await hoverEvaluate()
         WinCustomDraw.testUnbuffered = false
-        r.add("popover.hoverRepaint.fault", !flicker.problems.isEmpty, "painting on the window's DC (the old behaviour): \(flicker.problems.count) problems found as expected (\(flicker.note))")
+        // the parent counters must see a parent repaint when there is one (a counter that never counts proves nothing)
+        let parentFault = await hoverEvaluate(parentRepaints: true)
+        let seesParent = parentFault.problems.contains { $0.contains("parent pane") }
+        r.add("popover.hoverRepaint.fault", !flicker.problems.isEmpty && seesParent,
+              "painting on the window's DC (the old behaviour): \(flicker.problems.count) problems found as expected (\(flicker.note)); a repainted parent is \(seesParent ? "seen" : "NOT seen") (\(parentFault.note))")
         var problems: [String] = []
         var notes: [String] = []
         for (name, dark, high) in [("light", false, false), ("dark", true, false), ("high contrast", false, true)] {
