@@ -132,8 +132,17 @@ import WinSDK
             _ = SetViewportOrgEx(shifted.dc, 0, 0, nil)
             let corner = intermediate(shifted, x0: 10, y0: 7, size: Int(radius), known: known)
             let moved = shifted.pixel(10 + size / 2, 7 + size / 2) == ink && shifted.pixel(2, 2) == white
-            originOK = corner >= 3 && moved && WinPaint.fallbacks == fallbacks0
-            originNote = "viewport origin (10,7): \(corner) antialiased corner pixels at the shifted place, fill moved=\(moved), GDI fallbacks +\(WinPaint.fallbacks - fallbacks0)"
+            // The twin of the old behaviour (windows-port before this fix drew exactly this in such a DC: the GDI shape): the same measure must
+            // find nothing in it, or the measure is blind to the very fault the case guards.
+            var twinCorner = -1
+            if let twin = Canvas(size + 20, size + 20, background: white) {
+                _ = SetViewportOrgEx(twin.dc, 10, 7, nil)
+                gdiRoundRect(twin, box, radius: radius, fill: ink)
+                _ = SetViewportOrgEx(twin.dc, 0, 0, nil)
+                twinCorner = intermediate(twin, x0: 10, y0: 7, size: Int(radius), known: known)
+            }
+            originOK = corner >= 3 && moved && WinPaint.fallbacks == fallbacks0 && twinCorner == 0
+            originNote = "viewport origin (10,7): \(corner) antialiased corner pixels at the shifted place (the old GDI fallback in the same DC, the fault twin: \(twinCorner), must be 0), fill moved=\(moved), GDI fallbacks +\(WinPaint.fallbacks - fallbacks0)"
         }
         // What a bind costs on this machine (informational: the open-cost budget counts frames, and a paint per card was too many):
         // one 330 x 120 card per bind, and eight of them in one bind.
