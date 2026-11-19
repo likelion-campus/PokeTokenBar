@@ -26,12 +26,9 @@ import CPlazaD2D
 
     private static func bind(_ dc: HDC, _ b: RECT, _ shapes: inout [PTBPaintShape]) -> Int32 {
         let t0 = WinOpenTrace.now()
-        // The painter binds in the DC's device pixels; a DC with a viewport origin of its own (a child's, in WM_PRINTCLIENT) has
-        // logical coordinates shifted by it, so the bound rectangle moves by the origin and the shapes stay as they are.
-        var origin = POINT()
-        _ = GetViewportOrgEx(dc, &origin)
-        let code = ptb_paint_shapes(UnsafeMutableRawPointer(dc), b.left + origin.x, b.top + origin.y, b.right + origin.x, b.bottom + origin.y,
-                                    &shapes, UInt32(shapes.count))
+        // BindDC takes the DC's logical coordinates and Direct2D applies the DC's viewport origin itself (a child's, in WM_PRINTCLIENT):
+        // adding the origin here drew the shape twice as far away (measured on the runner).
+        let code = ptb_paint_shapes(UnsafeMutableRawPointer(dc), b.left, b.top, b.right, b.bottom, &shapes, UInt32(shapes.count))
         binds += 1
         bindMs += WinOpenTrace.now() - t0
         if code >= 0, !loggedStart {
