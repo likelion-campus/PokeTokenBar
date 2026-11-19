@@ -234,6 +234,7 @@ import WinSDK
                     giveBack: ((_ chosen: Int?, _ previous: HWND) -> Bool)? = nil) -> Int? {
         gaveBack = false
         guard openMenuBits == 0 else { return nil }  // a menu is already open: ignore the request
+        WinMenuTheme.ensure()  // dark menus follow the app mode (visual polish: dark popup menus); one registry read, nothing per message
         guard let menu = CreatePopupMenu() else { return nil }
         defer { openMenuBits = 0; DestroyMenu(menu) }
         for (index, item) in items.enumerated() {
