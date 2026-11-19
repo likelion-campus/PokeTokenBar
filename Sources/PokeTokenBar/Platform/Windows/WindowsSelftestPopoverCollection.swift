@@ -255,12 +255,12 @@ private struct CollectionFixtureNames: PokemonNameProviding {
         let counts = WinPaintSpy.counts
         WinPaintSpy.stop()
         let messages = counts.sent + counts.queued
-        // 12 moves, each repainting the two cells it touches and what is over them (a cell's item window and the neighbours' margins): a few dozen
-        // messages. Before the fix every move repainted every item: 12 x ~\(all) x 2 and more.
-        let budget = 12 * 12
+        // 12 moves, each repainting the two cells it touches and the item windows over them: about 7 windows, 3 messages each (erase, non-client
+        // paint, paint). Before the fix every move repainted every item window: \(all) x 3 per move (computed, not measured).
+        let budget = 12 * 25   // measured 250 on the runner (about 7 windows per move, 3 messages each); a full repaint is 12 x 29 x 3 = 1044
         let ok = view.stats.itemBuilds == builds0 && messages <= budget
         r.add("collection.hoverCost", ok,
-              "12 hovers over the grid with \(all) item windows: paint/erase messages to the popover's windows (drawn views left out) \(messages) (budget \(budget); a full repaint per move would be about \(12 * all * 2)), "
+              "12 hovers over the grid with \(all) item windows: paint/erase messages to the popover's windows (drawn views left out) \(messages) (budget \(budget); a full repaint per move would be \(12 * all * 3)), "
               + "item rebuilds +\(view.stats.itemBuilds - builds0), frames with a paint \(counts.frames), item moves \(view.stats.itemMoves - moves0)"
               + (ok ? "" : "; OVER BUDGET"))
     }
