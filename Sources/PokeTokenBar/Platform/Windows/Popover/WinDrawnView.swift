@@ -66,7 +66,7 @@ import WinSDK
     private var tooltipKey: [String] = []  // stage 7 Task 12
     private(set) var isDestroyed = false
 
-    struct Stats: Equatable { var paints = 0, composes = 0, itemBuilds = 0, itemMoves = 0, hits = 0, renders = 0, paintPixels = 0, partialPaints = 0, itemRenames = 0 }
+    struct Stats: Equatable { var paints = 0, composes = 0, itemBuilds = 0, itemsKept = 0, itemMoves = 0, hits = 0, renders = 0, paintPixels = 0, partialPaints = 0, itemRenames = 0 }
     private(set) var stats = Stats()
 
     init(parent: HWND, ctx: WinUIContext) throws {
@@ -401,60 +401,103 @@ import WinSDK
         // --- stage 7 Task 12 (end) ---
         if !sameItems {
             let focusedIndex = items.firstIndex { $0.hwnd == GetFocus() }
-            for item in items { item.destroy() }
-            items = []
             stats.itemBuilds += 1
-            for item in new where item.role != .scrollArea {
-                guard let c = WinControls.drawnItem(item, in: hwnd, ctx: ctx) else { continue }
-                c.background = background
-                let action = item.action
-                c.onClick = { [weak self] in if let action { self?.report(action) } }
-                c.drawItem = { [weak self, weak c] dis in
-                    guard let self, let c else { return }
-                    self.paintItem(c, dis)
-                }
-                // --- stage 7 Task 12: the item forwards the pointer, the keys and the focus (begin) ---
-                if onPointer != nil {
-                    c.onPointer = { [weak self, weak c] p in
-                        guard let self, let c else { return }
-                        guard let p else { self.onPointer?(nil); return }
-                        let at = WinKit.rect(c.hwnd, in: self.hwnd)
-                        self.onPointer?(self.dip(POINT(x: p.x + at.left, y: p.y + at.top)))
-                    }
-                }
-                if onKey != nil {
-                    c.onKey = { [weak self] key in self?.onKey?(key) ?? false }
-                    c.claimsEscape = { [weak self] in self?.claimsEscape?() ?? false }
-                }
-                if onFocus != nil { c.onFocus = { [weak self] focused in self?.onFocus?(focused) } }
-                // --- stage 7 Task 20 (begin) ---
-                c.showsHandCursor = item.action.map { handActions.contains($0.action) } ?? false
-                if onContextMenu != nil {
-                    c.onContextMenu = { [weak self, weak c] point in
-                        guard let self, let c, let handler = self.onContextMenu else { return false }
-                        var at = point ?? POINT()
-                        if point == nil {
-                            var r = RECT()
-                            _ = GetWindowRect(c.hwnd, &r)
-                            at = POINT(x: (r.left + r.right) / 2, y: (r.top + r.bottom) / 2)
-                        }
-                        handler(action, at)
-                        return true
-                    }
-                }
-                // --- stage 7 Task 20 (end) ---
-                // --- stage 7 Task 12 (end) ---
-                items.append(c)
+            WinOpenTrace.note(.itemBuild)
+            // Items are matched by what they are (role, key or label, action, enabled state, place in the scroller), not rebuilt wholesale: a
+            // window kept keeps its focus and is not made, erased and painted again. Only items that are new are made, only the ones that
+            // went are destroyed (a Pokédex page of 40 items was made again, with every paint and erase, on each change of its model).
+            func identity(_ item: PlazaAccessibilityItem) -> String {
+                "\(item.role)|\(item.key ?? item.label)|\(item.action.map { "\($0.action)/\($0.index ?? -1)/\($0.target ?? "")" } ?? "-")|\(item.isEnabled)|\(item.inScrollArea)"
             }
-            if let i = focusedIndex, i < items.count { _ = SetFocus(items[i].hwnd) }
+            func make(_ item: PlazaAccessibilityItem) -> WinControl? {
+            guard let c = WinControls.drawnItem(item, in: hwnd, ctx: ctx) else { return nil }
+            c.background = background
+            let action = item.action
+            c.onClick = { [weak self] in if let action { self?.report(action) } }
+            c.drawItem = { [weak self, weak c] dis in
+                guard let self, let c else { return }
+                self.paintItem(c, dis)
+            }
+            // --- stage 7 Task 12: the item forwards the pointer, the keys and the focus (begin) ---
+            if onPointer != nil {
+                c.onPointer = { [weak self, weak c] p in
+                    guard let self, let c else { return }
+                    guard let p else { self.onPointer?(nil); return }
+                    let at = WinKit.rect(c.hwnd, in: self.hwnd)
+                    self.onPointer?(self.dip(POINT(x: p.x + at.left, y: p.y + at.top)))
+                }
+            }
+            if onKey != nil {
+                c.onKey = { [weak self] key in self?.onKey?(key) ?? false }
+                c.claimsEscape = { [weak self] in self?.claimsEscape?() ?? false }
+            }
+            if onFocus != nil { c.onFocus = { [weak self] focused in self?.onFocus?(focused) } }
+            // --- stage 7 Task 20 (begin) ---
+            c.showsHandCursor = item.action.map { handActions.contains($0.action) } ?? false
+            if onContextMenu != nil {
+                c.onContextMenu = { [weak self, weak c] point in
+                    guard let self, let c, let handler = self.onContextMenu else { return false }
+                    var at = point ?? POINT()
+                    if point == nil {
+                        var r = RECT()
+                        _ = GetWindowRect(c.hwnd, &r)
+                        at = POINT(x: (r.left + r.right) / 2, y: (r.top + r.bottom) / 2)
+                    }
+                    handler(action, at)
+                    return true
+                }
+            }
+            // --- stage 7 Task 20 (end) ---
+            // --- stage 7 Task 12 (end) ---
+                return c
+            }
+            var pool: [String: [WinControl]] = [:]
+            for (c, item) in zip(items, itemData.filter { $0.role != .scrollArea }) { pool[identity(item), default: []].append(c) }
+            var next: [WinControl] = []
+            var fresh = Set<ObjectIdentifier>()
+            for item in new where item.role != .scrollArea {
+                if var list = pool[identity(item)], !list.isEmpty {
+                    let c = list.removeFirst()
+                    pool[identity(item)] = list
+                    let name = item.value.map { "\(item.label), \($0)" } ?? item.label
+                    if c.text != name {
+                        c.text = name
+                        _ = NotifyWinEvent(0x800C /* EVENT_OBJECT_NAMECHANGE */, c.hwnd, -4 /* OBJID_CLIENT */, 0 /* CHILDID_SELF */)
+                        stats.itemRenames += 1
+                    }
+                    next.append(c)
+                } else if let c = make(item) {
+                    fresh.insert(ObjectIdentifier(c))
+                    next.append(c)
+                }
+            }
+            for list in pool.values { for c in list { c.destroy() } }
+            items = next
+            if fresh.count < next.count { stats.itemsKept += next.count - fresh.count }
+            // Tab order is z-order (creation order before): put the windows in the items' order.
+            var previous: HWND? = nil
+            for c in items {
+                _ = SetWindowPos(c.hwnd, previous, 0, 0, 0, 0, UINT(SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOREDRAW | SWP_NOOWNERZORDER))
+                previous = c.hwnd
+            }
+            // The focused item went (destroyed above): the focus goes to the item now at its place, as it did when all were made again.
+            if let i = focusedIndex, !items.isEmpty, !items.contains(where: { $0.hwnd == GetFocus() }), GetFocus() == nil || !IsWindow(GetFocus()) {
+                _ = SetFocus(items[min(i, items.count - 1)].hwnd)
+            }
         } else {
             stats.itemMoves += 1
         }
         itemData = new
         for (c, item) in zip(items, new.filter { $0.role != .scrollArea }) {
             let r = PopoverComposite.pixelRect(item.frame, scale: ctx.scale)
-            WinKit.move(c.hwnd, RECT(left: Int32(r.x), top: Int32(r.y), right: Int32(r.x + r.width), bottom: Int32(r.y + r.height)))
-            _ = InvalidateRect(c.hwnd, nil, false)
+            let target = RECT(left: Int32(r.x), top: Int32(r.y), right: Int32(r.x + r.width), bottom: Int32(r.y + r.height))
+            // Moved or new: placed and repainted. One that stays where it is is repainted by the view's own redraw (RDW_ALLCHILDREN over
+            // what changed), not once more here for every item on every render (a hover over the grid repainted all 40 of them).
+            let now = WinKit.rect(c.hwnd, in: hwnd)
+            if now.left != target.left || now.top != target.top || now.right != target.right || now.bottom != target.bottom {
+                WinKit.move(c.hwnd, target)
+                _ = InvalidateRect(c.hwnd, nil, false)
+            }
         }
     }
 

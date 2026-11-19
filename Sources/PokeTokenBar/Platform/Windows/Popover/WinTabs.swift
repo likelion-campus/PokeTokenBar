@@ -169,7 +169,8 @@ extension WinHomePage {
         let host = WinTabHost(page: self, stack: page, popover: tabPopover)
         tabContent = WinTabPages.content(for: builtTab, host: host)
         if let content = tabContent { configureTabContent?(content) }  // a harness sets what the content does before it builds
-        tabContent?.build()
+        WinOpenTrace.relabel("HomePage/\(builtTab)")   // the trace names the tab, not only the frame
+        WinOpenTrace.step("tab \(builtTab) build") { tabContent?.build() }
     }
 }
 #endif

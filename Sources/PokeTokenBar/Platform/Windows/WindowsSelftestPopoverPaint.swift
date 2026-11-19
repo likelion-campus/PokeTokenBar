@@ -122,6 +122,28 @@ import WinSDK
                 card = "card at (\(x0),\(y0)) radius \(rad): corner pixels that are neither window, card nor border = \(cardMid) (aliased: 0), centre is the card colour=\(inside)"
             }
         }
+        // A DC with a viewport origin of its own (what a child window's WM_PRINTCLIENT hands out): the first K2 version drew the
+        // plain GDI shape there and logged a stale "failed" line; the painter must draw it antialiased, shifted by the origin.
+        var originOK = false, originNote = "no canvas"
+        if let shifted = Canvas(size + 20, size + 20, background: white) {
+            let fallbacks0 = WinPaint.fallbacks
+            _ = SetViewportOrgEx(shifted.dc, 10, 7, nil)
+            WinPaint.roundedRect(shifted.dc, box, radius: radius, fill: WinPaint.Ink(color: ink), under: white, ctx: ctx)
+            _ = SetViewportOrgEx(shifted.dc, 0, 0, nil)
+            let corner = intermediate(shifted, x0: 10, y0: 7, size: Int(radius), known: known)
+            let moved = shifted.pixel(10 + size / 2, 7 + size / 2) == ink && shifted.pixel(2, 2) == white
+            // The twin of the old behaviour (windows-port before this fix drew exactly this in such a DC: the GDI shape): the same measure must
+            // find nothing in it, or the measure is blind to the very fault the case guards.
+            var twinCorner = -1
+            if let twin = Canvas(size + 20, size + 20, background: white) {
+                _ = SetViewportOrgEx(twin.dc, 10, 7, nil)
+                gdiRoundRect(twin, box, radius: radius, fill: ink)
+                _ = SetViewportOrgEx(twin.dc, 0, 0, nil)
+                twinCorner = intermediate(twin, x0: 10, y0: 7, size: Int(radius), known: known)
+            }
+            originOK = corner >= 3 && moved && WinPaint.fallbacks == fallbacks0 && twinCorner == 0
+            originNote = "viewport origin (10,7): \(corner) antialiased corner pixels at the shifted place (the old GDI fallback in the same DC, the fault twin: \(twinCorner), must be 0), fill moved=\(moved), GDI fallbacks +\(WinPaint.fallbacks - fallbacks0)"
+        }
         // What a bind costs on this machine (informational: the open-cost budget counts frames, and a paint per card was too many):
         // one 330 x 120 card per bind, and eight of them in one bind.
         var timing = "no canvas"
@@ -148,11 +170,11 @@ import WinSDK
         }
         var drawn: UInt64 = 0, failed: UInt64 = 0
         ptb_paint_stats(&drawn, &failed)
-        let ok = mid >= 3 && midControl == 0 && cornerOutside && centre && crisp && blended && cardOK && failed == 0 && drawn > 0
+        let ok = mid >= 3 && midControl == 0 && cornerOutside && centre && crisp && blended && cardOK && originOK && failed == 0 && drawn > 0
         r.add("ui.kit.paint", ok,
               "painter: radius \(radius) corner box has \(mid) antialiased pixels (the same shape through GDI RoundRect, the negative control: \(midControl), must be 0 or the measure is blind), "
               + "pixel (0,0) outside=\(cornerOutside), centre is the fill=\(centre), 1 px stroke crisp on whole pixels=\(crisp), 40 % black over white -> \(g) (expected 153+-3); \(card); "
-              + "batches drawn \(drawn) failed \(failed); \(timing)")
+              + "\(originNote); batches drawn \(drawn) failed \(failed), GDI fallbacks \(WinPaint.fallbacks); \(timing)")
     }
 
     private static func focusRingCheck(_ r: WindowsSelftest.Recorder, _ w: KitWindow) {

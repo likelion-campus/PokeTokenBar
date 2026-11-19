@@ -160,6 +160,7 @@ private struct CollectionFixtureNames: PokemonNameProviding {
         let start = KitResources.now()
         await gridCheck(r)
         await pagingCheck(r)
+        await hoverCostCheck(r)
         await filtersCheck(r)
         await representativeCheck(r)
         await emptyCheck(r)
@@ -247,6 +248,42 @@ private struct CollectionFixtureNames: PokemonNameProviding {
     }
 
     // MARK: collection.paging
+
+    /// Field report 2026-11-19 (a real PC): the Pokédex flickers and is slow. Every render of the grid (a hover frame, a sprite) repainted all of
+    /// its ~40 item windows (erase and paint each), and a model change made them all again. Moving the pointer across twelve cells must repaint
+    /// only the windows near the pointer: the paint and erase messages of the popover's windows are counted (drawn views left out), the item
+    /// windows must not be made again, and the windows the pointer never touched must not repaint.
+    private static func hoverCostCheck(_ r: WindowsSelftest.Recorder) async {
+        guard let (h, page) = await harness(120, language: .en), let view = page.dexView, let part = page.dexPart else { r.add("collection.hoverCost", false, "no page"); return }
+        defer { h.destroy() }
+        h.window.show(activate: true)
+        await wait(0.5)
+        let cells = items(view, DexBodyPart.cellAction)
+        let all = view.items.count
+        guard cells.count >= 12 else { r.add("collection.hoverCost", false, "\(cells.count) cells"); return }
+        let builds0 = view.stats.itemBuilds, moves0 = view.stats.itemMoves
+        WinPaintSpy.start(h.window.hwnd)
+        for cell in cells.prefix(12) {
+            var rect = RECT()
+            _ = GetWindowRect(cell.hwnd, &rect)
+            var at = POINT(x: (rect.left + rect.right) / 2, y: (rect.top + rect.bottom) / 2)
+            _ = ScreenToClient(view.hwnd, &at)
+            part.setPointer(CGPoint(x: CGFloat(at.x) / view.ctx.scale, y: CGFloat(at.y) / view.ctx.scale))
+            await wait(0.08)
+        }
+        await wait(0.3)
+        let counts = WinPaintSpy.counts
+        WinPaintSpy.stop()
+        let messages = counts.sent + counts.queued
+        // 12 moves, each repainting the two cells it touches and the item windows over them: about 7 windows, 3 messages each (erase, non-client
+        // paint, paint). Before the fix every move repainted every item window: \(all) x 3 per move (computed, not measured).
+        let budget = 12 * 25   // measured 250 on the runner (about 7 windows per move, 3 messages each); a full repaint is 12 x 29 x 3 = 1044
+        let ok = view.stats.itemBuilds == builds0 && messages <= budget
+        r.add("collection.hoverCost", ok,
+              "12 hovers over the grid with \(all) item windows: paint/erase messages to the popover's windows (drawn views left out) \(messages) (budget \(budget); a full repaint per move would be \(12 * all * 3)), "
+              + "item rebuilds +\(view.stats.itemBuilds - builds0), frames with a paint \(counts.frames), item moves \(view.stats.itemMoves - moves0)"
+              + (ok ? "" : "; OVER BUDGET"))
+    }
 
     private static func pagingCheck(_ r: WindowsSelftest.Recorder) async {
         var problems: [String] = [], notes: [String] = []

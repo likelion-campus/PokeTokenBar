@@ -16,16 +16,26 @@ import CPlazaD2D
         var alpha: Double = 1
     }
 
-    private static var loggedFallback = false
+    private static var loggedFallback = false, loggedStart = false
+    /// Draws that fell back to GDI since the process started, and the painter's own reason for the last failure (never an older call's).
+    private(set) static var fallbacks = 0
+    private(set) static var lastFailure = ""
     /// Binds of the painter and the milliseconds they took, since the process started (the open-cost selftest prints them).
     private(set) static var binds = 0
     private(set) static var bindMs = 0.0
 
     private static func bind(_ dc: HDC, _ b: RECT, _ shapes: inout [PTBPaintShape]) -> Int32 {
         let t0 = WinOpenTrace.now()
+        // BindDC takes the DC's logical coordinates and Direct2D applies the DC's viewport origin itself (a child's, in WM_PRINTCLIENT):
+        // adding the origin here drew the shape twice as far away (measured on the runner).
         let code = ptb_paint_shapes(UnsafeMutableRawPointer(dc), b.left, b.top, b.right, b.bottom, &shapes, UInt32(shapes.count))
         binds += 1
         bindMs += WinOpenTrace.now() - t0
+        if code >= 0, !loggedStart {
+            loggedStart = true
+            AppLog.write("popover kit: the antialiased painter is active (Direct2D software target, first shape drawn)")
+        }
+        if code < 0 { lastFailure = String(cString: ptb_plaza_last_error()) }
         return code
     }
 
@@ -68,15 +78,6 @@ import CPlazaD2D
         }
         guard bounds.right > bounds.left, bounds.bottom > bounds.top, let seen = visible(dc, bounds) else { return }
         bounds = seen
-        // A DC with an origin of its own (a child's, in WM_PRINTCLIENT): the painter's bind takes device coordinates, so it would draw
-        // somewhere else; those rare edge paints are the plain GDI shape.
-        var origin = POINT()
-        if GetViewportOrgEx(dc, &origin), origin.x != 0 || origin.y != 0 {
-            for item in drawn where intersects(item.rect, bounds) {
-                fallback(dc, item.rect, radius: item.radius, fill: item.fill, stroke: item.stroke, strokeWidth: item.strokeWidth, under: under, ctx: ctx)
-            }
-            return
-        }
         var shapes: [PTBPaintShape] = []
         for item in drawn where intersects(item.rect, bounds) {
             let fillARGB: UInt32 = item.fill.map { argb($0.color, alpha: $0.alpha) } ?? 0
@@ -133,9 +134,10 @@ import CPlazaD2D
     /// The aliased GDI shape: what every site drew before the painter.
     private static func fallback(_ dc: HDC, _ r: RECT, radius: Int32, fill: Ink?, stroke: Ink?, strokeWidth: Int32, under: COLORREF,
                                  ctx: WinUIContext) {
+        fallbacks += 1
         if !loggedFallback {
             loggedFallback = true
-            AppLog.write("popover kit: the antialiased painter failed (\(String(cString: ptb_plaza_last_error()))); shapes are drawn with GDI")
+            AppLog.write("popover kit: the antialiased painter failed (\(lastFailure.isEmpty ? "no reason reported" : lastFailure)); this shape is drawn with GDI, the next one tries the painter again")
         }
         func solid(_ i: Ink) -> COLORREF { i.alpha >= 1 ? i.color : WinUIColors.blend(under, i.color, i.alpha) }
         let pen = stroke.flatMap { CreatePen(0 /* PS_SOLID */, strokeWidth, solid($0)) } ?? CreatePen(5 /* PS_NULL */, 0, 0)

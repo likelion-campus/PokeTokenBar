@@ -110,6 +110,9 @@ private func winPaintSpyQueued(_ code: Int32, _ wParam: WPARAM, _ lParam: LPARAM
         var spy = WinPaintSpy.Counts()
         /// K2: the antialiased painter's binds and the milliseconds they took during this change.
         var painter = ""
+        /// GDI fallbacks of the painter since the process started (a real launch draws none), and its last failure text.
+        var painterFallbacks = 0
+        var painterFailure = ""
         var frameNotes = ""
         var clickToSettledMs = 0.0
         var descendants = 0
@@ -145,6 +148,7 @@ private func winPaintSpyQueued(_ code: Int32, _ wParam: WPARAM, _ lParam: LPARAM
             if t.windows > descendants + 4 { bad.append("\(t.windows) windows made for \(descendants) in the window") }
             if clickToSettledMs > maxMs { bad.append("click->settled \(Int(clickToSettledMs)) ms (budget \(Int(maxMs)))") }
             if let worst = t.steps.max(by: { $0.ms < $1.ms }), worst.ms > maxStepMs { bad.append("step \(worst.name) \(Int(worst.ms)) ms (budget \(Int(maxStepMs)))") }
+            if painterFallbacks > 0 { bad.append("the antialiased painter fell back to GDI \(painterFallbacks) time(s) since the process started: \(painterFailure)") }
             if !(stillOpen && foreground && visible) { bad.append("popover open=\(stillOpen) foreground=\(foreground) visible=\(visible)") }
             if !dwmMatches { bad.append("the compositor's frame differs from the window's") }
             return bad
@@ -333,6 +337,8 @@ private func winPaintSpyQueued(_ code: Int32, _ wParam: WPARAM, _ lParam: LPARAM
     }
 
     private static func fill(_ s: inout Swap, _ popover: WinPopover) {
+        s.painterFallbacks = WinPaint.fallbacks
+        s.painterFailure = WinPaint.lastFailure
         guard let hwnd = popover.hwndForTesting else { return }
         s.stillOpen = popover.isOpen
         s.foreground = GetForegroundWindow() == hwnd

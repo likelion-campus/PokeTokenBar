@@ -92,6 +92,7 @@ import WinSDK
 
     func build() {
         stats.builds += 1
+        var lap = WinOpenTrace.Lap()
         let stack = host.stack
         stack.useMetrics(.collection)
         let section = stack.addSection(nil, card: false)
@@ -107,12 +108,14 @@ import WinSDK
             emptyPart = part
             return view.control
         }
+        lap.mark("empty view")
         // the segment
         segmentRow = section.addRow(nil, style: .full, accessibleName: nil) { [self] pane, ctx in
             segment = WinControls.radioGroup([l.dexTitle, l.catchLogTitle], selected: showingLog ? 1 : 0, in: pane, ctx: ctx)
             segment?.onSelect = { [weak self] i in self?.selectSegment(i) }
             return segment
         }
+        lap.mark("segment")
         // the filter bar
         toolbarRow = section.addStyledRow(label: nil, style: .full) { [self] pane, ctx in
             toolbar = WinComposite(parent: pane, ctx: ctx) { child in
@@ -141,6 +144,7 @@ import WinSDK
         let segH = (segment?.preferredSize.height ?? 0) / ctx.scale
         let barH = (toolbar?.control.preferredSize.height ?? 0) / ctx.scale
         bodyHeight = max(160, Self.contentHeight - segH - barH - 2 * 6)
+        lap.mark("toolbar")
         // the Pokédex
         dexRow = section.addStyledRow(label: nil, style: .full) { [self] pane, ctx in
             guard let view = try? WinDrawnView(parent: pane, ctx: ctx) else { return nil }
@@ -153,7 +157,9 @@ import WinSDK
             dexPart = part
             return view.control
         }
+        lap.mark("dex view")
         refresh()
+        lap.mark("refresh")
         started()
     }
 
