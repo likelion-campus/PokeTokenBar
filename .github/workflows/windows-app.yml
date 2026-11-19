@@ -552,7 +552,7 @@ jobs:
         shell: pwsh
         run: |
           $j = Get-Content st.json -Raw | ConvertFrom-Json
-          $names = 'popover.customDraw', 'popover.customDraw.fault', 'popover.hoverRepaint', 'popover.hoverRepaint.fault'
+          $names = 'popover.customDraw', 'popover.customDraw.fault', 'popover.hoverRepaint', 'popover.hoverRepaint.fault', 'popover.glyphContrast', 'popover.glyphContrast.fault'
           $bad = @()
           foreach ($n in $names) {
               $c = $j.checks | Where-Object { $_.name -eq $n }
