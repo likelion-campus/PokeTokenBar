@@ -31,6 +31,11 @@ import WinSDK
         /// `…InBuild`: those inside a build to a window on screen (a half-built page the user sees). A control erasing itself
         /// while its window is hidden or not drawing draws nothing and is not counted there.
         var paints = 0, erases = 0, paintsInBuild = 0, erasesInBuild = 0, drawnPaints = 0
+        /// Times a drawn view made its item windows again (a model change), and the paints and erases by window class (the busiest few).
+        var itemBuilds = 0
+        var paintsByClass: [String: Int] = [:], erasesByClass: [String: Int] = [:]
+        /// Where the page's activity went on to after it first stood still (sprites arriving, a clock): not part of `settledMs`.
+        var activityMs = 0.0
         var steps: [Step] = []
 
         var slow: [Step] { steps.filter { $0.ms >= WinOpenTrace.slowMs } }
@@ -39,19 +44,24 @@ import WinSDK
             func ms(_ v: Double) -> String { String(Int(v.rounded())) }
             let parts = steps.map { "\($0.name) \(ms($0.ms))" }.joined(separator: ", ")
             let slowParts = slow.map { "\($0.name) \(ms($0.ms)) ms" }.joined(separator: ", ")
-            return "popover page \(page) via \(via): build \(ms(buildMs)) ms in \(builds) build(s), settled \(ms(settledMs)) ms; "
+            func top(_ d: [String: Int]) -> String { d.sorted { $0.value > $1.value }.prefix(4).map { "\($0.key) \($0.value)" }.joined(separator: ", ") }
+            let tail = activityMs - settledMs > 100 ? " (activity went on to \(ms(activityMs)) ms)" : ""
+            return "popover page \(page) via \(via): build \(ms(buildMs)) ms in \(builds) build(s), first quiet \(WinOpenTrace.quietMs) ms at \(ms(settledMs)) ms\(tail); item rebuilds \(itemBuilds); "
                 + "layouts \(layouts) (\(layoutsOnScreen) on screen), refreshes \(refreshes), windows made \(windows); paints \(paints) (\(paintsInBuild) on screen inside a build), "
-                + "erases \(erases) (\(erasesInBuild) on screen inside a build), drawn-view paints \(drawnPaints); steps (ms): \(parts.isEmpty ? "-" : parts); "
+                + "erases \(erases) (\(erasesInBuild) on screen inside a build), drawn-view paints \(drawnPaints); paints by class [\(top(paintsByClass))], erases by class [\(top(erasesByClass))]; steps (ms): \(parts.isEmpty ? "-" : parts); "
                 + "slow (>= \(Int(WinOpenTrace.slowMs)) ms): \(slowParts.isEmpty ? "none" : slowParts)"
         }
     }
 
-    enum Event { case layout, refresh, window, paint, erase, drawnPaint }
+    enum Event { case layout, refresh, window, paint, erase, drawnPaint, itemBuild }
 
     /// How long after its start a trace keeps counting: the field report's five seconds, twice.
     nonisolated static let window = 10_000.0
     /// A step at least this long is named in the log line as slow (a frame and more of a blocked main thread).
     nonisolated static let slowMs = 20.0
+    /// "Settled" is the first stretch of this many milliseconds without any change of the page (the first complete picture); changes after it
+    /// (sprites arriving one by one, a clock) are `activityMs`.
+    nonisolated static let quietMs = 250.0
 
     private(set) static var current: WinOpenTrace?
     /// The report of the trace that ended last (the selftest reads it).
@@ -136,12 +146,15 @@ import WinSDK
             if onScreen, moved { c.report.layoutsOnScreen += 1 }
         case .refresh: c.report.refreshes += 1
         case .window: c.report.windows += 1
+        case .itemBuild: c.report.itemBuilds += 1
         case .paint:
             c.report.paints += 1
             if inBuild { c.report.paintsInBuild += 1 }
+            if let hwnd { c.report.paintsByClass[WinKit.className(hwnd), default: 0] += 1 }
         case .erase:
             c.report.erases += 1
             if inBuild { c.report.erasesInBuild += 1 }
+            if let hwnd { c.report.erasesByClass[WinKit.className(hwnd), default: 0] += 1 }
         case .drawnPaint:
             c.report.drawnPaints += 1
             return   // a drawn view's own animation is not the page changing
@@ -161,9 +174,16 @@ import WinSDK
         AppLog.write(c.report.line)
     }
 
+    private var settledFrozen = false
+
     private func touch(_ t: Double) {
+        if !settledFrozen, t - lastActivity > Self.quietMs { settledFrozen = true }   // the page stood still: the rest is activity
         lastActivity = max(lastActivity, t)
-        report.settledMs = lastActivity - start
+        report.activityMs = lastActivity - start
+        if !settledFrozen { report.settledMs = lastActivity - start }
     }
+
+    /// Names the page the running trace is about by what it shows (a tab's content under the one Home frame).
+    static func relabel(_ name: String) { current?.report.page = name }
 }
 #endif
