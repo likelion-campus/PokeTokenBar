@@ -101,8 +101,12 @@ extension WindowsSelftest {
 
     static func run(_ r: WindowsSelftest.Recorder, _ app: WindowsAppDelegate) async {
         guard let host = app.tray else { r.add("popover.darkMenu", false, "no tray host"); return }
+        var dropDown: WinControl?
         guard let w = KitWindow(heightDIP: 300, register: true, origin: POINT(x: 40, y: 40), build: { _, s in
-            _ = s.addSection("Menu").addRow("Name") { pane, ctx in WinControls.edit(.text(cue: "Name"), text: "x", width: 160, in: pane, ctx: ctx) }
+            let section = s.addSection("Menu")
+            _ = section.addRow("Name") { pane, ctx in WinControls.edit(.text(cue: "Name"), text: "x", width: 160, in: pane, ctx: ctx) }
+            // the real K4 drop-down (a Settings picker): its own `openMenu`, not a hand-made `WinPopupMenu.run`
+            dropDown = section.addRow("Language") { pane, ctx in WinControls.combo(["English", "한국어", "日本語"], selected: 1, in: pane, ctx: ctx) }.control
         }) else { r.add("popover.darkMenu", false, "no kit window"); return }
         defer { w.destroy() }
         w.show(activate: true)
@@ -126,8 +130,15 @@ extension WindowsSelftest {
             Surface(name: "tray", owner: app.sink.hwnd) { host.openMenu(at: POINT(x: 300, y: 300)) },
             Surface(name: "popup", owner: w.hwnd) { _ = WinPopupMenu.run(items, at: POINT(x: 120, y: 160), owner: w.hwnd, below: true) },
         ]
+        if let dropDown { surfaces.append(Surface(name: "dropDown", owner: w.hwnd) { dropDown.openMenu() }) }
         if let edit { surfaces.append(Surface(name: "textbox", owner: edit) { _ = SendMessageW(edit, 0x007B /* WM_CONTEXTMENU */, WPARAM(UInt(bitPattern: Int(bitPattern: edit))), -1) }) }
         decisions(r)
+        guard WindowsSelftest.onCI else {
+            for name in ["popover.darkMenu", "popover.darkMenu.fault"] {
+                r.add(name, true, "skipped: not CI (the check opens real menus over the desktop and takes the foreground for them)")
+            }
+            return
+        }
         let darkResult = await evaluate(dark: true, surfaces)
         let lightResult = await evaluate(dark: false, surfaces)
         let problems = darkResult.problems + lightResult.problems
@@ -170,6 +181,7 @@ extension WindowsSelftest {
         }
     }
     private static func writeHighContrast(_ flags: UInt32, scheme: String) -> Bool {
+        guard WindowsSelftest.onCI else { return false }  // a system-wide theme: CI only
         var buffer = WinStr.w(scheme.isEmpty ? "High Contrast White" : scheme)
         return buffer.withUnsafeMutableBufferPointer { b in
             var hc = HIGHCONTRASTW()

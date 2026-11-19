@@ -202,7 +202,7 @@ extension WindowsSelftest {
 
     func choose(_ combo: WinControl?, _ index: Int) {
         guard let combo, let parent = GetParent(combo.hwnd) else { return }
-        WinKit.send(combo.hwnd, 0x014E /* CB_SETCURSEL */, index)
+        combo.selection = index
         let id = Int(GetDlgCtrlID(combo.hwnd))
         _ = SendMessageW(parent, UINT(WM_COMMAND), WPARAM(UInt(id & 0xFFFF) | (1 << 16) /* CBN_SELCHANGE */), LPARAM(Int(bitPattern: UnsafeMutableRawPointer(combo.hwnd))))
     }
@@ -224,6 +224,7 @@ extension WindowsSelftest {
     }
 
     func key(_ vk: UInt16, ctrl: Bool = false) {
+        guard WindowsSelftest.onCI else { return }  // real keys: CI only
         var inputs: [INPUT] = []
         func ki(_ code: UInt16, up: Bool) -> INPUT {
             var i = INPUT()
@@ -239,9 +240,13 @@ extension WindowsSelftest {
         _ = SendInput(UINT(inputs.count), &inputs, Int32(MemoryLayout<INPUT>.stride))
     }
 
-    func clipboard(_ text: String) -> Bool { WinTextClipboard.write(text, secret: true, owner: probe.hwnd) }
+    func clipboard(_ text: String) -> Bool {
+        guard WindowsSelftest.onCI else { return false }  // writes the clipboard: CI only
+        return WinTextClipboard.write(text, secret: true, owner: probe.hwnd)
+    }
 
     func clearClipboard() {
+        guard WindowsSelftest.onCI else { return }  // the clipboard: CI only
         if OpenClipboard(probe.hwnd) { _ = EmptyClipboard(); _ = CloseClipboard() }
     }
 
@@ -777,6 +782,13 @@ extension WindowsSelftest {
     // MARK: captures (--dump-ui): FIXTURE data, the real page in the runner's popover window
 
     func captureChecks(_ dir: URL) async {
+        // The pass sets Windows' text size (HKCU\Software\Microsoft\Accessibility\TextScaleFactor, a system-wide setting) to 100 % and 150 %
+        // and puts it back. That is for the runner only; on a person's PC nothing is written (the layout at other text sizes is held by
+        // the kit window's injected text scale: ui.kit.capture "text150", the label cut/squeezed checks).
+        guard WindowsSelftest.onCI else {
+            r.add("settings.capture", true, "skipped: not CI. The sample capture changes Windows' text size (a system-wide registry value) and restores it, so it runs only on the runner")
+            return
+        }
         var wrote: [String] = []
         var failed: [String] = []
         let previousScale = WinRegistry.bytes("Software\\Microsoft\\Accessibility", "TextScaleFactor")

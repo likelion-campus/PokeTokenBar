@@ -154,6 +154,7 @@ extension WindowsApp {
         popoverToClose?.close(.quit)  // stage 7 Task 4
         WinDefaultsSync.flushNow()
         WindowsCrashLog.markClean()
+        if reason == .selftest { WinDefaultsSync.removeSelftestSuiteFile() }  // the selftest's own, empty settings file (nothing of a person's)
         if let line = WinPlazaLive.openPlazaLine { AppLog.write(line) }  // an open plaza's counters (idle measurements read them)
         AppLog.writeAndFlush("exit code=\(code) reason=\(reason.rawValue)")
         trayToRemove?.remove()

@@ -11,6 +11,7 @@ extension WindowsSelftest {
     private static let scanShift: UInt32 = 0x2A, scanControl: UInt32 = 0x1D, scanAlt: UInt32 = 0x38
 
     private static func sendScan(_ scan: UInt32, extended: Bool = false, up: Bool) {
+        guard WindowsSelftest.onCI else { return }  // real input: CI only
         var input = INPUT()
         input.type = DWORD(INPUT_KEYBOARD)
         input.ki.wScan = WORD(scan)
@@ -19,6 +20,7 @@ extension WindowsSelftest {
     }
 
     private static func sendMouse(_ flags: Int32) {
+        guard WindowsSelftest.onCI else { return }  // real input: CI only
         var input = INPUT()
         input.type = DWORD(INPUT_MOUSE)
         input.mi.dwFlags = DWORD(flags)
