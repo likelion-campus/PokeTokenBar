@@ -248,7 +248,7 @@ private struct CollectionFixtureNames: PokemonNameProviding {
             _ = GetWindowRect(cell.hwnd, &rect)
             var at = POINT(x: (rect.left + rect.right) / 2, y: (rect.top + rect.bottom) / 2)
             _ = ScreenToClient(view.hwnd, &at)
-            part.setPointer(CGPoint(x: CGFloat(at.x) / h.ctx.scale, y: CGFloat(at.y) / h.ctx.scale))
+            part.setPointer(CGPoint(x: CGFloat(at.x) / view.ctx.scale, y: CGFloat(at.y) / view.ctx.scale))
             await wait(0.08)
         }
         await wait(0.3)
