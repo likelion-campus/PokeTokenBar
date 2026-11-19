@@ -257,7 +257,8 @@ extension WindowsSelftest {
         let paints = after.paints - before.paints, erases = after.erases - before.erases
         // entering a segment repaints it and the one it left: at most 2; the 29 further moves repaint nothing
         if perSegment.contains(where: { $0 > 2 }) { problems.append("a run of 30 moves inside one control repainted \(perSegment) times (at most 2 each: the entered and the left)") }
-        if erases != 0 { problems.append("hovering asked for \(erases) background erases") }
+        // an erase request is answered with "done" (nothing is drawn); the first paint of a window may still carry one, a move must not
+        if erases > perSegment.count { problems.append("hovering asked for \(erases) background erases for \(perSegment.count) controls: they grow with the moves") }
         if blits != paints { problems.append("\(paints) paints but \(blits) whole-picture blits: a paint drew in steps on the window's own DC") }
         return (problems, "repaints per control \(perSegment), erases \(erases), blits \(blits) of \(paints) paints")
     }
