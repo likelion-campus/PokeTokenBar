@@ -234,6 +234,16 @@ import WinSDK
         bytes.withUnsafeBytes { bits.copyMemory(from: $0.baseAddress!, byteCount: min($0.count, w * h * 4)) }
     }
 
+    /// SELFTEST: how many pixels of the composed picture inside `r` (view pixels) are not fully transparent.
+    func pictureInk(_ r: RECT) -> Int {
+        guard let bits else { return -1 }
+        let w = Int(pixelSize.cx), h = Int(pixelSize.cy)
+        let p = bits.assumingMemoryBound(to: UInt8.self)
+        var n = 0
+        for y in max(0, Int(r.top))..<min(h, Int(r.bottom)) { for x in max(0, Int(r.left))..<min(w, Int(r.right)) where p[(y * w + x) * 4 + 3] != 0 { n += 1 } }
+        return n
+    }
+
     private func makeBitmap() {
         releaseBitmap()
         var info = BITMAPINFO()

@@ -254,6 +254,16 @@ private struct CollectionFixtureNames: PokemonNameProviding {
         defer { h.destroy() }
         func footer() -> String { page.dexPart?.model.footer.pageText ?? "-" }
         dump(h, "pager-first")   // page 1 of 8: the previous arrow is the disabled one
+        // what is on the real window, not what the part would draw: the enabled arrow's pixels against the window (the user's report was
+        // about this, and the offscreen check in popover.glyphContrast could not see a paint path that hides the arrow)
+        func liveArrow(_ action: String, _ label: String) {
+            guard let item = items(view, action).first, let shot = capture(h.window.hwnd) else { problems.append("\(label): no item or capture"); return }
+            let rc = WinKit.rect(item.hwnd, in: h.window.hwnd), inView = WinKit.rect(item.hwnd, in: view.hwnd)
+            let ratio = glyphRatio(shot, fillAt: (Int(rc.left) + 2, Int(rc.top) + 2), x0: Int(rc.left) + 2, y0: Int(rc.top) + 2, x1: Int(rc.right) - 2, y1: Int(rc.bottom) - 2)
+            notes.append("live \(label) \(String(format: "%.1f", ratio)):1 (window box \(rc.left),\(rc.top)-\(rc.right),\(rc.bottom); picture pixels there \(view.pictureInk(inView)))")
+            if ratio < 3 { problems.append("the \(label) arrow is \(String(format: "%.2f", ratio)):1 on the real window (picture pixels in its box: \(view.pictureInk(inView)))") }
+        }
+        liveArrow(DexBodyPart.nextAction, "next (page 1)")
         // the wheel: a notch down (negative delta) is the next page
         _ = SendMessageW(view.hwnd, 0x020A, WPARAM(UInt(bitPattern: Int(-120)) << 16), 0)
         await wait(0.2)
@@ -269,6 +279,7 @@ private struct CollectionFixtureNames: PokemonNameProviding {
         while footer() != "8 / 8", guardCount < 10 { press(items(view, DexBodyPart.nextAction).first); await wait(0.15); guardCount += 1 }
         if footer() != "8 / 8" { problems.append("last page: \(footer())") }
         dump(h, "pager-last")     // page 8 of 8: the next arrow is the disabled one
+        liveArrow(DexBodyPart.prevAction, "previous (page 8)")
         press(items(view, DexBodyPart.prevAction).first)
         await wait(0.2)
         if footer() != "7 / 8" { problems.append("previous: \(footer())") }
