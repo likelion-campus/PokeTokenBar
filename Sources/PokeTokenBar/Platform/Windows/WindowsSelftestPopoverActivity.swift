@@ -313,7 +313,9 @@ enum ActivityFixtures {
                     + "first paint \(String(format: "%.0f", firstPaint)) ms, \(tree.nodes.count) windows, \(checks.summary)"
                 ok = checks.ok && panelNamed && streakNamed && menuNamed && bytes > 0
                 let target = input.series.max { $0.totalTokens < $1.totalTokens }?.date ?? input.today  // the tallest bar: a floor tick is two pixels to hit
-                if v.hover, let bars = s.bars, let p = point(of: target, bars), let item = s.panelView?.items.last {
+                if v.hover, !WindowsSelftest.onCI {
+                    note += ", hover card skipped: not CI (it needs the real pointer over the chart)"
+                } else if v.hover, let bars = s.bars, let p = point(of: target, bars), let item = s.panelView?.items.last {
                     cursor(over: item.hwnd, Int((p.x * w.ctx.scale).rounded()), Int((p.y * w.ctx.scale).rounded()) - Int((bars.titleRect(graphics: PlatformPlaza.graphics).maxY * w.ctx.scale).rounded()))
                     await wait(0.4)
                     if let card = s.card, card.isShown, inked(card) > 500 {
