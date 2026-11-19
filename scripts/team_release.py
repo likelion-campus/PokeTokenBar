@@ -478,6 +478,13 @@ def check_release_manifest(ctx, manifest, args, app_run_id, app_attempt, local, 
     _expect(problems, where + " runAttempt (the run's attempt)", manifest.get("runAttempt"), app_attempt)
     if not re.fullmatch(r"[0-9a-f]{40}", str(manifest.get("workflowSha"))):
         problems.append(where + " workflowSha is %s, expected a commit SHA" % json.dumps(manifest.get("workflowSha")))
+    pins_path = Path(__file__).resolve().parent / "windows" / "build-pins.json"
+    try:
+        crypto_pin = json.loads(pins_path.read_text()).get("swiftCrypto")
+    except (OSError, ValueError):
+        crypto_pin = None
+    if crypto_pin is not None:  # the release links the swift-crypto that scripts/windows/build-pins.json names
+        _expect(problems, where + " swiftCrypto (the pin in scripts/windows/build-pins.json)", manifest.get("swiftCrypto"), crypto_pin)
     for key in ("runnerImage", "swift", "msvcToolset", "windowsSdk", "innoSetup", "openssl", "swiftCrypto"):
         if not isinstance(manifest.get(key), str) or not manifest[key]:
             problems.append(where + " %s is %s, expected text" % (key, json.dumps(manifest.get(key))))

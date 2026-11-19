@@ -720,6 +720,7 @@ class CollectTests(HelperTest):
             "no swift version": (lambda m: m.pop("swift"), "swift is null, expected text"),
             "no windows sdk": (lambda m: m.pop("windowsSdk"), "windowsSdk is null, expected text"),
             "no inno setup": (lambda m: m.pop("innoSetup"), "innoSetup is null, expected text"),
+            "another swift-crypto than the pin": (lambda m: m.update(swiftCrypto="3.99.0"), "swiftCrypto (the pin in scripts/windows/build-pins.json)"),
             "no swift-crypto": (lambda m: m.pop("swiftCrypto"), "swiftCrypto is null, expected text"),
             "no openssl": (lambda m: m.pop("openssl"), "openssl is null, expected text"),
             "no msvc toolset": (lambda m: m.pop("msvcToolset"), "msvcToolset is null, expected text"),
