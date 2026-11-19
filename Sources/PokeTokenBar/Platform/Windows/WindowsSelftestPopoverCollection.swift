@@ -298,6 +298,32 @@ private struct CollectionFixtureNames: PokemonNameProviding {
             let rc = WinKit.rect(item.hwnd, in: h.window.hwnd), inView = WinKit.rect(item.hwnd, in: view.hwnd)
             let ratio = glyphRatio(shot, fillAt: (Int(rc.left) + 2, Int(rc.top) + 2), x0: Int(rc.left) + 2, y0: Int(rc.top) + 2, x1: Int(rc.right) - 2, y1: Int(rc.bottom) - 2)
             notes.append("live \(label) \(String(format: "%.1f", ratio)):1 (window box \(rc.left),\(rc.top)-\(rc.right),\(rc.bottom); picture pixels there \(view.pictureInk(inView)))")
+            // DIAGNOSTICS (why the picture's ink is not on the window): which item windows cover the arrow's box, the item painted alone, and the
+            // view painted with the item hidden
+            var covering: [String] = []
+            for other in view.items {
+                let o = WinKit.rect(other.hwnd, in: view.hwnd)
+                if o.left < inView.right, o.right > inView.left, o.top < inView.bottom, o.bottom > inView.top {
+                    covering.append("\(other.text) [\(o.left),\(o.top)-\(o.right),\(o.bottom)] visible=\(IsWindowVisible(other.hwnd)) z=\(GetWindow(other.hwnd, 3 /* GW_HWNDPREV */) == nil ? "top" : "behind")")
+                }
+            }
+            var alone = "n/a"
+            var w: UInt32 = 0, ht: UInt32 = 0
+            var out: UnsafeMutablePointer<UInt8>?
+            if ptb_window_print(UnsafeMutableRawPointer(item.hwnd), &w, &ht, &out) == 0, let out {
+                let bmp = WinUIDump.Bitmap(width: Int(w), height: Int(ht), bgra: Array(UnsafeBufferPointer(start: out, count: Int(w * ht) * 4)))
+                ptb_plaza_free(out)
+                alone = String(format: "%.2f", glyphRatio(bmp, fillAt: (2, 2), x0: 2, y0: 2, x1: Int(w) - 2, y1: Int(ht) - 2))
+            }
+            _ = ShowWindow(item.hwnd, 0 /* SW_HIDE */)
+            _ = InvalidateRect(view.hwnd, nil, false)
+            _ = UpdateWindow(view.hwnd)
+            var without = "n/a"
+            if let shot2 = capture(h.window.hwnd) {
+                without = String(format: "%.2f", glyphRatio(shot2, fillAt: (Int(rc.left) + 2, Int(rc.top) + 2), x0: Int(rc.left) + 2, y0: Int(rc.top) + 2, x1: Int(rc.right) - 2, y1: Int(rc.bottom) - 2))
+            }
+            _ = ShowWindow(item.hwnd, 5 /* SW_SHOW */)
+            notes.append("DIAG \(label): covering \(covering); item alone \(alone):1; view with the item hidden \(without):1")
             if ratio < 3 { problems.append("the \(label) arrow is \(String(format: "%.2f", ratio)):1 on the real window (picture pixels in its box: \(view.pictureInk(inView)))") }
         }
         liveArrow(DexBodyPart.nextAction, "next (page 1)")
