@@ -233,8 +233,7 @@ import WinSDK
         if let start = coreStartRow.control, start.selection != rows.coreStart - 1 { start.selection = rows.coreStart - 1 }
         if let end = coreEndRow.control {
             if endItemsStart != rows.coreStart {
-                WinKit.send(end.hwnd, 0x014B /* CB_RESETCONTENT */)
-                for hour in SettingsModel.coreEnds(start: rows.coreStart) { WinKit.send(end.hwnd, 0x0143 /* CB_ADDSTRING */, 0, text: l.teamHour(hour)) }
+                end.setItems(SettingsModel.coreEnds(start: rows.coreStart).map { l.teamHour($0) })
                 endItemsStart = rows.coreStart
             }
             let target = rows.coreEnd - (rows.coreStart + 1)

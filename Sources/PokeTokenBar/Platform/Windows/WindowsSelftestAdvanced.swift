@@ -306,7 +306,7 @@ private struct AdvNoStatuses: ProviderStatusProviding { func fetch() async -> [S
         let saveOff = adv.key.save?.isEnabled == false
         let deleteHidden = !t.isShown(adv.key.delete)
         let refreshOn = adv.rowsForTesting.refresh.control?.isEnabled == true
-        let providers = adv.rowsForTesting.scanProvider.control.map { WinKit.send($0.hwnd, 0x0146 /* CB_GETCOUNT */) } ?? 0
+        let providers = adv.rowsForTesting.scanProvider.control?.itemCount ?? 0
         t.click(adv.disclosureForTesting)
         let closedAgain = await t.waitFor(1) { !self.t.shown(adv.key.fieldRow) && !self.t.shown(adv.rowsForTesting.aggregation) }
         let ok = collapsed && opened && missing.isEmpty && hintShown && macOnly.isEmpty && isPassword(field) && saveOff && deleteHidden && refreshOn
@@ -372,7 +372,7 @@ private struct AdvNoStatuses: ProviderStatusProviding { func fetch() async -> [S
         let badgeAfter = br.left >= tr.right && br.left - tr.right <= 16 && br.top < tr.bottom && tr.top < br.bottom
         let disk = encryptedOnDisk(f.keyFile, key: key)
         let orgRow = adv.key.orgRow
-        let orgs = orgRow?.control.map { WinKit.send($0.hwnd, 0x0146 /* CB_GETCOUNT */) } ?? 0
+        let orgs = orgRow?.control?.itemCount ?? 0
         let chosen = orgRow?.control?.selection ?? -1
         let note = adv.key.noteRow?.hint?.text ?? ""
         let ok = spinner && stopped && oneLine && badgeAfter && saved && badge == l.sessionKeySaved && cue(field) == SettingsModel.savedKeyPlaceholder && t.isShown(adv.key.delete)
@@ -589,7 +589,7 @@ private struct AdvNoStatuses: ProviderStatusProviding { func fetch() async -> [S
             r.add("settings.trackedAccount", false, "no row"); return
         }
         let shown = t.shown(row)
-        let count = WinKit.send(combo.hwnd, 0x0146 /* CB_GETCOUNT */)
+        let count = combo.itemCount
         let hint = row.hint?.text ?? ""
         t.choose(combo, 1)
         let highest = await t.waitFor(1) { f.store.claudeTrackedAccountMode == .highest }

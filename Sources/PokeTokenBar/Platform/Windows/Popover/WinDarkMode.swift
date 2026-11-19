@@ -40,10 +40,10 @@ enum WinDarkMode {
     /// the kit itself (glyph buttons, pills, labels, drawn parts) need none.
     static func themeName(for kind: WinControl.Kind) -> String? {
         switch kind {
-        case .stepper, .tabs, .progress: return "DarkMode_Explorer"
-        case .edit, .combo: return "DarkMode_CFD"
+        case .tabs, .progress: return "DarkMode_Explorer"
+        case .edit: return "DarkMode_CFD"
         // Buttons, check boxes, radio groups and trackbars are painted by `WinCustomDraw` (K3), which needs no visual style of its own.
-        case .label, .glyphButton, .link, .drawnItem, .drawn, .button, .checkbox, .radioGroup, .trackbar: return nil
+        case .label, .glyphButton, .link, .drawnItem, .drawn, .button, .checkbox, .radioGroup, .trackbar, .combo, .stepper: return nil
         }
     }
 

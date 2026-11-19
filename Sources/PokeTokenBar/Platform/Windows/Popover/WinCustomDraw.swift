@@ -102,7 +102,7 @@ struct WinLook {
             let nm = pointer.pointee
             guard let dc = nm.hdc else { return nil }
             switch c.kind {
-            case .button, .checkbox, .radioGroup:
+            case .button, .checkbox, .radioGroup, .combo, .stepper:
                 guard nm.dwDrawStage == 0x0001 /* CDDS_PREPAINT */ else { return nil }
                 c.customDrawCount += 1
                 // The paint rectangle is the whole client area of the button.
@@ -127,6 +127,8 @@ struct WinLook {
     nonisolated(unsafe) static var testUnbuffered = false
     /// Whole control pictures copied to the screen in one blit (the selftest compares it with the paints).
     private(set) static var blits = 0
+    /// Milliseconds spent drawing into memory bitmaps and copying them to the screen (the open-cost line prints the difference).
+    private(set) static var bodyMs = 0.0, blitMs = 0.0
 
     /// A control is drawn in several steps (the page colour, the track, the raised segment, the text, the ring). On the window's own DC each
     /// step is on the screen the moment it is made, so a repaint under the pointer flashed the page colour and the bare track before the
@@ -146,8 +148,12 @@ struct WinLook {
         defer { _ = DeleteObject(UnsafeMutableRawPointer(bitmap)) }
         let old = SelectObject(mem, UnsafeMutableRawPointer(bitmap))
         defer { _ = SelectObject(mem, old) }
+        let t0 = WinOpenTrace.now()
         body(mem)
+        let t1 = WinOpenTrace.now()
         _ = BitBlt(dc, client.left, client.top, w, h, mem, client.left, client.top, DWORD(SRCCOPY))
+        bodyMs += t1 - t0
+        blitMs += WinOpenTrace.now() - t1
         blits += 1
     }
 
@@ -161,6 +167,8 @@ struct WinLook {
         switch c.kind {
         case .button: paintButton(c, part, dc, client, look, state)
         case .checkbox: paintSwitch(c, part, dc, client, look, state)
+        case .combo: paintCombo(c, part, dc, client, look, state)
+        case .stepper: paintStepper(c, part, dc, client, look, state)
         default: c.segmentStyle == .chips ? paintChip(c, part, dc, client, look, state) : paintSegment(c, part, dc, client, look, state)
         }
     }
@@ -173,7 +181,7 @@ struct WinLook {
         var client = RECT()
         _ = GetClientRect(part, &client)
         switch c.kind {
-        case .button, .checkbox, .radioGroup:
+        case .button, .checkbox, .radioGroup, .combo, .stepper:
             paintButtonKinds(c, part, dc, client)
         case .trackbar:
             paintTrackbar(c, part, dc)
@@ -330,6 +338,156 @@ struct WinLook {
         text(dc, WinKit.text(of: part).replacingOccurrences(of: "&&", with: "&"), font: c.font, color: textInk,
              in: client, flags: UINT(DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS))
         if s.focusRing { focusRing(dc, client, radius: radius + look.ipx(1), look) }
+    }
+
+    // MARK: - drop-down
+
+    private static func chevron(_ c: WinControl, _ text: String, _ dc: HDC, in box: RECT, color: COLORREF) {
+        let glyph = c.ctx.fonts.icon(size: 12)
+        var r = box
+        let old = SelectObject(dc, UnsafeMutableRawPointer(glyph))
+        _ = SetBkMode(dc, 1)
+        _ = SetTextColor(dc, color)
+        _ = WinStr.w(text).withUnsafeBufferPointer { DrawTextW(dc, $0.baseAddress, -1, &r, UINT(DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX)) }
+        _ = SelectObject(dc, old)
+    }
+
+    /// A push button's picture with the value at the left and a chevron at the right (the Mac's menu-style picker).
+    private static func paintCombo(_ c: WinControl, _ part: HWND, _ dc: HDC, _ client: RECT, _ look: WinLook, _ s: ButtonState) {
+        fillBackground(c, dc, client)
+        let radius = look.ipx(4)
+        let fill = look.buttonFill(hot: s.hot && !s.disabled, pressed: s.pressed && !s.disabled)
+        let list = s.disabled ? [WinPaint.Item(rect: client, radius: radius, fill: ink(fill), stroke: ink(look.stroke), strokeWidth: Int32(look.hairlinePx))]
+                              : raised(client, radius: radius, fill: fill, edge: look.bottomEdge, stroke: look.stroke, look)
+        shapes(dc, list, look, client)
+        let textInk = s.disabled ? look.palette.disabled : look.palette.text
+        let chevronW = look.ipx(12), padL = look.ipx(12), padR = look.ipx(10)
+        var box = RECT(left: client.left + padL, top: client.top, right: client.right - padR - chevronW - look.ipx(8), bottom: client.bottom)
+        if box.right < box.left { box.right = box.left }
+        text(dc, c.comboShown, font: c.font, color: textInk, in: box, flags: UINT(DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS))
+        chevron(c, "\u{E70D}", dc, in: RECT(left: client.right - padR - chevronW, top: client.top, right: client.right - padR, bottom: client.bottom),
+                color: s.disabled ? look.palette.disabled : look.palette.secondaryText)
+        if s.focusRing { focusRing(dc, client, radius: radius + look.ipx(1), look) }
+    }
+
+    // MARK: - stepper
+
+    /// "×N" at the left and a spin box (18 DIP wide, two halves with chevrons) at the right.
+    private static func paintStepper(_ c: WinControl, _ part: HWND, _ dc: HDC, _ client: RECT, _ look: WinLook, _ s: ButtonState) {
+        fillBackground(c, dc, client)
+        let boxW = look.ipx(18), boxH = look.ipx(24)
+        let top = (client.top + client.bottom - boxH) / 2
+        let box = RECT(left: client.right - boxW - look.ipx(2), top: top, right: client.right - look.ipx(2), bottom: top + boxH)
+        let mid = (box.top + box.bottom) / 2
+        let radius = look.ipx(4)
+        var list = raised(box, radius: radius, fill: look.buttonFill(hot: false, pressed: false), edge: look.bottomEdge, stroke: look.stroke, look)
+        for half in [1, 2] {
+            let r = half == 1 ? RECT(left: box.left + 1, top: box.top + 1, right: box.right - 1, bottom: mid) : RECT(left: box.left + 1, top: mid, right: box.right - 1, bottom: box.bottom - 1)
+            let usable = half == 1 ? c.canStepUp : c.canStepDown
+            if usable, !s.disabled, c.pressedHalf == half || c.hotHalf == half {
+                list.append(WinPaint.Item(rect: r, radius: radius / 2, fill: ink(look.ink, c.pressedHalf == half ? look.pressed : look.hover), stroke: nil))
+            }
+        }
+        shapes(dc, list, look, client)
+        let secondary = s.disabled ? look.palette.disabled : look.palette.secondaryText
+        chevron(c, "\u{E70E}", dc, in: RECT(left: box.left, top: box.top, right: box.right, bottom: mid), color: c.canStepUp ? secondary : look.palette.disabled)
+        chevron(c, "\u{E70D}", dc, in: RECT(left: box.left, top: mid, right: box.right, bottom: box.bottom), color: c.canStepDown ? secondary : look.palette.disabled)
+        let valueBox = RECT(left: client.left, top: client.top, right: box.left - look.ipx(6), bottom: client.bottom)
+        text(dc, c.stepperShown, font: c.font, color: s.disabled ? look.palette.disabled : look.palette.text, in: valueBox,
+             flags: UINT(DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS))
+        if s.focusRing { focusRing(dc, RECT(left: box.left - look.ipx(2), top: box.top - look.ipx(2), right: box.right + look.ipx(2), bottom: box.bottom + look.ipx(2)), radius: radius + look.ipx(2), look) }
+    }
+
+    // MARK: - text field frame
+
+    /// The padding between the field's window and its text, in pixels (left, top, right, bottom). A single line is centred in the
+    /// window's height; a multi-line field pads 5 DIP above and below and leaves its scroll bar the right edge.
+    static func fieldPads(_ c: WinControl, height: Int32) -> (l: Int32, t: Int32, r: Int32, b: Int32) {
+        let look = WinLook(c)
+        var multi = false
+        if case .multiLine? = c.editKind { multi = true }
+        let h = look.ipx(10)
+        if multi { return (h, look.ipx(5), 0, look.ipx(5)) }
+        let line = c.ctx.lineHeight(c.font)
+        let v = max(0, (height - line) / 2)
+        return (h, v, h, v)
+    }
+
+    /// `WM_NCCALCSIZE`, after the system's: the text area shrinks by the padding (the frame is painted in what is left).
+    static func insetField(_ c: WinControl, _ wParam: WPARAM, _ lParam: LPARAM) {
+        func shrink(_ r: inout RECT) {
+            let pads = fieldPads(c, height: r.bottom - r.top)
+            r.left += pads.l; r.top += pads.t; r.right -= pads.r; r.bottom -= pads.b
+            if r.right < r.left { r.right = r.left }
+            if r.bottom < r.top { r.bottom = r.top }
+        }
+        if wParam != 0 {
+            guard let p = UnsafeMutablePointer<NCCALCSIZE_PARAMS>(bitPattern: Int(lParam)) else { return }
+            var r = p.pointee.rgrc.0
+            shrink(&r)
+            p.pointee.rgrc.0 = r
+        } else if let p = UnsafeMutablePointer<RECT>(bitPattern: Int(lParam)) {
+            var r = p.pointee
+            shrink(&r)
+            p.pointee = r
+        }
+    }
+
+    /// `WM_NCPAINT`: the field's frame, drawn on the window's DC.
+    static func paintFieldFrame(_ c: WinControl, _ hwnd: HWND, _ wParam: WPARAM) {
+        guard let dc = GetWindowDC(hwnd) else { return }
+        defer { _ = ReleaseDC(hwnd, dc) }
+        var wr = RECT()
+        _ = GetWindowRect(hwnd, &wr)
+        c.framePaints += 1
+        if case .multiLine? = c.editKind { _ = DefSubclassProc(hwnd, 0x0085, 1, 0) }  // the scroll bar
+        drawFieldFrame(c, dc, width: wr.right - wr.left, height: wr.bottom - wr.top, focused: GetFocus() == hwnd || c.testFocus != nil)
+    }
+
+    /// `body` on a memory bitmap of `r` (at the origin) filled with `background`, copied to `dc` in one blit: the painter blends over what
+    /// the DC holds, so the frame's corners are laid over the card colour, and the blit honours the DC's clip (the text area is excluded).
+    private static func buffered(_ dc: HDC, _ r: RECT, background: HBRUSH?, _ body: (HDC) -> Void) {
+        let w = r.right - r.left, h = r.bottom - r.top
+        guard w > 0, h > 0, let mem = CreateCompatibleDC(dc) else { body(dc); return }
+        defer { _ = DeleteDC(mem) }
+        var info = BITMAPINFO()
+        info.bmiHeader.biSize = DWORD(MemoryLayout<BITMAPINFOHEADER>.size)
+        info.bmiHeader.biWidth = r.right
+        info.bmiHeader.biHeight = -r.bottom
+        info.bmiHeader.biPlanes = 1
+        info.bmiHeader.biBitCount = 32
+        var bits: UnsafeMutableRawPointer?
+        guard let bitmap = CreateDIBSection(dc, &info, 0, &bits, nil, 0), bits != nil else { body(dc); return }
+        defer { _ = DeleteObject(UnsafeMutableRawPointer(bitmap)) }
+        let old = SelectObject(mem, UnsafeMutableRawPointer(bitmap))
+        defer { _ = SelectObject(mem, old) }
+        var fill = r
+        _ = FillRect(mem, &fill, background)
+        body(mem)
+        _ = BitBlt(dc, r.left, r.top, w, h, mem, r.left, r.top, DWORD(SRCCOPY))
+    }
+
+    /// The field's rounded hairline frame and, while it has the keyboard, the focus ring; painted into the padding only (the text area
+    /// is excluded, so the text is never erased). High contrast: a 1 px frame in the text colour. `dc` has the window's origin.
+    static func drawFieldFrame(_ c: WinControl, _ dc: HDC, width w: Int32, height h: Int32, focused: Bool) {
+        guard w > 0, h > 0 else { return }
+        var multi = false
+        if case .multiLine? = c.editKind { multi = true }
+        let look = WinLook(c)
+        let pads = fieldPads(c, height: h)
+        _ = ExcludeClipRect(dc, pads.l, pads.t, multi ? w : w - pads.r, h - pads.b)
+        let whole = RECT(left: 0, top: 0, right: w, bottom: h)
+        let colors = c.ctx.colors
+        let high = c.ctx.highContrast
+        let edge = high ? look.palette.text : look.mix(look.bg, look.dark ? 0.40 : 0.30)
+        buffered(dc, whole, background: colors.brush(c.background)) { mem in
+            WinPaint.roundedRect(mem, whole, radius: look.ipx(4), fill: ink(look.palette.field), stroke: ink(edge), strokeWidth: Int32(look.hairlinePx),
+                                 under: c.background, ctx: c.ctx)
+            if focused {
+                WinPaint.focusRing(mem, whole, radius: look.ipx(4), ctx: c.ctx, outer: high ? look.palette.text : (look.dark ? 0x00FF_FFFF : 0),
+                                   inner: look.palette.field)
+            }
+        }
     }
 
     // MARK: - switch

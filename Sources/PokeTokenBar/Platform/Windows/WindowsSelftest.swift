@@ -117,6 +117,7 @@ enum WindowsSelftest {
         popoverCompanionPrepare()  // stage 7 task 9 (WindowsSelftestPopoverCompanion.swift): companion sprites from the fixture folder, no network
         await popoverKitChecks(r, app)  // stage 7 task 3 (WindowsSelftestPopover.swift): leaves no window behind
         await popoverCustomDrawChecks(r, app)  // visual polish K3 (WindowsSelftestPopoverCustomDraw.swift): custom-drawn controls; leaves no window behind
+        await popoverK4Checks(r, app)  // visual polish K4 (WindowsSelftestPopoverK4.swift): drop-down, stepper, field frame, MSAA; leaves no window behind
         await popoverGlyphContrastChecks(r, app)  // glyph and pill ink against its fill (WindowsSelftestPopoverGlyphContrast.swift); leaves no window behind
         await popoverWindowChecks(r, app)  // stage 7 task 4 (WindowsSelftestPopoverWindow.swift): leaves no window behind
         await settingsChecks(r, app)  // stage 7 task 6 (WindowsSelftestSettings.swift): the Settings page; leaves the team off and no window behind
@@ -355,6 +356,7 @@ enum WindowsSelftest {
 
     /// E1's way past the foreground lock: try, then a synthetic Alt press, then attach to the foreground thread.
     @MainActor static func forceForeground(_ hwnd: HWND) {
+        guard WindowsSelftest.onCI else { return }  // takes the foreground and may send a synthetic Alt: CI only (a person's PC is not driven)
         _ = SetForegroundWindow(hwnd)
         if GetForegroundWindow() == hwnd { return }
         var alt = [INPUT(), INPUT()]
@@ -375,6 +377,7 @@ enum WindowsSelftest {
     }
 
     private static func sendUnicode(_ ch: UInt16) -> UInt32 {
+        guard WindowsSelftest.onCI else { return 0 }  // real typed input: CI only
         var input = [INPUT(), INPUT()]
         input[0].type = DWORD(INPUT_KEYBOARD)
         input[0].ki.wScan = ch

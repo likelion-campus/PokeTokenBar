@@ -65,10 +65,12 @@ extension WindowsSelftest {
             var picked: [PopoverState.Tab] = []
             h.page.tabChanged = { picked.append($0) }
             h.window.fitToContent()
-            h.window.show(activate: true)
+            h.window.show(activate: WindowsSelftest.onCI)  // takes the foreground: CI only
             await wait(0.5)
             let foreground = GetForegroundWindow() == h.window.hwnd
-            if let strip = h.page.tabStrip, strip.parts.count == 4 {
+            if !WindowsSelftest.onCI {
+                notes.append("arrow key: skipped, not CI (a real key to the foreground window)")
+            } else if let strip = h.page.tabStrip, strip.parts.count == 4 {
                 _ = SetFocus(strip.parts[0])
                 WindowsSelftestPopover.tap(0x27)  // VK_RIGHT
                 await wait(0.3)

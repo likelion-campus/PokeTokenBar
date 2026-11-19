@@ -127,6 +127,27 @@ enum WinEditKind: Equatable, Sendable {
     /// The window of this control the pointer is over (one per control: a segment, the thumb's trackbar), nil when it is elsewhere.
     /// Set by `WM_MOUSEMOVE` and cleared by `WM_MOUSELEAVE`: nothing is polled and no timer runs.
     fileprivate(set) var hotPart: HWND?
+    // --- visual polish K4: drop-down, stepper, field frame (begin) ---
+    /// Drop-downs: the entries of the menu (the old combo box's list), the chosen one, and what is shown instead of the chosen entry.
+    fileprivate(set) var items: [String] = []
+    fileprivate var comboSel = -1
+    fileprivate(set) var comboDisplay: String?
+    /// Drop-downs and steppers: the row's label, the first part of the accessible name ("Language: English").
+    fileprivate(set) var accessibleLabel: String?
+    /// A drop-down that opens a menu of the caller's making (`onClick`), not the item list's.
+    var customMenu = false
+    /// Drop-downs: the widest the button gets (pixels; 0 = as wide as its entries).
+    fileprivate var maxComboWidth: Int32 = 0
+    /// Steppers: 1 = the upper half, 2 = the lower (hovered, pressed); 0 = none.
+    fileprivate(set) var hotHalf = 0, pressedHalf = 0
+    /// Fields: the frame (rounded, hairline, focus ring) is painted in the non-client area.
+    fileprivate(set) var framed = false
+    fileprivate(set) var menuOpens = 0
+    /// Fields: how many times the frame was painted by `WM_NCPAINT` (the selftest proves the wiring).
+    var framePaints = 0
+    /// SELFTEST HOOK: answers a drop-down's menu instead of opening the system's.
+    nonisolated(unsafe) static var testMenu: (([TrayMenuModel.Item?]) -> Int?)?
+    // --- visual polish K4 (end) ---
     /// How many times custom draw painted a window of this control (the selftest proves it ran: a control that silently
     /// fell back to the system's drawing shows 0).
     var customDrawCount = 0
@@ -137,7 +158,7 @@ enum WinEditKind: Equatable, Sendable {
     /// Whether this kind is repainted by `WinCustomDraw` (not in high contrast: the system draws those).
     var usesCustomDraw: Bool {
         switch kind {
-        case .button, .checkbox, .radioGroup, .trackbar: true
+        case .button, .checkbox, .radioGroup, .trackbar, .combo, .stepper: true
         default: false
         }
     }
@@ -146,7 +167,17 @@ enum WinEditKind: Equatable, Sendable {
     var testHot: Int?, testPressed: Int?, testFocus: Int?
     func forceState(hot: Int? = nil, pressed: Int? = nil, focus: Int? = nil) {
         testHot = hot; testPressed = pressed; testFocus = focus
-        for part in parts { _ = InvalidateRect(part, nil, false) }
+        for part in parts { _ = framed ? RedrawWindow(part, nil, nil, UINT(0x0400 | 0x0001)) : InvalidateRect(part, nil, false) }
+    }
+    /// SELFTEST HOOK: the hover look of a glyph button or pill without a pointer (a synthetic move is followed by WM_MOUSELEAVE at once).
+    func forceHot(_ on: Bool) {
+        hot = on
+        _ = InvalidateRect(hwnd, nil, false)
+    }
+    /// SELFTEST HOOK: a stepper's halves shown hovered and pressed (1 = upper, 2 = lower).
+    func forceHalves(hot: Int, pressed: Int) {
+        hotHalf = hot; pressedHalf = pressed
+        _ = InvalidateRect(hwnd, nil, false)
     }
     func isForced(_ part: HWND, _ index: Int?) -> Bool { index.map { parts.indices.contains($0) && parts[$0] == part } ?? false }
     /// Whether `part` is painted by `WinCustomDraw` (a slider's value text is an ordinary static).
@@ -168,8 +199,8 @@ enum WinEditKind: Equatable, Sendable {
         // Dark mode (Task 16): the common controls' dark visual styles; high contrast keeps the system's own.
         if ctx.dark, let theme = WinDarkMode.themeName(for: kind) {
             for (i, part) in parts.enumerated() {
-                // A stepper is a read-only edit (field style) and the arrows (Explorer style).
-                WinDarkMode.setTheme(part, kind == .stepper && i == 0 ? "DarkMode_CFD" : theme)
+                _ = i
+                WinDarkMode.setTheme(part, theme)
             }
         }
     }
@@ -187,7 +218,7 @@ enum WinEditKind: Equatable, Sendable {
     /// Buttons, check boxes, radio buttons and their accessible names read `&` as an access-key prefix: the kit doubles it.
     var usesMnemonics: Bool {
         switch kind {
-        case .button, .glyphButton, .checkbox, .radioGroup, .drawnItem: true
+        case .button, .glyphButton, .checkbox, .radioGroup, .drawnItem, .combo, .stepper: true
         default: false
         }
     }
@@ -200,7 +231,7 @@ enum WinEditKind: Equatable, Sendable {
     var selection: Int {
         get {
             switch kind {
-            case .combo: WinKit.send(hwnd, 0x0147 /* CB_GETCURSEL */)
+            case .combo: comboSel
             case .tabs: WinKit.send(hwnd, 0x130B /* TCM_GETCURSEL */)
             case .radioGroup: parts.firstIndex { WinKit.send($0, 0x00F0) == 1 } ?? -1
             default: -1
@@ -208,7 +239,10 @@ enum WinEditKind: Equatable, Sendable {
         }
         set {
             switch kind {
-            case .combo: WinKit.send(hwnd, 0x014E /* CB_SETCURSEL */, newValue)
+            case .combo:
+                guard comboSel != newValue else { return }
+                comboSel = newValue
+                refreshComboText()
             case .tabs: WinKit.send(hwnd, 0x130C /* TCM_SETCURSEL */, newValue)
             case .radioGroup: for (i, part) in parts.enumerated() { WinKit.send(part, 0x00F1, i == newValue ? 1 : 0) }
             default: break
@@ -274,13 +308,10 @@ enum WinEditKind: Equatable, Sendable {
             // the value text is one line, centred on the track (a static draws from its top edge)
             let line = ctx.lineHeight(font), top = r.top + max(0, (r.bottom - r.top - line) / 2)
             WinKit.move(parts[1], RECT(left: r.right - valueW, top: top, right: r.right, bottom: top + line))
-        case .stepper where parts.count == 2:
-            let arrows = ctx.px(17)
-            WinKit.move(parts[0], RECT(left: r.left, top: r.top, right: r.right - arrows, bottom: r.bottom))
-            WinKit.move(parts[1], RECT(left: r.right - arrows, top: r.top, right: r.right, bottom: r.bottom))
         case .combo:
-            // A drop-down list's window height is the height of the open list; the closed field sizes itself to the font.
-            WinKit.move(hwnd, RECT(left: r.left, top: r.top, right: r.right, bottom: r.top + ctx.px(260)))
+            // the button sits at the row's trailing edge, as wide as its entries (the Mac's `.fixedSize()` menu picker); the row gives it
+            // the width it asked for, except where the row is narrower
+            WinKit.move(hwnd, r)
         default:
             WinKit.move(hwnd, r)
         }
@@ -337,7 +368,7 @@ enum WinEditKind: Equatable, Sendable {
             WinKit.send(parts[0], 0x0405 /* TBM_SETPOS */, 1, snapped)
             if parts.count > 1 { WinKit.setText(parts[1], format(snapped)) }
         case .stepper:
-            WinKit.setText(parts[0], format(snapped))
+            refreshStepperText()
         default:
             return
         }
@@ -380,11 +411,13 @@ enum WinEditKind: Equatable, Sendable {
         case 0x0007:  // WM_SETFOCUS: keyboard focus inside a scroll area brings the control into view
             if GetKeyState(0x01 /* VK_LBUTTON */) >= 0 { WinScrollArea.reveal(hwnd) }
             c.onFocus?(true)
+            if c.framed { _ = RedrawWindow(hwnd, nil, nil, UINT(0x0400 | 0x0001)) }  // RDW_FRAME | RDW_INVALIDATE: the frame's focus ring
             if c.drawsItself(hwnd) { _ = InvalidateRect(hwnd, nil, false) }  // the focus ring is ours to draw
             return nil
         case 0x0008:  // WM_KILLFOCUS: a field commits when the focus leaves it
             if c.kind == .edit { c.commitIfChanged() }
             c.onFocus?(false)
+            if c.framed { _ = RedrawWindow(hwnd, nil, nil, UINT(0x0400 | 0x0001)) }
             if c.drawsItself(hwnd) { _ = InvalidateRect(hwnd, nil, false) }
             return nil
         case 0x0087 where c.onKey != nil:  // stage 7 Task 12: a drawn item that answers the arrow keys
@@ -459,6 +492,44 @@ enum WinEditKind: Equatable, Sendable {
             return DefSubclassProc(hwnd, message, wParam, lParam)
         case 0x020A where (c.kind == .combo || c.kind == .trackbar) && GetFocus() != hwnd:  // WM_MOUSEWHEEL: the page scrolls
             return SendMessageW(GetParent(hwnd), message, wParam, lParam)
+        // --- visual polish K4: a field's frame, a drop-down's Alt+Down, a stepper's halves (begin) ---
+        case 0x0083 where c.framed:  // WM_NCCALCSIZE: the frame's padding is the field's non-client area
+            let result = DefSubclassProc(hwnd, message, wParam, lParam)
+            WinCustomDraw.insetField(c, wParam, lParam)
+            return result
+        case 0x0085 where c.framed && !WinCustomDraw.testDisabled:  // WM_NCPAINT
+            WinCustomDraw.paintFieldFrame(c, hwnd, wParam)
+            return 0
+        case 0x0104 where c.kind == .combo && wParam == WPARAM(VK_DOWN):  // WM_SYSKEYDOWN: Alt+Down opens
+            c.openMenu()
+            return 0
+        case 0x0201 where c.kind == .stepper:  // WM_LBUTTONDOWN
+            _ = SetFocus(hwnd)
+            _ = SetCapture(hwnd)
+            c.pressedHalf = c.half(at: lParam)
+            c.stepHalf(c.pressedHalf)
+            _ = InvalidateRect(hwnd, nil, false)
+            return 0
+        case 0x0202 where c.kind == .stepper:  // WM_LBUTTONUP
+            if GetCapture() == hwnd { _ = ReleaseCapture() }
+            c.pressedHalf = 0
+            _ = InvalidateRect(hwnd, nil, false)
+            return 0
+        case 0x0200 where c.kind == .stepper:  // WM_MOUSEMOVE: the half under the pointer
+            let half = c.half(at: lParam)
+            if c.hotPart != hwnd {
+                c.hotPart = hwnd
+                var tme = TRACKMOUSEEVENT(cbSize: DWORD(MemoryLayout<TRACKMOUSEEVENT>.size), dwFlags: 0x0002 /* TME_LEAVE */, hwndTrack: hwnd, dwHoverTime: 0)
+                _ = TrackMouseEvent(&tme)
+            }
+            if half != c.hotHalf { c.hotHalf = half; _ = InvalidateRect(hwnd, nil, false) }
+            return nil
+        case 0x02A3 where c.kind == .stepper:  // WM_MOUSELEAVE
+            c.hotPart = nil
+            c.hotHalf = 0
+            _ = InvalidateRect(hwnd, nil, false)
+            return nil
+        // --- visual polish K4 (end) ---
         // --- visual polish K3: hover of a custom-drawn control (begin) ---
         case 0x000F where c.drawsItself(hwnd) && !c.ctx.highContrast && !WinCustomDraw.testDisabled:  // WM_PAINT: the safety net (see `paintFallback`)
             let before = c.customDrawCount
@@ -516,7 +587,7 @@ enum WinEditKind: Equatable, Sendable {
     private var takesReturn: Bool {
         switch kind {
         case .edit: editKind != nil
-        case .button, .glyphButton, .drawnItem: true
+        case .button, .glyphButton, .drawnItem, .combo, .stepper: true
         default: false
         }
     }
@@ -526,6 +597,7 @@ enum WinEditKind: Equatable, Sendable {
         switch kind {
         case .checkbox: onToggle?(isOn)
         case .radioGroup: if let i = parts.firstIndex(of: part) { onSelect?(i) }
+        case .combo: if customMenu { onClick?() } else { openMenu() }
         default: onClick?()
         }
     }
@@ -580,7 +652,7 @@ enum WinClipboardText {
         guard let part = HWND(bitPattern: Int(lParam)), let c = WinControl.control(part) else { return nil }
         let code = WinKit.hiWord(wParam)
         switch (c.kind, code) {
-        case (.button, 0), (.glyphButton, 0), (.checkbox, 0), (.radioGroup, 0), (.drawnItem, 0):  // BN_CLICKED
+        case (.button, 0), (.glyphButton, 0), (.checkbox, 0), (.radioGroup, 0), (.drawnItem, 0), (.combo, 0), (.stepper, 0):  // BN_CLICKED
             c.clicked(part)
         case (.combo, 1):  // CBN_SELCHANGE
             c.onSelect?(c.selection)
@@ -603,10 +675,6 @@ enum WinClipboardText {
         case (.tabs, -551):  // TCN_SELCHANGE
             c.onSelect?(c.selection)
             return 0
-        case (.stepper, -722):  // UDN_DELTAPOS: the kit keeps the value; the up-down's own position never moves
-            let delta = header.withMemoryRebound(to: NMUPDOWN.self, capacity: 1) { Int($0.pointee.iDelta) }
-            c.applyValue(c.currentValue + delta * c.step, notify: true)
-            return 1
         default:
             return nil
         }
@@ -651,10 +719,6 @@ enum WinClipboardText {
         // lets us) is light; a themed check box or radio button draws its own light text in its dark style.
         if colors.dark, c.kind != .label, !(c.kind == .trackbar && part != c.hwnd) {
             _ = SetTextColor(dc, colors.palette.text)
-            if c.kind == .stepper && part == c.parts[0] {
-                _ = SetBkColor(dc, colors.palette.field)
-                return LRESULT(Int(bitPattern: UnsafeMutableRawPointer(colors.brush(colors.palette.field))))
-            }
         }
         if c.kind == .label || (c.kind == .trackbar && part != c.hwnd) { _ = SetTextColor(dc, c.textColor ?? colors.text(c.role)) }  // stage 7 Task 5: textColor
         return LRESULT(Int(bitPattern: UnsafeMutableRawPointer(colors.brush(c.background))))
@@ -809,26 +873,30 @@ enum WinClipboardText {
         return c
     }
 
-    /// A drop-down list (the Mac's menu pickers).
+    /// A drop-down (the Mac's menu-style `Picker`, replacing the combo box): a button showing the chosen entry and a chevron, opening
+    /// the kit's popup menu (`WinPopupMenu`: arrow keys, Enter and Esc, the system's dismissal). A `BS_PUSHBUTTON` painted by
+    /// `WinCustomDraw`, so MSAA reports a push button whose name is "label: value" (the row sets the label); Space, Enter, F4 and
+    /// Alt+Down open the menu, Up, Down, Home and End change the value in place.
     static func combo(_ items: [String], selected: Int, in parent: HWND, ctx: WinUIContext) -> WinControl? {
-        let style = child | tabStop | group | 0x0003 /* CBS_DROPDOWNLIST */ | 0x0020_0000 /* WS_VSCROLL */
-        guard let h = WinKit.create("ComboBox", "", style: style, parent: parent, id: id(),
-                                    rect: RECT(left: 0, top: 0, right: 100, bottom: ctx.px(260))) else { return nil }
+        guard let h = WinKit.create("Button", "", style: child | tabStop | group | 0x0000 /* BS_PUSHBUTTON */, parent: parent, id: id()) else { return nil }
         let font = ctx.fonts.font(.body)
         WinKit.setFont(h, font)
-        var widest: Int32 = 0
-        for item in items {
-            WinKit.send(h, 0x0143 /* CB_ADDSTRING */, 0, text: item)
-            widest = max(widest, ctx.measure(item, font: font).cx)
-        }
-        WinKit.send(h, 0x1701 /* CB_SETMINVISIBLE */, min(12, max(1, items.count)))
-        var r = RECT()
-        _ = GetWindowRect(h, &r)
-        let c = WinControl(kind: .combo, ctx: ctx, parts: [h],
-                           size: CGSize(width: CGFloat(widest + WinKit.metric(2 /* SM_CXVSCROLL */, dpi: ctx.dpi) + ctx.px(18)),
-                                        height: CGFloat(r.bottom - r.top)),
-                           background: ctx.colors.palette.window, font: font)
-        c.selection = selected
+        let c = WinControl(kind: .combo, ctx: ctx, parts: [h], size: .zero, background: ctx.colors.palette.window, font: font)
+        c.items = items
+        c.comboSel = selected
+        c.maxComboWidth = ctx.px(240)
+        c.onKey = { [weak c] key in c?.comboKey(key) ?? false }
+        c.refreshComboText()
+        c.preferredSize = c.comboSize()
+        return c
+    }
+
+    /// A drop-down whose menu the caller makes (`onClick`) and that shows `title`: the Representative Pokémon row. `maxWidth` DIP.
+    static func menuButton(title: String, maxWidth: CGFloat, in parent: HWND, ctx: WinUIContext) -> WinControl? {
+        guard let c = combo([], selected: -1, in: parent, ctx: ctx) else { return nil }
+        c.customMenu = true
+        c.maxComboWidth = ctx.px(maxWidth)
+        c.setDisplay(title)
         return c
     }
 
@@ -844,8 +912,7 @@ enum WinClipboardText {
             lines = max(1, n)
         default: break
         }
-        guard let h = WinKit.create("Edit", text, style: child | tabStop | group | es, exStyle: bordered ? 0x0200 /* WS_EX_CLIENTEDGE */ : 0,
-                                    parent: parent, id: id()) else { return nil }
+        guard let h = WinKit.create("Edit", text, style: child | tabStop | group | es, exStyle: 0, parent: parent, id: id()) else { return nil }
         let isMulti: Bool = { if case .multiLine = kind { return true }; return false }()
         let font = ctx.fonts.font(isMulti ? .caption : .body)  // the Mac's multi-line fields are `.caption`
         WinKit.setFont(h, font)
@@ -853,9 +920,14 @@ enum WinClipboardText {
         let line = ctx.lineHeight(font)
         let c = WinControl(kind: .edit, ctx: ctx, parts: [h],
                            size: CGSize(width: width.map { CGFloat(ctx.px($0 * CGFloat(ctx.textScale))) } ?? 100_000,
-                                        height: CGFloat(line * Int32(lines) + ctx.px(10))),
+                                        height: CGFloat(bordered ? max(line * Int32(lines) + ctx.px(bordered && lines > 1 ? 12 : 8), ctx.px(28)) : line * Int32(lines) + ctx.px(10))),
                            background: ctx.colors.palette.window, font: font)
         c.editKind = kind
+        if bordered {
+            // The frame is the field's own non-client area (K4): padding, a hairline and the focus ring, painted by `WinCustomDraw.paintFieldFrame`.
+            c.framed = true
+            _ = SetWindowPos(h, nil, 0, 0, 0, 0, UINT(SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED))
+        }
         // A multi-line field's scroll bar is dark only in the Explorer style (the field style leaves it light).
         if ctx.dark, isMulti { WinDarkMode.setTheme(h, "DarkMode_Explorer") }
         c.lastCommitted = text
@@ -887,29 +959,26 @@ enum WinClipboardText {
         return c
     }
 
-    /// The Mac's `Stepper`: the value as read-only text (focusable: the arrow keys step it) and up/down arrows.
-    static func stepper(range: ClosedRange<Int>, step: Int, value: Int, format: @escaping (Int) -> String, in parent: HWND,
-                        ctx: WinUIContext) -> WinControl? {
-        guard let field = WinKit.create("Edit", "", style: child | tabStop | group | 0x0800 /* ES_READONLY */ | 0x0002 /* ES_RIGHT */,
-                                        exStyle: 0x0200, parent: parent, id: id()) else { return nil }
-        let udStyle = child | 0x0020 /* UDS_ARROWKEYS */ | 0x0100 /* UDS_HOTTRACK */
-        guard let arrows = WinKit.create("msctls_updown32", "", style: udStyle, parent: parent, id: id()) else {
-            _ = DestroyWindow(field)
-            return nil
-        }
-        let font = ctx.fonts.font(.body)
-        WinKit.setFont(field, font)
-        WinKit.send(arrows, 0x0469 /* UDM_SETBUDDY */, Int(bitPattern: UnsafeMutableRawPointer(field)))
-        WinKit.send(arrows, 0x046F /* UDM_SETRANGE32 */, 0, 100)
-        WinKit.send(arrows, 0x0471 /* UDM_SETPOS32 */, 0, 50)
-        let valueW = max(ctx.measure(format(range.lowerBound), font: font).cx, ctx.measure(format(range.upperBound), font: font).cx)
-        let c = WinControl(kind: .stepper, ctx: ctx, parts: [field, arrows],
-                           size: CGSize(width: CGFloat(valueW + ctx.px(17 + 14)), height: CGFloat(ctx.lineHeight(font) + ctx.px(10))),
+    /// The Mac's `Stepper`: "×N" and a pair of chevrons (the upper half adds a step, the lower takes one), one focusable button
+    /// (`BS_PUSHBUTTON`, painted by `WinCustomDraw`) as wide as its value ("×99" at the most; not as the maximum). Up, Down,
+    /// PageUp, PageDown, Home and End change the value; its accessible name is "name: ×N" and changes with the value.
+    static func stepper(range: ClosedRange<Int>, step: Int, value: Int, format: @escaping (Int) -> String, name: String? = nil,
+                        in parent: HWND, ctx: WinUIContext) -> WinControl? {
+        guard let h = WinKit.create("Button", "", style: child | tabStop | group | 0x0000 /* BS_PUSHBUTTON */, parent: parent, id: id()) else { return nil }
+        let font = ctx.fonts.font(.callout, weight: 600)
+        WinKit.setFont(h, font)
+        let widest = format(min(range.upperBound, 99))
+        let valueW = max(ctx.measure(format(range.lowerBound), font: font).cx, ctx.measure(widest, font: font).cx)
+        let c = WinControl(kind: .stepper, ctx: ctx, parts: [h],
+                           // the value box ends 6 DIP before the spin box, which has 2 DIP of margin at the right (24 DIP left the value 2 px short: "×3" drew as "‹…")
+                           size: CGSize(width: CGFloat(valueW + ctx.px(6 + 18 + 2 + 2)), height: CGFloat(ctx.px(28))),
                            background: ctx.colors.palette.window, font: font)
         c.range = range
         c.step = step
         c.format = format
+        c.accessibleLabel = name
         c.currentValue = Self.unset
+        c.onKey = { [weak c] key in c?.stepperKey(key) ?? false }
         c.applyValue(value, notify: false)
         return c
     }
@@ -1256,4 +1325,150 @@ extension WinControl {
     fileprivate var hotForPill: Bool { hot }
 }
 // --- parity (end) ---
+
+// --- visual polish K4: the drop-down and the stepper (begin) ---
+extension WinControl {
+    /// The text the drop-down shows: `display`, else the chosen entry.
+    var comboShown: String { comboDisplay ?? (items.indices.contains(comboSel) ? items[comboSel] : "") }
+    var itemCount: Int { items.count }
+    func itemTitle(_ index: Int) -> String { items.indices.contains(index) ? items[index] : "" }
+
+    /// The window text is the accessible name: "Language: English" (the row's label, then the value); a change is announced.
+    fileprivate func refreshComboText() {
+        guard kind == .combo else { return }
+        let name = (accessibleLabel.map { "\($0): " } ?? "") + comboShown
+        let before = WinKit.text(of: hwnd)
+        WinKit.setText(hwnd, WinKit.title(name))
+        if before != WinKit.text(of: hwnd), IsWindowVisible(hwnd) { _ = NotifyWinEvent(0x800C /* EVENT_OBJECT_NAMECHANGE */, hwnd, -4 /* OBJID_CLIENT */, 0) }
+        _ = InvalidateRect(hwnd, nil, false)
+    }
+
+    /// The button's size: its widest entry (or the shown text) and the chevron, at most `maxComboWidth`.
+    fileprivate func comboSize() -> CGSize {
+        var widest: Int32 = 0
+        for text in items + [comboDisplay].compactMap({ $0 }) { widest = max(widest, ctx.measure(text, font: font).cx) }
+        var w = widest + ctx.px(12 + 8 + 12 + 10)
+        w = max(w, ctx.px(64))
+        if maxComboWidth > 0 { w = min(w, maxComboWidth) }
+        return CGSize(width: CGFloat(w), height: CGFloat(ctx.px(28)))
+    }
+
+    private func resizeAfterChange() {
+        let before = preferredSize
+        preferredSize = comboSize()
+        if before != preferredSize { onSizeChange?() }
+    }
+
+    /// Another list (the core-time end hours after a new start, the accounts after a sign-in): the choice stays when it still exists.
+    func setItems(_ titles: [String]) {
+        guard kind == .combo, titles != items else { return }
+        items = titles
+        if comboSel >= titles.count { comboSel = titles.isEmpty ? -1 : 0 }
+        refreshComboText()
+        resizeAfterChange()
+    }
+
+    /// A drop-down that shows `title` instead of an entry (the Representative Pokémon button).
+    func setDisplay(_ title: String) {
+        guard kind == .combo, comboDisplay != title else { return }
+        comboDisplay = title
+        refreshComboText()
+        resizeAfterChange()
+    }
+
+    /// The row's label: "Label: value" is the accessible name.
+    func setAccessibleLabel(_ label: String) {
+        guard kind == .combo || kind == .stepper, accessibleLabel != label else { return }
+        accessibleLabel = label
+        if kind == .combo { refreshComboText() } else { refreshStepperText() }
+    }
+
+    /// Opens the menu under the button: the entries, the chosen one checked; the pick sets the value.
+    func openMenu() {
+        guard kind == .combo, isEnabled, !items.isEmpty else { return }
+        let entries: [TrayMenuModel.Item?] = items.enumerated().map { i, title in
+            TrayMenuModel.Item(title: title, enabled: true, checked: i == comboSel, action: .none)
+        }
+        menuOpens += 1
+        var r = RECT()
+        _ = GetWindowRect(hwnd, &r)
+        let owner = GetAncestor(hwnd, 2 /* GA_ROOT */) ?? hwnd
+        // (a test's answer of "dismissed" is nil too: it must not fall through to the real, modal menu)
+        let chosen: Int?
+        if let hook = Self.testMenu { chosen = hook(entries) } else { chosen = WinPopupMenu.run(entries, at: POINT(x: r.left, y: r.bottom), owner: owner, below: true) }
+        guard let chosen, chosen != comboSel else { return }
+        comboSel = chosen
+        refreshComboText()
+        onSelect?(chosen)
+    }
+
+    /// Up, Down, Home and End change the value without opening, F4 opens (the combo box's keys); true when handled.
+    fileprivate func comboKey(_ key: Int) -> Bool {
+        guard !customMenu || key == 0x73 else { return false }
+        func pick(_ i: Int) -> Bool {
+            guard items.indices.contains(i), i != comboSel else { return true }
+            comboSel = i
+            refreshComboText()
+            onSelect?(i)
+            return true
+        }
+        switch key {
+        case 0x26: return pick(max(0, comboSel - 1))  // VK_UP
+        case 0x28: return pick(min(items.count - 1, comboSel + 1))  // VK_DOWN
+        case 0x24: return pick(0)  // VK_HOME
+        case 0x23: return pick(items.count - 1)  // VK_END
+        case 0x73: openMenu(); return true  // VK_F4
+        default: return false
+        }
+    }
+
+    // MARK: stepper
+
+    fileprivate func refreshStepperText() {
+        guard kind == .stepper else { return }
+        let name = (accessibleLabel.map { "\($0): " } ?? "") + format(currentValue)
+        let before = WinKit.text(of: hwnd)
+        WinKit.setText(hwnd, WinKit.title(name))
+        if before != WinKit.text(of: hwnd), IsWindowVisible(hwnd) { _ = NotifyWinEvent(0x800C, hwnd, -4, 0) }  // the value is announced as a name change
+        _ = InvalidateRect(hwnd, nil, false)
+    }
+
+    /// The text the stepper draws: "×N".
+    var stepperShown: String { format(currentValue) }
+
+    /// Which half of the spin box a client point is in: 1 the upper, 2 the lower, 0 outside it.
+    fileprivate func half(at lParam: LPARAM) -> Int {
+        let p = WinKit.point(lParam)
+        var client = RECT()
+        _ = GetClientRect(hwnd, &client)
+        guard p.x >= client.right - ctx.px(18), p.x < client.right, p.y >= client.top, p.y < client.bottom else { return 0 }
+        return p.y < (client.top + client.bottom) / 2 ? 1 : 2
+    }
+
+    fileprivate func stepHalf(_ half: Int) {
+        guard half != 0 else { return }
+        applyValue(currentValue + (half == 1 ? step : -step), notify: true)
+    }
+
+    fileprivate func stepperKey(_ key: Int) -> Bool {
+        switch key {
+        case 0x26: applyValue(currentValue + step, notify: true)  // VK_UP
+        case 0x28: applyValue(currentValue - step, notify: true)  // VK_DOWN
+        case 0x21: applyValue(currentValue + 10 * step, notify: true)  // VK_PRIOR
+        case 0x22: applyValue(currentValue - 10 * step, notify: true)  // VK_NEXT
+        case 0x24: applyValue(range.lowerBound, notify: true)  // VK_HOME
+        case 0x23: applyValue(range.upperBound, notify: true)  // VK_END
+        default: return false
+        }
+        return true
+    }
+
+    /// Whether either half can still move (the range's ends dim the chevrons).
+    var canStepUp: Bool { currentValue + step <= range.upperBound }
+    var canStepDown: Bool { currentValue - step >= range.lowerBound }
+
+    /// SELFTEST: the same as clicking a half.
+    func clickHalf(_ half: Int) { stepHalf(half) }
+}
+// --- visual polish K4 (end) ---
 #endif
