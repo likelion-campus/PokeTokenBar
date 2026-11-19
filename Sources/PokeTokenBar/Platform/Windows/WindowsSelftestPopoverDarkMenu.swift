@@ -83,14 +83,14 @@ extension WindowsSelftest {
 
     struct Surface { var name: String; var owner: HWND; var open: @MainActor () -> Void }
 
-    static func evaluate(dark: Bool, _ surfaces: [Surface]) async -> (problems: [String], notes: [String]) {
+    static func evaluate(dark: Bool, _ surfaces: [Surface], saving: Bool = true) async -> (problems: [String], notes: [String]) {
         var problems: [String] = [], notes: [String] = []
         let saved = WinDarkMode.testOverride
         defer { WinDarkMode.testOverride = saved }
         WinDarkMode.testOverride = dark
         for s in surfaces {
             let got = await capture(owner: s.owner, open: s.open)
-            save(got.image, "menu-\(s.name)-\(dark ? "dark" : "light").png")
+            if saving { save(got.image, "menu-\(s.name)-\(dark ? "dark" : "light").png") }
             guard let luma = got.luma else { problems.append("\(s.name) \(dark ? "dark" : "light"): \(got.note)"); continue }
             notes.append("\(s.name) \(dark ? "dark" : "light") luma \(Int(luma)) (\(WinMenuTheme.lastOutcome))")
             if dark, luma > 110 { problems.append("\(s.name): the menu is light (luma \(Int(luma))) under forced dark") }
@@ -134,7 +134,7 @@ extension WindowsSelftest {
               (darkResult.notes + lightResult.notes).joined(separator: "; ") + (problems.isEmpty ? "" : " | PROBLEMS: " + problems.joined(separator: "; ")))
         // the kill-switch behaviour must leave a forced-dark menu light: the dark check fails
         WinMenuTheme.testDisabled = true
-        let broken = await evaluate(dark: true, Array(surfaces.prefix(1)))
+        let broken = await evaluate(dark: true, Array(surfaces.prefix(1)), saving: false)
         WinMenuTheme.testDisabled = false
         WinMenuTheme.ensure()
         r.add("popover.darkMenu.fault", !broken.problems.isEmpty,
