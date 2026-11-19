@@ -536,7 +536,7 @@ jobs:
         shell: pwsh
         run: |
           $j = Get-Content st.json -Raw | ConvertFrom-Json
-          $names = 'popover.tabs', 'popover.shop', 'popover.bag', 'collection.grid', 'collection.paging', 'collection.filters', 'collection.representative', 'collection.empty', 'collection.homeLinks', 'collection.detail', 'collection.openClose'
+          $names = 'popover.tabs', 'popover.shop', 'popover.bag', 'collection.grid', 'collection.paging', 'collection.hoverCost', 'collection.filters', 'collection.representative', 'collection.empty', 'collection.homeLinks', 'collection.detail', 'collection.openClose'
           $bad = @()
           foreach ($n in $names) {
               $c = $j.checks | Where-Object { $_.name -eq $n }
