@@ -127,6 +127,7 @@ extension WindowsSelftest {
             Surface(name: "popup", owner: w.hwnd) { _ = WinPopupMenu.run(items, at: POINT(x: 120, y: 160), owner: w.hwnd, below: true) },
         ]
         if let edit { surfaces.append(Surface(name: "textbox", owner: edit) { _ = SendMessageW(edit, 0x007B /* WM_CONTEXTMENU */, WPARAM(UInt(bitPattern: Int(bitPattern: edit))), -1) }) }
+        decisions(r)
         let darkResult = await evaluate(dark: true, surfaces)
         let lightResult = await evaluate(dark: false, surfaces)
         let problems = darkResult.problems + lightResult.problems
@@ -141,45 +142,101 @@ extension WindowsSelftest {
               "kill-switch on: the forced-dark tray menu stays light as expected (\(broken.problems.first ?? broken.notes.first ?? "none"))")
     }
 
-    /// A real high-contrast theme: the menu keeps the system's colours.
-    static func highContrast(_ r: WindowsSelftest.Recorder, _ app: WindowsAppDelegate) async {
-        guard let host = app.tray else { r.add("popover.darkMenu.highContrast", true, "informational: no tray host"); return }
-        func set(_ on: Bool) -> Bool {
+    /// The decision table, with injected readings: runs everywhere and changes nothing.
+    static func decisions(_ r: WindowsSelftest.Recorder) {
+        typealias D = WinMenuTheme
+        let cases: [(String, D.Mode, D.Mode)] = [
+            ("high contrast", D.decide(killed: false, highContrast: true, forced: nil), .default),
+            ("high contrast beats a forced dark", D.decide(killed: false, highContrast: true, forced: true), .default),
+            ("kill-switch", D.decide(killed: true, highContrast: false, forced: nil), .default),
+            ("kill-switch beats a forced dark", D.decide(killed: true, highContrast: false, forced: true), .default),
+            ("follow Windows", D.decide(killed: false, highContrast: false, forced: nil), .allowDark),
+            ("forced dark (selftest hook)", D.decide(killed: false, highContrast: false, forced: true), .forceDark),
+            ("forced light (selftest hook)", D.decide(killed: false, highContrast: false, forced: false), .forceLight),
+        ]
+        let wrong = cases.filter { $0.1 != $0.2 }.map { "\($0.0): \($0.1), expected \($0.2)" }
+        r.add("popover.darkMenu.mode", wrong.isEmpty, "\(cases.count) readings: " + cases.map { "\($0.0) -> \($0.1)" }.joined(separator: "; ") + (wrong.isEmpty ? "" : " | PROBLEMS: " + wrong.joined(separator: "; ")))
+    }
+
+    private struct HighContrastState: Equatable { var flags: UInt32; var scheme: String }
+    private static func readHighContrast() -> HighContrastState? {
+        var buffer = [UInt16](repeating: 0, count: 256)
+        return buffer.withUnsafeMutableBufferPointer { b -> HighContrastState? in
             var hc = HIGHCONTRASTW()
             hc.cbSize = UINT(MemoryLayout<HIGHCONTRASTW>.size)
-            hc.dwFlags = on ? 0x1 | 0x2 : 0x2  // HCF_HIGHCONTRASTON | HCF_AVAILABLE
-            var scheme = WinStr.w("High Contrast White")
-            return scheme.withUnsafeMutableBufferPointer { buffer in
-                hc.lpszDefaultScheme = buffer.baseAddress
-                return SystemParametersInfoW(0x0043 /* SPI_SETHIGHCONTRAST */, hc.cbSize, &hc, UINT(0x0001 | 0x0002) /* SPIF_UPDATEINIFILE | SPIF_SENDCHANGE */)
-            }
+            hc.lpszDefaultScheme = b.baseAddress
+            guard SystemParametersInfoW(0x0042 /* SPI_GETHIGHCONTRAST */, hc.cbSize, &hc, 0) else { return nil }
+            return HighContrastState(flags: hc.dwFlags, scheme: String(decodingCString: b.baseAddress!, as: UTF16.self))
         }
-        let saved = WinDarkMode.testOverride
-        WinDarkMode.testOverride = nil
-        defer { WinDarkMode.testOverride = saved }
-        let switched = set(true)
-        _ = await WindowsSelftest.waitUntil(timeout: 2.5) { false }
-        let on = WinUIContext.systemHighContrast()
-        guard switched, on else {
-            _ = set(false)
-            r.add("popover.darkMenu.highContrast", true, "informational: Windows did not switch to a real high-contrast theme on this runner (SPI ok=\(switched), active=\(on)); not proven here")
+    }
+    private static func writeHighContrast(_ flags: UInt32, scheme: String) -> Bool {
+        var buffer = WinStr.w(scheme.isEmpty ? "High Contrast White" : scheme)
+        return buffer.withUnsafeMutableBufferPointer { b in
+            var hc = HIGHCONTRASTW()
+            hc.cbSize = UINT(MemoryLayout<HIGHCONTRASTW>.size)
+            hc.dwFlags = flags
+            hc.lpszDefaultScheme = b.baseAddress
+            return SystemParametersInfoW(0x0043 /* SPI_SETHIGHCONTRAST */, hc.cbSize, &hc, UINT(0x0001 | 0x0002) /* SPIF_UPDATEINIFILE | SPIF_SENDCHANGE */)
+        }
+    }
+
+    /// A real high-contrast theme: the menu keeps the system's colours. THIS CHECK CHANGES AND RESTORES A SYSTEM-WIDE SETTING (the
+    /// high-contrast theme), so it runs only on the CI runner (an ephemeral VM) and never on a person's PC (`--selftest`). It records the
+    /// theme flags and the apps/system light-dark values first, restores them in a `defer`, and fails loudly if they differ afterwards.
+    /// The same decision is covered without touching anything by `popover.darkMenu.mode`.
+    static func highContrast(_ r: WindowsSelftest.Recorder, _ app: WindowsAppDelegate) async {
+        guard WindowsSelftest.onCI else {
+            r.add("popover.darkMenu.highContrast", true, "skipped: not CI. This check switches Windows to a real high-contrast theme and back (a system-wide setting), so it runs only on the runner; the decision is tested without it by popover.darkMenu.mode")
             return
         }
-        let mode = WinMenuTheme.wantedMode()
-        let got = await capture(owner: app.sink.hwnd) { host.openMenu(at: POINT(x: 300, y: 300)) }
-        save(got.image, "menu-tray-highcontrast-white.png")
-        let window = Int(GetSysColor(5 /* COLOR_WINDOW */) & 0xFF)
-        _ = set(false)
-        _ = await WindowsSelftest.waitUntil(timeout: 2.5) { false }
-        let off = !WinUIContext.systemHighContrast()
+        guard let host = app.tray else { r.add("popover.darkMenu.highContrast", false, "no tray host"); return }
+        let personalization = "Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize"
+        let names = ["AppsUseLightTheme", "SystemUsesLightTheme"]
+        let beforeHC = readHighContrast()
+        let beforeValues = names.map { name -> [UInt8]? in if case .value(let b) = WinRegistry.bytes(personalization, name) { return b } else { return nil } }
+        guard let beforeHC else { r.add("popover.darkMenu.highContrast", true, "informational: the current high-contrast state cannot be read here, so the probe did not run (nothing changed)"); return }
+        let savedOverride = WinDarkMode.testOverride
         var problems: [String] = []
-        if mode != .default { problems.append("the wanted mode is \(mode) under a real high-contrast theme, expected default") }
-        if let luma = got.luma { if luma < 170 { problems.append("the menu is dark (luma \(Int(luma))) under High Contrast White (COLOR_WINDOW red \(window))") } }
-        else { problems.append(got.note) }
-        if !off { problems.append("the runner is still in high contrast after switching back") }
-        r.add("popover.darkMenu.highContrast", problems.isEmpty,
-              "real High Contrast White: mode \(mode), menu luma \(got.luma.map { String(Int($0)) } ?? "-"), COLOR_WINDOW red \(window), switched back=\(off); \(WinMenuTheme.lastOutcome)"
-              + (problems.isEmpty ? "" : " | PROBLEMS: " + problems.joined(separator: "; ")))
+        var detail = "CHANGED AND RESTORED a system-wide setting (high-contrast theme, flags 0x\(String(beforeHC.flags, radix: 16)) before): "
+        func restore() async {
+            if !writeHighContrast(beforeHC.flags, scheme: beforeHC.scheme) { problems.append("restoring the high-contrast flags failed") }
+            _ = await WindowsSelftest.waitUntil(timeout: 2.5) { false }
+            for (name, value) in zip(names, beforeValues) {
+                var now: [UInt8]?
+                if case .value(let b) = WinRegistry.bytes(personalization, name) { now = b }
+                if now != value {
+                    if let value { _ = WinRegistry.setBytes(personalization, name, value) } else { _ = WinRegistry.deleteValue(personalization, name) }
+                    detail += "personalization \(name) had changed and was restored; "
+                }
+            }
+        }
+        WinDarkMode.testOverride = nil
+        let switched = writeHighContrast(0x1 | 0x2, scheme: "High Contrast White")
+        _ = await WindowsSelftest.waitUntil(timeout: 2.5) { false }
+        let on = WinUIContext.systemHighContrast()
+        if switched, on {
+            let mode = WinMenuTheme.wantedMode()
+            let got = await capture(owner: app.sink.hwnd) { host.openMenu(at: POINT(x: 300, y: 300)) }
+            save(got.image, "menu-tray-highcontrast-white.png")
+            if mode != .default { problems.append("the wanted mode is \(mode) under a real high-contrast theme, expected default") }
+            if let luma = got.luma { if luma < 170 { problems.append("the menu is dark (luma \(Int(luma))) under High Contrast White") } } else { problems.append(got.note) }
+            detail += "real High Contrast White: mode \(mode), menu luma \(got.luma.map { String(Int($0)) } ?? "-"); "
+        } else {
+            detail += "Windows did not switch to a real high-contrast theme (SPI ok=\(switched), active=\(on)); not proven here; "
+        }
+        await restore()
+        WinDarkMode.testOverride = savedOverride
+        let afterHC = readHighContrast()
+        if afterHC?.flags.nonzeroOn != beforeHC.flags.nonzeroOn {
+            // one more try, then fail loudly
+            _ = writeHighContrast(0, scheme: beforeHC.scheme)
+            _ = await WindowsSelftest.waitUntil(timeout: 2.5) { false }
+            if readHighContrast()?.flags.nonzeroOn != beforeHC.flags.nonzeroOn { problems.append("THE RUNNER IS NOT BACK IN ITS PREVIOUS HIGH-CONTRAST STATE (before \(beforeHC.flags), after \(afterHC?.flags ?? 0))") }
+        }
+        detail += "restored: high contrast on=\(afterHC?.flags.nonzeroOn ?? false) (before \(beforeHC.flags.nonzeroOn)); \(WinMenuTheme.lastOutcome)"
+        r.add("popover.darkMenu.highContrast", problems.isEmpty, detail + (problems.isEmpty ? "" : " | PROBLEMS: " + problems.joined(separator: "; ")))
     }
 }
+
+private extension UInt32 { var nonzeroOn: Bool { self & 0x1 != 0 } }
 #endif

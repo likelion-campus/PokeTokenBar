@@ -47,9 +47,14 @@ enum WinMenuTheme {
 
     /// The mode the menus should be in now.
     @MainActor static func wantedMode() -> Mode {
-        if testDisabled || killSwitchSet { return .default }
-        if WinUIContext.systemHighContrast() { return .default }  // the system's own colours
-        if let forced = WinDarkMode.testOverride { return forced ? .forceDark : .forceLight }
+        decide(killed: testDisabled || killSwitchSet, highContrast: WinUIContext.systemHighContrast(), forced: WinDarkMode.testOverride)
+    }
+
+    /// The decision on its own, with the readings given (the selftest tests it without touching a system setting): the kill-switch and a
+    /// real high-contrast theme leave the system's colours; only the selftest's appearance hook forces a mode; otherwise follow Windows.
+    nonisolated static func decide(killed: Bool, highContrast: Bool, forced: Bool?) -> Mode {
+        if killed || highContrast { return .default }
+        if let forced { return forced ? .forceDark : .forceLight }
         return .allowDark
     }
 
