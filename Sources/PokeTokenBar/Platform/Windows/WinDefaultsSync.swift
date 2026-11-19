@@ -116,7 +116,11 @@ final class WinSyncingDefaults: UserDefaults, @unchecked Sendable {
     static func removeSelftestSuiteFile() {
         guard let name = selftestSuiteName, name.hasPrefix("ptb.team."), name.hasSuffix(".settings") else { return }
         let url = plistURL(suite: name)
-        for file in [url, SettingsPlistGuard.backupURL(for: url)] where (try? FileManager.default.removeItem(at: file)) != nil {
+        var files = [url, SettingsPlistGuard.backupURL(for: url)]
+        // the Advanced group's scratch suites (`ptb.selftest.settings.<id>.adv`): named for the selftest, never the app's
+        let folder = url.deletingLastPathComponent()
+        files += ((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []).filter { $0.hasPrefix("ptb.selftest.") }.map { folder.appendingPathComponent($0) }
+        for file in files where (try? FileManager.default.removeItem(at: file)) != nil {
             AppLog.write("selftest: removed its own settings file \(file.lastPathComponent)")
         }
     }
