@@ -283,7 +283,7 @@ import Foundation
                 if let s = id.raising { p.draw(s, f.callout, color: accent, x: ox, centerY: colTop + off + raisingStart + p.metrics(f.callout).height / 2, canvas: canvas, space: space) }
                 let rb = CGRect(x: ox, y: colTop + off + repStart, width: 26, height: repH)
                 p.roundedRect(rb, radius: 5, fill: PopoverAppearance.current.controlFill(alpha: 0.9), stroke: PopoverColorRole.secondary.plazaShapeColor(alpha: 0.4), lineWidth: 0.5, canvas: canvas, space: space)
-                p.drawGlyph(id.isRepresentative ? "arrow.triangle.2.circlepath" : "star", fallback: id.isRepresentative ? "↻" : "☆", size: 11, bold: false, color: primary, in: rb, canvas: canvas, space: space)
+                p.drawGlyph(id.isRepresentative ? "arrow.triangle.2.circlepath" : "star", fallback: id.isRepresentative ? "↻" : "☆", size: 12, bold: false, color: primary, in: rb, canvas: canvas, space: space)
             })
             slots.append(SpriteSlot(frame: CGRect(x: 0, y: top + (blockH - sprite) / 2, width: sprite, height: sprite),
                                     subject: PlazaSpriteSubjectKey(speciesID: id.speciesID, shiny: id.shinySprite, form: id.form, back: false), bob: true, animated: true))
