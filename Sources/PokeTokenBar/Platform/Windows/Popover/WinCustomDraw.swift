@@ -125,6 +125,8 @@ struct WinLook {
     nonisolated(unsafe) static var testUnbuffered = false
     /// Whole control pictures copied to the screen in one blit (the selftest compares it with the paints).
     private(set) static var blits = 0
+    /// Milliseconds spent drawing into memory bitmaps and copying them to the screen (the open-cost line prints the difference).
+    private(set) static var bodyMs = 0.0, blitMs = 0.0
 
     /// A control is drawn in several steps (the page colour, the track, the raised segment, the text, the ring). On the window's own DC each
     /// step is on the screen the moment it is made, so a repaint under the pointer flashed the page colour and the bare track before the
@@ -144,8 +146,12 @@ struct WinLook {
         defer { _ = DeleteObject(UnsafeMutableRawPointer(bitmap)) }
         let old = SelectObject(mem, UnsafeMutableRawPointer(bitmap))
         defer { _ = SelectObject(mem, old) }
+        let t0 = WinOpenTrace.now()
         body(mem)
+        let t1 = WinOpenTrace.now()
         _ = BitBlt(dc, client.left, client.top, w, h, mem, client.left, client.top, DWORD(SRCCOPY))
+        bodyMs += t1 - t0
+        blitMs += WinOpenTrace.now() - t1
         blits += 1
     }
 
