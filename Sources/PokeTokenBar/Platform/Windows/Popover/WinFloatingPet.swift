@@ -438,6 +438,7 @@ import WinSDK
     private var clockCheck: (since: Date, ticks: Int, fires: Int, arms: Int)?
     private(set) var clockChecks: [String] = []
     private(set) var pixelChecks: [String] = []   // fix/windows-pet-and-detail-animation
+    private var lastPresentError: DWORD = 0   // fix/windows-pet-and-detail-animation: the last failed UpdateLayeredWindow's error
 
     /// One line in the app's log when what keeps the pet moving or still changes: the state and its inputs (never per frame).
     func noteClock() {
@@ -919,6 +920,7 @@ import WinSDK
             drawnFrame = win
         } else {
             pet.stats.renderFailures += 1
+            lastPresentError = GetLastError()   // fix/windows-pet-and-detail-animation
             if !loggedFailure {
                 loggedFailure = true
                 AppLog.write("floating pet: UpdateLayeredWindow \(width)x\(height) failed: \(GetLastError())")
@@ -1225,7 +1227,7 @@ import WinSDK
     /// After each clock check: five looks 0.5 s apart, in one log line. A model whose frames move while the
     /// picture or the screen does not is told apart from a clock that does not run (every check before measured the model).
     private func lookAtThePixels() {
-        let renders0 = pet?.stats.renders ?? 0
+        let renders0 = pet?.stats.renders ?? 0, failures0 = pet?.stats.renderFailures ?? 0
         Task { @MainActor [weak self] in
             var looks: [(frame: Int, picture: Int, screen: Int)] = []
             for i in 0..<5 {
@@ -1235,7 +1237,8 @@ import WinSDK
             }
             guard let self, !self.isDestroyed else { return }
             let line = "floating pet: 5 looks over 2 s: frames \(looks.map { String($0.frame) }.joined(separator: ",")), "
-                + "renders +\((self.pet?.stats.renders ?? 0) - renders0), distinct pictures it drew \(Set(looks.map { $0.picture }).count), "
+                + "presents with place and size +\((self.pet?.stats.renders ?? 0) - renders0) (failed +\((self.pet?.stats.renderFailures ?? 0) - failures0), "
+                + "last error \(self.lastPresentError)), distinct pictures it drew \(Set(looks.map { $0.picture }).count), "
                 + "distinct screens at the pet \(Set(looks.map { $0.screen }).count) (1 = the screen did not change); "
                 + "this process's pet windows \(Self.petWindows()) (1 expected)"
             self.pixelChecks.append(line)
