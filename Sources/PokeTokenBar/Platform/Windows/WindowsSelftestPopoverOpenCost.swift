@@ -317,14 +317,14 @@ private func winPaintSpyQueued(_ code: Int32, _ wParam: WPARAM, _ lParam: LPARAM
         guard let hwnd = popover.hwndForTesting else { return s }
         WinPaintSpy.start(hwnd)
         s.hooked = WinPaintSpy.installed
-        let binds0 = WinPaint.binds, bindMs0 = WinPaint.bindMs
+        let binds0 = WinPaint.binds, bindMs0 = WinPaint.bindMs, blits0 = WinCustomDraw.blits, bodyMs0 = WinCustomDraw.bodyMs, blitMs0 = WinCustomDraw.blitMs
         let t0 = WinOpenTrace.now()
         action()
         s.arrived = await WindowsSelftest.waitUntil(timeout: 5) { until() }
         await wait(1.5)   // the page's queued passes, its paints
         s.spy = WinPaintSpy.counts
         s.frameNotes = WinPaintSpy.frameDetail.enumerated().map { "f\($0.offset): " + $0.element.sorted { $0.key < $1.key }.map { "\($0.key) x\($0.value)" }.joined(separator: ", ") }.joined(separator: " | ")
-        s.painter = "painter \(WinPaint.binds - binds0) binds \(Int((WinPaint.bindMs - bindMs0).rounded())) ms"
+        s.painter = "painter \(WinPaint.binds - binds0) binds \(Int((WinPaint.bindMs - bindMs0).rounded())) ms, custom draw \(WinCustomDraw.blits - blits0) pictures: drawn in \(String(format: "%.1f", WinCustomDraw.bodyMs - bodyMs0)) ms, copied in \(String(format: "%.1f", WinCustomDraw.blitMs - blitMs0)) ms"
         WinPaintSpy.stop()
         s.report = WinOpenTrace.running
         if let t = s.report { s.clickToSettledMs = t.startedAt + t.settledMs - t0 }

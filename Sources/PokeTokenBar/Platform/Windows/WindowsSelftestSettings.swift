@@ -202,7 +202,7 @@ extension WindowsSelftest {
 
     func choose(_ combo: WinControl?, _ index: Int) {
         guard let combo, let parent = GetParent(combo.hwnd) else { return }
-        WinKit.send(combo.hwnd, 0x014E /* CB_SETCURSEL */, index)
+        combo.selection = index
         let id = Int(GetDlgCtrlID(combo.hwnd))
         _ = SendMessageW(parent, UINT(WM_COMMAND), WPARAM(UInt(id & 0xFFFF) | (1 << 16) /* CBN_SELCHANGE */), LPARAM(Int(bitPattern: UnsafeMutableRawPointer(combo.hwnd))))
     }

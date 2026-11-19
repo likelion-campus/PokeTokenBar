@@ -117,6 +117,7 @@ enum WindowsSelftest {
         popoverCompanionPrepare()  // stage 7 task 9 (WindowsSelftestPopoverCompanion.swift): companion sprites from the fixture folder, no network
         await popoverKitChecks(r, app)  // stage 7 task 3 (WindowsSelftestPopover.swift): leaves no window behind
         await popoverCustomDrawChecks(r, app)  // visual polish K3 (WindowsSelftestPopoverCustomDraw.swift): custom-drawn controls; leaves no window behind
+        await popoverK4Checks(r, app)  // visual polish K4 (WindowsSelftestPopoverK4.swift): drop-down, stepper, field frame, MSAA; leaves no window behind
         await popoverGlyphContrastChecks(r, app)  // glyph and pill ink against its fill (WindowsSelftestPopoverGlyphContrast.swift); leaves no window behind
         await popoverWindowChecks(r, app)  // stage 7 task 4 (WindowsSelftestPopoverWindow.swift): leaves no window behind
         await settingsChecks(r, app)  // stage 7 task 6 (WindowsSelftestSettings.swift): the Settings page; leaves the team off and no window behind

@@ -527,8 +527,7 @@ import WinSDK
         if let row = k.orgRow, let combo = row.control {
             let names = m.organizations.map(\.name)
             if names != k.orgNames {
-                WinKit.send(combo.hwnd, 0x014B /* CB_RESETCONTENT */)
-                for name in names { WinKit.send(combo.hwnd, 0x0143 /* CB_ADDSTRING */, 0, text: name) }
+                combo.setItems(names)
                 k.orgNames = names
             }
             let selected = m.selectedOrganization ?? -1
@@ -675,8 +674,7 @@ import WinSDK
         row.isVisible = model != nil
         guard let model, let combo = row.control else { return }
         if model.titles != titles {
-            WinKit.send(combo.hwnd, 0x014B /* CB_RESETCONTENT */)
-            for title in model.titles { WinKit.send(combo.hwnd, 0x0143 /* CB_ADDSTRING */, 0, text: title) }
+            combo.setItems(model.titles)
             titles = model.titles
         }
         if combo.selection != model.selected { combo.selection = model.selected }
