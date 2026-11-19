@@ -145,6 +145,7 @@ private func winPaintSpyQueued(_ code: Int32, _ wParam: WPARAM, _ lParam: LPARAM
             if t.windows > descendants + 4 { bad.append("\(t.windows) windows made for \(descendants) in the window") }
             if clickToSettledMs > maxMs { bad.append("click->settled \(Int(clickToSettledMs)) ms (budget \(Int(maxMs)))") }
             if let worst = t.steps.max(by: { $0.ms < $1.ms }), worst.ms > maxStepMs { bad.append("step \(worst.name) \(Int(worst.ms)) ms (budget \(Int(maxStepMs)))") }
+            if WinPaint.fallbacks > 0 { bad.append("the antialiased painter fell back to GDI \(WinPaint.fallbacks) time(s): \(WinPaint.lastFailure)") }
             if !(stillOpen && foreground && visible) { bad.append("popover open=\(stillOpen) foreground=\(foreground) visible=\(visible)") }
             if !dwmMatches { bad.append("the compositor's frame differs from the window's") }
             return bad
