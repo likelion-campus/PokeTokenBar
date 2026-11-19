@@ -118,7 +118,7 @@ enum WindowsSelftest {
         await popoverKitChecks(r, app)  // stage 7 task 3 (WindowsSelftestPopover.swift): leaves no window behind
         await popoverCustomDrawChecks(r, app)  // visual polish K3 (WindowsSelftestPopoverCustomDraw.swift): custom-drawn controls; leaves no window behind
         await popoverK4Checks(r, app)  // visual polish K4 (WindowsSelftestPopoverK4.swift): drop-down, stepper, field frame, MSAA; leaves no window behind
-        await WindowsSelftestPopoverContrast.run(r)  // visual polish K4: glyph ink against its own fill, every glyph button, light/dark/high contrast
+        await popoverGlyphContrastChecks(r, app)  // glyph and pill ink against its fill (WindowsSelftestPopoverGlyphContrast.swift); leaves no window behind
         await popoverWindowChecks(r, app)  // stage 7 task 4 (WindowsSelftestPopoverWindow.swift): leaves no window behind
         await settingsChecks(r, app)  // stage 7 task 6 (WindowsSelftestSettings.swift): the Settings page; leaves the team off and no window behind
         await teamChecks(r, app)  // Task 19 (WindowsSelftestTeam.swift); shuts its transports down before the idle window
@@ -141,11 +141,13 @@ enum WindowsSelftest {
         await WindowsSelftestPopoverIdle.probe("after the Collection checks")
         await popoverShopBagChecks(r, app)  // stage 7 task 19 (WindowsSelftestPopoverShopBag.swift): the Shop and Bag pages (sprites: Direct2D); leaves no window behind
         await WindowsSelftestPopoverIdle.probe("after the Shop and Bag checks")
+        await popoverDarkMenuChecks(r, app)  // dark popup menus (WindowsSelftestPopoverDarkMenu.swift): real open menus, screenshots; leaves no window or menu behind
         await popoverTabsChecks(r, app)  // stage 7 task 19 (WindowsSelftestPopoverTabs.swift): the tab strip; leaves no window behind
         await WindowsSelftestPopoverIdle.probe("after the tab strip checks")
         WindowsSelftestPopoverIdle.report(r)
         await popoverOpenCostChecks(r, app)  // settings-open (WindowsSelftestPopoverOpenCost.swift): Home -> Settings as the gear does it, measured; Direct2D, so after the idle window
         await popoverSpriteShownCheck(r, app)  // fix/windows-popover-sprite-shown (WindowsSelftestPopoverSpriteShown.swift): the real popover's sprite clocks
+        await popoverDarkMenuHighContrastCheck(r, app)  // LAST: switches the runner to a real high-contrast theme and back
         return r.checks
     }
 

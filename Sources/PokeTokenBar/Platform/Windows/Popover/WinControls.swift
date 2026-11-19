@@ -486,6 +486,7 @@ enum WinEditKind: Equatable, Sendable {
             defer { WinModalPump.end("scroll") }
             return DefSubclassProc(hwnd, message, wParam, lParam)
         case 0x007B where c.kind == .edit:  // WM_CONTEXTMENU: the edit's own menu is a modal loop
+            WinMenuTheme.ensure()  // the edit's own menu follows the app mode too
             WinModalPump.begin("menu")
             defer { WinModalPump.end("menu") }
             return DefSubclassProc(hwnd, message, wParam, lParam)
@@ -969,7 +970,8 @@ enum WinClipboardText {
         let widest = format(min(range.upperBound, 99))
         let valueW = max(ctx.measure(format(range.lowerBound), font: font).cx, ctx.measure(widest, font: font).cx)
         let c = WinControl(kind: .stepper, ctx: ctx, parts: [h],
-                           size: CGSize(width: CGFloat(valueW + ctx.px(6 + 18)), height: CGFloat(ctx.px(28))),
+                           // the value box ends 6 DIP before the spin box, which has 2 DIP of margin at the right (24 DIP left the value 2 px short: "×3" drew as "‹…")
+                           size: CGSize(width: CGFloat(valueW + ctx.px(6 + 18 + 2 + 2)), height: CGFloat(ctx.px(28))),
                            background: ctx.colors.palette.window, font: font)
         c.range = range
         c.step = step
@@ -1041,6 +1043,19 @@ enum WinClipboardText {
 
     /// The glyph button's picture: its background (pressed and hovered a step darker), the glyph centred, the focus
     /// rectangle when the keyboard put the focus there.
+    /// A glyph button's ink and the fill under it (the page colour at rest). Pure: the selftest measures the contrast of every glyph
+    /// button against its fill in each appearance and state.
+    static func glyphColours(_ c: WinControl, pressed: Bool, hot: Bool, disabled: Bool) -> (ink: COLORREF, fill: COLORREF) {
+        let pal = c.ctx.colors.palette
+        let fill = !disabled && pressed ? pal.pressed : (!disabled && hot ? pal.hot : c.background)
+        let ink: COLORREF
+        if disabled { ink = pal.disabled }
+        else if c.ctx.highContrast { ink = pressed ? WinUIContext.sysColor(14) : pal.text }
+        else if let own = c.glyphColor { ink = c.ctx.colors.legible(own, over: fill) }  // a status or accent colour keeps 3:1 against the hover and press fills
+        else { ink = pressed || hot ? pal.text : pal.secondaryText }
+        return (ink, fill)
+    }
+
     static func drawGlyphButton(_ c: WinControl, _ dis: UnsafeMutablePointer<DRAWITEMSTRUCT>) {
         if let pill = c.pill { drawPill(c, pill, dis); return }
         let d = dis.pointee
@@ -1048,16 +1063,16 @@ enum WinClipboardText {
         let colors = c.ctx.colors.palette
         let pressed = state & 0x0001 != 0, disabled = state & 0x0004 != 0, focused = state & 0x0010 != 0, hideFocus = state & 0x0200 != 0
         var r = d.rcItem
+        let look = glyphColours(c, pressed: pressed, hot: c.hot, disabled: disabled)
         // A rounded fill (4 DIP, antialiased) under the pointer or the press; at rest the button is its background only.
         _ = FillRect(d.hDC, &r, c.ctx.colors.brush(c.background))
         if !disabled, pressed || c.hot {
-            WinPaint.roundedRect(d.hDC, r, radius: c.ctx.px(4), fill: WinPaint.Ink(color: pressed ? colors.pressed : colors.hot),
-                                 under: c.background, ctx: c.ctx)
+            WinPaint.roundedRect(d.hDC, r, radius: c.ctx.px(4), fill: WinPaint.Ink(color: look.fill), under: c.background, ctx: c.ctx)
         }
         if let glyph = c.glyph {
             let old = SelectObject(d.hDC, UnsafeMutableRawPointer(c.font))
             _ = SetBkMode(d.hDC, 1 /* TRANSPARENT */)
-            _ = SetTextColor(d.hDC, disabled ? c.ctx.colors.palette.disabled : (pressed && c.ctx.highContrast ? WinUIContext.sysColor(14) : (c.ctx.highContrast ? colors.text : (c.glyphColor ?? (pressed || c.hot ? colors.text : colors.secondaryText)))))
+            _ = SetTextColor(d.hDC, look.ink)
             _ = WinStr.w(glyph.text).withUnsafeBufferPointer {
                 DrawTextW(d.hDC, $0.baseAddress, -1, &r, UINT(DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX))
             }
@@ -1186,19 +1201,14 @@ extension WinControls {
         _ = SelectObject(dc, old)
     }
 
-    /// The pill's picture: the page colour, the fill (a hovered or pressed borderless button gets one too), the glyph and the
-    /// title centred, the focus rectangle after keyboard use.
-    fileprivate static func drawPill(_ c: WinControl, _ pill: WinPill, _ dis: UnsafeMutablePointer<DRAWITEMSTRUCT>) {
-        let d = dis.pointee
-        let ctx = c.ctx, pal = ctx.colors.palette, bg = c.background
-        let state = d.itemState
-        let pressed = state & 0x0001 != 0, disabled = state & 0x0004 != 0, focused = state & 0x0010 != 0, hideFocus = state & 0x0200 != 0
-        var r = d.rcItem
-        _ = FillRect(d.hDC, &r, ctx.colors.brush(bg))
-        let high = ctx.highContrast
+    /// What a pill is drawn in: the ink, the fill (nil: none) and its corner radius (nil: a capsule). Pure, so the selftest measures the
+    /// contrast of every pill's ink against its fill in each appearance and state.
+    static func pillColours(_ pill: WinPill, ctx: WinUIContext, background bg: COLORREF, pressed: Bool, hot: Bool, disabled: Bool)
+        -> (ink: COLORREF, fill: COLORREF?, radius: Int32?) {
+        let pal = ctx.colors.palette, high = ctx.highContrast
         var fill: COLORREF?
         var ink = pal.text
-        var radius = (r.bottom - r.top) / 2  // a capsule
+        var radius: Int32?
         switch pill.style {
         case .capsule:
             ink = pal.text
@@ -1211,7 +1221,7 @@ extension WinControls {
             fill = disabled && !high ? WinUIColors.blend(bg, pal.accent, 0.35) : pal.accent
             radius = ctx.px(5)
         case .borderless:
-            ink = pill.accent ? ctx.colors.legible(pal.accent, on: bg) : (pill.secondary ? pal.secondaryText : pal.text)
+            ink = pill.accent ? pal.accent : (pill.secondary ? pal.secondaryText : pal.text)
             radius = ctx.px(4)
         case .disclosure:
             ink = pal.text
@@ -1219,10 +1229,28 @@ extension WinControls {
         }
         if high, pill.style != .prominent { ink = pal.text }
         if high, pill.style == .borderless, pill.accent { ink = pal.text }
-        if !disabled, pressed || c.hotForPill {
+        if !disabled, pressed || hot {
             let base = fill ?? bg
             fill = WinUIColors.blend(base, pill.style == .prominent ? WinUIColors.rgb(0, 0, 0) : pal.text, pressed ? 0.14 : 0.07)
         }
+        // an accent (or any coloured) ink keeps 3:1 against the fill it sits on in this state (the lifted dark accent vanished on a pressed tint)
+        if !high, !disabled, ink == pal.accent { ink = ctx.colors.legible(ink, over: fill ?? bg) }
+        return (ink, fill, radius)
+    }
+
+    /// The pill's picture: the page colour, the fill (a hovered or pressed borderless button gets one too), the glyph and the
+    /// title centred, the focus rectangle after keyboard use.
+    fileprivate static func drawPill(_ c: WinControl, _ pill: WinPill, _ dis: UnsafeMutablePointer<DRAWITEMSTRUCT>) {
+        let d = dis.pointee
+        let ctx = c.ctx, pal = ctx.colors.palette, bg = c.background
+        let state = d.itemState
+        let pressed = state & 0x0001 != 0, disabled = state & 0x0004 != 0, focused = state & 0x0010 != 0, hideFocus = state & 0x0200 != 0
+        var r = d.rcItem
+        _ = FillRect(d.hDC, &r, ctx.colors.brush(bg))
+        let high = ctx.highContrast
+        let look = pillColours(pill, ctx: ctx, background: bg, pressed: pressed, hot: c.hotForPill, disabled: disabled)
+        let fill = look.fill, ink = look.ink
+        let radius = look.radius ?? (r.bottom - r.top) / 2  // a capsule unless the style says otherwise
         if let fill { WinPaint.roundedRect(d.hDC, r, radius: radius, fill: WinPaint.Ink(color: fill), under: bg, ctx: ctx) }
         let textColor = disabled ? ctx.colors.palette.disabled : ink
         _ = SetBkMode(d.hDC, 1 /* TRANSPARENT */)
@@ -1257,6 +1285,7 @@ extension WinControl {
     /// The pill's glyph symbol (the selftest reads it, as it read a glyph button's text).
     var pillGlyph: String? { pill?.glyph }
     var isPill: Bool { pill != nil }
+    var pillForTesting: WinPill? { pill }
 
     /// Another symbol before the title (a disclosure's chevron turning down): one repaint.
     func setPillGlyph(_ symbol: String) {

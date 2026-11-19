@@ -176,7 +176,8 @@ enum MSAAProbe {
         // stepper: value, keys, ends, width
         let sw = stepper.preferredSize.width, bw = big.preferredSize.width
         // sized to its content: a huge maximum is capped at "×99" (what a quantity can need), not "×2000000000"
-        let stepFont = stepper.font, capped = w.ctx.measure("×99", font: stepFont).cx + w.ctx.px(6 + 18), full = w.ctx.measure("×2000000000", font: stepFont).cx + w.ctx.px(6 + 18)
+        // the chrome is 6 DIP gap + 18 DIP spin box + 2 DIP margin + 2 DIP spare, so the value box (width - 26 DIP) holds its text
+        let stepFont = stepper.font, capped = w.ctx.measure("×99", font: stepFont).cx + w.ctx.px(6 + 18 + 2 + 2), full = w.ctx.measure("×2000000000", font: stepFont).cx + w.ctx.px(6 + 18 + 2 + 2)
         if Int32(bw) != capped || bw >= CGFloat(full) || sw >= bw { problems.append("stepper width: \(Int(sw)) px for 1...5 and \(Int(bw)) px for 1...2e9; expected the second to be \"×99\" wide (\(capped)) and less than \(full)") }
         key(stepper, 0x26)
         key(stepper, 0x26)

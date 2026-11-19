@@ -552,7 +552,7 @@ jobs:
         shell: pwsh
         run: |
           $j = Get-Content st.json -Raw | ConvertFrom-Json
-          $names = 'popover.customDraw', 'popover.customDraw.fault', 'popover.hoverRepaint', 'popover.hoverRepaint.fault'
+          $names = 'popover.customDraw', 'popover.customDraw.fault', 'popover.hoverRepaint', 'popover.hoverRepaint.fault', 'popover.glyphContrast', 'popover.glyphContrast.fault', 'popover.darkMenu', 'popover.darkMenu.fault', 'popover.darkMenu.mode', 'popover.darkMenu.highContrast'
           $bad = @()
           foreach ($n in $names) {
               $c = $j.checks | Where-Object { $_.name -eq $n }
@@ -568,7 +568,7 @@ jobs:
         shell: pwsh
         run: |
           $j = Get-Content st.json -Raw | ConvertFrom-Json
-          $names = 'popover.dropDown', 'popover.stepper', 'popover.field', 'popover.msaa', 'popover.k4.fault', 'popover.glyphContrast', 'popover.glyphContrast.fault'
+          $names = 'popover.dropDown', 'popover.stepper', 'popover.field', 'popover.msaa', 'popover.k4.fault'
           $bad = @()
           foreach ($n in $names) {
               $c = $j.checks | Where-Object { $_.name -eq $n }
