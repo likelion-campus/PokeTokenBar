@@ -53,6 +53,7 @@ and agent reactions, and the `poketokenbar:` link.
 
 | Difference | Reason |
 |---|---|
+| Popup menus (tray, floating pet, drop-downs, text-box menus) follow the app mode: dark when Windows' app mode is dark | `WinMenuTheme` calls the undocumented `uxtheme` exports (ordinals 135, 104, 136) by ordinal, gated by build (below 17763 nothing; 17763-18361 `AllowDarkModeForApp`; 18362+ `SetPreferredAppMode`, also tried on builds newer than tested), so the system draws the menu (keyboard, accessible names, DPI stay native). A real high-contrast theme keeps the system's colours. If an export is missing the menus stay light. Kill-switch: environment `PTB_LIGHT_MENUS=1` or `HKCU\Software\PokeTokenBar\LightMenus` = 1 |
 | Toggles are switches (40 x 20 DIP) drawn over a native check box (K3) | Win32 has no switch control; the check box keeps the role, the checked state and Space. Narrator says "check box", not "toggle switch" |
 | The main tabs, "Used / Remaining", "Week / Month / Year" and the Pokédex / catch-log picker are one connected segmented control (K3), drawn over push-like radio buttons; provider and account tabs are capsule chips that are radio buttons too (the selected one is the checked radio button). Pickers are combo boxes or popup buttons | no native segmented control; the radio buttons keep the role, checked state and arrow keys. The scope group has no accessible group name (a radio group is named by a group box) |
 | Provider and account tabs wrap onto several lines when they do not fit | the kit has no horizontal scroller |
