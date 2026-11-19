@@ -15,7 +15,7 @@ final class DexGlyphButtonContrastTests: XCTestCase {
         return ch(c.red, base, 16) << 16 | ch(c.green, base, 8) << 8 | ch(c.blue, base, 0)
     }
 
-    func testTheStarGlyphIsReadableOnItsButtonInEveryAppearance() {
+    func testTheStarGlyphIsReadableOnItsButtonInEveryAppearance() async {
         let saved = (PopoverAppearanceState.appearance, PopoverAppearanceState.highContrast)
         defer { (PopoverAppearanceState.appearance, PopoverAppearanceState.highContrast) = saved }
         let black = PopoverHighContrast(window: 0x000000, text: 0xFFFFFF, highlight: 0x1AEBFF, highlightText: 0x000000)
@@ -34,7 +34,7 @@ final class DexGlyphButtonContrastTests: XCTestCase {
         }
     }
 
-    func testTheDexPartsDrawNoHardCodedWhiteBox() throws {
+    func testTheDexPartsDrawNoHardCodedWhiteBox() async throws {
         for file in ["DexDetailPart.swift", "DexBodyPart.swift"] {
             let url = SharedSources.sourcesRoot.appendingPathComponent("Popover/\(file)")
             let lines = try String(contentsOf: url, encoding: .utf8).components(separatedBy: "\n")
