@@ -35,10 +35,19 @@ import WinSDK
         glyph("settings", "gearshape")
         glyph("quit", "power")
         glyph("sort", "arrow.up.arrow.down", size: 13)
-        glyph("sort (custom)", "arrow.up.arrow.down", size: 13) { $0.ctx.colors.palette.accent }
+        // as the Collection toolbar sets them: a custom sort is the accent ink on a tinted box, the shiny filter on is a gold tint
+        glyph("sort (custom)", "arrow.up.arrow.down", size: 13) { c in
+            let tinted = WinUIColors.blend(c.ctx.colors.palette.window, c.ctx.colors.palette.accent, 0.12)
+            c.background = tinted
+            return c.ctx.colors.legible(c.ctx.colors.palette.accent, on: tinted)
+        }
         glyph("shiny filter", "sparkles", size: 13)
+        glyph("shiny filter on", "sparkles", size: 13) { c in
+            c.background = WinUIColors.blend(c.ctx.colors.palette.window, 0x0000_CCFF, 0.18)
+            return nil
+        }
         glyph("help ?", "questionmark.circle", size: 14)
-        glyph("error triangle", "exclamationmark.triangle", size: 12) { $0.ctx.colors.statusOrange }
+        glyph("error triangle", "exclamationmark.triangle", size: 12) { $0.ctx.colors.legible($0.ctx.colors.statusOrange, on: $0.ctx.colors.palette.window) }
         glyph("search clear", "xmark.circle.fill", size: 13)
         for (name, pill) in [("back (Settings)", WinPill(style: .borderless, title: "Back", glyph: "chevron.backward", textStyle: .body, accent: true)),
                              ("back (Recap)", WinPill(style: .borderless, title: "Back", glyph: "chevron.left", textStyle: .body))] {
@@ -126,7 +135,7 @@ import WinSDK
                 let c = e.control
                 switch (e.kind, state) {
                 case (.glyph, "hover"), (.pill, "hover"):
-                    _ = SendMessageW(c.hwnd, 0x0200 /* WM_MOUSEMOVE */, 0, LPARAM(5 << 16 | 5))
+                    c.forceHot(true)
                 case (.glyph, "pressed"), (.pill, "pressed"):
                     _ = SendMessageW(c.hwnd, 0x00F3 /* BM_SETSTATE */, 1, 0)
                 case (.dropDown, "hover"): c.forceState(hot: 0)
@@ -145,7 +154,7 @@ import WinSDK
                 switch e.kind {
                 case .glyph, .pill:
                     _ = SendMessageW(c.hwnd, 0x00F3, 0, 0)
-                    _ = SendMessageW(c.hwnd, 0x02A3 /* WM_MOUSELEAVE */, 0, 0)
+                    c.forceHot(false)
                 case .dropDown: c.forceState()
                 case .stepper: c.forceHalves(hot: 0, pressed: 0)
                 }

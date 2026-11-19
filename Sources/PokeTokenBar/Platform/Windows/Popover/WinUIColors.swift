@@ -150,5 +150,29 @@ import WinSDK
         }
         return out
     }
+
+    /// The WCAG contrast ratio of two colours.
+    nonisolated static func contrast(_ a: COLORREF, _ b: COLORREF) -> Double {
+        func lum(_ c: COLORREF) -> Double {
+            func ch(_ shift: COLORREF) -> Double { let s = Double((c >> shift) & 0xFF) / 255; return s <= 0.03928 ? s / 12.92 : pow((s + 0.055) / 1.055, 2.4) }
+            return 0.2126 * ch(0) + 0.7152 * ch(8) + 0.0722 * ch(16)
+        }
+        return (max(lum(a), lum(b)) + 0.05) / (min(lum(a), lum(b)) + 0.05)
+    }
+
+    /// `color` as the ink of a thin glyph on `surface`: unchanged when it already reads at `ratio`:1 against the surface and against its
+    /// pressed look, else moved towards black (light) or white (dark) until it does (the way Windows' own accent text uses a darker accent
+    /// in light and a lighter one in dark: the system accent itself is for fills). High contrast keeps the system's colour. A glyph's
+    /// thin strokes show about three quarters of the colour's contrast, hence 4.2 for the selftest's 3:1.
+    func legible(_ color: COLORREF, on surface: COLORREF, ratio: Double = 4.2) -> COLORREF {
+        if highContrast { return color }
+        let worst = Self.blend(surface, palette.text, 0.14)
+        let toward: COLORREF = dark ? 0x00FF_FFFF : 0
+        for step in 0...50 {
+            let c = Self.blend(color, toward, Double(step) / 50)
+            if Self.contrast(c, surface) >= ratio, Self.contrast(c, worst) >= ratio { return c }
+        }
+        return toward
+    }
 }
 #endif

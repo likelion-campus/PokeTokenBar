@@ -287,7 +287,10 @@ extension WindowsSelftest {
         if erases > perCount.count { problems.append("hovering asked for \(erases) background erases for \(perCount.count) runs: they grow with the moves") }
         if blits != paints { problems.append("\(paints) paints but \(blits) whole-picture blits: a paint drew in steps on the window's own DC") }
         // the parent pane: hovering must not repaint or erase it (it would flash the page colour behind the control)
-        if parent.paints != 0 || parent.erases != 0 { problems.append("the parent pane painted \(parent.paints) and erased \(parent.erases) times while the pointer moved over its controls (must be 0)") }
+        // (a themed button asks its parent for the background once per paint; the pane answers "done" and draws nothing, so those requests may
+        // equal the children's paints but never exceed them)
+        if parent.paints != 0 { problems.append("the parent pane painted \(parent.paints) times while the pointer moved over its controls (must be 0)") }
+        if parent.erases > paints { problems.append("the parent pane answered \(parent.erases) erase requests for \(paints) child paints (more than one per paint)") }
         return (problems, "repaints per run [\(shown)], erases \(erases), blits \(blits) of \(paints) paints; parent pane paints \(parent.paints) erases \(parent.erases)")
     }
 

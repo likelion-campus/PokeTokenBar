@@ -169,6 +169,11 @@ enum WinEditKind: Equatable, Sendable {
         testHot = hot; testPressed = pressed; testFocus = focus
         for part in parts { _ = framed ? RedrawWindow(part, nil, nil, UINT(0x0400 | 0x0001)) : InvalidateRect(part, nil, false) }
     }
+    /// SELFTEST HOOK: the hover look of a glyph button or pill without a pointer (a synthetic move is followed by WM_MOUSELEAVE at once).
+    func forceHot(_ on: Bool) {
+        hot = on
+        _ = InvalidateRect(hwnd, nil, false)
+    }
     /// SELFTEST HOOK: a stepper's halves shown hovered and pressed (1 = upper, 2 = lower).
     func forceHalves(hot: Int, pressed: Int) {
         hotHalf = hot; pressedHalf = pressed
@@ -1206,7 +1211,7 @@ extension WinControls {
             fill = disabled && !high ? WinUIColors.blend(bg, pal.accent, 0.35) : pal.accent
             radius = ctx.px(5)
         case .borderless:
-            ink = pill.accent ? pal.accent : (pill.secondary ? pal.secondaryText : pal.text)
+            ink = pill.accent ? ctx.colors.legible(pal.accent, on: bg) : (pill.secondary ? pal.secondaryText : pal.text)
             radius = ctx.px(4)
         case .disclosure:
             ink = pal.text

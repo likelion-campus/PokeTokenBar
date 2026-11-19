@@ -347,8 +347,9 @@ import WinSDK
         }
         if let sort {
             let custom = browser.isCustomSortActive(showingLog: showingLog)
-            sort.glyphColor = custom ? palette.accent : nil
-            sort.background = custom ? Self.blend(window, with: palette.accent, 0.12) : window
+            let tinted = Self.blend(window, with: palette.accent, 0.12)
+            sort.glyphColor = custom ? ctx.colors.legible(palette.accent, on: tinted) : nil
+            sort.background = custom ? tinted : window
             _ = InvalidateRect(sort.hwnd, nil, false)
         }
         clear?.setVisible(!browser.searchText.isEmpty)
