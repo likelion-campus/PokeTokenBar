@@ -905,13 +905,13 @@ import WinSDK
         var source = POINT(x: 0, y: 0)
         var destination = POINT(x: win.left, y: win.top)
         var blend = BLENDFUNCTION(BlendOp: 0 /* AC_SRC_OVER */, BlendFlags: 0, SourceConstantAlpha: 255, AlphaFormat: 1 /* AC_SRC_ALPHA */)
-        // A new frame of the same window: only the picture (no place or size: no window-position work for every frame).
-        let same = drawnFrame.map { $0.left == win.left && $0.top == win.top && $0.right == win.right && $0.bottom == win.bottom } ?? false
+        // Every picture with its place and size, a new frame of the same window included (fix/windows-pet-and-detail-animation):
+        // without them (NULL position and size, "not changing") the call succeeded and the window's bits changed, but a user's
+        // PC (Windows 11, kit 15) never put them on the screen until something else made it compose the pet again (a pointer
+        // over it, a new size): the GIF's frames, the back view and the hearts all stood still while the clock ticked.
         // A place or a size of the window's own choosing: a WM_DPICHANGED sent from inside is not a new DPI (review I2).
         inOwnUpdate = true
-        let done = same
-            ? UpdateLayeredWindow(hwnd, nil, nil, nil, surface.dc, &source, 0, &blend, 0x0000_0002 /* ULW_ALPHA */)
-            : UpdateLayeredWindow(hwnd, nil, &destination, &size, surface.dc, &source, 0, &blend, 0x0000_0002 /* ULW_ALPHA */)
+        let done = UpdateLayeredWindow(hwnd, nil, &destination, &size, surface.dc, &source, 0, &blend, 0x0000_0002 /* ULW_ALPHA */)
         inOwnUpdate = false
         if done {
             pet.stats.renders += 1
@@ -1202,6 +1202,19 @@ import WinSDK
     }
 
     // --- fix/windows-pet-and-detail-animation: what the screen shows, not only the model (begin) ---
+    /// This process's top-level windows of the pet's class, shown or not: a second, stale pet would show here.
+    static func petWindows() -> Int {
+        var count = 0, after: HWND? = nil
+        let me = GetCurrentProcessId()
+        while let next = FindWindowExW(nil, after, WinStr.w(className), nil) {
+            var pid: DWORD = 0
+            _ = GetWindowThreadProcessId(next, &pid)
+            if pid == me { count += 1 }
+            after = next
+        }
+        return count
+    }
+
     /// The frame shown, the picture this window drew (its surface) and the screen at the pet's box (captured, hashed, dropped).
     func pixelSample() -> (frame: Int, picture: Int, screen: Int) {
         let f = frame
@@ -1223,7 +1236,8 @@ import WinSDK
             guard let self, !self.isDestroyed else { return }
             let line = "floating pet: 5 looks over 2 s: frames \(looks.map { String($0.frame) }.joined(separator: ",")), "
                 + "renders +\((self.pet?.stats.renders ?? 0) - renders0), distinct pictures it drew \(Set(looks.map { $0.picture }).count), "
-                + "distinct screens at the pet \(Set(looks.map { $0.screen }).count) (1 = the screen did not change)"
+                + "distinct screens at the pet \(Set(looks.map { $0.screen }).count) (1 = the screen did not change); "
+                + "this process's pet windows \(Self.petWindows()) (1 expected)"
             self.pixelChecks.append(line)
             AppLog.write(line)
         }

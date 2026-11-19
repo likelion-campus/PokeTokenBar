@@ -127,7 +127,7 @@ import WinSDK
         guard loggedSlots[index] != state else { return }
         loggedSlots[index] = state
         let species = state.subject?.speciesID.map { String($0) } ?? "egg"
-        AppLog.write("popover sprite #\(species) shiny=\(state.subject?.shiny == true) (slot \(index)): \(state.frames) frames, "
+        AppLog.write("popover sprite #\(species) shiny=\(state.subject?.shiny == true) (slot \(index) of \(view.partName)): \(state.frames) frames, "
                      + "loading=\(state.loading) asked animated=\(state.animated) playing=\(state.playing) GIF asks=\(model.gifAsks) "
                      + "(Show animations=\(playback.animationsEnabled), active=\(playback.isActive), shown=\(Self.isShown(view.hwnd)), "
                      + "displays asleep=\(displayAsleep()), clock armed=\(playback.clock.isArmed))")
@@ -161,7 +161,7 @@ import WinSDK
                 shown.append(Self.isShown(view.hwnd))
             }
             guard let self, !self.isDestroyed else { return }
-            AppLog.write("popover sprite #\(species) (slot \(index)): 5 looks over 2 s: frames \(frames.map { String($0) }.joined(separator: ",")), "
+            AppLog.write("popover sprite #\(species) (slot \(index) of \(self.view?.partName ?? "none")): 5 looks over 2 s: frames \(frames.map { String($0) }.joined(separator: ",")), "
                          + "ticks +\(self.playback.ticks - ticks0), shown \(shown.map { $0 ? "y" : "n" }.joined()), distinct screens at the slot "
                          + "\(Set(screens).count) (1 = the screen did not change)")
         }

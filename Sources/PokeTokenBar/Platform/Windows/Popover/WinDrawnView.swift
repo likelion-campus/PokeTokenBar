@@ -59,6 +59,8 @@ import WinSDK
     private var router: WinControlRouter?
     private var pressed: PlazaPanelHit?
     private var hosted: (any PopoverPart)?
+    /// The hosted part's type, for the log (fix/windows-pet-and-detail-animation: which view a sprite line is about).
+    var partName: String { hosted.map { String(describing: type(of: $0)) } ?? "none" }
     private var hostedWidth: CGFloat = 0
     private var renderPending = false
     private var tooltipKey: [String] = []  // stage 7 Task 12
