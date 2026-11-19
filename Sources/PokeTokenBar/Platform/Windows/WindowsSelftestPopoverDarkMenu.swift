@@ -170,6 +170,7 @@ extension WindowsSelftest {
         }
     }
     private static func writeHighContrast(_ flags: UInt32, scheme: String) -> Bool {
+        guard WindowsSelftest.onCI else { return false }  // a system-wide theme: CI only
         var buffer = WinStr.w(scheme.isEmpty ? "High Contrast White" : scheme)
         return buffer.withUnsafeMutableBufferPointer { b in
             var hc = HIGHCONTRASTW()

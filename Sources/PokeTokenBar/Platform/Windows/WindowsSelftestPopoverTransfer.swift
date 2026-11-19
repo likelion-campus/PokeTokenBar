@@ -184,6 +184,7 @@ final class TransferDialogDriver: @unchecked Sendable {
     }
 
     private func sendKey(_ vk: UInt16) {
+        guard WindowsSelftest.onCI else { return }  // real keys: CI only
         var inputs: [INPUT] = []
         func ki(up: Bool) -> INPUT {
             var i = INPUT()
@@ -486,6 +487,7 @@ final class TransferDialogDriver: @unchecked Sendable {
     }
 
     func key(_ vk: UInt16) {
+        guard WindowsSelftest.onCI else { return }  // real keys: CI only
         var inputs: [INPUT] = []
         for up in [false, true] {
             var i = INPUT()

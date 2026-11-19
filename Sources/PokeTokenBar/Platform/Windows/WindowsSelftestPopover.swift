@@ -721,6 +721,7 @@ extension WindowsSelftest {
     }
 
     static func tap(_ vk: UInt16, shift: Bool = false) {
+        guard WindowsSelftest.onCI else { return }  // real keys: CI only
         var inputs: [INPUT] = []
         func key(_ code: UInt16, up: Bool) -> INPUT {
             var i = INPUT()
@@ -737,6 +738,7 @@ extension WindowsSelftest {
     }
 
     static func typeUnicode(_ unit: UInt16) {
+        guard WindowsSelftest.onCI else { return }  // real keys: CI only
         var inputs = [INPUT(), INPUT()]
         inputs[0].type = DWORD(INPUT_KEYBOARD)
         inputs[0].ki.wScan = unit
@@ -748,6 +750,7 @@ extension WindowsSelftest {
 
     /// A mouse event at screen pixels (absolute moves are normalised to 0…65535 over the primary screen).
     nonisolated static func mouse(x: Int32, y: Int32, flags: DWORD) {
+        guard WindowsSelftest.onCI else { return }  // real mouse: CI only
         var input = INPUT()
         input.type = DWORD(INPUT_MOUSE)
         let sw = max(2, GetSystemMetrics(SM_CXSCREEN)), sh = max(2, GetSystemMetrics(SM_CYSCREEN))
@@ -836,6 +839,7 @@ extension WindowsSelftest {
     }
 
     nonisolated static func keyFromThread(_ vk: UInt16) {
+        guard WindowsSelftest.onCI else { return }  // real keys: CI only
         var inputs = [INPUT(), INPUT()]
         inputs[0].type = DWORD(INPUT_KEYBOARD)
         inputs[0].ki.wVk = vk
@@ -864,6 +868,7 @@ extension WindowsSelftest {
     }
 
     static func setClipboard(_ text: String?, owner: HWND) -> Bool {
+        guard WindowsSelftest.onCI else { return false }  // writes the clipboard: CI only
         guard OpenClipboard(owner) else { return false }
         defer { _ = CloseClipboard() }
         _ = EmptyClipboard()
