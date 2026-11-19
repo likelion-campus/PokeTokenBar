@@ -103,7 +103,7 @@ final class DexPagerInkTests: XCTestCase {
                 ("page text '1 / 8' (secondary on the window)", over(windows(.secondary), page), page, 4.5),
                 ("cell number tag (secondary on the window)", over(windows(.secondary), page), page, 4.5),
                 ("footer representative glyph (primary on its button)", over(PopoverColorRole.primary.plazaColor(), card), card, 3),
-                ("selected chip check (primary on the chip tint)", over(PopoverColorRole.primary.plazaColor(), tint), tint, 3),
+                ("selected chip check (legible accent on the chip tint)", over(DexPainter.legibleInk(accent, onTint: 0.22), tint), tint, 3),
                 ("complete chip count (accent on the window)", over(accent, page), page, 3),
                 ("search glyph (tertiary on the window)", over(windows(.tertiary), page), page, 3),
             ]
@@ -112,11 +112,11 @@ final class DexPagerInkTests: XCTestCase {
             var fills: [(String, PlazaColor)] = PopoverPokemonType.allCases.map { ("\($0) type badge", PopoverBadgeTint.type($0).color) }
             fills += [Rarity.common, .uncommon, .rare, .legendary].map { ("\($0) rarity badge", CompanionBadges.rarityColor($0).plazaColor()) }
             for (what, fill) in fills {
-                badges.append(("solid \(what) text", rgb(DexPainter.ink(on: fill)), rgb(fill), 4.5))
+                badges.append(("solid \(what) text", rgb(DexPainter.ink(on: fill)), rgb(fill), 3))
             }
             // the tinted badge (RAISING): the accent on its 14 % tint over the window
             let faint = over(DexPainter.tint(accent, 0.14), page)
-            badges.append(("tinted accent badge text", over(DexPainter.tintedInk(accent), faint), faint, 3))
+            badges.append(("tinted accent badge text", over(DexPainter.legibleInk(accent, onTint: 0.14), faint), faint, 3))
             for (what, ink, surface, floor) in pairs + badges {
                 let ratio = PopoverSurface.contrast(ink, surface)
                 XCTAssertGreaterThanOrEqual(ratio, floor, "\(name): \(what) is \(ratio):1 (needs \(floor))")

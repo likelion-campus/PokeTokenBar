@@ -116,9 +116,26 @@ enum PopoverSurface {
         return 0.2126 * lin(c.0) + 0.7152 * lin(c.1) + 0.0722 * lin(c.2)
     }
 
-    /// Black or white, whichever reads better on `fill` (for text on a fixed brand colour, such as a type's badge: white on the yellow
-    /// electric badge is 1.6:1).
-    static func readableInk(on fill: UInt32) -> UInt32 { contrast(0xFFFFFF, fill) >= contrast(0x000000, fill) ? 0xFFFFFF : 0x000000 }
+    /// The Mac's white where it reaches `minRatio`:1 on `fill`, else black (text on a fixed brand colour: white on the yellow electric badge
+    /// is 1.6:1).
+    static func readableInk(on fill: UInt32, minRatio: Double = 3) -> UInt32 {
+        contrast(0xFFFFFF, fill) >= minRatio || contrast(0xFFFFFF, fill) >= contrast(0x000000, fill) ? 0xFFFFFF : 0x000000
+    }
+
+    /// The light window's colour (Windows 11), as the dark one is `darkWindow`.
+    static let lightWindow: UInt32 = 0xF3F3F3
+
+    /// `c` moved towards black (light) or white (dark) until it is `minRatio`:1 against `fill`; one that already passes is returned as it is.
+    /// The one rule for an accent or a status colour used as ink (`WinUIColors.legible` is this over the window).
+    static func legible(_ c: UInt32, over fill: UInt32, dark: Bool, minRatio: Double = 3) -> UInt32 {
+        let toward: UInt32 = dark ? 0xFFFFFF : 0
+        var out = c, t = 0.0
+        while contrast(out, fill) < minRatio, t < 1 {
+            t += 0.05
+            out = blend(c, toward, t)
+        }
+        return out
+    }
 
     /// WCAG contrast ratio, 1…21.
     static func contrast(_ a: UInt32, _ b: UInt32) -> Double {

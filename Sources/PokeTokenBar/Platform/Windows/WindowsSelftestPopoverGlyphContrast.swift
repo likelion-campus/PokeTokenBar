@@ -18,12 +18,9 @@ extension WindowsSelftest {
     var pills: [(name: String, control: WinControl)] = []
     var rawOrange = false
     var chips: WinControl?
-<<<<<<< HEAD
     var window: COLORREF = 0
-=======
     /// K4: the drop-down and the stepper, whose chevrons are drawn by `WinCustomDraw` (secondary ink on the button's own fill).
     var dropDown: WinControl?, stepper: WinControl?
->>>>>>> origin/windows-port
 
     func build(_ s: WinStack) {
         window = s.ctx.colors.palette.window
