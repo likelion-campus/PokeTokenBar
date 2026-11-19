@@ -243,3 +243,5 @@ PopoverSpriteRetryTwinTests+Mac.swift
 # WindowsPaintScanTests: scans the Windows sources for RoundRect( and DrawFocusRect( with SharedSources (SharedSourcesScanTests.swift), which is Mac-only (visual polish K2)
 WindowsPaintScanTests.swift
 DexGlyphButtonScanTests.swift
+# DexPagerInkTests: renders the DexBodyPart on the CoreGraphics canvas and measures the pager arrows' pixels (fix/windows-dex-pager-glyphs)
+DexPagerInkTests.swift

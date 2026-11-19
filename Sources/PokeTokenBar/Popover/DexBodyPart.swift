@@ -26,6 +26,9 @@ enum DexKeyMove: Equatable {
     static let pageButton: CGFloat = 28     // DexPageButton.hitSize
     static let pageEdgeInset: CGFloat = 10  // DexPageButton.edgeInset
     static let hoverScale: CGFloat = 1.04
+    /// SELFTEST HOOK, not a setting: paint the pager's arrows in this colour (the window's, "blends into the background"), the fault twin of
+    /// `popover.glyphContrast`.
+    nonisolated(unsafe) static var pagerInkOverride: PlazaColor?
 
     var onChange: (() -> Void)?
     private(set) var model: DexBodyModel
@@ -277,8 +280,8 @@ enum DexKeyMove: Equatable {
                 let fp = model.footer
                 for (rect, forward, enabled) in [(lay.prev, false, fp.current > 0), (lay.next, true, fp.current < fp.pageCount - 1)] {
                     guard let rect else { continue }
-                    p.drawGlyph(forward ? "chevron.right" : "chevron.left", fallback: forward ? "›" : "‹", size: 13, bold: true,
-                                color: enabled ? primary : PopoverColorRole.tertiary.plazaColor(), in: rect, canvas: canvas, space: space)
+                    let ink = Self.pagerInkOverride ?? (enabled ? primary : PopoverColorRole.tertiary.plazaColor())
+                    p.drawChevron(forward: forward, in: rect, color: ink, canvas: canvas, space: space)
                 }
             }
         } }

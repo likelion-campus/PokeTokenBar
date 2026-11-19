@@ -18,8 +18,10 @@ extension WindowsSelftest {
     var pills: [(name: String, control: WinControl)] = []
     var rawOrange = false
     var chips: WinControl?
+    var window: COLORREF = 0
 
     func build(_ s: WinStack) {
+        window = s.ctx.colors.palette.window
         let section = s.addSection("Glyphs")
         let symbols: [(String, String, CGFloat)] = [("questionmark.circle", "help", 14), ("sparkles", "shiny filter", 13), ("arrow.up.arrow.down", "sort", 13),
                                                     ("arrow.clockwise", "refresh", 16), ("gearshape", "settings", 16), ("power", "quit", 16), ("eye.slash", "pet", 16),
@@ -60,7 +62,7 @@ extension WindowsSelftest {
     private static func ratio(_ a: COLORREF, _ b: COLORREF) -> Double { PopoverSurface.contrast(WinUIColors.rgb(of: a), WinUIColors.rgb(of: b)) }
 
     /// (problems, one line per control with the lowest ratio of its states)
-    static func evaluate(dark: Bool, highContrast: Bool, rawOrange: Bool) async -> (problems: [String], lines: [String]) {
+    static func evaluate(dark: Bool, highContrast: Bool, rawOrange: Bool, pagerBlended: Bool = false) async -> (problems: [String], lines: [String]) {
         let page = GlyphContrastPage()
         page.rawOrange = rawOrange
         guard let w = KitWindow(heightDIP: 700, highContrast: highContrast, dark: highContrast ? nil : dark, register: true,
@@ -69,6 +71,9 @@ extension WindowsSelftest {
         var problems: [String] = []
         var lines: [String] = []
         let name = highContrast ? "hc" : (dark ? "dark" : "light")
+        let pager = await pagerContrast(name: name, surface: page.window, fault: pagerBlended)
+        problems += pager.problems
+        lines += pager.lines
         for (label, c) in page.glyphs {
             var worst = 99.0, worstState = ""
             for (state, pressed, hot) in [("rest", false, false), ("hover", false, true), ("pressed", true, true)] {
@@ -107,6 +112,60 @@ extension WindowsSelftest {
         return (problems, lines)
     }
 
+    private struct PagerPoke: PokeProviding {
+        func line(baseSpeciesID: Int) async throws -> EvoLine { throw LimitsError.keychainAccessDisabled }
+        func baseSpeciesIndex() async throws -> [BaseSpecies] { [] }
+        func baseSpecies(id: Int) async throws -> BaseSpecies? { nil }
+    }
+
+    /// The Collection's pager arrows (page 1, a middle page, the last) as Windows draws them (Direct2D canvas, Windows' label opacities),
+    /// composed over the window colour: an enabled arrow needs 3:1, a disabled one 1.5:1. `fault` paints them in the window's own colour.
+    private static func pagerContrast(name: String, surface: COLORREF, fault: Bool) async -> (problems: [String], lines: [String]) {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("pager-contrast-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: file) }
+        var state = CompanionState()
+        let rarities: [Rarity] = [.common, .uncommon, .rare, .legendary]
+        state.dex = (1...120).map { id in
+            DexEntry(id: "pager-\(id)", baseID: id, finalID: id, chainOrder: [id], rarity: rarities[id % 4], caughtAt: Date(timeIntervalSinceNow: -Double(id) * 5400),
+                     isShiny: id % 7 == 0, names: [id: ["en": "Species \(id)", "ko": "종 \(id)"]])
+        }
+        try? JSONEncoder().encode(state).write(to: file)
+        let store = CompanionStore(provider: PagerPoke(), fileURL: file, defaults: WinDefaultsSync.makeAppDefaults())
+        let bg = WinUIColors.rgb(of: surface)
+        DexBodyPart.pagerInkOverride = fault ? PlazaColor(srgbRed: Double((bg >> 16) & 0xFF) / 255, green: Double((bg >> 8) & 0xFF) / 255, blue: Double(bg & 0xFF) / 255) : nil
+        defer { DexBodyPart.pagerInkOverride = nil }
+        var problems: [String] = [], lines: [String] = []
+        let graphics = PlatformPlaza.graphics
+        let scale: CGFloat = 2
+        for (page, prevOn, nextOn) in [(0, false, true), (3, true, true), (7, true, false)] {
+            var browser = DexBrowserState()
+            browser.page = page
+            let part = DexBodyPart(DexBodyModel.make(store: store, state: browser), height: 456)
+            let size = part.size(width: 332, scale: scale, text: graphics.text)
+            let drawing = part.render(scale: scale, graphics: graphics)
+            guard let lay = part.laid, let prev = lay.prev, let next = lay.next else { problems.append("\(name): no pager on page \(page + 1)"); continue }
+            let w = Int(size.width * scale), h = Int(size.height * scale)
+            let bytes = PopoverComposite.compose(drawing.drawing.layers, width: w, height: h, scale: scale)
+            for (which, box, enabled) in [("previous", prev, prevOn), ("next", next, nextOn)] {
+                var best = 1.0
+                for y in max(0, Int(box.minY * scale))..<min(h, Int(box.maxY * scale)) {
+                    for x in max(0, Int(box.minX * scale))..<min(w, Int(box.maxX * scale)) {
+                        let o = (y * w + x) * 4
+                        let a = Double(bytes[o + 3]) / 255
+                        func ch(_ shift: UInt32, _ premul: UInt8) -> UInt32 {
+                            UInt32(max(0, min(255, (Double(premul) + Double((bg >> shift) & 0xFF) * (1 - a)).rounded())))
+                        }
+                        best = max(best, PopoverSurface.contrast(ch(0, bytes[o]) | ch(8, bytes[o + 1]) << 8 | ch(16, bytes[o + 2]) << 16, bg))
+                    }
+                }
+                let floor = enabled ? 3.0 : 1.5
+                lines.append("\(name) pager \(which) p\(page + 1) \(String(format: "%.1f", best))")
+                if best < floor { problems.append("\(name): the pager's \(which) arrow on page \(page + 1) is \(String(format: "%.2f", best)):1 against the window, expected \(floor):1") }
+            }
+        }
+        return (problems, lines)
+    }
+
     static func run(_ r: WindowsSelftest.Recorder) async {
         var problems: [String] = []
         var lines: [String] = []
@@ -120,6 +179,9 @@ extension WindowsSelftest {
         let broken = await evaluate(dark: false, highContrast: false, rawOrange: true)
         r.add("popover.glyphContrast.fault", !broken.problems.isEmpty,
               "the footer triangle in its old raw orange: \(broken.problems.count) problem(s) found as expected (\(broken.problems.first ?? "none"))")
+        let blended = await evaluate(dark: true, highContrast: false, rawOrange: false, pagerBlended: true)
+        r.add("popover.glyphContrast.pagerFault", blended.problems.contains { $0.contains("pager") },
+              "the pager's arrows in the window's own colour: \(blended.problems.filter { $0.contains("pager") }.count) problem(s) found as expected (\(blended.problems.first { $0.contains("pager") } ?? "none"))")
     }
 }
 #endif

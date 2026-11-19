@@ -273,7 +273,7 @@ import Foundation
                 for (t, r) in zip(id.types, typeRects) {
                     let rr = CGRect(x: ox + r.minX, y: colTop + off + r.minY, width: r.width, height: r.height)
                     p.capsule(rr, fill: t.tint.color, stroke: nil, lineWidth: 0, canvas: canvas, space: space)
-                    p.draw(t.text, f.badge, color: .white, x: rr.minX + 7, centerY: rr.midY, canvas: canvas, space: space)
+                    p.draw(t.text, f.badge, color: DexPainter.ink(on: t.tint.color), x: rr.minX + 7, centerY: rr.midY, canvas: canvas, space: space)
                 }
                 canvas.setFillColor(secondary)
                 for (i, l) in noteLines.enumerated() {

@@ -116,6 +116,10 @@ enum PopoverSurface {
         return 0.2126 * lin(c.0) + 0.7152 * lin(c.1) + 0.0722 * lin(c.2)
     }
 
+    /// Black or white, whichever reads better on `fill` (for text on a fixed brand colour, such as a type's badge: white on the yellow
+    /// electric badge is 1.6:1).
+    static func readableInk(on fill: UInt32) -> UInt32 { contrast(0xFFFFFF, fill) >= contrast(0x000000, fill) ? 0xFFFFFF : 0x000000 }
+
     /// WCAG contrast ratio, 1…21.
     static func contrast(_ a: UInt32, _ b: UInt32) -> Double {
         let la = luminance(a), lb = luminance(b)
