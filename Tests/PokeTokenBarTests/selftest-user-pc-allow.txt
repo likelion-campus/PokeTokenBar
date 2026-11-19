@@ -1,0 +1,13 @@
+# One entry per line: File.swift:function | reason. A selftest call that drives the user's input or changes a system-wide setting must
+# test onCI in its function; an entry here says why this one may run off the runner. See SelftestUserPCSafetyScanTests.
+WindowsSelftestPopover.swift:runMenu | only called from menuKeysCheck, which returns at its top unless onCI; takes the foreground for the kit window it opened
+WindowsSelftestPlazaChat.swift:chatMenuCheck | only called from the chat group's `if onCI` block (the else branch reports skipped); sends real keys to the menu it opened
+WindowsSelftestPopoverTransfer.swift:run | the dialog driver is started only by the group's run(_:_:), which returns early unless onCI (its sendKey also tests onCI); foregrounds the dialogs it drives
+WindowsSelftestPopoverWindow.swift:deactivateOnIcon | method of the popover group, whose run(_:_:) returns early unless onCI (every check below it is skipped off CI)
+WindowsSelftestPopoverWindow.swift:toggleCheck | same group: reached only after run(_:_:)'s onCI guard
+WindowsSelftestPopoverWindow.swift:dismissChecks | same group: reached only after run(_:_:)'s onCI guard
+WindowsSelftestPopoverWindow.swift:closePathsCheck | same group: reached only after run(_:_:)'s onCI guard
+WindowsSelftestPopoverWindow.swift:ownedCheck | same group: reached only after run(_:_:)'s onCI guard
+WindowsSelftestPopoverWindow.swift:secondLaunchCheck | same group: reached only after run(_:_:)'s onCI guard
+WindowsSelftestPopoverWindow.swift:pageContractCheck | same group: reached only after run(_:_:)'s onCI guard
+WindowsSelftestSettings.swift:loginCheck | the group is CI-only (line 44) and the value written is under Software\PokeTokenBarSelftest\Settings (loginKey/approvedKey), our own scratch key, never the real Run or StartupApproved key

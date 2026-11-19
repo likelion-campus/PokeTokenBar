@@ -61,6 +61,10 @@ on:
       appearance:
         description: 'Capture run: draw the popover pages in this appearance (dark, light or highcontrast = a simulated High Contrast Black) in the bundle selftest (PTB_SELFTEST_APPEARANCE); empty = the runner as it is'
         default: ''
+      off_ci_selftest:
+        description: "Also run the bundle selftest as on a person's PC (CI unset): every CI-only check must report skipped and nothing system-wide may change (cursor, Run key, text size, high contrast, clipboard, keyboard layouts, settings files)"
+        type: boolean
+        default: false
       diagnostics:
         description: 'Also run the three wake-up diagnostic steps (slow)'
         type: boolean
@@ -375,6 +379,48 @@ jobs:
               'module = C:\ptb\no-such-provider.dll', 'activate = 1')
           $env:OPENSSL_CONF = $conf
           ./scripts/windows/run-selftest.ps1 -Exe bundle\PokeTokenBar.exe -Out st.json -ExpectStrategy cfRunLoopWithMessages -DumpUi (Join-Path $PWD 'ui-dump')
+      # --- selftest user-PC safety: the selftest as a person runs it (begin) ---
+      - name: Selftest as on a person's PC (CI unset); nothing system-wide changes
+        if: inputs.off_ci_selftest == true && inputs.release_sha == ''
+        timeout-minutes: 30
+        shell: pwsh
+        run: |
+          Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class PtbCursor { [StructLayout(LayoutKind.Sequential)] public struct P { public int X; public int Y; } [DllImport("user32.dll")] static extern bool GetCursorPos(out P p); public static string Get() { P p; GetCursorPos(out p); return p.X + "," + p.Y; } }'
+          function Reg($path, $name) { try { (Get-ItemProperty -Path $path -Name $name -ErrorAction Stop).$name } catch { 'missing' } }
+          function Names($path) { try { ((Get-Item -Path $path -ErrorAction Stop).Property | Sort-Object) -join ';' } catch { 'missing' } }
+          function Snapshot {
+              [ordered]@{
+                  cursor            = [PtbCursor]::Get()
+                  runKeyValues      = Names 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+                  startupApproved   = Names 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run'
+                  textScaleFactor   = Reg 'HKCU:\Software\Microsoft\Accessibility' 'TextScaleFactor'
+                  highContrastFlags = Reg 'HKCU:\Control Panel\Accessibility\HighContrast' 'Flags'
+                  appsUseLight      = Reg 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize' 'AppsUseLightTheme'
+                  systemUsesLight   = Reg 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize' 'SystemUsesLightTheme'
+                  keyboardLayouts   = (Get-ItemProperty 'HKCU:\Keyboard Layout\Preload' -ErrorAction SilentlyContinue | Out-String).Trim()
+                  clipboard         = (Get-Clipboard -Raw -ErrorAction SilentlyContinue)
+                  settingsFiles     = ((Get-ChildItem (Join-Path $env:LOCALAPPDATA '*') -Filter '*.plist*' -File -ErrorAction SilentlyContinue | ForEach-Object Name | Sort-Object) -join ';')
+              }
+          }
+          Set-Clipboard -Value 'ptb-a-persons-clipboard'
+          $before = Snapshot
+          $env:Path = 'C:\Windows\System32;C:\Windows'
+          $env:CLAUDE_CONFIG_DIR = Join-Path $env:PTB_FIXTURE 'claude'
+          $env:PTB_STATE_DIR = Join-Path $env:PTB_FIXTURE 'state'
+          $env:PTB_SELFTEST_EXPECT_TODAY_TOKENS = '3702'
+          Remove-Item Env:CI -ErrorAction SilentlyContinue   # onCI is "CI is set": a person's PC has none
+          if ($env:CI) { throw 'CI is still set' }
+          ./scripts/windows/run-selftest.ps1 -Exe bundle\PokeTokenBar.exe -Out st-noci.json -ExpectStrategy cfRunLoopWithMessages
+          $exit = $LASTEXITCODE
+          $after = Snapshot
+          $bad = @()
+          foreach ($k in $before.Keys) { if ("$($before[$k])" -ne "$($after[$k])") { $bad += "$k changed: [$($before[$k])] -> [$($after[$k])]" } else { "unchanged ${k}: [$($before[$k])]" } }
+          $j = Get-Content st-noci.json -Raw | ConvertFrom-Json
+          $skipped = @($j.checks | Where-Object { $_.detail -like 'skipped*' })
+          "skipped checks off CI ($($skipped.Count)):"; $skipped | ForEach-Object { "  $($_.name): $($_.detail)" }
+          if ($j.result -ne 'pass') { $bad += "the selftest off CI did not pass (result $($j.result)): " + (($j.checks | Where-Object { -not $_.ok } | ForEach-Object name) -join ', ') }
+          if ($bad.Count -gt 0) { throw "off-CI selftest: $($bad -join ' | ')" }
+      # --- selftest user-PC safety (end) ---
       # --- stage 7 Task 3: the popover kit (begin) ---
       - name: Popover kit checks ran (ui.kit.*, gallery in ui-dump/kit)
         timeout-minutes: 5

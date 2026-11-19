@@ -133,6 +133,12 @@ extension WindowsSelftest {
         if let dropDown { surfaces.append(Surface(name: "dropDown", owner: w.hwnd) { dropDown.openMenu() }) }
         if let edit { surfaces.append(Surface(name: "textbox", owner: edit) { _ = SendMessageW(edit, 0x007B /* WM_CONTEXTMENU */, WPARAM(UInt(bitPattern: Int(bitPattern: edit))), -1) }) }
         decisions(r)
+        guard WindowsSelftest.onCI else {
+            for name in ["popover.darkMenu", "popover.darkMenu.fault"] {
+                r.add(name, true, "skipped: not CI (the check opens real menus over the desktop and takes the foreground for them)")
+            }
+            return
+        }
         let darkResult = await evaluate(dark: true, surfaces)
         let lightResult = await evaluate(dark: false, surfaces)
         let problems = darkResult.problems + lightResult.problems
@@ -175,6 +181,7 @@ extension WindowsSelftest {
         }
     }
     private static func writeHighContrast(_ flags: UInt32, scheme: String) -> Bool {
+        guard WindowsSelftest.onCI else { return false }  // a system-wide theme: CI only
         var buffer = WinStr.w(scheme.isEmpty ? "High Contrast White" : scheme)
         return buffer.withUnsafeMutableBufferPointer { b in
             var hc = HIGHCONTRASTW()

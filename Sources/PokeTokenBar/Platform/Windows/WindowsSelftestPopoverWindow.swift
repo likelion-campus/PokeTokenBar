@@ -487,6 +487,7 @@ final class PopoverDriver: @unchecked Sendable {
     }
 
     func keys(_ codes: [(UInt16, Bool)]) {
+        guard WindowsSelftest.onCI else { return }  // real keys: CI only
         var inputs: [INPUT] = codes.map { code, up in
             var i = INPUT()
             i.type = DWORD(INPUT_KEYBOARD)

@@ -243,3 +243,5 @@ PopoverSpriteRetryTwinTests+Mac.swift
 # WindowsPaintScanTests: scans the Windows sources for RoundRect( and DrawFocusRect( with SharedSources (SharedSourcesScanTests.swift), which is Mac-only (visual polish K2)
 WindowsPaintScanTests.swift
 DexGlyphButtonScanTests.swift
+# SelftestUserPCSafetyScanTests: scans the selftest sources with SharedSources (SharedSourcesScanTests.swift), which is Mac-only
+SelftestUserPCSafetyScanTests.swift

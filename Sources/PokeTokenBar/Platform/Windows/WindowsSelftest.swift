@@ -356,6 +356,7 @@ enum WindowsSelftest {
 
     /// E1's way past the foreground lock: try, then a synthetic Alt press, then attach to the foreground thread.
     @MainActor static func forceForeground(_ hwnd: HWND) {
+        guard WindowsSelftest.onCI else { return }  // takes the foreground and may send a synthetic Alt: CI only (a person's PC is not driven)
         _ = SetForegroundWindow(hwnd)
         if GetForegroundWindow() == hwnd { return }
         var alt = [INPUT(), INPUT()]
@@ -376,6 +377,7 @@ enum WindowsSelftest {
     }
 
     private static func sendUnicode(_ ch: UInt16) -> UInt32 {
+        guard WindowsSelftest.onCI else { return 0 }  // real typed input: CI only
         var input = [INPUT(), INPUT()]
         input[0].type = DWORD(INPUT_KEYBOARD)
         input[0].ki.wScan = ch
