@@ -39,7 +39,8 @@ enum WinMenuTheme {
     nonisolated(unsafe) private(set) static var applies = 0
 
     static var killSwitchSet: Bool {
-        if ProcessInfo.processInfo.environment[killSwitchEnvironment] == "1" { return true }
+        let environment = ProcessInfo.processInfo.environment  // our own switch, not a usage location (UsageEnvironment's scan)
+        if environment[killSwitchEnvironment] == "1" { return true }
         if case .value(let bytes) = WinRegistry.bytes(killSwitchKey, killSwitchValue), bytes.count >= 4 { return bytes[0] | bytes[1] | bytes[2] | bytes[3] != 0 }
         return false
     }
