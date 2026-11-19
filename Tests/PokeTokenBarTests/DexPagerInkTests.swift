@@ -109,11 +109,8 @@ final class DexPagerInkTests: XCTestCase {
             ]
             func rgb(_ c: PlazaColor) -> UInt32 { over(c, 0x000000) }
             var badges: [(String, UInt32, UInt32, Double)] = []
-            var fills: [(String, PlazaColor)] = PopoverPokemonType.allCases.map { ("\($0) type badge", PopoverBadgeTint.type($0).color) }
-            fills += [Rarity.common, .uncommon, .rare, .legendary].map { ("\($0) rarity badge", CompanionBadges.rarityColor($0).plazaColor()) }
-            for (what, fill) in fills {
-                badges.append(("solid \(what) text", rgb(DexPainter.ink(on: fill)), rgb(fill), 3))
-            }
+            // The solid type and rarity badges keep the Mac's white on every fill, below 3:1 on some (bug, electric, ice, ...): exempt, Mac parity
+            // (short bold labels on the type colours; lead's decision 2026-11-19, to be raised with the user), listed in windows-differences.md.
             // the tinted badge (RAISING): the accent on its 14 % tint over the window
             let faint = over(DexPainter.tint(accent, 0.14), page)
             badges.append(("tinted accent badge text", over(DexPainter.legibleInk(accent, onTint: 0.14), faint), faint, 3))

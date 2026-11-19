@@ -104,11 +104,6 @@ import Foundation
         return CGSize(width: ceil(line(s, font).width) + 10, height: metrics(font).height + 2)
     }
 
-    /// The Mac's white where it reaches 3:1 on the opaque `fill`, else black (`PopoverSurface.readableInk`): the ink of the solid badges.
-    static func ink(on fill: PlazaColor) -> PlazaColor {
-        PopoverSurface.readableInk(on: rgb(fill)) == 0xFFFFFF ? .white : .black
-    }
-
     static func rgb(_ c: PlazaColor) -> UInt32 {
         UInt32((c.red * 255).rounded()) << 16 | UInt32((c.green * 255).rounded()) << 8 | UInt32((c.blue * 255).rounded())
     }
@@ -129,12 +124,12 @@ import Foundation
         return PlazaColor(srgbRed: Double((out >> 16) & 0xFF) / 255, green: Double((out >> 8) & 0xFF) / 255, blue: Double(out & 0xFF) / 255, alpha: ink.alpha)
     }
 
-    /// A badge in `r`: `.solid` white or black (whichever reads) on the tint, `.tinted` the tint on a faint tint.
+    /// A badge in `r`: `.solid` white on the tint, `.tinted` the tint on a faint tint.
     func badge(_ s: String, size: CGFloat, tint: PlazaColor, solid: Bool, in r: CGRect, canvas: any PlazaCanvas, space: PlazaPanelSpace) {
         let font = PlazaFont.system(size: size, weight: .bold)
         capsule(r, fill: solid ? tint : PlazaColor(srgbRed: tint.red, green: tint.green, blue: tint.blue, alpha: tint.alpha * 0.14), stroke: nil,
                 lineWidth: 0, canvas: canvas, space: space)
-        draw(s, font, color: solid ? Self.ink(on: tint) : Self.legibleInk(tint, onTint: 0.14), x: r.minX + 5, centerY: r.midY, canvas: canvas, space: space)
+        draw(s, font, color: solid ? .white /* Mac parity: white on every type and rarity fill, below 3:1 on some (lead's decision 2026-11-19) */ : Self.legibleInk(tint, onTint: 0.14), x: r.minX + 5, centerY: r.midY, canvas: canvas, space: space)
     }
 
     /// `color` at `fraction` of its own alpha.

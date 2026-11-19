@@ -116,12 +116,6 @@ enum PopoverSurface {
         return 0.2126 * lin(c.0) + 0.7152 * lin(c.1) + 0.0722 * lin(c.2)
     }
 
-    /// The Mac's white where it reaches `minRatio`:1 on `fill`, else black (text on a fixed brand colour: white on the yellow electric badge
-    /// is 1.6:1).
-    static func readableInk(on fill: UInt32, minRatio: Double = 3) -> UInt32 {
-        contrast(0xFFFFFF, fill) >= minRatio || contrast(0xFFFFFF, fill) >= contrast(0x000000, fill) ? 0xFFFFFF : 0x000000
-    }
-
     /// The light window's colour (Windows 11), as the dark one is `darkWindow`.
     static let lightWindow: UInt32 = 0xF3F3F3
 

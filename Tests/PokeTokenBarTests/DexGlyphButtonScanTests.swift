@@ -14,15 +14,15 @@ final class DexGlyphButtonScanTests: XCTestCase {
         }
     }
 
-    /// Text and glyphs in the Dex parts take their colour from the appearance (or `DexPainter.ink(on:)` over a brand fill): a literal white or
+    /// Text and glyphs in the Dex parts take their colour from the appearance (or `a documented Mac-parity white` over a brand fill): a literal white or
     /// black is allowed only on an emoji, whose colour the font ignores.
     func testTheDexPartsPaintNoLiteralBlackOrWhiteInk() async throws {
         for file in ["DexDetailPart.swift", "DexBodyPart.swift", "DexLogPart.swift", "DexPainter.swift"] {
             let url = SharedSources.sourcesRoot.appendingPathComponent("Popover/\(file)")
             let lines = try String(contentsOf: url, encoding: .utf8).components(separatedBy: "\n")
             for (i, line) in lines.enumerated() where (line.contains("color: .white") || line.contains("color: .black")) {
-                if line.contains("emoji") || line.contains("✨") || line.contains("f.medal") { continue }
-                XCTFail("\(file):\(i + 1) paints with a literal white or black: use a PopoverColorRole or DexPainter.ink(on:)")
+                if line.contains("emoji") || line.contains("✨") || line.contains("f.medal") || line.contains("Mac parity") { continue }
+                XCTFail("\(file):\(i + 1) paints with a literal white or black: use a PopoverColorRole or a documented Mac-parity white")
             }
         }
     }
