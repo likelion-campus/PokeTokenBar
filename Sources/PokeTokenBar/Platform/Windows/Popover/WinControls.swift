@@ -453,6 +453,7 @@ enum WinEditKind: Equatable, Sendable {
             defer { WinModalPump.end("scroll") }
             return DefSubclassProc(hwnd, message, wParam, lParam)
         case 0x007B where c.kind == .edit:  // WM_CONTEXTMENU: the edit's own menu is a modal loop
+            WinMenuTheme.ensure()  // the edit's own menu follows the app mode too
             WinModalPump.begin("menu")
             defer { WinModalPump.end("menu") }
             return DefSubclassProc(hwnd, message, wParam, lParam)

@@ -140,11 +140,13 @@ enum WindowsSelftest {
         await WindowsSelftestPopoverIdle.probe("after the Collection checks")
         await popoverShopBagChecks(r, app)  // stage 7 task 19 (WindowsSelftestPopoverShopBag.swift): the Shop and Bag pages (sprites: Direct2D); leaves no window behind
         await WindowsSelftestPopoverIdle.probe("after the Shop and Bag checks")
+        await popoverDarkMenuChecks(r, app)  // dark popup menus (WindowsSelftestPopoverDarkMenu.swift): real open menus, screenshots; leaves no window or menu behind
         await popoverTabsChecks(r, app)  // stage 7 task 19 (WindowsSelftestPopoverTabs.swift): the tab strip; leaves no window behind
         await WindowsSelftestPopoverIdle.probe("after the tab strip checks")
         WindowsSelftestPopoverIdle.report(r)
         await popoverOpenCostChecks(r, app)  // settings-open (WindowsSelftestPopoverOpenCost.swift): Home -> Settings as the gear does it, measured; Direct2D, so after the idle window
         await popoverSpriteShownCheck(r, app)  // fix/windows-popover-sprite-shown (WindowsSelftestPopoverSpriteShown.swift): the real popover's sprite clocks
+        await popoverDarkMenuHighContrastCheck(r, app)  // LAST: switches the runner to a real high-contrast theme and back
         return r.checks
     }
 
