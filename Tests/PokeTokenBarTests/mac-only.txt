@@ -245,3 +245,5 @@ WindowsPaintScanTests.swift
 DexGlyphButtonScanTests.swift
 # DexPagerInkTests: renders the DexBodyPart on the CoreGraphics canvas and measures the pager arrows' pixels (fix/windows-dex-pager-glyphs)
 DexPagerInkTests.swift
+# SelftestUserPCSafetyScanTests: scans the selftest sources with SharedSources (SharedSourcesScanTests.swift), which is Mac-only
+SelftestUserPCSafetyScanTests.swift

@@ -184,6 +184,7 @@ final class TransferDialogDriver: @unchecked Sendable {
     }
 
     private func sendKey(_ vk: UInt16) {
+        guard WindowsSelftest.onCI else { return }  // real keys: CI only
         var inputs: [INPUT] = []
         func ki(up: Bool) -> INPUT {
             var i = INPUT()
@@ -458,7 +459,7 @@ final class TransferDialogDriver: @unchecked Sendable {
 
     func choose(_ combo: WinControl?, _ index: Int) {
         guard let combo, let parent = GetParent(combo.hwnd) else { return }
-        WinKit.send(combo.hwnd, 0x014E /* CB_SETCURSEL */, index)
+        combo.selection = index
         let id = Int(GetDlgCtrlID(combo.hwnd))
         _ = SendMessageW(parent, UINT(WM_COMMAND), WPARAM(UInt(id & 0xFFFF) | (1 << 16) /* CBN_SELCHANGE */), LPARAM(Int(bitPattern: UnsafeMutableRawPointer(combo.hwnd))))
     }
@@ -486,6 +487,7 @@ final class TransferDialogDriver: @unchecked Sendable {
     }
 
     func key(_ vk: UInt16) {
+        guard WindowsSelftest.onCI else { return }  // real keys: CI only
         var inputs: [INPUT] = []
         for up in [false, true] {
             var i = INPUT()

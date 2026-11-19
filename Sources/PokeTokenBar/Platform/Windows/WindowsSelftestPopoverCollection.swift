@@ -93,6 +93,26 @@ private struct CollectionFixtureNames: PokemonNameProviding {
         if let shot = capture(h.window.hwnd) { _ = WinUIDump.write(shot, to: dir.appendingPathComponent("collection-\(name).png")) }
     }
 
+    /// WCAG ratio of the pixel farthest from the fill (the glyph's ink) against the fill, inside a window rectangle.
+    static func glyphRatio(_ shot: WinUIDump.Bitmap, fillAt: (x: Int, y: Int), x0: Int, y0: Int, x1: Int, y1: Int) -> Double {
+        func rgb(_ x: Int, _ y: Int) -> (Int, Int, Int) {
+            let i = (min(max(0, y), shot.height - 1) * shot.width + min(max(0, x), shot.width - 1)) * 4
+            return (Int(shot.bgra[i + 2]), Int(shot.bgra[i + 1]), Int(shot.bgra[i]))
+        }
+        func lum(_ c: (Int, Int, Int)) -> Double {
+            func ch(_ v: Int) -> Double { let s = Double(v) / 255; return s <= 0.03928 ? s / 12.92 : pow((s + 0.055) / 1.055, 2.4) }
+            return 0.2126 * ch(c.0) + 0.7152 * ch(c.1) + 0.0722 * ch(c.2)
+        }
+        let fill = rgb(fillAt.x, fillAt.y)
+        var best = fill, far = 0
+        for y in y0..<max(y0, y1) { for x in x0..<max(x0, x1) {
+            let p = rgb(x, y)
+            let d = abs(p.0 - fill.0) + abs(p.1 - fill.1) + abs(p.2 - fill.2)
+            if d > far { far = d; best = p }
+        } }
+        return (max(lum(best), lum(fill)) + 0.05) / (min(lum(best), lum(fill)) + 0.05)
+    }
+
     /// The share of pixels in a window rectangle that differ from the rectangle's most common colour: 0 for a blank surface, a few
     /// percent for text and bars. The drawn parts' own checks read models and window texts, never pixels, so an opaque tile painted
     /// over its content (the detail card went blank white in K1 and every check stayed green) was invisible to them.
@@ -444,6 +464,17 @@ private struct CollectionFixtureNames: PokemonNameProviding {
             if windows > 80 || slots > 12 { problems.append("\(language): \(windows) child windows, \(slots) sprite slots") }
             // the top of the page as it opens (identity, stats): captured with its names loaded
             dump(h, "detail-top-\(language.rawValue)")
+            // the representative star / arrow: its glyph ink against its own box (K4 glyph contrast; it was near-white on white in dark mode)
+            func starContrast(_ state: String) {
+                guard let item = items(view, DexDetailPart.repAction).first, let shot = capture(h.window.hwnd) else {
+                    problems.append("\(language): no capture of the detail button (\(state))"); return
+                }
+                let rc = WinKit.rect(item.hwnd, in: h.window.hwnd)
+                let ratio = glyphRatio(shot, fillAt: (Int(rc.left) + 3, Int(rc.top + rc.bottom) / 2), x0: Int(rc.left) + 3, y0: Int(rc.top) + 3, x1: Int(rc.right) - 3, y1: Int(rc.bottom) - 3)
+                notes.append("\(language): detail \(state) glyph \(String(format: "%.2f", ratio)):1")
+                if ratio < 3 { problems.append("\(language): the detail button's glyph (\(state)) is \(String(format: "%.2f", ratio)):1 against its box") }
+            }
+            starContrast("not representative")
             // the card under "Individual / Actual stats / Known moves" has its text and bars on it (not a blank tile)
             if let percent = ink(of: view.hwnd, in: h.window.hwnd, fromY: 35, toY: 70) {
                 notes.append("\(language): ink in the detail card \(Double(Int(percent * 10)) / 10) %")
@@ -479,6 +510,8 @@ private struct CollectionFixtureNames: PokemonNameProviding {
             press(items(view, DexDetailPart.repAction).first)
             _ = await WindowsSelftest.waitUntil(timeout: 3) { h.stores.companion.representativeSpeciesID == 7 }
             if h.stores.companion.representativeSpeciesID != 7 { problems.append("\(language): the button did not set the representative") }
+            await wait(0.4)
+            starContrast("representative")
             // Back returns to the grid on that species' page
             press(items(view, DexDetailPart.backAction).first)
             await wait(0.3)

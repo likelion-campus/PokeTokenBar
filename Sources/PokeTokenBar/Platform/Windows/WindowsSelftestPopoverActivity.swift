@@ -157,6 +157,10 @@ enum ActivityFixtures {
     /// A warm-up and three cycles of opening a chart, showing its hover card and closing it (bars, then the heatmap), judged by the
     /// shared rule (`PopoverResourceRule`): GDI and USER not above the warm-up on any cycle, kernel handles only when they rise on every one.
     private static func openCloseCheck(_ r: WindowsSelftest.Recorder, windowsBefore: Int, start: KitResources) async {
+        guard WindowsSelftest.onCI else {
+            r.add("home.activityOpenClose", true, "skipped: not CI (each cycle moves the real pointer over the chart to open its hover card)")
+            return
+        }
         var cycles: [KitResources] = []
         for _ in 0..<4 {
             cursor(over: nil)
@@ -207,6 +211,7 @@ enum ActivityFixtures {
     /// The real cursor over client pixel (x, y) of `item` (`nil`: away from every window of ours). A synthetic WM_MOUSEMOVE would be
     /// undone at once: `TrackMouseEvent` posts WM_MOUSELEAVE for a window the cursor is not in.
     private static func cursor(over item: HWND?, _ x: Int = 0, _ y: Int = 0) {
+        guard WindowsSelftest.onCI else { return }  // moves the real pointer: CI only
         guard let item else { _ = SetCursorPos(2, 2); return }
         var at = POINT(x: Int32(x), y: Int32(y))
         _ = ClientToScreen(item, &at)
@@ -308,7 +313,9 @@ enum ActivityFixtures {
                     + "first paint \(String(format: "%.0f", firstPaint)) ms, \(tree.nodes.count) windows, \(checks.summary)"
                 ok = checks.ok && panelNamed && streakNamed && menuNamed && bytes > 0
                 let target = input.series.max { $0.totalTokens < $1.totalTokens }?.date ?? input.today  // the tallest bar: a floor tick is two pixels to hit
-                if v.hover, let bars = s.bars, let p = point(of: target, bars), let item = s.panelView?.items.last {
+                if v.hover, !WindowsSelftest.onCI {
+                    note += ", hover card skipped: not CI (it needs the real pointer over the chart)"
+                } else if v.hover, let bars = s.bars, let p = point(of: target, bars), let item = s.panelView?.items.last {
                     cursor(over: item.hwnd, Int((p.x * w.ctx.scale).rounded()), Int((p.y * w.ctx.scale).rounded()) - Int((bars.titleRect(graphics: PlatformPlaza.graphics).maxY * w.ctx.scale).rounded()))
                     await wait(0.4)
                     if let card = s.card, card.isShown, inked(card) > 500 {
@@ -334,6 +341,10 @@ enum ActivityFixtures {
     // MARK: home.activityHover: a hover shows the card, redraws the columns only, makes no text
 
     private static func hoverCheck(_ r: WindowsSelftest.Recorder) async {
+        guard WindowsSelftest.onCI else {
+            r.add("home.activityHover", true, "skipped: not CI (the check moves the real pointer over the chart)")
+            return
+        }
         cursor(over: nil)
         let input = ActivityFixtures.input(.three)
         guard let h = ActivityHarness(input: input), let bars = h.section.bars, let view = h.section.panelView, let item = view.items.last,

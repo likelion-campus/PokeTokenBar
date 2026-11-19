@@ -18,7 +18,12 @@ extension WindowsSelftest {
     var pills: [(name: String, control: WinControl)] = []
     var rawOrange = false
     var chips: WinControl?
+<<<<<<< HEAD
     var window: COLORREF = 0
+=======
+    /// K4: the drop-down and the stepper, whose chevrons are drawn by `WinCustomDraw` (secondary ink on the button's own fill).
+    var dropDown: WinControl?, stepper: WinControl?
+>>>>>>> origin/windows-port
 
     func build(_ s: WinStack) {
         window = s.ctx.colors.palette.window
@@ -40,6 +45,8 @@ extension WindowsSelftest {
             WinControls.chipGroup(names: ["Claude", "Codex"], marks: [false, false], selected: 0, in: pane, ctx: ctx)
         }
         chips = chipRow.control
+        dropDown = section.addRow("drop-down") { pane, ctx in WinControls.combo(["English", "한국어"], selected: 0, in: pane, ctx: ctx) }.control
+        stepper = section.addRow("stepper") { pane, ctx in WinControls.stepper(range: 1...5, step: 1, value: 3, format: { "×\($0)" }, in: pane, ctx: ctx) }.control
         let pillSection = s.addSection("Pills")
         let specs: [(String, WinPill)] = [
             ("Back (borderless accent, chevron)", WinPill(style: .borderless, title: "Back", glyph: "chevron.left", textStyle: .body, accent: true)),
@@ -97,6 +104,32 @@ extension WindowsSelftest {
             }
             lines.append("\(name) selected chip \(String(format: "%.1f", worst))")
             if worst < 3 { problems.append("\(name): selected chip is \(String(format: "%.2f", worst)):1 against its fill at \(worstState), expected 3:1") }
+        }
+        // K4: the chevrons are `secondaryText` on the button's fill (a stepper half under the pointer or press is tinted by the ink at the look's
+        // hover and press alphas); the stepper's chevrons are both usable at 3 of 1...5. High contrast: the system draws these buttons.
+        if !highContrast {
+            if let c = page.dropDown {
+                let look = WinLook(c)
+                var worst = 99.0, worstState = ""
+                for (state, pressed, hot) in [("rest", false, false), ("hover", false, true), ("pressed", true, true)] {
+                    let r = ratio(look.palette.secondaryText, look.buttonFill(hot: hot, pressed: pressed))
+                    if r < worst { worst = r; worstState = state }
+                }
+                lines.append("\(name) drop-down chevron \(String(format: "%.1f", worst))")
+                if worst < 3 { problems.append("\(name): the drop-down chevron is \(String(format: "%.2f", worst)):1 against its fill at \(worstState), expected 3:1") }
+            }
+            if let c = page.stepper {
+                let look = WinLook(c)
+                let base = look.buttonFill(hot: false, pressed: false)
+                var worst = 99.0, worstState = ""
+                for (state, alpha) in [("rest", 0.0), ("hover", look.hover), ("pressed", look.pressed)] {
+                    let fill = alpha > 0 ? WinUIColors.blend(base, look.ink, alpha) : base
+                    let r = ratio(look.palette.secondaryText, fill)   // the upper and the lower half are tinted alike
+                    if r < worst { worst = r; worstState = state }
+                }
+                lines.append("\(name) stepper chevrons (both halves) \(String(format: "%.1f", worst))")
+                if worst < 3 { problems.append("\(name): a stepper chevron is \(String(format: "%.2f", worst)):1 against its half at \(worstState), expected 3:1") }
+            }
         }
         for (label, c) in page.pills {
             guard let pill = c.pillForTesting else { continue }

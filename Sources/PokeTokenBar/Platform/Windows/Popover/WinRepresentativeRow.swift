@@ -28,8 +28,8 @@ import WinSDK
         self.choose = choose
         let l = companion.l
         row = section.addRow(l.representativePokemonLabel) { [self] pane, ctx in
-            button = WinControls.pillButton(WinPill(style: .borderless, title: Self.selectionText(companion), glyph: "chevron.down", glyphAfter: true,
-                                                    secondary: false, textStyle: .body), in: pane, ctx: ctx)
+            // the Mac keeps the picker on the row's line, right-aligned, in a 150 pt slot (`SettingsView.swift:218`)
+            button = WinControls.menuButton(title: Self.selectionText(companion), maxWidth: 150, in: pane, ctx: ctx)
             return button
         }
         button?.onClick = { [weak self] in self?.openMenu() }
@@ -37,7 +37,7 @@ import WinSDK
 
     /// The button shows the current choice (called with the page's refresh).
     func update() {
-        button?.setPillTitle(Self.selectionText(companion))
+        button?.setDisplay(Self.selectionText(companion))
     }
 
     private func openMenu() {

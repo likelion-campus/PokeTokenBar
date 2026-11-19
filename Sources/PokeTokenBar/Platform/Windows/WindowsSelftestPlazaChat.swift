@@ -35,6 +35,7 @@ extension WindowsSelftest {
     private static func chatPostText(_ h: HWND, _ s: String) { for u in s.utf16 { chatPost(h, 0x0102, WPARAM(u)) } }
 
     private static func chatScan(_ scan: UInt32, extended: Bool = false, up: Bool) {
+        guard WindowsSelftest.onCI else { return }  // real input: CI only
         var input = INPUT()
         input.type = DWORD(INPUT_KEYBOARD)
         input.ki.wScan = WORD(scan)
@@ -50,6 +51,7 @@ extension WindowsSelftest {
     }
 
     private static func chatVirtualKey(_ vk: UInt16) async {
+        guard WindowsSelftest.onCI else { return }  // real input: CI only
         var input = [INPUT(), INPUT()]
         input[0].type = DWORD(INPUT_KEYBOARD)
         input[0].ki.wVk = WORD(vk)
@@ -61,6 +63,7 @@ extension WindowsSelftest {
 
     /// Text the way the emoji panel and many input tools send it: VK_PACKET, one UTF-16 unit per key (surrogates as two).
     private static func chatUnicode(_ s: String) async {
+        guard WindowsSelftest.onCI else { return }  // real input: CI only
         for u in s.utf16 {
             var input = [INPUT(), INPUT()]
             input[0].type = DWORD(INPUT_KEYBOARD)

@@ -109,6 +109,22 @@ final class WinSyncingDefaults: UserDefaults, @unchecked Sendable {
         return expectedPlistURL().deletingLastPathComponent().appendingPathComponent(suite + ".plist")
     }
 
+    /// The selftest's own settings file, removed as the selftest exits (`ptb.team.default.settings.plist`, or `ptb.team.<hash>.settings.plist`
+    /// with a state folder). That name is only ever the selftest's: the real app keeps its settings in `PokeTokenBar.exe.plist` (or, for
+    /// another state folder, `ptb.team.<hash>.plist`, never with `.settings`), so a person's own settings are never what is deleted.
+    /// Nothing but the selftest's fixture keys were ever in it (`defaults.cleanup` removes those); the empty file was the one residue.
+    static func removeSelftestSuiteFile() {
+        guard let name = selftestSuiteName, name.hasPrefix("ptb.team."), name.hasSuffix(".settings") else { return }
+        let url = plistURL(suite: name)
+        var files = [url, SettingsPlistGuard.backupURL(for: url)]
+        // the Advanced group's scratch suites (`ptb.selftest.settings.<id>.adv`): named for the selftest, never the app's
+        let folder = url.deletingLastPathComponent()
+        files += ((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []).filter { $0.hasPrefix("ptb.selftest.") }.map { folder.appendingPathComponent($0) }
+        for file in files where (try? FileManager.default.removeItem(at: file)) != nil {
+            AppLog.write("selftest: removed its own settings file \(file.lastPathComponent)")
+        }
+    }
+
     private static var guardedSuites: [String?] = []
     private static var backupBlocked = Set<String>()
     private static var backupRefusalLogged = Set<String>()

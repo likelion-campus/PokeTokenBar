@@ -64,7 +64,10 @@ and agent reactions, and the `poketokenbar:` link.
 | Cards, tiles, pills, hover fills and the focus ring are antialiased shapes (a CPU Direct2D painter), corner radii and hairlines as the Mac's; the keyboard focus cue is Windows 11's 2 DIP ring in the text colour (inner line in the page colour where the control is tall enough), not the dotted rectangle | GDI's `RoundRect` is aliased and the drawn parts beside it are not; the ring is the Windows 11 convention |
 | Loading shows text without a spinner (Pokémon detail) | no timer for a spinner |
 | Search field: a separate clear button, no magnifier icon | a native `EDIT` has a cue banner instead of embedded icons |
-| Stepper and Buy/Use buttons are native controls; the stepper field is wider | native look |
+| Pickers are drop-down buttons (value and chevron) that open Windows' popup menu (K4): Up/Down/Home/End change the value in place, F4, Alt+Down, Space and Enter open it; no type-ahead; the menu follows the app mode (see the popup-menu row). MSAA reports a push button named "Label: value", not a combo box | no native menu-style picker; the system menu gives keyboard and dismissal |
+| The quantity stepper is "×N" and a chevron pair, one button (K4); text fields have a rounded hairline frame with the focus ring in their non-client area | no native stepper or rounded edit; MSAA reports a push button "Name: ×N" whose name changes with the value |
+| Buy/Use buttons are native buttons repainted by the kit | see the push-button row |
+| The Pokédex chip rows are cut at the right edge with no fade | the Mac's `ScrollView` chip rows (`CompanionView.swift`) are cut the same way; they scroll sideways (Shift+wheel here) |
 | Pokédex grid cell height is what the 520 pt page leaves (about 89 pt, Mac about 91) | fixed page height |
 | Grid cells take arrow keys and Page Up/Down; chip rows scroll with Shift+wheel or a horizontal wheel | keyboard access; no trackpad swipe |
 
