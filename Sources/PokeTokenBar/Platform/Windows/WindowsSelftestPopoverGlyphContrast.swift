@@ -17,6 +17,7 @@ extension WindowsSelftest {
     var glyphs: [(name: String, control: WinControl)] = []
     var pills: [(name: String, control: WinControl)] = []
     var rawOrange = false
+    var chips: WinControl?
 
     func build(_ s: WinStack) {
         let section = s.addSection("Glyphs")
@@ -26,13 +27,17 @@ extension WindowsSelftest {
         for (symbol, name, size) in symbols {
             let row = section.addRow(name) { pane, ctx in WinControls.glyphButton(symbol: symbol, label: name, size: size, in: pane, ctx: ctx) }
             if let c = row.control {
-                if name == "error triangle" { c.glyphColor = rawOrange ? s.ctx.colors.statusOrange : s.ctx.colors.legible(s.ctx.colors.statusOrange) }
+                if name == "error triangle" { c.glyphColor = s.ctx.colors.statusOrange }  // as Home sets it
                 glyphs.append((name, c))
             }
         }
         let sort = section.addRow("sort (filter on)") { pane, ctx in WinControls.glyphButton(symbol: "arrow.up.arrow.down", label: "sort on", size: 13, in: pane, ctx: ctx) }
         sort.control?.glyphColor = s.ctx.colors.palette.accent
         if let c = sort.control { glyphs.append(("sort, filter on (accent)", c)) }
+        let chipRow = section.addRow(nil, style: .full) { pane, ctx in
+            WinControls.chipGroup(names: ["Claude", "Codex"], marks: [false, false], selected: 0, in: pane, ctx: ctx)
+        }
+        chips = chipRow.control
         let pillSection = s.addSection("Pills")
         let specs: [(String, WinPill)] = [
             ("Back (borderless accent, chevron)", WinPill(style: .borderless, title: "Back", glyph: "chevron.left", textStyle: .body, accent: true)),
@@ -67,12 +72,26 @@ extension WindowsSelftest {
         for (label, c) in page.glyphs {
             var worst = 99.0, worstState = ""
             for (state, pressed, hot) in [("rest", false, false), ("hover", false, true), ("pressed", true, true)] {
-                let look = WinControls.glyphColours(c, pressed: pressed, hot: hot, disabled: false)
+                var look = WinControls.glyphColours(c, pressed: pressed, hot: hot, disabled: false)
+                if rawOrange, label == "error triangle", let raw = c.glyphColor { look.ink = raw }  // the fault: the colour as it was drawn before the fix
                 let r = ratio(look.ink, look.fill)
                 if r < worst { worst = r; worstState = state }
             }
             lines.append("\(name) \(label) \(String(format: "%.1f", worst))")
             if worst < 3 { problems.append("\(name): glyph button '\(label)' is \(String(format: "%.2f", worst)):1 against its fill at \(worstState), expected 3:1") }
+        }
+        if let chips = page.chips {
+            // the selected chip (provider and account tabs): ink against its fill at rest, hover and press, as `paintChip` composes them
+            let look = WinLook(chips)
+            var worst = 99.0, worstState = ""
+            for (state, tint) in [("rest", 0.0), ("hover", 0.03), ("pressed", 0.06)] {
+                var fill = WinUIColors.blend(look.bg, look.accent, 0.15)
+                if tint > 0 { fill = WinUIColors.blend(fill, look.ink, tint) }
+                let r = ratio(highContrast ? look.palette.text : look.chipInk(fill: fill), highContrast ? look.palette.window : fill)
+                if r < worst { worst = r; worstState = state }
+            }
+            lines.append("\(name) selected chip \(String(format: "%.1f", worst))")
+            if worst < 3 { problems.append("\(name): selected chip is \(String(format: "%.2f", worst)):1 against its fill at \(worstState), expected 3:1") }
         }
         for (label, c) in page.pills {
             guard let pill = c.pillForTesting else { continue }

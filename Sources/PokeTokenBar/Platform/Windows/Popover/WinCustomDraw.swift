@@ -74,6 +74,8 @@ struct WinLook {
     /// Accent-coloured text (a selected chip): a step darker in light, lighter in dark, as Windows 11's accent text colours, so it
     /// reads on the chip's own accent tint (the plain accent was about 3:1 on it in dark).
     var accentText: COLORREF { dark ? WinUIColors.blend(accent, 0x00FF_FFFF, 0.5) : WinUIColors.blend(accent, 0, 0.25) }
+    /// A selected chip's text: the accent text colour, moved further if the chip's current fill (hover and press tint it) leaves it under 3:1.
+    func chipInk(fill: COLORREF) -> COLORREF { ctx.colors.legible(accentText, over: fill) }
     /// Text on the accent fill: white, or black where the accent is light (Windows 11's dark convention).
     var onAccent: COLORREF {
         func channel(_ v: UInt32) -> Double {
@@ -278,7 +280,7 @@ struct WinLook {
         var fill = s.checked ? WinUIColors.blend(look.bg, look.accent, 0.15) : look.mix(look.bg, 0.05)
         if !s.disabled, s.pressed || s.hot { fill = WinUIColors.blend(fill, look.ink, s.pressed ? 0.06 : 0.03) }
         shapes(dc, [WinPaint.Item(rect: client, radius: radius, fill: ink(fill), stroke: nil)], look, client)
-        var textInk = s.checked ? look.accentText : look.palette.secondaryText
+        var textInk = s.checked ? look.chipInk(fill: fill) : look.palette.secondaryText
         if s.disabled { textInk = look.palette.disabled }
         let mark = c.chipMarks.indices.contains(i) && c.chipMarks[i] ? "\u{25CF} " : ""
         text(dc, mark + WinKit.text(of: part).replacingOccurrences(of: "&&", with: "&"), font: s.checked ? (c.boldFont ?? c.font) : c.font, color: textInk,

@@ -981,7 +981,8 @@ enum WinClipboardText {
         let ink: COLORREF
         if disabled { ink = pal.disabled }
         else if c.ctx.highContrast { ink = pressed ? WinUIContext.sysColor(14) : pal.text }
-        else { ink = c.glyphColor ?? (pressed || hot ? pal.text : pal.secondaryText) }
+        else if let own = c.glyphColor { ink = c.ctx.colors.legible(own, over: fill) }  // a status or accent colour keeps 3:1 against the hover and press fills
+        else { ink = pressed || hot ? pal.text : pal.secondaryText }
         return (ink, fill)
     }
 
@@ -1162,6 +1163,8 @@ extension WinControls {
             let base = fill ?? bg
             fill = WinUIColors.blend(base, pill.style == .prominent ? WinUIColors.rgb(0, 0, 0) : pal.text, pressed ? 0.14 : 0.07)
         }
+        // an accent (or any coloured) ink keeps 3:1 against the fill it sits on in this state (the lifted dark accent vanished on a pressed tint)
+        if !high, !disabled, ink == pal.accent { ink = ctx.colors.legible(ink, over: fill ?? bg) }
         return (ink, fill, radius)
     }
 

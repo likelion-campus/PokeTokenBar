@@ -740,7 +740,7 @@ import WinSDK
                     updated = WinControls.label("", style: .caption, role: .tertiary, wraps: false, in: child, ctx: ctx)
                     // The Mac's orange `exclamationmark.triangle` with the message as its help.
                     error = WinControls.glyphButton(symbol: "exclamationmark.triangle", label: f.usage?.error ?? "!", size: 12, in: child, ctx: ctx)
-                    error?.glyphColor = ctx.colors.legible(ctx.colors.statusOrange)
+                    error?.glyphColor = ctx.colors.statusOrange
                     if let toggle = f.petToggle {
                         pet = self.glyph(toggle.symbol, toggle.label, in: child, ctx: ctx, action: .toggleFloatingPet)
                     }

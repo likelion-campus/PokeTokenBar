@@ -115,11 +115,12 @@ import WinSDK
 
     /// `c` moved towards black (light) or white (dark) until it is `minRatio`:1 against the window: a status colour used as a glyph
     /// (the footer's orange triangle was 2:1 on the light window). High contrast keeps the system's colours.
-    func legible(_ c: COLORREF, minRatio: Double = 3) -> COLORREF {
+    func legible(_ c: COLORREF, over fill: COLORREF? = nil, minRatio: Double = 3) -> COLORREF {
         guard !highContrast else { return c }
         let toward: COLORREF = dark ? 0x00FF_FFFF : 0
+        let under = fill ?? palette.window
         var out = c, t = 0.0
-        while PopoverSurface.contrast(Self.rgb(of: out), Self.rgb(of: palette.window)) < minRatio, t < 1 {
+        while PopoverSurface.contrast(Self.rgb(of: out), Self.rgb(of: under)) < minRatio, t < 1 {
             t += 0.05
             out = Self.blend(c, toward, t)
         }
