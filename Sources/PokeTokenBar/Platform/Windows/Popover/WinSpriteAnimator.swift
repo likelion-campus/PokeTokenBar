@@ -131,8 +131,42 @@ import WinSDK
                      + "loading=\(state.loading) asked animated=\(state.animated) playing=\(state.playing) GIF asks=\(model.gifAsks) "
                      + "(Show animations=\(playback.animationsEnabled), active=\(playback.isActive), shown=\(Self.isShown(view.hwnd)), "
                      + "displays asleep=\(displayAsleep()), clock armed=\(playback.clock.isArmed))")
+        if state.frames > 1, state.playing, Self.looksLeft > 0, let subject = state.subject, looked.insert(subject).inserted {
+            Self.looksLeft -= 1
+            lookAtThePixels(slot: index, species: species)
+        }
     }
     // --- fix/windows-pet-still (end) ---
+
+    // --- fix/windows-pet-and-detail-animation: what the screen shows at a playing slot, once per subject (begin) ---
+    private var looked: Set<PlazaSpriteSubjectKey> = []
+    /// A diagnostic: the first 12 playing subjects of the process are looked at, no more.
+    private static var looksLeft = 12
+
+    /// Five looks 0.5 s apart at the slot, in one log line: the frame index, the ticks and the screen there (captured, hashed,
+    /// dropped). A model that moves while the screen does not is told apart from a clock that does not run.
+    private func lookAtThePixels(slot index: Int, species: String) {
+        let ticks0 = playback.ticks
+        Task { @MainActor [weak self] in
+            var frames: [Int] = [], screens: [Int] = [], shown: [Bool] = []
+            for i in 0..<5 {
+                if i > 0 { try? await Task.sleep(nanoseconds: 500_000_000) }
+                guard let self, !self.isDestroyed, let view = self.view, index < self.playback.models.count, index < view.spriteSlots.count else { return }
+                let slot = view.spriteSlots[index].frame, s = view.ctx.scale
+                var origin = POINT(x: Int32((slot.minX * s).rounded()), y: Int32((slot.minY * s).rounded()))
+                _ = ClientToScreen(view.hwnd, &origin)
+                let shot = WinUIDump.screenshot(x: Int(origin.x), y: Int(origin.y), w: max(1, Int((slot.width * s).rounded())), h: max(1, Int((slot.height * s).rounded())))
+                frames.append(self.playback.models[index].frameIndex)
+                screens.append(shot?.bgra.hashValue ?? 0)
+                shown.append(Self.isShown(view.hwnd))
+            }
+            guard let self, !self.isDestroyed else { return }
+            AppLog.write("popover sprite #\(species) (slot \(index)): 5 looks over 2 s: frames \(frames.map { String($0) }.joined(separator: ",")), "
+                         + "ticks +\(self.playback.ticks - ticks0), shown \(shown.map { $0 ? "y" : "n" }.joined()), distinct screens at the slot "
+                         + "\(Set(screens).count) (1 = the screen did not change)")
+        }
+    }
+    // --- fix/windows-pet-and-detail-animation (end) ---
 
     private func invalidate(slot index: Int) {
         noteSlot(index)   // fix/windows-pet-still

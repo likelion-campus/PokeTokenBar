@@ -437,6 +437,7 @@ import WinSDK
     static let clockCheckDelayMs: UINT = 10_000
     private var clockCheck: (since: Date, ticks: Int, fires: Int, arms: Int)?
     private(set) var clockChecks: [String] = []
+    private(set) var pixelChecks: [String] = []   // fix/windows-pet-and-detail-animation
 
     /// One line in the app's log when what keeps the pet moving or still changes: the state and its inputs (never per frame).
     func noteClock() {
@@ -1197,7 +1198,37 @@ import WinSDK
             + "active=\(playback.isActive) frame floor \(model.frameFloor) s"
         clockChecks.append(line)
         AppLog.write(line + (playback.clock.fireCount == check.fires ? " — THE CLOCK NEVER FIRED" : ""))
+        lookAtThePixels()   // fix/windows-pet-and-detail-animation
     }
+
+    // --- fix/windows-pet-and-detail-animation: what the screen shows, not only the model (begin) ---
+    /// The frame shown, the picture this window drew (its surface) and the screen at the pet's box (captured, hashed, dropped).
+    func pixelSample() -> (frame: Int, picture: Int, screen: Int) {
+        let f = frame
+        let shot = WinUIDump.screenshot(x: Int(f.left), y: Int(f.top), w: Int(f.right - f.left), h: Int(f.bottom - f.top))
+        return (playback.models.first?.frameIndex ?? -1, snapshot()?.bgra.hashValue ?? 0, shot?.bgra.hashValue ?? 0)
+    }
+
+    /// After each clock check: five looks 0.5 s apart, in one log line. A model whose frames move while the
+    /// picture or the screen does not is told apart from a clock that does not run (every check before measured the model).
+    private func lookAtThePixels() {
+        let renders0 = pet?.stats.renders ?? 0
+        Task { @MainActor [weak self] in
+            var looks: [(frame: Int, picture: Int, screen: Int)] = []
+            for i in 0..<5 {
+                if i > 0 { try? await Task.sleep(nanoseconds: 500_000_000) }
+                guard let self, !self.isDestroyed else { return }
+                looks.append(self.pixelSample())
+            }
+            guard let self, !self.isDestroyed else { return }
+            let line = "floating pet: 5 looks over 2 s: frames \(looks.map { String($0.frame) }.joined(separator: ",")), "
+                + "renders +\((self.pet?.stats.renders ?? 0) - renders0), distinct pictures it drew \(Set(looks.map { $0.picture }).count), "
+                + "distinct screens at the pet \(Set(looks.map { $0.screen }).count) (1 = the screen did not change)"
+            self.pixelChecks.append(line)
+            AppLog.write(line)
+        }
+    }
+    // --- fix/windows-pet-and-detail-animation (end) ---
 
     private func release() {
         _ = KillTimer(hwnd, Self.clockCheckTimerID)   // fix/windows-pet-still
