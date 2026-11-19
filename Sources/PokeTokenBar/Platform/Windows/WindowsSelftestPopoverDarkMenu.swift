@@ -37,12 +37,14 @@ extension WindowsSelftest {
         let ownerBits = Int(bitPattern: owner)
         let screenW = Int(GetSystemMetrics(SM_CXSCREEN)), screenH = Int(GetSystemMetrics(SM_CYSCREEN))
         Thread {
+            // a text box's own menu does not go through WinPopupMenu: the menu window itself says it is open
+            func menuWindow() -> HWND? { WinStr.w("#32768").withUnsafeBufferPointer { FindWindowW($0.baseAddress, nil) } }
             var waited = 0
-            while WinPopupMenu.openMenuBits == 0, waited < 200 { Thread.sleep(forTimeInterval: 0.05); waited += 1 }
-            guard WinPopupMenu.openMenuBits != 0 else { box.finish(luma: nil, note: "menu never opened", image: nil); return }
+            while menuWindow() == nil, waited < 200 { Thread.sleep(forTimeInterval: 0.05); waited += 1 }
+            guard menuWindow() != nil else { box.finish(luma: nil, note: "menu never opened", image: nil); return }
             Thread.sleep(forTimeInterval: 0.8)  // let it paint
             var rect = RECT()
-            let found = WinStr.w("#32768").withUnsafeBufferPointer { FindWindowW($0.baseAddress, nil) }
+            let found = menuWindow()
             var luma: Double?, note = "", image: WinUIDump.Bitmap?
             if let found, GetWindowRect(found, &rect) {
                 let x = max(0, Int(rect.left)), y = max(0, Int(rect.top))
@@ -59,12 +61,12 @@ extension WindowsSelftest {
                     note = "menu \(w)x\(h) at (\(x),\(y))"
                 } else { note = "no picture of the menu window" }
             } else { note = "menu window #32768 not found" }
-            for _ in 0..<5 where WinPopupMenu.openMenuBits != 0 {
+            for _ in 0..<5 where menuWindow() != nil {
                 _ = PostMessageW(HWND(bitPattern: ownerBits), UINT(WM_KEYDOWN), WPARAM(VK_ESCAPE), 0)
                 _ = PostMessageW(HWND(bitPattern: ownerBits), UINT(WM_KEYUP), WPARAM(VK_ESCAPE), 0)
-                for _ in 0..<10 where WinPopupMenu.openMenuBits != 0 { Thread.sleep(forTimeInterval: 0.1) }
+                for _ in 0..<10 where menuWindow() != nil { Thread.sleep(forTimeInterval: 0.1) }
             }
-            box.finish(luma: luma, note: note + (WinPopupMenu.openMenuBits == 0 ? "" : ", STILL OPEN"), image: image)
+            box.finish(luma: luma, note: note + (menuWindow() == nil ? "" : ", STILL OPEN"), image: image)
         }.start()
         let timer = Timer(fire: Date(timeIntervalSinceNow: 0.05), interval: 0, repeats: false) { _ in MainActor.assumeIsolated { open() } }
         RunLoop.main.add(timer, forMode: .common)
