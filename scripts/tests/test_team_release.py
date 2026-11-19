@@ -513,7 +513,7 @@ class StartTests(HelperTest):
 
 def release_manifest(run_id, installer=INSTALLER_BYTES, attempt=1):
     return {"schema": 1, "sha": SHA, "workflowSha": "b" * 40, "version": V, "level": "full", "runId": run_id,
-            "runAttempt": attempt, "runnerImage": "20261110.1.0", "swift": "6.3.2", "msvcToolset": "14.44.35207", "windowsSdk": "10.0.26100.0", "innoSetup": "6.7.1", "openssl": "3.6.5", "cleanBuild": True,
+            "runAttempt": attempt, "runnerImage": "20261110.1.0", "swift": "6.3.2", "msvcToolset": "14.44.35207", "windowsSdk": "10.0.26100.0", "innoSetup": "6.7.1", "openssl": "3.6.5", "swiftCrypto": "3.15.1", "cleanBuild": True,
             "installer": {"name": INSTALLER, "size": len(installer), "sha256": sha256(installer),
                           "fileVersion": V + ".0", "productVersion": V, "isccDefines": ["SrcDir", "AppVer", "OutDir"]},
             "app": {"fileVersion": V + ".0", "versionFile": V, "uninstallDisplayVersion": V},
@@ -720,6 +720,8 @@ class CollectTests(HelperTest):
             "no swift version": (lambda m: m.pop("swift"), "swift is null, expected text"),
             "no windows sdk": (lambda m: m.pop("windowsSdk"), "windowsSdk is null, expected text"),
             "no inno setup": (lambda m: m.pop("innoSetup"), "innoSetup is null, expected text"),
+            "another swift-crypto than the pin": (lambda m: m.update(swiftCrypto="3.99.0"), "swiftCrypto (the pin in scripts/windows/build-pins.json)"),
+            "no swift-crypto": (lambda m: m.pop("swiftCrypto"), "swiftCrypto is null, expected text"),
             "no openssl": (lambda m: m.pop("openssl"), "openssl is null, expected text"),
             "no msvc toolset": (lambda m: m.pop("msvcToolset"), "msvcToolset is null, expected text"),
             "an incremental build": (lambda m: m.update(cleanBuild=False), "windows-release.json cleanBuild"),

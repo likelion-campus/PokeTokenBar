@@ -98,6 +98,10 @@ jobs:
         run: |
           mapfile -t extra < <(pwsh -NoProfile -File ./scripts/windows/swift-build-args.ps1 | tr -d '\r')
           swift build --build-tests "${extra[@]}" 2>&1 | tee build.log
+      - name: swift-crypto version this build resolved (a warning on drift; a failure in release mode)
+        timeout-minutes: 5
+        shell: pwsh
+        run: ./scripts/windows/resolved-swift-crypto.ps1 -Strict:('${{ inputs.release_sha }}' -ne '')
       - name: Test shards (every test class in exactly one of four shards)
         timeout-minutes: 10
         shell: pwsh
