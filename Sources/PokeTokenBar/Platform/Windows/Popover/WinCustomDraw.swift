@@ -121,7 +121,39 @@ struct WinLook {
         }
     }
 
+    /// SELFTEST HOOK: paint straight on the window's DC, as before the flicker fix (the check that must fail on it).
+    nonisolated(unsafe) static var testUnbuffered = false
+    /// Whole control pictures copied to the screen in one blit (the selftest compares it with the paints).
+    private(set) static var blits = 0
+
+    /// A control is drawn in several steps (the page colour, the track, the raised segment, the text, the ring). On the window's own DC each
+    /// step is on the screen the moment it is made, so a repaint under the pointer flashed the page colour and the bare track before the
+    /// segment came back. The picture is made on a memory bitmap and copied in one blit, so the screen only ever shows a finished one.
+    static func buffered(_ dc: HDC, _ client: RECT, _ body: (HDC) -> Void) {
+        let w = client.right - client.left, h = client.bottom - client.top
+        guard !testUnbuffered, w > 0, h > 0, let mem = CreateCompatibleDC(dc) else { body(dc); return }
+        defer { _ = DeleteDC(mem) }
+        var info = BITMAPINFO()
+        info.bmiHeader.biSize = DWORD(MemoryLayout<BITMAPINFOHEADER>.size)
+        info.bmiHeader.biWidth = client.right
+        info.bmiHeader.biHeight = -client.bottom
+        info.bmiHeader.biPlanes = 1
+        info.bmiHeader.biBitCount = 32
+        var bits: UnsafeMutableRawPointer?
+        guard let bitmap = CreateDIBSection(dc, &info, 0, &bits, nil, 0), bits != nil else { body(dc); return }
+        defer { _ = DeleteObject(UnsafeMutableRawPointer(bitmap)) }
+        let old = SelectObject(mem, UnsafeMutableRawPointer(bitmap))
+        defer { _ = SelectObject(mem, old) }
+        body(mem)
+        _ = BitBlt(dc, client.left, client.top, w, h, mem, client.left, client.top, DWORD(SRCCOPY))
+        blits += 1
+    }
+
     private static func paintButtonKinds(_ c: WinControl, _ part: HWND, _ dc: HDC, _ client: RECT) {
+        buffered(dc, client) { paintButtonKindsNow(c, part, $0, client) }
+    }
+
+    private static func paintButtonKindsNow(_ c: WinControl, _ part: HWND, _ dc: HDC, _ client: RECT) {
         let look = WinLook(c)
         let state = ButtonState(c, part)
         switch c.kind {
@@ -373,6 +405,10 @@ struct WinLook {
     private static func paintTrackbar(_ c: WinControl, _ part: HWND, _ dc: HDC) {
         var client = RECT()
         _ = GetClientRect(part, &client)
+        buffered(dc, client) { paintTrackbarNow(c, part, $0, client) }
+    }
+
+    private static func paintTrackbarNow(_ c: WinControl, _ part: HWND, _ dc: HDC, _ client: RECT) {
         let look = WinLook(c)
         fillBackground(c, dc, client)
         let disabled = !IsWindowEnabled(part)
