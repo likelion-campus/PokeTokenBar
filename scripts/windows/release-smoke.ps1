@@ -114,6 +114,12 @@ try {
     Check (Test-Path $fixture) 'smoke.fixture' $fixture "no selftest fixture at $fixture"
     $ts = (Get-Date).ToUniversalTime().AddSeconds(-30).ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
     (Get-Content $fixture -Raw).Replace('__TIMESTAMP__', $ts) | Set-Content -NoNewline -Encoding utf8NoBOM -Path (Join-Path $proj 's.jsonl')
+    # The companion fixture sprites, as the windows-slice action makes them for the installed selftest of windows-app.yml
+    # (.github/actions/windows-slice/action.yml, "Companion fixture sprites"). Without them the pet checks cannot draw a pet
+    # and fail ("no picture", "the pet did not show") or skip. A scan test (scripts/tests/test_smoke_fixture_parity.py) keeps the two in step.
+    $sprites = Join-Path $work 'sprites'
+    & (Join-Path $PSScriptRoot 'fetch-fixture-sprites.ps1') -Out $sprites
+    $env:PTB_SELFTEST_SPRITES = $sprites
     $oldPath = $env:Path
     $env:Path = 'C:\Windows\System32;C:\Windows'
     $env:CLAUDE_CONFIG_DIR = Join-Path $fx 'claude'

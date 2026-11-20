@@ -26,7 +26,7 @@ concurrency:
 jobs:
   smoke:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 70  # the installed selftest step may take 45 (one retry), as in windows-app.yml's installer job
     steps:
       - name: Inputs
         shell: bash
@@ -64,7 +64,7 @@ jobs:
           ref: v${{ inputs.version }}
           path: tag
       - name: Install, selftest the installed app, uninstall
-        timeout-minutes: 15  # about 6 min; Setup and the uninstaller run through Invoke-Setup (180 s each)
+        timeout-minutes: 45  # the installed selftest alone takes about 15 min (one retry: twice run-selftest.ps1's 20-min limit and a margin), as windows-app.yml's step; Setup and the uninstaller run through Invoke-Setup (180 s each)
         shell: pwsh
         run: |
           $fx = if ('${{ inputs.source }}' -eq 'release') { 'tag' } else { '.' }
