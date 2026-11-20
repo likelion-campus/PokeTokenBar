@@ -45,7 +45,9 @@ import SwiftUI
         TeamMemberProfile(memberID: m.memberID, nickname: m.nickname, current: current ?? m.character, dex: dex)
     }
 
-    static let cases: [Case] = {
+    static let cases: [Case] = makeCases()
+    /// A function, not a closure initialiser: Swift 6.1 (the Mac CI's Xcode 16) crashes lowering the closure form.
+    private static func makeCases() -> [Case] {
         let m = member()
         let longMember = member("가나다라마바사아자차카타", species: 900_005, name: "리자드", shiny: true, color: PlazaNameColor.hexes[3])
         let other = TeamMonSummary(speciesID: 900_006, isShiny: false, form: nil, speciesName: "리자몽", gender: nil)
@@ -70,7 +72,7 @@ import SwiftUI
             Case(name: "dark-header", state: .loaded(longMember, profile(longMember, dex: dex(12), current: other)), dark: true),
             Case(name: "dark-dex", state: .loaded(m, profile(m, dex: dex(80))), scroll: 150, dark: true),
         ]
-    }()
+    }
 
     override func setUp() async throws {
         Rig.blockNetwork(for: self)
