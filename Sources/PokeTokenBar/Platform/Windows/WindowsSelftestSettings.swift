@@ -822,6 +822,9 @@ extension WindowsSelftest {
                 if language == .en, tag == "100", await open(team: joined, updater: updater(latest: "v2.5.613", name: "cap2")) {
                     if let page {
                         await shoot(page, section: 3, name: "settings-en-100-team-joined.png", dir: dir, wrote: &wrote, failed: &failed)
+                        // The team card's last rows (season, its caption, the usage report line) sit below the shot above.
+                        await shoot(page, section: 3, alignBottom: true, name: "settings-en-100-team-joined-bottom.png",
+                                    dir: dir, wrote: &wrote, failed: &failed)
                         click(page.rowsForTesting.checkNow?.control)
                         _ = await waitFor(3) { self.shown(page.rowsForTesting.updateCurrent) }
                         await shoot(page, section: 5, name: "settings-en-100-updates-current.png", dir: dir, wrote: &wrote, failed: &failed)
@@ -838,7 +841,9 @@ extension WindowsSelftest {
     }
 
     /// The popover scrolled to the top of section `section`, printed.
-    func shoot(_ page: WinSettingsPage, section: Int, name: String, dir: URL, wrote: inout [String], failed: inout [String]) async {
+    /// `alignBottom` scrolls so the section's card ends at the bottom of the viewport instead of starting at its top.
+    func shoot(_ page: WinSettingsPage, section: Int, alignBottom: Bool = false, name: String, dir: URL,
+               wrote: inout [String], failed: inout [String]) async {
         guard let hwnd, let area = page.areaForTesting, let frames = page.stackForTesting?.frames else { failed.append(name); return }
         var y: CGFloat = 0
         // `section` counts the sections of the page as Task 6 built it (General 0, providers 1 and 2, team 3, notifications 4,
@@ -847,7 +852,10 @@ extension WindowsSelftest {
         let wanted: [Int: String] = [0: l.generalSectionTitle, 3: L(.ko).teamSectionTitle, 4: l.notificationsSection, 5: l.updateSectionTitle]
         var index = section
         if let caption = wanted[section]?.uppercased(), let found = page.stackForTesting?.sections.firstIndex(where: { $0.caption?.text == caption }) { index = found }
-        if index < frames.sections.count, let s = frames.sections[index] { y = (s.caption?.minY ?? s.card?.minY ?? 0) - 8 }
+        if index < frames.sections.count, let s = frames.sections[index] {
+            if alignBottom, let card = s.card { y = card.maxY + 8 - CGFloat(area.viewportHeight) }
+            else { y = (s.caption?.minY ?? s.card?.minY ?? 0) - 8 }
+        }
         area.scroll(to: Int32(max(0, y)))
         await pause(0.35)
         _ = RedrawWindow(hwnd, nil, nil, UINT(0x0001 | 0x0004 | 0x0080 | 0x0100))
