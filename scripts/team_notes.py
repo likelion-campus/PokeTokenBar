@@ -12,8 +12,9 @@ SECTIONS = ["New", "Fixed", "Other", "Contributors"]
 TOKENS = ["{{VERSION}}", "{{WINDOWS_SHA256}}"]
 WINDOWS_LINES = ["**Windows Install:**", "**Windows Upgrade:**", "**Windows differences:**"]
 COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
-# Template text that must be replaced by the release writer before any release (stage 8 Task 12).
-PLACEHOLDERS = ["(filled in Task 12)"]
+# Template text that must be replaced by the release writer before any release. None today: the first version that
+# installs updates in-app (v2.5.635) is written into the template; a future placeholder goes here.
+PLACEHOLDERS = []
 
 
 def strip_comments(text):
