@@ -681,6 +681,7 @@ import WinSDK
         _ = team.notificationsEnabled
         _ = team.schedule
         _ = host.session?.hasIncompatiblePeer
+        _ = host.usageReporter?.lastSentAt  // the team caption's last-send time
         // MARK: Task 15 (begin)
         _ = host.companion.growthDifficulty
         _ = host.companion.shopDifficulty

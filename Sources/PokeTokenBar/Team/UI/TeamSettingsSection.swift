@@ -6,6 +6,7 @@ import AppKit
 struct TeamSettingsSection: View {
     @Environment(TeamSettings.self) private var team
     @Environment(TeamSession.self) private var session: TeamSession?
+    @Environment(UsageReporter.self) private var reporter: UsageReporter?
     @Environment(PopoverNavigation.self) private var nav: PopoverNavigation?
     private let l = L(.ko)
     @State private var joinDraft = ""
@@ -115,6 +116,12 @@ struct TeamSettingsSection: View {
                     if team.code != nil {
                         Divider()
                         scheduleRows
+                    }
+                    if team.isReady {
+                        Text(SettingsModel.usageReportCaption(lastSent: reporter?.lastSentAt, l: l))
+                            .font(.caption).foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 12).padding(.bottom, 8)
                     }
                     if session?.hasIncompatiblePeer == true {
                         error(l.teamIncompatiblePeer)
