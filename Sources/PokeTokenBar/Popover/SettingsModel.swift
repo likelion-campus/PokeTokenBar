@@ -89,6 +89,13 @@ enum SettingsModel {
     @MainActor static func usageReportCaption(lastSent: Date?, l: L = L(.ko)) -> String {
         l.teamUsageReportCaption(lastSent: lastSent)
     }
+
+    /// The lines under the team schedule: its caption, then the usage-report line while the team is ready. The Mac shows
+    /// them as two texts with no divider; Windows joins them in the caption's one hint, because a row of its own added a
+    /// window and a divider and pushed `settings.openCost` over its paint-frame budget (defect log, 2026-11-20).
+    @MainActor static func teamCaptionLines(schedule: String, isReady: Bool, lastSent: Date?, l: L = L(.ko)) -> [String] {
+        isReady ? [schedule, usageReportCaption(lastSent: lastSent, l: l)] : [schedule]
+    }
 }
 
 // --- stage 7 Task 14: the Advanced group and the tracked account (begin) ---

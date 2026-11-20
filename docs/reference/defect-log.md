@@ -3378,3 +3378,11 @@ read_when:
 - **고침:** 두 모델의 줄 추가(공식 가격표 2026-11-20 확인: Fable 5.2 $8/$40/$10/$0.20, Haiku 5.5 $0.10/$0.50/$0.125/$0.01). Haiku 5.5 는 프롬프트가 100,000 토큰을 넘으면 모든 항목이 5배라 `estimatedCost` 에 그 단계를 넣었다.
 - **영구 캡처:** `testFable52AndHaiku55Rates`(100,000 경계 양쪽), `testModelsReadFromProviderLogsAreAllPriced` 목록에 두 이름 추가. 줄을 넣기 전 4건 실패를 확인했다.
 - **규칙:** 릴리스 전에 릴리스 맥의 앱 로그에서 `Unpriced model` 을 grep 한다. 나오면 그 릴리스에 가격 줄을 넣는다.
+
+## 윈도 설정에 행 하나를 더했더니 페이지 열기 비용 예산을 넘었다 (v2.5.636 릴리스 실행, 2026-11-20)
+- **증상:** v2.5.636 릴리스의 windows-app 실행(44748321973)이 `settings.openCost` 에서 멈췄다: Home → Settings 전환이 "5 frames with a paint (budget 4)". 공개된 것은 없다.
+- **직접 원인:** #311 이 팀 카드에 사용량 보고 줄을 **자기 행**(Static 하나 + 구분선)으로 더했다. 설정 페이지의 창이 164 → 165 개가 되고, 전환 때 그려지는 프레임이 3–4 에서 3–5 로 퍼졌다. #311 이전 실행 9개는 모두 3–4(예산 4 의 가장자리), 이후 4개는 3·3·5·5.
+- **왜 못 걸렀나:** ① PR 실행 두 번은 우연히 3 프레임으로 통과했다. ② 브랜치의 첫 windows-app 실행(44707310118)은 `FAIL settings.openCost` 를 찍었지만 그 모드에서는 이 검사가 잡을 막지 않아 잡은 초록이었고, 잡 결론만 읽고 셀프테스트의 개별 결과는 읽지 않았다. ③ 리뷰는 "맥과 같은 문구·위치"만 보고 Win32 에서 행 하나가 창 하나와 구분선 하나라는 비용은 보지 않았다.
+- **고침:** 보고 줄을 일정 캡션과 **같은 힌트**의 둘째 줄로 넣는다(`SettingsModel.teamCaptionLines`, `WinTeamSection.caption` 이 CR LF 로 잇는다). 창 수는 다시 164 개이고, 맥처럼 두 줄 사이에 구분선이 없다(전의 별도 행은 맥에 없는 구분선을 그렸다).
+- **영구 캡처:** `SettingsModelTests.testTheReportLineFollowsTheScheduleCaptionOnlyWhileTheTeamIsReady`. 예산 자체는 `settings.openCost` 가 이미 지킨다 — 릴리스 모드가 막는다.
+- **규칙:** 윈도 팝오버 페이지에 행을 더하기 전에, 기존 행의 힌트나 라벨에 넣을 수 있는지 먼저 본다. 행을 더했다면 PR 의 windows-app 실행에서 `settings.openCost`·`popover.swapCost` 줄의 `frames with a paint`·`windows made` 를 직접 읽는다(잡이 초록이어도).

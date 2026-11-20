@@ -55,8 +55,8 @@ import WinSDK
     private let coreStartRow: WinRow
     private let coreEndRow: WinRow
     private let seasonRow: WinRow
+    /// The schedule caption, with the usage-report line under it while the team is ready (`SettingsModel.teamCaptionLines`).
     private let captionRow: WinRow
-    private let reportRow: WinRow
     private let incompatibleRow: WinRow
     /// The `start` the end combo's items were made for.
     private var endItemsStart = -1
@@ -118,12 +118,11 @@ import WinSDK
             WinControls.combo(PlazaSeasonChoice.allCases.map { l.teamSeasonName($0) },
                               selected: PlazaSeasonChoice.allCases.firstIndex(of: rows.season) ?? 0, in: p, ctx: c)
         }
-        captionRow = section.addRow(nil, hint: rows.scheduleCaption) { _, _ in nil }
-        reportRow = section.addRow(nil, hint: SettingsModel.usageReportCaption(lastSent: host.usageReporter?.lastSentAt)) { _, _ in nil }
+        captionRow = section.addRow(nil, hint: Self.caption(rows.scheduleCaption, isReady: team.isReady,
+                                                             lastSent: host.usageReporter?.lastSentAt)) { _, _ in nil }
         incompatibleRow = section.addRow(nil, hint: l.teamIncompatiblePeer) { _, _ in nil }
         for row in [joinErrorRow, nicknameErrorRow, incompatibleRow] { row.hint?.role = .error }
         captionRow.hint?.role = .secondary
-        reportRow.hint?.role = .secondary
         wire()
         apply()
     }
@@ -223,7 +222,6 @@ import WinSDK
         nicknameErrorRow.isVisible = on && rows.nicknameInvalid
         notificationsRow.isVisible = on
         for row in [coreStartRow, coreEndRow, seasonRow, captionRow] { row.isVisible = on && rows.showsSchedule }
-        reportRow.isVisible = on && team.isReady
         incompatibleRow.isVisible = on && rows.incompatiblePeer
 
         set(codeRow.label, rows.maskedCode ?? " ")
@@ -245,8 +243,7 @@ import WinSDK
         }
         let seasonIndex = PlazaSeasonChoice.allCases.firstIndex(of: rows.season) ?? 0
         if let season = seasonRow.control, season.selection != seasonIndex { season.selection = seasonIndex }
-        set(captionRow.hint, rows.scheduleCaption)
-        set(reportRow.hint, SettingsModel.usageReportCaption(lastSent: host.usageReporter?.lastSentAt))
+        set(captionRow.hint, Self.caption(rows.scheduleCaption, isReady: team.isReady, lastSent: host.usageReporter?.lastSentAt))
         if team.savedTeams.map(\.code) != savedKeys { rebuild() }
         return textChanged
     }
@@ -344,6 +341,11 @@ import WinSDK
     }
     var savedRowsForTesting: [WinRow] { savedRows.map(\.row) }
     var coreRowsForTesting: [WinRow] { [coreStartRow, coreEndRow, seasonRow, captionRow] }
+
+    /// The caption hint's text: its lines on separate lines of the one Static (CR LF breaks a wrapping `SS_LEFT` label).
+    static func caption(_ schedule: String, isReady: Bool, lastSent: Date?) -> String {
+        SettingsModel.teamCaptionLines(schedule: schedule, isReady: isReady, lastSent: lastSent).joined(separator: "\r\n")
+    }
     var incompatibleRowForTesting: WinRow { incompatibleRow }
     func joinForTesting() { join() }
 }
