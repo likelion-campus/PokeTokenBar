@@ -6,7 +6,7 @@ import FoundationNetworking
 /// Apps Script answers a POST with a 302 that is followed with GET (`WinHTTPFetch.nextHop`); loopback tests cannot show that
 /// Google's real redirect works on WinHTTP. The probe body `{"v":0}` is answered with `bad_version` before the sheet takes a lock
 /// or writes anything. Like `net.clientCertificateOptional`, only "our answer is wrong" fails (`UsageReportProbe.classify`);
-/// the network or the host being unavailable passes as unverified. 10 s per request, 15 s for the whole fetch.
+/// the network, a proxy or the host being unavailable passes as unverified (the rule is on `classify`). 10 s per request, 15 s for the whole fetch.
 extension WindowsSelftest {
     @MainActor static func usageReportRedirectCheck(_ r: Recorder) async {
         let name = "net.usageReportRedirect"
@@ -21,10 +21,10 @@ extension WindowsSelftest {
         request.httpBody = UsageReportProbe.body
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForResource = clientCertificateCheckDeadline
-        let outcome: Result<(status: Int, body: Data), URLError>
+        let outcome: Result<(status: Int, body: Data, finalHost: String?), URLError>
         do {
             let (data, response) = try await WinHTTPFetch.data(for: request, configuration: configuration)
-            outcome = .success((status: (response as? HTTPURLResponse)?.statusCode ?? -1, body: data))
+            outcome = .success((status: (response as? HTTPURLResponse)?.statusCode ?? -1, body: data, finalHost: response.url?.host))
         } catch let error as URLError {
             outcome = .failure(error)
         } catch {
