@@ -3369,3 +3369,12 @@ read_when:
 - **부류 스윕:** 같은 PR 의 다른 새 네트워크 호출은 `HTTPUsageReportTransport`(이음매 `PlatformCompat.oneShotData` 를 씀) 하나다. TEAM.md·README 의 새 문장에 `@`·`.local` 은 더 없다.
 - **고침:** TEAM.md 는 "(예: likelion.net)". 셀프테스트는 리포터와 같은 이음매(`PlatformCompat.oneShotData`, 점검용 세션의 10 s/15 s 설정)로 보낸다 — 앱의 실제 경로를 확인하게 되어 더 맞다. `WindowsSeamScanTests.routedSites` 에 두 호출 지점을 올렸다.
 - **규칙:** 공용 코드에 네트워크 호출을 더하거나 TEAM.md·README·`scripts/team-release.sh` 를 고치는 브랜치는 PR 전에 `swift test --filter 'ScanTests|TeamReleaseScriptTests'` 를 한 번 돌린다. 계획을 쓸 때 이 줄을 해당 태스크의 검증 단계에 넣는다.
+
+## Fable 5.2 · Haiku 5.5 가 가격표에 없어 비용이 "계산 불가"였다 (2026-11-20, fix/price-claude-5-models)
+- **증상:** 오늘·주·월 비용 줄이 "계산 불가"로 나왔다(맥·윈도우 공통). 앱 로그에 `Unpriced model: claude-fable-5-2`, `claude-haiku-5-5` 가 남아 있었다.
+- **직접 원인:** `ModelPricing.table` 은 정확한 모델 이름만 받는다(#289 에서 계열 폴백 제거). 새 모델 두 개의 줄이 없었다.
+- **왜 못 걸렀나:** `testModelsReadFromProviderLogsAreAllPriced` 는 손으로 적어 둔 이름만 본다. 새 모델이 나왔다는 사실은 테스트가 알 수 없고, 알려 주는 장치는 실행 중 로그 한 줄(`noteUnpriced`)뿐인데 그 로그를 릴리스 전에 보는 절차가 없었다.
+- **부류 스윕:** 이 맥의 앱 로그에서 `Unpriced model` 을 전부 모았다 — 위 두 개뿐이다.
+- **고침:** 두 모델의 줄 추가(공식 가격표 2026-11-20 확인: Fable 5.2 $8/$40/$10/$0.20, Haiku 5.5 $0.10/$0.50/$0.125/$0.01). Haiku 5.5 는 프롬프트가 100,000 토큰을 넘으면 모든 항목이 5배라 `estimatedCost` 에 그 단계를 넣었다.
+- **영구 캡처:** `testFable52AndHaiku55Rates`(100,000 경계 양쪽), `testModelsReadFromProviderLogsAreAllPriced` 목록에 두 이름 추가. 줄을 넣기 전 4건 실패를 확인했다.
+- **규칙:** 릴리스 전에 릴리스 맥의 앱 로그에서 `Unpriced model` 을 grep 한다. 나오면 그 릴리스에 가격 줄을 넣는다.

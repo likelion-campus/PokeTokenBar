@@ -41,6 +41,10 @@ enum ModelPricing {
         "claude-fable-5":             .perMillion(10, 50, 12.5, 1.0), // LiteLLM 스냅샷 가격 등재됨(2026-08) — 기존 미가격 $0 플레이스홀더 대체
         // Fable 5.1: same base rates as Fable 5, cache read cut to $0.25/MTok (0.025× input).
         "claude-fable-5-1":           .perMillion(10, 50, 12.5, 0.25),
+        // Fable 5.2 and Haiku 5.5, checked 2026-11-20. Haiku 5.5's row is for prompts up to 100K tokens;
+        // estimatedCost applies the higher tier.
+        "claude-fable-5-2":           .perMillion(8, 40, 10, 0.2),
+        "claude-haiku-5-5":           .perMillion(0.1, 0.5, 0.125, 0.01),
         "gpt-6-astra":                .perMillion(10, 50, 12.5, 1),
         // GPT-6 Sol variants and Luna rates checked 2026-09-30 against the official API pricing page above.
         "gpt-6-sol":                  .perMillion(2, 10, 2.5, 0.2),
@@ -111,8 +115,10 @@ enum ModelPricing {
                            "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna",
                            "gpt-5.5", "gpt-5.4"].contains(key) && prompt > 272_000
             || key == "gemini-2.5-pro" && prompt > 200_000
-        let inputMultiplier = longContext ? 2.0 : 1.0
-        let outputMultiplier = longContext ? 1.5 : 1.0
+        // Haiku 5.5: every bucket costs five times as much for a prompt over 100,000 tokens.
+        let haikuLong = key == "claude-haiku-5-5" && prompt > 100_000
+        let inputMultiplier = haikuLong ? 5.0 : longContext ? 2.0 : 1.0
+        let outputMultiplier = haikuLong ? 5.0 : longContext ? 1.5 : 1.0
         return (Double(input) * r.input + Double(cacheWrite) * r.cacheWrite
                 + Double(cacheRead) * r.cacheRead) * inputMultiplier
             + Double(output) * r.output * outputMultiplier

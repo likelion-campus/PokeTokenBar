@@ -35,13 +35,27 @@ final class ModelPricingTests: XCTestCase {
         // output columns are filled in.
         for model in ["claude-opus-5", "claude-opus-5-5", "claude-sonnet-5", "claude-sonnet-5-5",
                       "claude-opus-4-8", "claude-opus-4-7",
-                      "claude-sonnet-4-6", "claude-haiku-4-5", "claude-fable-5", "claude-fable-5-1"] {
+                      "claude-sonnet-4-6", "claude-haiku-4-5", "claude-fable-5", "claude-fable-5-1",
+                      "claude-fable-5-2", "claude-haiku-5-5"] {
             let cost = try XCTUnwrap(
                 ModelPricing.estimatedCost(model: model, input: 2, output: 175,
                                            cacheWrite: 26_939, cacheRead: 42_676),
                 "\(model) resolves to no price — the usage cost row renders as unavailable")
             XCTAssertGreaterThan(cost, 0, model)
         }
+    }
+
+    /// Fable 5.2 and Haiku 5.5 rates, checked 2026-11-20. Haiku 5.5 charges five times as much on every
+    /// bucket once the prompt (input + cache read + cache write) is over 100,000 tokens.
+    func testFable52AndHaiku55Rates() throws {
+        XCTAssertEqual(ModelPricing.rate(for: "claude-fable-5-2"), .perMillion(8, 40, 10, 0.2))
+        XCTAssertEqual(ModelPricing.rate(for: "claude-haiku-5-5"), .perMillion(0.1, 0.5, 0.125, 0.01))
+        let short = try XCTUnwrap(ModelPricing.estimatedCost(model: "claude-haiku-5-5", input: 40_000, output: 1_000_000,
+                                                             cacheWrite: 30_000, cacheRead: 30_000))
+        XCTAssertEqual(short, 0.004 + 0.5 + 0.00375 + 0.0003, accuracy: 1e-9)  // exactly 100,000: the lower tier
+        let long = try XCTUnwrap(ModelPricing.estimatedCost(model: "claude-haiku-5-5", input: 40_001, output: 1_000_000,
+                                                            cacheWrite: 30_000, cacheRead: 30_000))
+        XCTAssertEqual(long, (0.0040001 + 0.5 + 0.00375 + 0.0003) * 5, accuracy: 1e-9)
     }
 
     /// An unpriced model is logged once per identity, not once per log entry — Bucket.add runs per request.
