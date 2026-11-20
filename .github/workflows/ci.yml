@@ -14,11 +14,18 @@ concurrency:
 jobs:
   build-test:
     name: build-test
-    # macos-15 ships Xcode 16 / Swift 6, which Package.swift requires
-    # (swift-tools-version: 6.0, platform macOS 14).
-    runs-on: macos-15
+    # The app is developed and released with Swift 6.3 (Xcode 26). Swift 6.1 (Xcode 16 on macos-15) builds the app but
+    # cannot type-check the test target (expression time-outs and a SILGen crash), so this job uses the newest Xcode
+    # on the macos-26 image.
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
+
+      - name: Select the newest Xcode on the image
+        run: |
+          ls -d /Applications/Xcode*.app
+          newest=$(ls -d /Applications/Xcode_*.app | grep -v -i beta | sort -V | tail -1)
+          sudo xcode-select -s "$newest/Contents/Developer"
 
       - name: Show Swift version
         run: swift --version
