@@ -3344,6 +3344,15 @@ read_when:
   `popover.glyphContrast` 에 쪽 넘김(1·4·8쪽)과 결함쌍 `popover.glyphContrast.pagerFault`, Mac 쪽 `DexPagerInkTests`(1.5:1/3:1 하한, 화살표를 지우면 실패 확인), 스캔 테스트(리터럴 흑백 잉크·글리프 화살표 금지).
 - **규칙:** 화면에 보여야 하는 것은 부품 모델이나 오프스크린 그림이 아니라 **창에서 캡처한 픽셀**로 잰다 — 그림이 맞아도 그 위의 창이 덮을 수 있다.
 
+## 릴리스 스모크의 설치본 selftest 가 스프라이트 없이 돌았다 (2026-11-20, fix/windows-release-smoke)
+- **증상:** v2.5.635 의 첫 `windows-release-smoke` 실행(44702891670)이 실패했다. 설치·버전·digest 까지 통과했고 설치본 selftest 에서 펫 검사 8개(`pet.hide`·`pet.noActivate`·`pet.drag`·`pet.clamp`·`pet.dpi`·`pet.clickActions`·`pet.menu`·`pet.zOrder`)가 실패, `pet.lateGIF`·`pet.pixelsMove` 는 "skipped: no PTB_SELFTEST_SPRITES"였다. 같은 설치본이 릴리스 자체의 `windows-app.yml` 실행(44697138418)에서는 통과했다. 스텝은 `timeout-minutes: 15`("약 6분")라 selftest 도중 잘렸다.
+- **직접 원인:** 스모크는 selftest 환경을 `release-smoke.ps1` 안에서 따로 만들었고(`CLAUDE_CONFIG_DIR`·`PTB_STATE_DIR`·`PTB_SELFTEST_EXPECT_TODAY_TOKENS`), `windows-slice` 액션이 `windows-app.yml` 에 주는 `PTB_SELFTEST_SPRITES`(PokeAPI 픽스처 스프라이트 폴더)를 빠뜨렸다. 펫 검사는 그림이 있어야 펫이 뜬다. 스모크 타임아웃은 selftest 가 6분이던 때의 값이었다(지금 약 15분, 재시도까지 45분).
+- **왜 못 걸렀나:** 스모크의 selftest 절반은 실제 릴리스에 대해 한 번도 돌지 않았다(스모크는 릴리스 뒤에만 돌고, 아티팩트 모드는 selftest 환경이 같은 빈 곳을 가졌다). `windows-app.yml` 쪽은 검사를 늘릴 때마다 액션에 환경을 더했지만, 같은 환경을 다시 만드는 두 번째 워크플로가 있다는 사실을 잇는 장치가 없었다.
+- **부류 스윕:** `run-selftest.ps1` 을 부르는 곳은 `windows-app.yml`(번들·설치본, 둘 다 `windows-slice` 뒤)과 `release-smoke.ps1` 뿐이다. `PTB_FIXTURE`·`PTB_SELFTEST_SPRITES` 를 만드는 곳은 `windows-slice` 액션 하나다. 스모크가 유일한 재생성처였다. (`idle-gate.ps1` 은 `PTB_FIXTURE` 를 호출자 환경에서 받는다.)
+- **고침:** 스모크가 `fetch-fixture-sprites.ps1` 로 스프라이트를 받아 `PTB_SELFTEST_SPRITES` 를 준다. 스텝 45분·잡 70분(`windows-app.yml` 설치 잡과 같다).
+- **영구 캡처:** `scripts/tests/test_smoke_fixture_parity.py` — `windows-slice` 액션이 `GITHUB_ENV` 로 내보내는 `PTB_*` 변수를(버전·빌드 해시·`PTB_FIXTURE` 제외) `release-smoke.ps1` 이 모두 설정하는지, 같은 스프라이트 스크립트를 쓰는지 본다. `$env:PTB_SELFTEST_SPRITES` 줄을 지우면 실패하는 것을 확인했다.
+- **규칙:** selftest 환경을 다시 만드는 두 번째 경로는 첫 경로의 변수 목록을 스캔 테스트로 따라간다. 타임아웃 주석의 "약 N분"은 같은 단계를 도는 다른 워크플로의 값과 함께 갱신한다.
+
 ## 셀프테스트·CI·개발 인스턴스가 운영 시트에 썼다 (usage-reporter 최종 리뷰, 2026-11-20)
 - **증상:** 사용량 리포터가 팀이 준비된 앱이면 어디서든 회사 구글 시트로 POST 한다. CI 전용 윈도 셀프테스트 `settings.teamTransport` 는 앱의 `teamSettings` 를 몇 초간 준비 상태로 만들고, 그 사이 저장소 갱신이 일어나면 픽스처 멤버가 **운영 시트**에 기록된다. `scripts/plaza-dev.sh` 의 디버그 빌드(`PTB_STATE_DIR` + 준비된 팀)도 개발자를 이중 집계한다.
 - **직접 원인:** 리포터를 시작하는 조건이 `TeamSettings.isReady` 하나뿐이었다. "이 인스턴스가 진짜 설치인가"를 묻는 조건이 없었다.
