@@ -24,6 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var companion: CompanionStore!
     private let teamSettings = TeamSettings()
     private var teamRuntime: TeamRuntime!
+    private var usageReporter: UsageReporter?
     private var updater: UpdateChecker!
     private var floatingPet: FloatingPetController!
     private let navigation = PopoverNavigation()
@@ -170,6 +171,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                 showInPlaza: { [weak plaza] in plaza?.showBanner($0) })
         }
         teamRuntime.start()
+        // A dev instance (own PTB_STATE_DIR, e.g. plaza-dev.sh) never reports; the caption then reads "not sent yet".
+        if UsageReporter.shouldRun(stateDirectory: AppStatePaths.directory(),
+                                   defaultDirectory: TeamSettings.macDefaultDirectory, isSelftest: false) {
+            let reporter = UsageReporter(
+                settings: teamSettings, defaults: TeamSettings.defaultStore(),
+                appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0",
+                platform: "mac",
+                inputs: { [unowned self] in UsageReportInputs.from(self.store) })
+            reporter.start()
+            usageReporter = reporter
+        }
 
         observeStore()
         observeCompanionSprite()
@@ -389,6 +401,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private func onStoreRefreshed() {
         updateCompanion()
         companion.grantCandies(from: store.candyEligibleWindows, limitsReady: store.limitsReady)
+        usageReporter?.storeRefreshed()
     }
 
     // MARK: 메뉴바 애니메이션
@@ -692,7 +705,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         popover.contentViewController = NSHostingController(
             rootView: PopoverView()
                 .environment(store).environment(companion).environment(updater).environment(navigation)
-                .environment(teamSettings).environment(teamRuntime.session).environment(teamRuntime.feed))
+                .environment(teamSettings).environment(usageReporter).environment(teamRuntime.session).environment(teamRuntime.feed))
     }
 
     @objc private func statusItemClicked() {

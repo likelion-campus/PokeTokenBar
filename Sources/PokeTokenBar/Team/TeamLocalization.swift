@@ -83,6 +83,11 @@ extension L {
     func teamScheduleChangedCaption(name: String, when: String) -> String {
         "모든 팀원에게 같이 적용돼요 · \(name)님이 \(when)에 바꿨어요"
     }
+    /// 팀이 준비된 기기가 사용량을 회사 대시보드로 보낸다는 안내. 보낸 적이 없으면 그렇게 말한다.
+    func teamUsageReportCaption(lastSent: Date?) -> String {
+        guard let date = lastSent else { return "토큰 사용량을 회사 대시보드로 보내는 중 · 아직 보내지 않았어요" }
+        return "토큰 사용량을 회사 대시보드로 보내는 중 · 마지막으로 보낸 시각 \(teamScheduleDate(date))"
+    }
     var teamIncompatiblePeer: String { "다른 버전을 쓰는 팀원이 있어요. 모두 최신 버전으로 업데이트해 주세요" }
     var plazaOpen: String { "광장 열기" }
     var plazaWindowTitle: String { "팀 광장" }

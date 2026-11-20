@@ -758,6 +758,16 @@ jobs:
           Copy-Item -ErrorAction SilentlyContinue (Join-Path $env:LOCALAPPDATA '*.plist') collected
           Copy-Item -ErrorAction SilentlyContinue install.log, install-next.log, uninstall.log collected
           Get-ChildItem collected | ForEach-Object { $_.Name }
+      - name: No usage report from selftests
+        timeout-minutes: 2
+        if: always()
+        shell: pwsh
+        run: |
+          # A selftest must never write to the live usage sheet; UsageReporter logs every send result under these prefixes.
+          $hits = @(Get-ChildItem collected -Filter 'PokeTokenBar*.log' -ErrorAction SilentlyContinue |
+              Select-String -Pattern 'usage report (sent|rejected|failed)')
+          if ($hits.Count -gt 0) { throw "a selftest reported usage to the live sheet: $($hits[0].Line)" }
+          'no usage report in the selftest logs'
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         id: up
         if: always()

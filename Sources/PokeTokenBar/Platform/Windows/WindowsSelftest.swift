@@ -93,6 +93,7 @@ enum WindowsSelftest {
         await loopChecks(r, app)
         await limitsCheck(r)
         await clientCertificateCheck(r)  // WindowsSelftestClientCertificate.swift: a server asking for an optional client certificate
+        await usageReportRedirectCheck(r)  // WindowsSelftestUsageReport.swift: the usage report gets JSON through the real redirect
         await defaultsChecks(r, app)
         await shellChecks(r)
         await crashChecks(r)
