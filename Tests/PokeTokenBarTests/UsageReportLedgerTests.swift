@@ -63,6 +63,15 @@ final class UsageReportLedgerTests: XCTestCase {
         XCTAssertEqual(seconds("B"), 100 + 3900)
     }
 
+    func testPresenceOnTheSameDayAndTeamAccumulatesIntoOneEntry() async {
+        let (ledger, _) = make()
+        ledger.recordPresence(now: t0, team: .init(id: "A", label: "Alpha"))
+        ledger.recordPresence(now: t0.addingTimeInterval(600), team: .init(id: "A", label: "Alpha"))
+        ledger.recordPresence(now: t0.addingTimeInterval(900), team: .init(id: "A", label: "Alpha Renamed"))
+        ledger.recordPresence(now: t0.addingTimeInterval(1000), team: nil)
+        XCTAssertEqual(ledger.dayTeams, [.init(day: day(t0), team: "A", label: "Alpha Renamed", seconds: 1000)])
+    }
+
     func testPresenceWithoutATeamAndZeroGapCountNothing() async {
         let (ledger, _) = make()
         ledger.recordPresence(now: t0, team: nil)
