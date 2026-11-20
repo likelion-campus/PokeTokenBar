@@ -32,7 +32,7 @@ When there are none, write exactly: No external contributors in this release. --
 
 **Windows Install:** Download `PokeTokenBar-Setup-{{VERSION}}-win-x64.exe` below. Requires Windows 10 22H2 or Windows 11, x64. No administrator rights needed. The installer is not code-signed, so SmartScreen shows a warning: choose "More info", then "Run anyway".
 
-**Windows Upgrade:** In-app, from the first version that can install updates (filled in Task 12); earlier builds run the installer once.
+**Windows Upgrade:** From v2.5.635 or later, the update button installs the new version and restarts the app. Earlier test builds run the installer once.
 
 SHA-256 (Windows installer): {{WINDOWS_SHA256}}
 

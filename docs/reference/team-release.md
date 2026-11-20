@@ -109,8 +109,8 @@ in the same change.
    anyway", no administrator prompt; tray, popover and plaza work); at the **next** release the update arrives in-app, the app
    restarts on the new version and settings and team are kept; behaviour behind the office network's proxy; Defender on the
    first start after an update.
-4. When the first release that can install updates has shipped, name that version in the notes template's Windows Upgrade
-   line (today it says "filled in Task 12"; a small PR) and in `TEAM.md`'s update section.
+4. The first release that installs updates in-app is **v2.5.635** (2026-11-20); the notes template's Windows Upgrade line
+   and `TEAM.md`'s update section name it.
 
 ## Coordinating with another session on `main`
 
