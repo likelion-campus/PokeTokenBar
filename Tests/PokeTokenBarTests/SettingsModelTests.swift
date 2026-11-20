@@ -117,6 +117,15 @@ final class SettingsModelTests: XCTestCase {
                        "토큰 사용량을 회사 대시보드로 보내는 중 · 마지막으로 보낸 시각 \(l.teamScheduleDate(at))")
     }
 
+    func testTheReportLineFollowsTheScheduleCaptionOnlyWhileTheTeamIsReady() async {
+        let at = Date(timeIntervalSince1970: 1_800_000_000)
+        XCTAssertEqual(SettingsModel.teamCaptionLines(schedule: "S", isReady: false, lastSent: at), ["S"])
+        XCTAssertEqual(SettingsModel.teamCaptionLines(schedule: "S", isReady: true, lastSent: at),
+                       ["S", SettingsModel.usageReportCaption(lastSent: at)])
+        XCTAssertEqual(SettingsModel.teamCaptionLines(schedule: "S", isReady: true, lastSent: nil),
+                       ["S", SettingsModel.usageReportCaption(lastSent: nil)])
+    }
+
     // MARK: Windows wording (D13, P14)
 
     /// P14: with no sign-in file a user refresh ends in "no Keychain item" on Windows; the store words it as the missing
