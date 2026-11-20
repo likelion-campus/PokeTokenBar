@@ -1,4 +1,8 @@
+#if canImport(SQLite3)
 import SQLite3
+#else
+import CSQLite
+#endif
 import XCTest
 @testable import PokeTokenBar
 

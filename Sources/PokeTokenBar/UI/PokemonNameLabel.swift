@@ -26,25 +26,6 @@ struct PokemonNameText: View {
     var body: some View { Text(text) }
 }
 
-/// Synchronous presentation snapshot: reopening a detail starts with the last translated names.
-/// The API client still owns disk caching, request deduplication, and freshness checks.
-@MainActor @Observable
-final class PokemonNameDisplayStore {
-    static let shared = PokemonNameDisplayStore()
-    private(set) var names: [PokemonNameResource: [String: String]] = [:]
-
-    func load(_ resource: PokemonNameResource, provider: any PokemonNameProviding) async -> Bool {
-        do {
-            let translations = try await provider.names(for: resource)
-            guard !Task.isCancelled else { return false }
-            names[resource] = translations
-            return true
-        } catch {
-            return false
-        }
-    }
-}
-
 /// Only mounted rows fetch names, following the LazyVStack's lazy row creation.
 /// Language changes resolve the already-loaded multilingual response without restarting I/O.
 @MainActor

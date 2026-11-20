@@ -1,5 +1,4 @@
 import XCTest
-import AppKit
 @testable import PokeTokenBar
 
 /// Records which species were asked for, so a test can see a frame load start without any network.
@@ -7,12 +6,12 @@ private final class RecordingFetcher: PlazaSpriteFetching, @unchecked Sendable {
     private let lock = NSLock()
     private var ids: [Int] = []
     private func add(_ id: Int) { lock.lock(); ids.append(id); lock.unlock() }
-    func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: NSImage, delay: TimeInterval)] {
+    func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: PlazaImage, delay: TimeInterval)] {
         add(speciesID)
         return []
     }
-    func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> NSImage? { nil }
-    func egg() async -> NSImage? { nil }
+    func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> PlazaImage? { nil }
+    func egg() async -> PlazaImage? { nil }
 }
 
 @MainActor
@@ -97,7 +96,8 @@ final class PlazaDittoControllerTests: XCTestCase {
                               dittoLoopSleep: { d in
                                   if let gate { await gate.sleep(d) } else { try? await Task.sleep(for: .seconds(3600)) }
                               },
-                              dittoSeed: { seed })
+                              dittoSeed: { seed },
+                                     shell: PlazaHeadlessShell(), chatInput: PlazaStubChatInput())
     }
 
     private func settle() async {
@@ -1303,7 +1303,7 @@ final class PlazaDittoControllerTests: XCTestCase {
         let before = t.c.shownDitto
         t.c.showTackle(from: t.m.id, on: key)
         XCTAssertEqual(t.c.shownDitto, before)
-        XCTAssertEqual(t.c.scene?.children.filter { $0.name == "tackle-impact" }.count, 1)
+        XCTAssertEqual(t.c.scene?.impactsShown, 1)
     }
 
     /// Whether a tackle from beside it copies or bounces is the brain's draw: seed 1 copies, seed 7 bounces.
@@ -1447,7 +1447,7 @@ final class PlazaDittoControllerTests: XCTestCase {
         t.c.showTackle(from: t.m.id, on: key)
         XCTAssertEqual(t.c.shownDitto?.decoyOf, t.m.id, "test precondition")
         let since = t.c.shownDitto?.since
-        let impacts = { t.c.scene?.children.filter { $0.name == "tackle-impact" }.count ?? 0 }
+        let impacts = { t.c.scene?.impactsShown ?? 0 }
         let before = impacts()
         XCTAssertEqual(before, 1, "the first tackle hit the Ditto form")
         t.c.showTackle(from: t.m.id, on: key)
@@ -1532,9 +1532,9 @@ final class PlazaDittoControllerTests: XCTestCase {
         let scene = c.scene!
         c.showDecoyJump(from: m.id)
         scene.update(0.01)
-        XCTAssertEqual(scene.dustCount, 0, "m is not the host")
+        XCTAssertEqual(scene.dustShown, 0, "m is not the host")
         c.showDecoyJump(from: a.id)
-        XCTAssertGreaterThan(scene.dustCount, 0, "the host's jump hops the copy")
+        XCTAssertGreaterThan(scene.dustShown, 0, "the host's jump hops the copy")
     }
 
     func testTheHostsCopyJumpsAreSent() async {
@@ -1558,7 +1558,7 @@ final class PlazaDittoControllerTests: XCTestCase {
             c.advanceDitto(now: now)
             guard c.shownDitto?.isDecoy == true else { break }
             c.scene?.update(0)
-            jumped = c.scene?.dustCount ?? 0 > 0
+            jumped = c.scene?.dustShown ?? 0 > 0
         }
         XCTAssertTrue(jumped, "the host's copy hopped")
         await settle()

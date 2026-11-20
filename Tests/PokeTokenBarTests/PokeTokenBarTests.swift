@@ -480,12 +480,12 @@ final class LimitsBackoffTests: XCTestCase {
             HTTPURLResponse(url: URL(string: "https://api.anthropic.com/api/oauth/usage")!,
                             statusCode: 429, httpVersion: nil, headerFields: headers)!
         }
-        XCTAssertEqual(OAuthLimitsProvider.retryAfterSeconds(response(["Retry-After": "120"])), 120)
-        XCTAssertEqual(OAuthLimitsProvider.retryAfterSeconds(response(["Retry-After": " 60 "])), 60)
-        XCTAssertEqual(OAuthLimitsProvider.retryAfterSeconds(response(["Retry-After": "999999"])), 3600)  // 캡
-        XCTAssertNil(OAuthLimitsProvider.retryAfterSeconds(response(["Retry-After": "0"])))
-        XCTAssertNil(OAuthLimitsProvider.retryAfterSeconds(response(["Retry-After": "Wed, 21 Oct 2026 07:28:00 GMT"])))  // date 형식은 미지원 → 기본 백오프
-        XCTAssertNil(OAuthLimitsProvider.retryAfterSeconds(response(nil)))
+        XCTAssertEqual(LimitsHTTP.retryAfterSeconds(response(["Retry-After": "120"])), 120)
+        XCTAssertEqual(LimitsHTTP.retryAfterSeconds(response(["Retry-After": " 60 "])), 60)
+        XCTAssertEqual(LimitsHTTP.retryAfterSeconds(response(["Retry-After": "999999"])), 3600)  // 캡
+        XCTAssertNil(LimitsHTTP.retryAfterSeconds(response(["Retry-After": "0"])))
+        XCTAssertNil(LimitsHTTP.retryAfterSeconds(response(["Retry-After": "Wed, 21 Oct 2026 07:28:00 GMT"])))  // date 형식은 미지원 → 기본 백오프
+        XCTAssertNil(LimitsHTTP.retryAfterSeconds(response(nil)))
     }
 
     @MainActor

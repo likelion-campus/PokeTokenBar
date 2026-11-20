@@ -81,6 +81,6 @@ enum PlazaDaylight {
     /// 광장 시계의 글. 예: "밤 21:34".
     @MainActor static func clockText(_ date: Date, calendar: Calendar = .current, core: PlazaCoreTime = .standard) -> String {
         L(.ko).plazaClock(phase: phase(minute: minute(of: date, calendar: calendar), core: core),
-                          time: PlazaChatLog.timeText(date, calendar: calendar))
+                          time: PlazaClockText.timeText(date, calendar: calendar))
     }
 }

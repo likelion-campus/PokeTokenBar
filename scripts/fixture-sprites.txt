@@ -1,0 +1,30 @@
+# FIXTURE sprites for the companion header's captures and idle probes (stage 7 Task 9): the same public PokeAPI sprite files
+# the app downloads at run time (SpriteStore.spriteURL), saved under the sprite store's cache names (SpriteStore.cacheKey), so
+# a local-only source finds them. Fetched into a temporary folder by scripts/fetch-fixture-sprites.{sh,ps1}; never committed.
+# <cache file> <url>
+egg.png https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/egg.png
+1-a.gif https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-v/black-white/animated/1.gif
+1-s.png https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/1.png
+2-a.gif https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-v/black-white/animated/2.gif
+2-s.png https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/2.png
+2-back-a.gif https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-v/black-white/animated/back/2.gif
+2-back-s.png https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/back/2.png
+3-a.gif https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-v/black-white/animated/3.gif
+3-s.png https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/3.png
+4-sha.gif https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-v/black-white/animated/shiny/4.gif
+4-shs.png https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/shiny/4.png
+5-shs.png https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/shiny/5.png
+6-shs.png https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/shiny/6.png
+133-a.gif https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-v/black-white/animated/133.gif
+133-s.png https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/133.png
+134-s.png https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/134.png
+135-s.png https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/135.png
+136-s.png https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/136.png
+196-s.png https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/196.png
+197-s.png https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/197.png
+470-s.png https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/470.png
+471-s.png https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/471.png
+700-s.png https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/700.png
+422-east-a.gif https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-v/black-white/animated/422-east.gif
+422-east-s.png https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/422-east.png
+423-east-s.png https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/423-east.png

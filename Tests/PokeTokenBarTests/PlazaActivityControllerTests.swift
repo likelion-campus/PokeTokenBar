@@ -1,11 +1,10 @@
 import XCTest
-import AppKit
 @testable import PokeTokenBar
 
 private struct EmptyFetcher: PlazaSpriteFetching {
-    func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: NSImage, delay: TimeInterval)] { [] }
-    func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> NSImage? { nil }
-    func egg() async -> NSImage? { nil }
+    func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: PlazaImage, delay: TimeInterval)] { [] }
+    func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> PlazaImage? { nil }
+    func egg() async -> PlazaImage? { nil }
 }
 
 /// The one-second tick, handed on by the test.
@@ -92,7 +91,8 @@ final class PlazaActivityControllerTests: XCTestCase {
                               subject: { .init(speciesID: 25, isShiny: false) },
                               myRosterEntry: { entry }, evolutionStage: { stage }, session: me.session, clock: { [unowned self] in now },
                               focusTickSleep: { [gate] in await gate.sleep($0) },
-                              dittoLoopSleep: ParkedDitto.loopSleep, dittoSeed: { ParkedDitto.seed })
+                              dittoLoopSleep: ParkedDitto.loopSleep, dittoSeed: { ParkedDitto.seed },
+                                     shell: PlazaHeadlessShell(), chatInput: PlazaStubChatInput())
     }
 
     private func settle() async { for _ in 0..<20 { await Task.yield() } }

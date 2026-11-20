@@ -1,5 +1,4 @@
 import Foundation
-import CoreGraphics
 
 /// 언 연못의 그림. 아티스트 파일 세 장에서 정확히 같은 색의 픽셀만 골라 바꿔 칠할 뿐, 새 모양을 그리지 않는다.
 /// 지도 그림(눈 지도)의 물 픽셀로 연못별 얼음을 만든다. 번들 파일은 바뀌지 않는다.
@@ -18,23 +17,16 @@ struct PlazaIceArt {
         TilePoint(x: 20, y: 24): [GlossPatch(i: 1, j: 1, n: 1, rx: 15, ry: 12)]
     ]
 
-    let gloss: CGImage?
-    let cracks: [CGImage]
-    let shards: [CGImage]
+    let gloss: PlazaImage?
+    let cracks: [PlazaImage]
+    let shards: [PlazaImage]
 
     static let none = PlazaIceArt(gloss: nil, cracks: [], shards: [])
-
-    static func load(bundle: Bundle? = PlazaResources.resourceBundle()) -> PlazaIceArt {
-        PlazaIceArt(
-            gloss: PlazaResources.iceGlossSheet(in: bundle).map(gloss(fromSheet:)),
-            cracks: PlazaResources.iceCrackSheet(in: bundle).map(cracks(fromSheet:)) ?? [],
-            shards: shards(fromFrames: PlazaResources.iceShatterFrames(in: bundle)))
-    }
 
     // MARK: Recolours
 
     /// 시트의 (51,51)…(66,66) 칸. 네 색을 밝기순으로 세워 가장 어두운 색은 지우고 나머지 셋을 `glossColors`로 바꾼다.
-    static func gloss(fromSheet sheet: CGImage) -> CGImage {
+    static func gloss(fromSheet sheet: PlazaImage) -> PlazaImage {
         let (w, data) = (sheet.width, rgba(sheet))
         var cell = [UInt8](repeating: 0, count: 16 * 16 * 4)
         var colors = Set<UInt32>()
@@ -50,7 +42,7 @@ struct PlazaIceArt {
     }
 
     /// (i·18, 18)의 16×16 칸 여섯 장에서 `#4F87BC` 금 픽셀만 `crack` 색으로 남기고, 뒤의 여섯 장은 좌우로 뒤집은 것.
-    static func cracks(fromSheet sheet: CGImage) -> [CGImage] {
+    static func cracks(fromSheet sheet: PlazaImage) -> [PlazaImage] {
         let (w, data) = (sheet.width, rgba(sheet))
         let cells: [[UInt8]] = (0..<6).map { i in
             var cell = [UInt8](repeating: 0, count: 16 * 16 * 4)
@@ -71,7 +63,7 @@ struct PlazaIceArt {
     }
 
     /// 부서지는 바위 gif의 2~4번째 프레임. `shardColors`의 키인 불투명 픽셀만 바꾸고 나머지는 그대로 둔다.
-    static func shards(fromFrames frames: [CGImage]) -> [CGImage] {
+    static func shards(fromFrames frames: [PlazaImage]) -> [PlazaImage] {
         guard frames.count >= 4 else { return [] }
         return frames[1...3].map { frame in
             var data = rgba(frame)
@@ -89,7 +81,7 @@ struct PlazaIceArt {
 
     /// `pond` 위의 얼음. 월드 픽셀(타일당 32)로 경계를 한 칸씩 넓힌 영역을 덮고, 왼쪽 위는 월드 ((minX−1)·32, (minY−1)·32)이다.
     /// 지도 그림 밖의 픽셀은 비워 둔다.
-    static func overlay(mapImage: CGImage, pond: PlazaIce.Pond, gloss: CGImage?) -> CGImage {
+    static func overlay(mapImage: PlazaImage, pond: PlazaIce.Pond, gloss: PlazaImage?) -> PlazaImage {
         let tile = PlazaMap.tileSize
         let ox = (pond.minX - 1) * tile, oy = (pond.minY - 1) * tile
         let width = (pond.maxX - pond.minX + 3) * tile, height = (pond.maxY - pond.minY + 3) * tile
@@ -146,24 +138,11 @@ struct PlazaIceArt {
         data[i] = UInt8(c >> 16 & 0xFF); data[i + 1] = UInt8(c >> 8 & 0xFF); data[i + 2] = UInt8(c & 0xFF); data[i + 3] = 255
     }
 
-    private static func rgba(_ image: CGImage) -> [UInt8] {
-        let (w, h) = (image.width, image.height)
-        var data = [UInt8](repeating: 0, count: w * h * 4)
-        data.withUnsafeMutableBytes { buf in
-            let ctx = CGContext(data: buf.baseAddress, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
-                                space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-            ctx.interpolationQuality = .none
-            ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
-        }
-        return data
-    }
+    private static func rgba(_ image: PlazaImage) -> [UInt8] { image.pixels.bytes }
 
-    private static func image(_ data: [UInt8], _ w: Int, _ h: Int) -> CGImage {
-        CGImage(width: w, height: h, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: w * 4,
-                space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
-                provider: CGDataProvider(data: Data(data) as CFData)!, decode: nil, shouldInterpolate: false,
-                intent: .defaultIntent)!
+    private static func image(_ data: [UInt8], _ w: Int, _ h: Int) -> PlazaImage {
+        var bitmap = PlazaBitmap(width: w, height: h)
+        bitmap.bytes = data
+        return PlazaImage(bitmap: bitmap)
     }
 }

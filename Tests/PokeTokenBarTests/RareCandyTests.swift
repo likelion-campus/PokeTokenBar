@@ -31,7 +31,7 @@ private struct RCLineThrows: PokeProviding {
 
 @MainActor
 final class CandyGrantEvaluationTests: XCTestCase {
-    func testSessionGrantsOne() {
+    func testSessionGrantsOne() async {
         var tier: [String: Int] = [:]
         var epochs: [String: String] = [:]
         let grants = CompanionStore.evaluateCandyGrants(
@@ -40,7 +40,7 @@ final class CandyGrantEvaluationTests: XCTestCase {
         XCTAssertEqual(tier["s"], 1)
     }
 
-    func testWeeklyGrantsFive() {
+    func testWeeklyGrantsFive() async {
         var tier: [String: Int] = [:]
         var epochs: [String: String] = [:]
         let grants = CompanionStore.evaluateCandyGrants(
@@ -48,7 +48,7 @@ final class CandyGrantEvaluationTests: XCTestCase {
         XCTAssertEqual(grants.map(\.count), [RareCandy.weeklyGrant])
     }
 
-    func testBelow100NoGrant() {
+    func testBelow100NoGrant() async {
         var tier: [String: Int] = [:]
         var epochs: [String: String] = [:]
         let grants = CompanionStore.evaluateCandyGrants(
@@ -58,7 +58,7 @@ final class CandyGrantEvaluationTests: XCTestCase {
     }
 
     /// 같은 tier 유지 중엔 재지급 안 함(80·81·84… 억제의 사탕 버전).
-    func testNoDoubleGrantWhileAt100() {
+    func testNoDoubleGrantWhileAt100() async {
         var tier: [String: Int] = [:]
         var epochs: [String: String] = [:]
         _ = CompanionStore.evaluateCandyGrants(
@@ -69,7 +69,7 @@ final class CandyGrantEvaluationTests: XCTestCase {
     }
 
     /// 100% 아래로 내려가면 재무장(맵에서 제거) → 다시 채우면 재지급.
-    func testRearmAfterDropBelow100() {
+    func testRearmAfterDropBelow100() async {
         var tier: [String: Int] = [:]
         var epochs: [String: String] = [:]
         _ = CompanionStore.evaluateCandyGrants(
@@ -84,7 +84,7 @@ final class CandyGrantEvaluationTests: XCTestCase {
 
     /// [#326] 창이 리셋됐는데 앱이 중간 &lt;100% 샘플을 못 보면(슬립·종료) util 은 계속 100%다.
     /// key 는 안정(claude.fiveHour)이라 util-only 재무장은 안 되고, epoch(`resets_at`) 교체로 재무장한다.
-    func testRearmWhenWindowEpochAdvancesWhileStillAt100() {
+    func testRearmWhenWindowEpochAdvancesWhileStillAt100() async {
         var tier: [String: Int] = [:]
         var epochs: [String: String] = [:]
         _ = CompanionStore.evaluateCandyGrants(
@@ -100,7 +100,7 @@ final class CandyGrantEvaluationTests: XCTestCase {
     }
 
     /// Claude API microsecond variations across polls must NOT trigger candy regranting.
-    func testVolatileMicrosecondEpochDoesNotRegrant() {
+    func testVolatileMicrosecondEpochDoesNotRegrant() async {
         var tier: [String: Int] = [:]
         var epochs: [String: String] = [:]
         let initial = CompanionStore.evaluateCandyGrants(
@@ -116,7 +116,7 @@ final class CandyGrantEvaluationTests: XCTestCase {
     }
 
     /// Codex server-side ±1s timestamp jitter must NOT trigger candy regranting.
-    func testCodexJitterEpochDoesNotRegrant() {
+    func testCodexJitterEpochDoesNotRegrant() async {
         var tier: [String: Int] = [:]
         var epochs: [String: String] = [:]
         let initial = CompanionStore.evaluateCandyGrants(
@@ -137,7 +137,7 @@ final class CandyGrantEvaluationTests: XCTestCase {
     }
 
     /// Rolling window minor drift (1-2 minutes) must NOT trigger candy regranting.
-    func testRollingWindowMinorDriftDoesNotRegrant() {
+    func testRollingWindowMinorDriftDoesNotRegrant() async {
         var tier: [String: Int] = [:]
         var epochs: [String: String] = [:]
         _ = CompanionStore.evaluateCandyGrants(
@@ -157,7 +157,7 @@ final class CandyGrantEvaluationTests: XCTestCase {
     }
 
     /// Full session window advancement (e.g. 5h) while still at 100% regrants candy.
-    func testSessionFullResetWhileStillAt100Regrants() {
+    func testSessionFullResetWhileStillAt100Regrants() async {
         var tier: [String: Int] = [:]
         var epochs: [String: String] = [:]
         _ = CompanionStore.evaluateCandyGrants(
@@ -173,7 +173,7 @@ final class CandyGrantEvaluationTests: XCTestCase {
     }
 
     /// Full weekly window advancement (7d) while still at 100% regrants weekly candy grant.
-    func testWeeklyFullResetWhileStillAt100Regrants() {
+    func testWeeklyFullResetWhileStillAt100Regrants() async {
         var tier: [String: Int] = [:]
         var epochs: [String: String] = [:]
         _ = CompanionStore.evaluateCandyGrants(
@@ -189,7 +189,7 @@ final class CandyGrantEvaluationTests: XCTestCase {
     }
 
     /// epoch 를 처음 알게 된 것만으로 재지급하지 않는다(구세이브 → 신규 필드 도입 시 폭탄 방지).
-    func testLearningEpochForFirstTimeDoesNotRegrant() {
+    func testLearningEpochForFirstTimeDoesNotRegrant() async {
         var tier: [String: Int] = ["claude.fiveHour": 1]
         var epochs: [String: String] = [:]
         let grants = CompanionStore.evaluateCandyGrants(
@@ -201,7 +201,7 @@ final class CandyGrantEvaluationTests: XCTestCase {
     }
 
     /// 세션+주간+미달 혼합 — 세션 1 + 주간 5, 미달 창은 무시.
-    func testMixedWindows() {
+    func testMixedWindows() async {
         var tier: [String: Int] = [:]
         var epochs: [String: String] = [:]
         let grants = CompanionStore.evaluateCandyGrants(windows: [
@@ -213,7 +213,7 @@ final class CandyGrantEvaluationTests: XCTestCase {
     }
 
     /// 지급 grant 는 발화 창 이름을 담는다(알림 "왜 받는지").
-    func testGrantCarriesWindowName() {
+    func testGrantCarriesWindowName() async {
         var tier: [String: Int] = [:]
         var epochs: [String: String] = [:]
         let grants = CompanionStore.evaluateCandyGrants(
@@ -223,7 +223,7 @@ final class CandyGrantEvaluationTests: XCTestCase {
     }
 
     /// Codex 창 분류 — ≤24h=세션, 초과=주간, 미상=세션.
-    func testCodexWindowClassification() {
+    func testCodexWindowClassification() async {
         XCTAssertEqual(UsageStore.windowClass(minutes: 300), .session)     // 5h
         XCTAssertEqual(UsageStore.windowClass(minutes: 1440), .session)    // 24h 경계
         XCTAssertEqual(UsageStore.windowClass(minutes: 10_080), .weekly)   // 7d
@@ -265,7 +265,7 @@ final class RareCandyStoreTests: XCTestCase {
     }
 
     /// [#326] 시드 후 util 이 계속 100%여도 창 epoch 가 바뀌면 재지급.
-    func testGrantAfterSeedWhenEpochAdvancesWithoutUtilDip() {
+    func testGrantAfterSeedWhenEpochAdvancesWithoutUtilDip() async {
         let s = store(rcLinear3)
         s.grantCandies(from: [w("claude.fiveHour", .session, 100, epoch: "E1")], limitsReady: true)  // 시드
         XCTAssertEqual(s.rareCandyCount, 0)
@@ -287,7 +287,7 @@ final class RareCandyStoreTests: XCTestCase {
     // MARK: 지급
 
     /// 첫 실행: 이미 100%인 창은 소급 지급 안 하고 tier 시드만(candyFeatureSeeded=true).
-    func testFirstRunSeedsWithoutGranting() {
+    func testFirstRunSeedsWithoutGranting() async {
         let s = store(rcLinear3)
         s.grantCandies(from: [w("claude.fiveHour", .session, 100)], limitsReady: true)
         XCTAssertEqual(s.rareCandyCount, 0, "첫 실행 100% 창은 소급 지급 안 함")
@@ -296,7 +296,7 @@ final class RareCandyStoreTests: XCTestCase {
     }
 
     /// 시드 후 같은 창이 계속 100%여도 재지급 없음.
-    func testNoGrantForAlreadySeededWindow() {
+    func testNoGrantForAlreadySeededWindow() async {
         let s = store(rcLinear3)
         s.grantCandies(from: [w("claude.fiveHour", .session, 100)], limitsReady: true)   // 시드
         s.grantCandies(from: [w("claude.fiveHour", .session, 100)], limitsReady: true)   // 재호출
@@ -304,7 +304,7 @@ final class RareCandyStoreTests: XCTestCase {
     }
 
     /// 한도 미로딩(limitsReady=false)이면 시드조차 하지 않는다(다음 refresh 재시도).
-    func testNoSeedWhenLimitsNotReady() {
+    func testNoSeedWhenLimitsNotReady() async {
         let s = store(rcLinear3)
         s.grantCandies(from: [w("claude.fiveHour", .session, 100)], limitsReady: false)
         XCTAssertFalse(s.state.candyFeatureSeeded)
@@ -312,7 +312,7 @@ final class RareCandyStoreTests: XCTestCase {
     }
 
     /// 시드 후 새 창이 100%를 새로 넘으면 지급 — 세션 1개.
-    func testSessionGrantAfterSeed() {
+    func testSessionGrantAfterSeed() async {
         let s = store(rcLinear3)
         s.grantCandies(from: [], limitsReady: true)   // 시드
         s.grantCandies(from: [w("claude.fiveHour", .session, 100)], limitsReady: true)
@@ -320,7 +320,7 @@ final class RareCandyStoreTests: XCTestCase {
     }
 
     /// 주간 창은 5개.
-    func testWeeklyGrantsFiveCandies() {
+    func testWeeklyGrantsFiveCandies() async {
         let s = store(rcLinear3)
         s.grantCandies(from: [], limitsReady: true)
         s.grantCandies(from: [w("claude.sevenDay", .weekly, 100)], limitsReady: true)
@@ -329,7 +329,7 @@ final class RareCandyStoreTests: XCTestCase {
 
     /// [핵심 회귀] 지급 tier 는 영속 — 재시작(같은 파일 재로드) 후 같은 100% 창이 재지급되지 않는다.
     /// (notifiedTier 인메모리와 달리 candyGrantTier 는 파일에 저장돼야 함.)
-    func testGrantTierPersistsAcrossRestartNoDoubleGrant() {
+    func testGrantTierPersistsAcrossRestartNoDoubleGrant() async {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("rc-persist-\(UUID().uuidString).json")
         let s1 = CompanionStore(provider: StubProvider(value: rcLinear3), clock: { rcNow }, fileURL: url, rng: SeededRNG(seed: 1))
         s1.grantCandies(from: [], limitsReady: true)                                        // 시드
@@ -347,7 +347,7 @@ final class RareCandyStoreTests: XCTestCase {
 
     /// [회귀] 재무장(100%→아래로)으로 grantTier 에서 제거된 것이 영속돼야 재시작 후 지급 누락이 없다.
     /// 지급 없이 재무장만 발생한 경우에도 save() 돼야 한다(과거: grants 비면 save 스킵 → stale tier 잔존).
-    func testRearmPersistsAcrossRestart() {
+    func testRearmPersistsAcrossRestart() async {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("rc-rearm-\(UUID().uuidString).json")
         let s1 = CompanionStore(provider: StubProvider(value: rcLinear3), clock: { rcNow }, fileURL: url, rng: SeededRNG(seed: 1))
         s1.grantCandies(from: [], limitsReady: true)                                      // 시드
@@ -553,7 +553,7 @@ final class RareCandyStoreTests: XCTestCase {
     }
 
     /// 알(부화 전)에는 사용 불가 — 재고가 있어도 소모되지 않는다.
-    func testCannotUseOnEgg() {
+    func testCannotUseOnEgg() async {
         let s = store(rcLinear3)
         giveCandies(s, 2)
         XCTAssertTrue(s.isEgg)
@@ -573,7 +573,7 @@ final class RareCandyStoreTests: XCTestCase {
 
     /// [회귀 가드] 활성 포켓몬이 있어도 라인 미로딩(재시작 직후·오프라인)이면 사용 불가 —
     /// 진화 없이 XP만 적립되는 것 방지. 재고가 있어도 소모되지 않는다.
-    func testCannotUseWhileLineUnloaded() {
+    func testCannotUseWhileLineUnloaded() async {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("rc-unloaded-\(UUID().uuidString).json")
         // 활성 포켓몬 + 사탕 1 + 시드완료 상태를 저장 → RCLineThrows 로 로드하면 currentLine 이 nil.
         let json = #"{"installBaselineSet":true,"lastDate":"d1","active":{"baseID":1,"pathIDs":[1],"stageIndex":0,"usedAtStage":0,"rarity":"common","totalForms":3},"inventory":{"rareCandy":1},"candyFeatureSeeded":true,"dex":[],"collectedFinals":[]}"#

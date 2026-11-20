@@ -167,7 +167,7 @@ final class UpdateCheckerTests: XCTestCase {
     /// "Skip this version" hides the banner, but a later check must still know
     /// the release exists. Settings must not treat that as "already latest".
     @MainActor
-    func testSkippedReleaseStaysVisibleAndANewerOneReturnsToTheBanner() {
+    func testSkippedReleaseStaysVisibleAndANewerOneReturnsToTheBanner() async {
         let suite = "UpdateCheckerTests.skip.\(UUID().uuidString)"
         let box = TestDefaults.make(suite: suite)
         let checker = UpdateChecker(currentVersion: "2.5.3", defaults: box)
@@ -197,7 +197,7 @@ final class UpdateCheckerTests: XCTestCase {
     }
 
     @MainActor
-    func testShowAgainRestoresTheBannerAndUpdateUsesTheSkippedRelease() {
+    func testShowAgainRestoresTheBannerAndUpdateUsesTheSkippedRelease() async {
         let suite = "UpdateCheckerTests.restore.\(UUID().uuidString)"
         let box = TestDefaults.make(suite: suite)
         let checker = UpdateChecker(currentVersion: "2.5.3", defaults: box)
@@ -234,6 +234,9 @@ final class UpdateCheckerTests: XCTestCase {
     }
 
     func testBuildScriptDeclaresLocalNetworkUsage() throws {
+        #if os(Windows)
+        throw XCTSkip("reads the Mac build script; a CRLF checkout would not split into lines the way this does")
+        #endif
         let repoRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let script = try String(contentsOf: repoRoot.appendingPathComponent("scripts/build-app.sh"), encoding: .utf8)
@@ -247,6 +250,9 @@ final class UpdateCheckerTests: XCTestCase {
     }
 
     func testDetachedUpgradeReopensAppEvenWhenLegacyJobCanBeSubmitted() throws {
+        #if os(Windows)
+        throw XCTSkip("runs the Mac upgrade script under /bin/sh")
+        #endif
         let bundlePath = "/fake directory/PokeTokenBar.app"
         let process = Process()
         let output = Pipe()
@@ -266,5 +272,93 @@ final class UpdateCheckerTests: XCTestCase {
         process.waitUntilExit()
 
         XCTAssertEqual(reopenedPath, bundlePath)
+    }
+
+    // MARK: - applyUpdate goes through PlatformShell
+
+    @MainActor
+    private final class RecordingShell: PlatformShellService {
+        var opened: [URL] = []
+        var terminations = 0
+        func open(_ url: URL) { opened.append(url) }
+        func terminate() { terminations += 1 }
+    }
+
+    /// No brew (every Windows machine; a Mac without the team cask): the release page opens through the shell and
+    /// the app is not ended. The brew lookup is injected, so a Mac that does have the cask cannot upgrade itself here.
+    @MainActor
+    func testApplyOpensTheReleasePageWhenBrewIsMissing() async {
+        let shell = RecordingShell()
+        let previous = PlatformShell.current
+        PlatformShell.current = shell
+        defer { PlatformShell.current = previous }
+        let checker = UpdateChecker(currentVersion: "2.5.3", defaults: isolatedDefaults(),
+                                    fetchLatest: { UpdateChecker.LatestRelease(tag: "v2.5.5", url: Self.releaseURL) },
+                                    brewLocator: { nil })
+        await checker.check()
+        checker.applyUpdate()
+        for _ in 0..<150 where shell.opened.isEmpty { try? await Task.sleep(nanoseconds: 20_000_000) }
+        XCTAssertEqual(shell.opened, [URL(string: Self.releaseURL)!])
+        XCTAssertEqual(shell.terminations, 0)
+        XCTAssertFalse(checker.isUpdating, "the page opened; nothing is still updating")
+    }
+
+    // MARK: - The in-app install comes first in the no-brew branch (stage 8)
+
+    @MainActor
+    private final class InstallingShell: PlatformShellService {
+        let installs: Bool
+        var opened: [URL] = []
+        var terminations = 0
+        var asked: [String] = []
+        init(installs: Bool) { self.installs = installs }
+        func open(_ url: URL) { opened.append(url) }
+        func terminate() { terminations += 1 }
+        func installUpdate(version: String) async -> Bool { asked.append(version); return installs }
+    }
+
+    @MainActor
+    private func applyWithoutBrew(_ shell: InstallingShell) async -> UpdateChecker {
+        let checker = UpdateChecker(currentVersion: "2.5.3", defaults: isolatedDefaults(),
+                                    fetchLatest: { UpdateChecker.LatestRelease(tag: "v2.5.5", url: Self.releaseURL) },
+                                    brewLocator: { nil })
+        await checker.check()
+        checker.applyUpdate()
+        for _ in 0..<150 where shell.asked.isEmpty { try? await Task.sleep(nanoseconds: 20_000_000) }
+        // Time for the same task to (wrongly) go on to the page after the shell answered.
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        return checker
+    }
+
+    /// A shell that does not install (the Mac, a refused Windows download): the page opens once, as before.
+    @MainActor
+    func testApplyOpensThePageOnceWhenTheShellDoesNotInstall() async {
+        let shell = InstallingShell(installs: false)
+        let previous = PlatformShell.current
+        PlatformShell.current = shell
+        defer { PlatformShell.current = previous }
+        let checker = await applyWithoutBrew(shell)
+        XCTAssertEqual(shell.asked, ["2.5.5"], "asked first, with the version on offer")
+        XCTAssertEqual(shell.opened, [URL(string: Self.releaseURL)!])
+        XCTAssertEqual(shell.terminations, 0)
+        XCTAssertFalse(checker.isUpdating)
+    }
+
+    /// A shell that installs (Windows): no page, nothing ended here, and the spinner stays while the app leaves; a second
+    /// click does not start a second install.
+    @MainActor
+    func testApplyLeavesTheUpdateToAShellThatInstalls() async {
+        let shell = InstallingShell(installs: true)
+        let previous = PlatformShell.current
+        PlatformShell.current = shell
+        defer { PlatformShell.current = previous }
+        let checker = await applyWithoutBrew(shell)
+        XCTAssertEqual(shell.asked, ["2.5.5"])
+        XCTAssertEqual(shell.opened, [], "the installer is starting: no release page")
+        XCTAssertEqual(shell.terminations, 0, "the shell ends the app itself")
+        XCTAssertTrue(checker.isUpdating, "Updating… stays until the app leaves")
+        checker.applyUpdate()
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(shell.asked, ["2.5.5"], "no second install while one is starting")
     }
 }

@@ -1,4 +1,3 @@
-import CoreGraphics
 import Foundation
 
 /// 춤의 박자와 일곱 가지 춤의 동작표. 값만 다뤄 시간만 주면 어떤 자세인지 나온다.

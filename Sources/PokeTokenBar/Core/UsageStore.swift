@@ -1,7 +1,5 @@
-import AppKit
 import Foundation
 import Observation
-import UserNotifications
 
 /// burn rate 단계 — companion 표시 상태(작업/집중) 판정에 사용.
 enum BurnTier: Sendable {
@@ -299,7 +297,7 @@ final class UsageStore {
     /// 설정 저장소 — 테스트는 suite 를 주입해 실제 사용자 설정을 오염시키지 않는다.
     private let defaults: UserDefaults
     private var timer: Timer?
-    private var networkMonitor: NetworkReachabilityMonitor?
+    private var networkMonitor: (any ReachabilityMonitoring)?
     private var pollingSuspended = false   // 디스플레이 꺼짐 동안 폴링 정지 (배터리)
     /// 정지 중에만 도는 저빈도 점검. screensDidWake 를 놓치면 폴링이 영영 안 돌아와 마지막 스냅샷
     /// (자정에 기록된 빈 스냅샷 등)이 재시작 전까지 굳었다(#350).
@@ -908,7 +906,7 @@ final class UsageStore {
          // 세션 키 우선, 없거나 죽었으면 기존 Keychain/파일 OAuth 경로. 두 인자는 같은
          // SessionKeyLimitsProvider 인스턴스를 봐야 한다 — 설정 화면이 고른 조직을 조회 경로가 써야 하므로.
          claudeLimitsProvider: any ClaudeLimitsProviding = ChainedLimitsProvider(
-            primary: SessionKeyLimitsProvider.shared, fallback: OAuthLimitsProvider()),
+            primary: SessionKeyLimitsProvider.shared, fallback: PlatformLimits.current.claudeOAuth(configRoot: nil)),
          additionalClaudeLimitsProvider: @escaping @Sendable (URL) -> any ClaudeLimitsProviding = {
             ChainedLimitsProvider.forConfigRoot($0)
          },
@@ -922,7 +920,7 @@ final class UsageStore {
             ClaudePromptHistory.installedPrompts(configDir: $0)
          },
          codexLimitsProvider: any CodexLimitsProviding = CodexRateLimitsProvider(),
-         antigravityLimitsProvider: any AntigravityLimitsProviding = AntigravityRateLimitsProvider(),
+         antigravityLimitsProvider: any AntigravityLimitsProviding = PlatformLimits.current.antigravity(),
          cursorLimitsProvider: any CursorLimitsProviding = CursorRateLimitsProvider(),
          openCodeGoLimitsProvider: any OpenCodeGoLimitsProviding = OpenCodeGoRateLimitsProvider(),
          grokLimitsProvider: any GrokLimitsProviding = GrokRateLimitsProvider(),
@@ -933,7 +931,7 @@ final class UsageStore {
          },
          autoRefresh: Bool = true,
          defaults: UserDefaults = .standard,
-         displaysAsleep: @escaping @MainActor () -> Bool = { CGDisplayIsAsleep(CGMainDisplayID()) != 0 }) {
+         displaysAsleep: @escaping @MainActor () -> Bool = { Platform.current.events.displaysAreAsleep }) {
         self.providers = providers
         self.displaysAsleep = displaysAsleep
         self.limitsProvider = claudeLimitsProvider
@@ -993,32 +991,24 @@ final class UsageStore {
         reschedule()
 
         // 자정 경계: 날짜가 바뀌면 "오늘" 버킷 즉시 갱신
-        NotificationCenter.default.addObserver(
-            forName: .NSCalendarDayChanged, object: nil, queue: .main
-        ) { [weak self] _ in
+        Platform.current.events.onDayChange { [weak self] in
             Task { @MainActor in await self?.refresh() }
         }
         // 슬립 복귀 시 즉시 갱신
-        NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
-        ) { [weak self] _ in
+        Platform.current.events.onWake { [weak self] in
             Task { @MainActor in await self?.handleSystemWake() }
         }
         // 디스플레이 꺼짐 → 폴링(로그 파싱 + 한도 조회 + codex 서브프로세스) 일시정지, 켜짐 → 재개 + 즉시 갱신 (배터리)
-        NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.screensDidSleepNotification, object: nil, queue: .main
-        ) { [weak self] _ in
+        Platform.current.events.onScreensSleep { [weak self] in
             Task { @MainActor in self?.suspendPolling() }
         }
-        NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.screensDidWakeNotification, object: nil, queue: .main
-        ) { [weak self] _ in
+        Platform.current.events.onScreensWake { [weak self] in
             Task { @MainActor in self?.resumePolling() }
         }
 
         // 네트워크 재연결 시 즉시 갱신 (오프라인/슬립 복귀/와이파이 전환 후 주기 타이머 대기 없이 한도·부화 갱신)
         if AppEnv.isBundledApp {
-            let net = NetworkReachabilityMonitor()
+            let net = PlatformNetwork.current.makeReachabilityMonitor()
             net.onReconnected = { [weak self] in
                 Task { @MainActor [weak self] in
                     await self?.refresh()
@@ -1037,7 +1027,7 @@ final class UsageStore {
         timer?.invalidate()
         timer = nil
         guard !pollingSuspended, refreshInterval > 0 else { return }
-        let t = Timer(timeInterval: refreshInterval, repeats: true) { [weak self] _ in
+        let t = Timer(fire: Date(timeIntervalSinceNow: refreshInterval), interval: refreshInterval, repeats: true) { [weak self] _ in
             Task { @MainActor in await self?.refresh() }
         }
         t.tolerance = refreshInterval * 0.1
@@ -1055,7 +1045,7 @@ final class UsageStore {
         timer?.invalidate()
         timer = nil
         suspendedProbeTimer?.invalidate()
-        let probe = Timer(timeInterval: Self.suspendedProbeInterval, repeats: true) { [weak self] _ in
+        let probe = Timer(fire: Date(timeIntervalSinceNow: Self.suspendedProbeInterval), interval: Self.suspendedProbeInterval, repeats: true) { [weak self] _ in
             Task { @MainActor in await self?.runSuspendedPollingProbe() }
         }
         probe.tolerance = Self.suspendedProbeInterval * 0.2
@@ -1106,10 +1096,9 @@ final class UsageStore {
         isRefreshing = true
         clearStaleSuspension(reason: "refresh")
         // App Nap 방지 — 백그라운드 스로틀로 로그 파싱·codex 조회가 타임아웃되는 것을 막는다 (시스템 슬립은 허용)
-        let activity = ProcessInfo.processInfo.beginActivity(
-            options: .userInitiatedAllowingIdleSystemSleep, reason: "PokeTokenBar usage refresh")
+        let activity = PlatformCompat.beginActivity(reason: "PokeTokenBar usage refresh")
         defer {
-            ProcessInfo.processInfo.endActivity(activity)
+            PlatformCompat.endActivity(activity)
             isRefreshing = false
             // 진행 중 겹쳐 들어온 요청을 1회 반영. 요청 도착률이 유한하므로 무한 재실행 없음.
             if refreshPending {
@@ -2100,10 +2089,11 @@ final class UsageStore {
     /// 팝오버 첫 오픈 등 사용자 의도 시점에 1회만 알림 권한 요청(멱등).
     func requestNotificationAuthorizationIfNeeded() {
         guard !notifAuthRequested else { return }
-        guard AppEnv.isBundledApp else { return }
+        let notifications = Platform.current.notifications
+        guard notifications.isAvailable else { return }
         notifAuthRequested = true
         Task {
-            try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
+            _ = await notifications.requestAuthorization()
         }
     }
 
@@ -2176,7 +2166,7 @@ final class UsageStore {
             windows: windows, accounts: accounts, warn: warnThreshold, crit: critThreshold, tiers: &notifiedTier)
         guard !alerts.isEmpty else { return }
 
-        if limitNotifications, AppEnv.isBundledApp {
+        if limitNotifications, Platform.current.notifications.isAvailable {
             postLimitNotifications(alerts)
         }
         if floatingPetEnabled, floatingPetBubbleAlerts {
@@ -2255,14 +2245,10 @@ final class UsageStore {
     private func postLimitNotifications(_ alerts: [LimitAlert]) {
         let l = L(localizationLanguage)
         for alert in alerts {
-            let content = UNMutableNotificationContent()
-            content.title = alert.isCritical ? l.notifCritical : l.notifWarning
-            content.body = alert.body(l)
-            content.sound = alert.isCritical ? .default : nil
-            UNUserNotificationCenter.current().add(
-                UNNotificationRequest(
-                    identifier: "\(alert.key)-\(alert.isCritical ? "critical" : "warning")",
-                    content: content, trigger: nil))
+            Platform.current.notifications.post(
+                id: "\(alert.key)-\(alert.isCritical ? "critical" : "warning")",
+                title: alert.isCritical ? l.notifCritical : l.notifWarning,
+                body: alert.body(l), sound: alert.isCritical)
         }
     }
 
@@ -2303,7 +2289,7 @@ final class UsageStore {
             "lastError": lastErrorDescription ?? "",
         ]
         if let data = try? JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]) {
-            try? data.write(to: dir.appendingPathComponent("last-snapshot.json"), options: .atomic)
+            try? PlatformCompat.atomicWrite(data, to: dir.appendingPathComponent("last-snapshot.json"))
         }
     }
 }

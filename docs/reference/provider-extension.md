@@ -67,3 +67,19 @@ read_when:
 - **append-only SQLite 사용량 스토어** (Cursor `cursorDiskKV`, Copilot `assistant_usage_events`,
   앞으로 같은 형태의 세 번째 소스) = `LocalAdditionalUsageReader.scanIncrementalStores`. URL 매핑·
   `MAX` SQL·row query·parse 만 넘긴다. watermark 루프를 프로바이더마다 복사하지 마라 (#157).
+
+## 윈도우에서의 도구 위치와 `.cmd` 셈 (windows-port, Task 4)
+
+- **도구 디렉터리** 는 `PlatformCompat.toolDirectories(posix:)` 한 곳이다(맥은 `commonToolDirectories` 의 옛 목록 그대로). 윈도우 항목과 근거:
+  `%APPDATA%\npm`(npm 전역 prefix, 널리 알려짐), `$PNPM_HOME`(pnpm 문서의 `pnpm setup` 이 쓰는 변수; 기본 위치는 확인하지 못해 추측하지 않음),
+  `%LOCALAPPDATA%\Microsoft\WinGet\Links`(WinGet, 널리 알려짐), `%USERPROFILE%\scoop\shims`(Scoop `lib/core.ps1` 의 `shimdir`), `%USERPROFILE%\.bun\bin`(Bun 설치 문서),
+  `%LOCALAPPDATA%\Volta\bin`(volta-core `layout/windows.rs`: `data_local_dir()/Volta`, `v4.rs`: `bin` = shim 디렉터리), `%LOCALAPPDATA%\mise\shims`(mise `docs/directories.md`: 윈도우 데이터 폴더
+  `%LOCALAPPDATA%\mise` 아래 `shims/`), `%NVM_SYMLINK%`(nvm-windows 가 문서화한 변수), `%USERPROFILE%\.local\bin`. 기준 변수가 설정된 항목만 낸다.
+- **로그 루트**: 홈 아래(`~/.claude`, `~/.codex`, `~/.gemini`, …)는 홈만 맞으면 그대로다. Cursor 는 `PlatformCompat.userApplicationSupport(home:)`
+  (윈도우 `home\AppData\Roaming`) 아래 `Cursor{, Nightly}\User\globalStorage`(VS Code 구조). **Claude Desktop 세션 폴더는 윈도우에서 비어 있다** —
+  `%APPDATA%\Claude` 아래 폴더 이름을 확인할 근거가 없어 추측하지 않는다(`claudeDesktopSessionStores`).
+- **윈도우 위치를 확인하지 못한 소스:** Claude Desktop 세션, Antigravity·Grok·Copilot CLI·OpenCode(홈 상대 경로를 그대로 두었을 뿐 윈도우 위치는 검증 안 함), Kiro CLI, Kimi 데스크톱, Hermes, Devin, Aside, pi, omp.
+  Kiro·Kimi 데스크톱의 기본값은 `Library/Application Support/...` 라 윈도우에 존재할 수 없다(데이터 없음으로 읽힌다). 알려지면 확인된 근거와 함께 루트 목록 항목으로 추가한다.
+- **배치 shim 규칙 (F19):** npm CLI 는 `.cmd` shim 이고 cmd.exe 는 `& | < > ^ % !` 와 개행을 해석한다. `.cmd`/`.bat` 로 풀린 도구에는 코드가 정한 고정 인자만,
+  그 문자 없이 넘긴다(`PlatformCompat.isBatchSafe`). 경로·사용자 입력 같은 자유 문자열은 shim 에 넘기지 않는다 — 필요하면 shim 의 대상 `.exe` 를 풀거나
+  같은 PR 에서 `cmd.exe /d /s /c` 용 이스케이프를 넣는다. `ToolLaunchArgumentTests` 가 오늘의 인자 목록과 새 `Process` 실행 지점을 고정한다.

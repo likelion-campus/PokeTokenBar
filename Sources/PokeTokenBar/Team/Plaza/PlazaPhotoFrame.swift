@@ -1,4 +1,4 @@
-import CoreGraphics
+import Foundation
 
 /// 사진 모드의 촬영 틀 기하. 틀은 창에서 가장자리 여백(포인트)을 뺀 영역이고, 지도 밖으로 나가지 않는다.
 /// 월드 픽셀(y 아래로)로 돌려준다. frame은 사진에 담기는 영역, visible은 여백까지 포함한 카메라 영역이다.

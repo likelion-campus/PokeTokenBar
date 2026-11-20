@@ -6,7 +6,7 @@ import XCTest
 @MainActor
 final class AntigravityGroupLocalizationTests: XCTestCase {
 
-    func testGroupTitleMapsKnownAPINamesInEveryLanguage() {
+    func testGroupTitleMapsKnownAPINamesInEveryLanguage() async {
         for lang in AppLanguage.allCases {
             let l = L(lang)
             XCTAssertEqual(l.antigravityGroupTitle("Gemini Models"), l.antigravityGeminiGroup, "\(lang)")

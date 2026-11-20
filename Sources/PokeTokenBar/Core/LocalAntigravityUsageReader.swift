@@ -1,5 +1,9 @@
 import Foundation
+#if canImport(SQLite3)
 import SQLite3
+#else
+import CSQLite
+#endif
 
 /// Antigravity usage, read from the conversation stores written under
 /// `~/.gemini/antigravity/conversations/<conversation>.db`,

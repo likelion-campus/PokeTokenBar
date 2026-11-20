@@ -1,0 +1,52 @@
+name: windows-slice
+description: Start of every windows-app slice job - unpack the build by artifact id, check its installer hash, make the selftest fixture and the fixture sprites, set PTB_VERSION / PTB_NEXT_VERSION / PTB_BUILD_SHA256.
+inputs:
+  build-artifact-id:
+    description: Id of this run's ptb-build artifact (the build job's output; a name can exist twice after a re-run, an id cannot)
+    required: true
+  installer-sha256:
+    description: SHA-256 of the installer the build job made
+    required: true
+runs:
+  using: composite
+  steps:
+    - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4
+      with:
+        artifact-ids: ${{ inputs.build-artifact-id }}
+        merge-multiple: true   # without it the artifact unpacks into path/<name>
+        path: .
+    - name: The unpacked build is the one the build job hashed
+      shell: pwsh
+      env:
+        EXPECTED: ${{ inputs.installer-sha256 }}
+      run: |
+        $f = @(Get-ChildItem installer-out -Filter 'PokeTokenBar-Setup-*-win-x64.exe')
+        if ($f.Count -ne 1) { throw "installer-out holds $($f.Count) installers" }
+        $h = (Get-FileHash $f[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+        if (-not $env:EXPECTED -or $h -ne $env:EXPECTED) { throw "the unpacked installer is $h, the build job made $env:EXPECTED" }
+        "PTB_BUILD_SHA256=$h" >> $env:GITHUB_ENV
+        "PASS build.identity: $($f[0].Name) sha256 $h"
+        # TEST ONLY, runner profile only: the app never writes these (the balloon screenshot needs toasts switched on).
+        $pn = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\PushNotifications'
+        if (-not (Test-Path $pn)) { New-Item $pn | Out-Null }
+        Set-ItemProperty $pn ToastEnabled 1 -Type DWord
+    - name: Selftest fixture
+      shell: pwsh
+      run: |
+        # Claude Code logs dated "today", so the store's refresh has a known total; a fresh state folder.
+        $fx = Join-Path $env:RUNNER_TEMP 'ptb-selftest'
+        $proj = Join-Path $fx 'claude\projects\p'
+        New-Item -ItemType Directory -Force -Path $proj, (Join-Path $fx 'state'), (Join-Path $fx 'state-dispatch') | Out-Null
+        $ts = (Get-Date).ToUniversalTime().AddSeconds(-30).ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
+        (Get-Content 'windows\selftest\claude\projects\p\s.jsonl' -Raw).Replace('__TIMESTAMP__', $ts) |
+          Set-Content -NoNewline -Encoding utf8NoBOM -Path (Join-Path $proj 's.jsonl')
+        "PTB_FIXTURE=$fx" >> $env:GITHUB_ENV
+        # The versions the build job stamped (the next one only exists at level full).
+        "PTB_VERSION=$((Get-Content bundle\PokeTokenBar.version -Raw).Trim())" >> $env:GITHUB_ENV
+        if (Test-Path bundle-next\PokeTokenBar.version) { "PTB_NEXT_VERSION=$((Get-Content bundle-next\PokeTokenBar.version -Raw).Trim())" >> $env:GITHUB_ENV }
+    - name: Companion fixture sprites (public PokeAPI files; the selftest and the idle probes read them, the app asks no network)
+      shell: pwsh
+      run: |
+        $dir = Join-Path $env:RUNNER_TEMP 'ptb-sprites'
+        ./scripts/windows/fetch-fixture-sprites.ps1 -Out $dir
+        "PTB_SELFTEST_SPRITES=$dir" >> $env:GITHUB_ENV

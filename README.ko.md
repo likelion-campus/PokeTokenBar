@@ -297,6 +297,10 @@ Homebrew를 쓰지 않는다면 [최신 릴리스](https://github.com/chattymin/
 
 (Homebrew Cask는 격리 속성을 자동 제거하므로 이 과정이 필요 없습니다.)
 
+### Windows (팀 포크)
+
+팀 포크는 Windows 빌드도 함께 냅니다. [포크 릴리스 페이지](https://github.com/likelion-campus/PokeTokenBar/releases)의 `PokeTokenBar-Setup-<버전>-win-x64.exe` 입니다(Windows 11, 또는 Windows 10 22H2 빌드 19045 이상, x64, 관리자 권한 불필요). 설치 파일에 코드 서명이 없어 SmartScreen이 한 번 경고합니다. **추가 정보** → **실행** 을 누르세요. 팝오버, 사용량 리캡, 상점, 가방, 컬렉션, 팀 광장, 플로팅 펫이 있습니다. 펫은 창 위에 떠 있어요. 끌어서 옮기고, 알을 클릭하면 기도, 부화한 포켓몬을 클릭하면 팝오버가 열리며, 우클릭하면 메뉴가 나옵니다. 트레이 메뉴, 팝오버 아래쪽 눈 단추, 설정에서 켭니다. Mac처럼 올려 두면 오늘 사용량, 쓰다듬으면 하트, 기도하면 🙏, 한도 알림은 말풍선으로 보여 줍니다. 에이전트 활동에도 반응합니다(Windows용 훅은 [TEAM.md](TEAM.md#에이전트-활동-windows)). 업데이트는 트레이 메뉴나 팝오버에서 설치합니다. 설치·업데이트·제거, 팀 설정, 문제 해결, Mac과 다른 점은 [TEAM.md](TEAM.md) 와 [docs/reference/windows-differences.md](docs/reference/windows-differences.md) (영어)에 있습니다.
+
 ### 소스 빌드
 
 ```bash

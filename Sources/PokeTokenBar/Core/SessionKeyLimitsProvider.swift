@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// claude.ai 세션 쿠키(`sessionKey`)로 공식 한도를 조회하는 경로.
 ///
@@ -46,12 +49,12 @@ struct URLSessionSessionKeyClient: SessionKeyHTTPClient {
         request.setValue("https://claude.ai", forHTTPHeaderField: "Referer")
         request.setValue("https://claude.ai", forHTTPHeaderField: "Origin")
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await PlatformCompat.oneShotData(for: request)
         let http = response as? HTTPURLResponse
         return SessionKeyHTTPResponse(
             status: http?.statusCode ?? -1,
             data: data,
-            retryAfter: http.flatMap(OAuthLimitsProvider.retryAfterSeconds))
+            retryAfter: http.flatMap(LimitsHTTP.retryAfterSeconds))
     }
 }
 
@@ -90,7 +93,7 @@ struct SessionKeyStore: Sendable {
     }
 
     func load() -> SessionKeyCredential? {
-        guard let data = try? Data(contentsOf: fileURL),
+        guard let data = PlatformCompat.readSecret(at: fileURL),
               let credential = try? JSONDecoder().decode(SessionKeyCredential.self, from: data),
               !credential.key.isEmpty
         else { return nil }
@@ -106,7 +109,7 @@ struct SessionKeyStore: Sendable {
         FileManager.default.createFile(
             atPath: fileURL.path, contents: nil,
             attributes: [.posixPermissions: NSNumber(value: Int16(0o600))])
-        try data.write(to: fileURL, options: .atomic)
+        try PlatformCompat.writeSecret(data, to: fileURL)
         // 실측으로 .atomic 교체는 기존 파일의 권한을 물려받았지만(APFS), 문서화된 보장이 아니라
         // 자격증명 파일을 걸 만한 근거가 못 된다 → 쓴 뒤 한 번 더 못박는다.
         try? FileManager.default.setAttributes(
@@ -309,7 +312,7 @@ struct ChainedLimitsProvider: ClaudeLimitsProviding {
         ChainedLimitsProvider(
             primary: SessionKeyLimitsProvider(
                 store: .forConfigRoot(root, directory: sessionKeyDirectory), http: http),
-            fallback: fallback ?? OAuthLimitsProvider(accessTokenCache: .forConfigRoot(root)))
+            fallback: fallback ?? PlatformLimits.current.claudeOAuth(configRoot: root))
     }
 
     func fetch(allowKeychainPrompt: Bool) async throws -> LimitStatus {

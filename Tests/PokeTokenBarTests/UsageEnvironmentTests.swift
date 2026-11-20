@@ -126,6 +126,9 @@ final class UsageEnvironmentTests: XCTestCase {
     /// - `OAuthLimitsProvider`: 의도적으로 프로세스 환경만 본다(자동 폴링 경로에서 셸 spawn 금지 —
     ///   해당 함수 주석 참조). 값이 필요한 사용량 스캔 쪽이 이미 셸 조회를 한다.
     /// - `AppEnv`: the `PTB_PARITY` live-check flag — the same QA class as `PTB_STATE_DIR` above.
+    /// - `ClaudeOAuthLimitsProvider`: the file moved out of `OAuthLimitsProvider` keeps its process-environment-only read.
+    /// - `WindowsSelftest`: the Windows selftest's own flags (`CI`, `PTB_SELFTEST_*`, `PTB_STATE_DIR`) — QA, not usage locations.
+    /// - `WinPlazaAssets`: `PTB_PLAZA_RESOURCES`, where tests and CI find the checkout's plaza art on Windows (QA; a packaged app ignores it).
     func testNoProviderReadsUsageLocationEnvDirectly() throws {
         let allowed: Set<String> = [
             "UsageEnvironment.swift",
@@ -134,6 +137,14 @@ final class UsageEnvironmentTests: XCTestCase {
             "AppStatePaths.swift",
             "OAuthLimitsProvider.swift",
             "AppEnv.swift",
+            "WindowsSelftest.swift",
+            "ClaudeOAuthLimitsProvider.swift",   // moved verbatim from OAuthLimitsProvider.swift (same entry above)
+            "WinDefaultsSync.swift",             // PTB_STATE_DIR: the selftest's own settings suite (QA, like CompanionStore)
+            "WinPlazaAssets.swift",              // PTB_PLAZA_RESOURCES: tests and CI point at the checkout's plaza art (QA)
+            "WindowsSelftestFlakes.swift",       // PTB_SELFTEST_FLAKE_LOOP: the selftest's repeat loops (QA, like WindowsSelftest.swift)
+            "WindowsSelftestPopoverCompanion.swift",  // PTB_SELFTEST_SPRITES: the companion header's fixture sprites (QA, stage 7 Task 9)
+            "WinDarkMode.swift",                 // PTB_SELFTEST_APPEARANCE: a batch run captures every page in dark (QA, stage 7 Task 16)
+            "WakeTrace.swift",                   // PTB_WAKE_TRACE: the idle gate counts what wakes the main thread (CI, stage 7 idle gates)
         ]
         let sources = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()    // PokeTokenBarTests

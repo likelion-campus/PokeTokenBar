@@ -1,0 +1,133 @@
+#if os(Windows)
+import Foundation
+import WinSDK
+
+/// Keeps the main run loop served while a Win32 modal loop owns the main thread (`TrackPopupMenu`, `MessageBoxW`,
+/// the window move/size loop of any window of ours). Those loops run their own message loop and dispatch only
+/// window messages, so without this the main dispatch queue, `RunLoop` timers and `@MainActor` tasks stand still
+/// for as long as they last: no store refresh, no team heartbeats (a teammate drops a member after 30 s). The Mac
+/// keeps serving its main queue while a menu is open.
+///
+/// While at least one modal loop is active there is one `WM_TIMER` (every `interval` ms) on the sink window; the
+/// modal loop dispatches it, and the handler runs the main run loop for zero time. The timer exists only between
+/// the first `begin` and the last `end`: nothing wakes the process when no modal loop is active.
+///
+/// Any code that starts a modal loop calls `begin(_:)` before and `end(_:)` after it (`defer`), on the main thread.
+@MainActor enum WinModalPump {
+    /// The tick period in milliseconds.
+    static let interval: UINT = 50
+    private static let timerID: UINT_PTR = 0x5054_4201
+    /// WM_ENTERMENULOOP / WM_EXITMENULOOP / WM_ENTERSIZEMOVE / WM_EXITSIZEMOVE.
+    static let enterMenuLoop: UINT = 0x0211, exitMenuLoop: UINT = 0x0212
+    static let enterSizeMove: UINT = 0x0231, exitSizeMove: UINT = 0x0232
+
+    private static var window: WinSinkWindow?
+    private static var inTick = false
+
+    /// Nesting of active modal loops (a menu inside a size/move loop is two).
+    private(set) static var depth = 0
+    private(set) static var timerLive = false
+    // What the selftest reads.
+    private(set) static var timersSet = 0
+    private(set) static var timersKilled = 0
+    private(set) static var killFailures = 0
+    private(set) static var ticks = 0
+    private(set) static var reentrantTicksSkipped = 0
+    /// Notifications that reached the sink, by message (the selftest reports which a tray menu delivers).
+    private(set) static var delivered: [UINT: Int] = [:]
+    private(set) static var beginsWithoutWindow = 0
+    /// How a tick keeps CoreFoundation away from the menu's input (the selftest prints it).
+    static let maskStrategy = "decoy WM_NULL first in the queue, tick skipped when anything else is ahead of it"
+    /// libdispatch's own drain of the main queue (what CoreFoundation calls; `DispatchHandleLoop` uses it too). It
+    /// runs queued blocks and main-actor tasks without touching the window message queue.
+    private typealias DrainFn = @convention(c) (UnsafeMutableRawPointer?) -> Void
+    private static var drainMainQueue: DrainFn?
+    /// Ticks skipped because a message other than the decoy was first in the thread's queue.
+    private(set) static var ticksSkippedForInput = 0
+
+    /// Verified on the runner: a tray menu opened with `TPM_NONOTIFY` delivers neither WM_ENTERMENULOOP nor
+    /// WM_EXITMENULOOP to the owner, so `WinPopupMenu.run` calls `begin`/`end` itself. The size/move pair is the
+    /// generic hook for windows of ours.
+    /// Registers the timer and the size/move notifications on the window that owns the modal loops (the sink).
+    static func install(on sink: WinSinkWindow) {
+        window = sink
+        drainMainQueue = WinDynamic.symbol("dispatch.dll", "_dispatch_main_queue_callback_4CF", as: DrainFn.self)
+        if drainMainQueue == nil { AppLog.write("modal pump: dispatch.dll does not export the main queue drain; blocks wait for the run loop pass") }
+        sink.on(UINT(WM_TIMER)) { wParam, _ in
+            guard wParam == WPARAM(timerID) else { return nil }
+            tick()
+            return 0
+        }
+        sink.on(enterMenuLoop) { _, _ in delivered[enterMenuLoop, default: 0] += 1; return nil }
+        sink.on(exitMenuLoop) { _, _ in delivered[exitMenuLoop, default: 0] += 1; return nil }
+        sink.on(enterSizeMove) { _, _ in delivered[enterSizeMove, default: 0] += 1; begin("sizemove"); return nil }
+        sink.on(exitSizeMove) { _, _ in delivered[exitSizeMove, default: 0] += 1; end("sizemove"); return nil }
+    }
+
+    /// Stage 7 Task 15: modal loops of the common file dialog and the task dialog (`begin("dialog")`) are open.
+    private(set) static var dialogDepth = 0
+
+    static func begin(_ reason: String) {
+        if reason == "dialog" { dialogDepth += 1 }
+        depth += 1
+        guard depth == 1 else { return }
+        guard let hwnd = window?.hwnd else { beginsWithoutWindow += 1; return }
+        guard SetTimer(hwnd, timerID, interval, nil) != 0 else {
+            AppLog.write("modal pump: SetTimer failed (\(reason)): \(GetLastError())")
+            return
+        }
+        timerLive = true
+        timersSet += 1
+    }
+
+    static func end(_ reason: String) {
+        if reason == "dialog", dialogDepth > 0 { dialogDepth -= 1 }
+        guard depth > 0 else { return }
+        depth -= 1
+        guard depth == 0, timerLive, let hwnd = window?.hwnd else { return }
+        timerLive = false
+        if KillTimer(hwnd, timerID) { timersKilled += 1 } else {
+            killFailures += 1
+            AppLog.write("modal pump: KillTimer failed (\(reason)): \(GetLastError())")
+        }
+    }
+
+    /// Asks every open modal menu to close (the exit path calls it before leaving the process).
+    static func cancelModalLoops() {
+        if depth > 0 {
+            _ = EndMenu()
+            WinDialogs.closeAll()   // stage 7 Task 15: an open file dialog or task dialog of the popover ends as a cancel
+        }
+    }
+
+    /// Selftest probe: whether the pump's timer still exists (it is killed by this call when it does).
+    static func probeTimerExists() -> Bool {
+        guard let hwnd = window?.hwnd else { return false }
+        return KillTimer(hwnd, timerID)
+    }
+
+    /// One zero-time pass of the main run loop. Not re-entrant: a nested modal loop started by the work it runs
+    /// (or a `WM_TIMER` the nested pass dispatches) must not recurse into `RunLoop.run`.
+    private static func tick() {
+        guard !inTick else { reentrantTicksSkipped += 1; return }
+        inTick = true
+        defer { inTick = false }
+        ticks += 1
+        // CoreFoundation's run loop answers "input is available" by removing ONE message from the thread queue
+        // (`PeekMessage(PM_REMOVE)`) and dispatching it to its window, which can be a key the menu's modal loop was
+        // about to read (swift-corelibs-foundation on Windows: no API turns this off, the queue-mask SPI is not
+        // exported from Foundation.dll). Posted messages leave the queue in posting order and before hardware
+        // input, so a decoy WM_NULL posted now is the one CoreFoundation removes, unless something is already
+        // ahead of it: then this tick is skipped (the next one is 50 ms away) instead of risking that message.
+        drainMainQueue?(nil)  // blocks and main-actor tasks: no message queue involved
+        guard let hwnd = window?.hwnd else { return }
+        _ = PostMessageW(hwnd, UINT(WM_NULL), 0, 0)
+        var head = MSG()
+        guard PeekMessageW(&head, nil, 0, 0, UINT(PM_NOREMOVE)), head.message == UINT(WM_NULL) else {
+            ticksSkippedForInput += 1
+            return
+        }
+        _ = RunLoop.main.run(mode: .default, before: Date())
+    }
+}
+#endif

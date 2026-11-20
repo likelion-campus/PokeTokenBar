@@ -1,0 +1,31 @@
+name: swift-crypto-rules
+# resolved-swift-crypto.ps1 against fixture Package.resolved files (drift: warning / failure; missing, broken or incomplete file: failure),
+# and the release-manifest check of the pin (Python tests). No Windows needed.
+on:
+  push:
+    paths:
+      - 'scripts/windows/resolved-swift-crypto*'
+      - 'scripts/windows/build-pins.json'
+      - 'scripts/team_release.py'
+      - 'scripts/tests/**'
+      - '.github/workflows/swift-crypto-rules.yml'
+  pull_request:
+    paths:
+      - 'scripts/windows/resolved-swift-crypto*'
+      - 'scripts/windows/build-pins.json'
+      - 'scripts/team_release.py'
+      - 'scripts/tests/**'
+      - '.github/workflows/swift-crypto-rules.yml'
+permissions:
+  contents: read
+jobs:
+  rules:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
+      - name: Script against fixtures
+        shell: pwsh
+        run: ./scripts/windows/resolved-swift-crypto.tests.ps1
+      - name: Release manifest check of the pin
+        run: python3 -m unittest discover -s scripts/tests

@@ -150,7 +150,7 @@ enum SaveSnapshotManager {
             targetURL = dir.appendingPathComponent("\(base)-\(counter).json")
         }
         let data = try SaveTransfer.encode(state: state, appVersion: appVersion, deviceName: deviceName, now: date)
-        try data.write(to: targetURL, options: .atomic)
+        try PlatformCompat.atomicWrite(data, to: targetURL)
         pruneOldSnapshots(for: stateFileURL)
         return SaveSnapshot(
             id: targetURL.lastPathComponent,

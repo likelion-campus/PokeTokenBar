@@ -7,6 +7,7 @@ import XCTest
 @MainActor
 final class DexPageButtonHitAreaTests: XCTestCase {
     func testClickOutsideGlyphButInsideHitAreaPages() throws {
+        try NSWindow.requireLiveWindowTests()
         let side = DexPageButton.hitSize
         // Corner-adjacent point: well outside the chevron glyph, inside the 28pt target.
         let taps = try clickCount(at: CGPoint(x: 3, y: 3), side: side)
@@ -27,7 +28,7 @@ final class DexPageButtonHitAreaTests: XCTestCase {
                               styleMask: .borderless, backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = host
-        window.orderFront(nil)
+        window.orderInForTest()
         defer { window.close() }
         host.layoutSubtreeIfNeeded()
         RunLoop.main.run(until: Date().addingTimeInterval(0.1))

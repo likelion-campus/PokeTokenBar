@@ -1,8 +1,7 @@
-import AppKit
-import CoreGraphics
+import Foundation
 
 struct PlazaFrame: @unchecked Sendable {
-    let image: CGImage
+    let image: PlazaImage
     let delay: TimeInterval
 }
 
@@ -18,50 +17,38 @@ struct PlazaCharacterFrames: Sendable {
     var isEgg = false
 }
 
-/// `SpriteLoader`와 호출부가 모두 메인 액터라 `NSImage`가 격리 경계를 넘지 않는다.
+/// 스프라이트를 가져오는 쪽(Mac은 `SpriteLoader`/`SpriteStore`, `MacSpriteFetcher.swift`)이 메인 액터라 이미지가 격리 경계를 넘지 않는다.
 @MainActor
 protocol PlazaSpriteFetching: Sendable {
-    func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: NSImage, delay: TimeInterval)]
-    func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> NSImage?
-    func egg() async -> NSImage?
+    func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: PlazaImage, delay: TimeInterval)]
+    func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> PlazaImage?
+    func egg() async -> PlazaImage?
 }
 
-/// `SpriteLoader`에 위임하는 얇은 어댑터. 네트워크를 타므로 단위 테스트하지 않는다.
-///
-/// 뒷모습만은 `SpriteStore`에서 직접 받는다. `SpriteLoader`는 뒷모습이 없으면 앞모습을 대신 돌려주는데,
-/// 광장은 뒷모습이 오지 않았다는 사실(`PlazaCharacterFrames.backIsFront`)을 알아야 다시 시도한다.
-struct LivePlazaSpriteFetcher: PlazaSpriteFetching {
-    func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: NSImage, delay: TimeInterval)] {
-        guard back else {
-            return await SpriteLoader.animationFrames(speciesID: speciesID, shiny: shiny, form: form)
-        }
-        for variant in shiny ? [true, false] : [false] {
-            guard let data = await SpriteStore.shared.data(speciesID: speciesID, animated: true, shiny: variant,
-                                                           form: form, back: true) else { continue }
-            let frames = GIFDecoder.frames(from: data)
-            if !frames.isEmpty { return frames }
-        }
-        return []
+/// Nothing to fetch with (Windows until stage 6, and the Mac checking the shared set): every character gets the grey
+/// placeholder. Logs one line on first use.
+struct PlazaStubSpriteFetcher: PlazaSpriteFetching {
+    private final class Once: @unchecked Sendable {
+        private let lock = NSLock()
+        private var done = false
+        func first() -> Bool { lock.lock(); defer { lock.unlock() }; let was = done; done = true; return !was }
     }
-    func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> NSImage? {
-        guard back else {
-            return await SpriteLoader.image(speciesID: speciesID, animated: false, shiny: shiny, form: form)
-        }
-        for variant in shiny ? [true, false] : [false] {
-            guard let data = await SpriteStore.shared.data(speciesID: speciesID, animated: false, shiny: variant,
-                                                           form: form, back: true) else { continue }
-            if let image = NSImage(data: data) { return image }
-        }
-        return nil
+    private let once = Once()
+    let log: @Sendable (String) -> Void
+
+    private func fire() { if once.first() { log("Plaza stub: sprite fetching unavailable") } }
+    func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: PlazaImage, delay: TimeInterval)] {
+        fire(); return []
     }
-    func egg() async -> NSImage? { await SpriteLoader.eggImage() }
+    func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> PlazaImage? { fire(); return nil }
+    func egg() async -> PlazaImage? { fire(); return nil }
 }
 
 @MainActor
 final class PlazaCharacterLoader {
     private let fetcher: PlazaSpriteFetching
 
-    init(fetcher: PlazaSpriteFetching = LivePlazaSpriteFetcher()) {
+    init(fetcher: PlazaSpriteFetching = PlatformPlaza.spriteFetcher()) {
         self.fetcher = fetcher
     }
 
@@ -84,53 +71,41 @@ final class PlazaCharacterLoader {
         for shiny in subject.isShiny ? [true, false] : [false] {
             if PokemonAssets.hasAnimatedSprite(speciesID: id) {
                 let anim = await fetcher.animated(speciesID: id, shiny: shiny, form: subject.form, back: back)
-                let cgs = anim.compactMap { f in Self.cgImage(f.image).map { ($0, f.delay) } }
-                if !cgs.isEmpty {
-                    let trimmed = PlazaSpriteCrop.trimmed(cgs.map { $0.0 })
-                    return zip(trimmed, cgs).map { PlazaFrame(image: $0, delay: $1.1) }
+                if !anim.isEmpty {
+                    let trimmed = PlazaSpriteCrop.trimmed(anim.map { $0.image })
+                    return zip(trimmed, anim).map { PlazaFrame(image: $0, delay: $1.delay) }
                 }
             }
-            if let img = await fetcher.still(speciesID: id, shiny: shiny, form: subject.form, back: back),
-               let cg = Self.cgImage(img) {
-                return PlazaSpriteCrop.trimmed([cg]).map { PlazaFrame(image: $0, delay: 0.1) }
+            if let img = await fetcher.still(speciesID: id, shiny: shiny, form: subject.form, back: back) {
+                return PlazaSpriteCrop.trimmed([img]).map { PlazaFrame(image: $0, delay: 0.1) }
             }
         }
         return []
     }
 
     private func eggFrames() async -> [PlazaFrame] {
-        guard let img = await fetcher.egg(), let cg = Self.cgImage(img) else { return [] }
-        return PlazaSpriteCrop.trimmed([cg]).map { PlazaFrame(image: $0, delay: 0.1) }
+        guard let img = await fetcher.egg() else { return [] }
+        return PlazaSpriteCrop.trimmed([img]).map { PlazaFrame(image: $0, delay: 0.1) }
     }
 
-    private static func cgImage(_ image: NSImage) -> CGImage? {
-        image.cgImage(forProposedRect: nil, context: nil, hints: nil)
-    }
-
-    /// 그림을 못 받았을 때 코드로 그리는 회색 동그라미.
-    private static func placeholder() -> CGImage {
+    /// 그림을 못 받았을 때 코드로 그리는 회색 동그라미. 장치 RGB 캔버스에 장치 회색(0.55)으로 칠한다.
+    /// Windows 스텁 캔버스에서는 투명한 16x16이다(그리는 쪽은 stage 6).
+    private static func placeholder() -> PlazaImage {
         let size = 16
-        let ctx = CGContext(data: nil, width: size, height: size, bitsPerComponent: 8, bytesPerRow: 0,
-                            space: CGColorSpaceCreateDeviceRGB(),
-                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-        ctx.setFillColor(CGColor(gray: 0.55, alpha: 1))
-        ctx.fillEllipse(in: CGRect(x: 1, y: 1, width: size - 2, height: size - 2))
-        return ctx.makeImage()!
+        let canvas = PlatformPlaza.graphics.makeCanvas(width: size, height: size, colorSpace: .deviceRGB)!
+        canvas.setFillGray(0.55)
+        canvas.fillEllipse(in: CGRect(x: 1, y: 1, width: size - 2, height: size - 2))
+        return canvas.makeImage()!
     }
 }
 
 enum PlazaSpriteCrop {
     /// 모든 프레임의 불투명 픽셀을 합친 경계로 똑같이 잘라 발 위치가 프레임마다 흔들리지 않게 한다.
-    static func trimmed(_ frames: [CGImage]) -> [CGImage] {
+    static func trimmed(_ frames: [PlazaImage]) -> [PlazaImage] {
         var minX = Int.max, minY = Int.max, maxX = -1, maxY = -1
         for img in frames {
             let w = img.width, h = img.height
-            guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
-                                      space: CGColorSpaceCreateDeviceRGB(),
-                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
-                  let data = ctx.data else { continue }
-            ctx.draw(img, in: CGRect(x: 0, y: 0, width: w, height: h))
-            let px = data.bindMemory(to: UInt8.self, capacity: w * h * 4)
+            let px = img.pixels.bytes
             // 버퍼의 0번 행이 이미지의 맨 위다.
             for y in 0..<h {
                 for x in 0..<w where px[(y * w + x) * 4 + 3] > 0 {
@@ -140,7 +115,7 @@ enum PlazaSpriteCrop {
             }
         }
         guard maxX >= 0 else { return frames }
-        let rect = CGRect(x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1)
+        let rect = PlazaPixelRect(x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1)
         return frames.map { $0.cropping(to: rect) ?? $0 }
     }
 }

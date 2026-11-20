@@ -1,4 +1,8 @@
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 import Foundation
 
 /// Extra Claude Code config folders (`CLAUDE_CONFIG_DIR` logins) whose official limits are shown
@@ -25,9 +29,9 @@ enum ClaudeAccountRoots {
             guard !trimmed.isEmpty else { continue }
             let expanded = trimmed == "~" || trimmed.hasPrefix("~/")
                 ? home.path + trimmed.dropFirst()
-                : NSString(string: trimmed).expandingTildeInPath
-            guard expanded.hasPrefix("/") else { continue }
-            let url = URL(fileURLWithPath: expanded, isDirectory: true).standardizedFileURL
+                : PlatformCompat.expandingTilde(trimmed)
+            guard PlatformCompat.isAbsolutePath(expanded) else { continue }
+            let url = PlatformCompat.standardizedDirectoryURL(expanded)
             var isDirectory: ObjCBool = false
             guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
                   isDirectory.boolValue,
@@ -305,7 +309,7 @@ struct ClaudeAccountLimits: Sendable, Identifiable {
 
     static func additional(_ account: AdditionalClaudeLimits) -> ClaudeAccountLimits {
         ClaudeAccountLimits(id: account.key, windowKeyPrefix: "claude.\(account.key)",
-                            fallbackTitle: (account.rootPath as NSString).abbreviatingWithTildeInPath,
+                            fallbackTitle: PlatformCompat.abbreviatingWithTilde(account.rootPath),
                             status: account.status, isDefault: false, isExpired: account.isExpired,
                             updatedAt: account.updatedAt, sessionKeyExpired: account.sessionKeyExpired)
     }

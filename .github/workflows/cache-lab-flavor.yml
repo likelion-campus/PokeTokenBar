@@ -1,0 +1,113 @@
+name: cache-lab-flavor
+# Proof lab for incremental Windows builds (CI tool, run by hand): a cold build packs .build as a seed, a second runner restores it on a
+# fresh checkout (mtimes from blob ids) and checks, change by change, that the incremental rebuild is correct and how long it takes.
+# Called by cache-lab.yml for each flavor (debug: swift build --build-tests as windows.yml builds; release: the app product as windows-app builds).
+on:
+  workflow_call:
+    inputs:
+      flavor:
+        type: string
+        required: true
+permissions:
+  contents: read
+jobs:
+  cold:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    outputs:
+      seed_id: ${{ steps.up.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
+      - uses: ./.github/actions/windows-swift
+      - name: Lab markers
+        shell: pwsh
+        run: ./scripts/windows/cache-lab-setup.ps1
+      - name: Stamp mtimes
+        shell: pwsh
+        run: ./scripts/windows/restore-mtimes.ps1
+      - name: Cold build
+        shell: pwsh
+        run: |
+          $sw = [Diagnostics.Stopwatch]::StartNew()
+          $extra = @(./scripts/windows/swift-build-args.ps1)
+          if ('${{ inputs.flavor }}' -eq 'release') {
+              $res = ./scripts/windows/build-resources.ps1 -Out resources | Select-Object -Last 1
+              swift build -c release --product PokeTokenBarWin -Xlinker ($res -replace '\\', '/') @extra
+          } else { swift build --build-tests @extra }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $line = "cold build ${{ inputs.flavor }}: $([math]::Round($sw.Elapsed.TotalSeconds)) s on $env:NUMBER_OF_PROCESSORS cores"
+          $line; $line >> $env:GITHUB_STEP_SUMMARY
+      - name: Pack .build
+        shell: pwsh
+        run: |
+          ./scripts/windows/build-seed.ps1 -Pack seed.tar.zst | Tee-Object -Variable packed
+          $packed >> $env:GITHUB_STEP_SUMMARY
+          "du: " + ('{0:N0} MB unpacked' -f ((Get-ChildItem .build -Recurse -File | Measure-Object Length -Sum).Sum / 1MB))
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        id: up
+        with:
+          name: lab-seed-${{ inputs.flavor }}
+          path: seed.tar.zst
+          compression-level: 0
+          retention-days: 1
+  warm:
+    needs: cold
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
+      - uses: ./.github/actions/windows-swift
+      - name: Lab markers
+        shell: pwsh
+        run: ./scripts/windows/cache-lab-setup.ps1
+      - name: Stamp mtimes
+        shell: pwsh
+        run: ./scripts/windows/restore-mtimes.ps1
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4
+        with:
+          artifact-ids: ${{ needs.cold.outputs.seed_id }}
+          merge-multiple: true
+          path: .
+      - name: Unpack the seed
+        shell: pwsh
+        run: ./scripts/windows/build-seed.ps1 -Unpack seed.tar.zst
+      - name: Resources (release)
+        if: inputs.flavor == 'release'
+        shell: pwsh
+        run: |
+          $res = ./scripts/windows/build-resources.ps1 -Out resources | Select-Object -Last 1
+          "PTB_RES=$($res -replace '\\', '/')" >> $env:GITHUB_ENV
+      - name: Incremental scenarios
+        shell: pwsh
+        run: ./scripts/windows/cache-lab-run.ps1 -Flavor ${{ inputs.flavor }}
+  warm-macos:
+    needs: cold
+    if: inputs.flavor == 'debug'
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
+      - uses: ./.github/actions/windows-swift
+      - name: Lab markers
+        shell: pwsh
+        run: ./scripts/windows/cache-lab-setup.ps1
+      - name: Stamp mtimes
+        shell: pwsh
+        run: ./scripts/windows/restore-mtimes.ps1
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4
+        with:
+          artifact-ids: ${{ needs.cold.outputs.seed_id }}
+          merge-multiple: true
+          path: .
+      - name: Unpack the seed
+        shell: pwsh
+        run: ./scripts/windows/build-seed.ps1 -Unpack seed.tar.zst
+      - name: Resources (release)
+        if: inputs.flavor == 'release'
+        shell: pwsh
+        run: |
+          $res = ./scripts/windows/build-resources.ps1 -Out resources | Select-Object -Last 1
+          "PTB_RES=$($res -replace '\\', '/')" >> $env:GITHUB_ENV
+      - name: mac-only.txt on a fresh runner
+        shell: pwsh
+        run: ./scripts/windows/cache-lab-run.ps1 -Flavor ${{ inputs.flavor }} -Only macOnly

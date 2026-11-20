@@ -363,6 +363,22 @@ final class LocalUsageCacheTests: XCTestCase {
         XCTAssertEqual(entries.map(\.output), [111])
     }
 
+    /// Windows has no zlib: compression returns nil, the snapshot is stored as plain JSON and loads back.
+    func testCacheRoundTripsWhenCompressionIsUnavailable() async throws {
+        let t0 = Date(timeIntervalSince1970: floor(Date().timeIntervalSince1970) - 3600)
+        try writeRaw("a.jsonl", claudeLine(id: "1", output: 111) + "\n", mtime: t0)
+        PlatformCompat.zlibDisabledForTesting = true
+        defer { PlatformCompat.zlibDisabledForTesting = false }
+
+        let saved = await makeCache().claudeEntries(modifiedSince: since)
+        let raw = try Data(contentsOf: cacheFile)
+        XCTAssertNotNil(try? JSONSerialization.jsonObject(with: raw), "stored raw, not compressed")
+
+        let loaded = await makeCache().claudeEntries(modifiedSince: since)
+        XCTAssertEqual(saved.map(\.output), [111])
+        XCTAssertEqual(loaded.map(\.output), saved.map(\.output))
+    }
+
     func testCodexCacheDropsForkedReplayBurst() async throws {
         try writeFile("rollout-child.jsonl", lines: forkedCodexLines())
 

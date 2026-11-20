@@ -34,6 +34,112 @@ Homebrew로 설치합니다. 경고 없이 바로 열리고, 앱의 업데이트
 - 경고 창을 닫고 시스템 설정 → 개인정보 보호 및 보안 아래쪽의 "그래도 열기" 를 누릅니다.
 - 터미널에서 실행합니다: `xattr -dr com.apple.quarantine /Applications/PokeTokenBar.app`
 
+## Windows
+
+Windows용 PokeTokenBar는 같은 릴리스에 설치 파일로 함께 올라옵니다. 같은 팀 코드로 Mac 팀원과 같은 광장에서 만납니다. 아래 그림은 모두 **샘플 데이터로 Windows CI 러너에서 찍은 화면**이며, 실제 사용자 데이터는 들어 있지 않습니다.
+
+### 요구 사항
+
+- Windows 11, 또는 Windows 10 22H2(빌드 19045 이상). x64.
+- Windows 10은 아직 실제 PC에서 확인하지 못했습니다(시험 안 됨). 19045보다 낮은 Windows 10에서는 설치 프로그램이 스스로 거절합니다.
+- ARM64: Windows 11 on ARM에서는 x64 앱이 에뮬레이션으로 설치되지만 확인하지 못했습니다. Windows 10 on ARM은 x64 에뮬레이션이 없어 설치되지 않습니다. ARM 전용 빌드는 없습니다.
+- 관리자 권한이 필요 없습니다. 사용자별로 설치됩니다(`%LOCALAPPDATA%\Programs\PokeTokenBar`).
+
+### 내려받기와 설치
+
+1. 팀 릴리스 페이지(https://github.com/likelion-campus/PokeTokenBar/releases)에서 최신 `PokeTokenBar-Setup-<버전>-win-x64.exe` 를 받습니다.
+2. 설치 파일은 코드 서명이 없습니다. 열면 SmartScreen이 "Windows의 PC 보호" 창으로 막습니다. 악성 코드가 발견됐다는 뜻이 아니라 게시자를 알 수 없다는 뜻입니다. "추가 정보" → "실행" 을 누르면 한 번만 넘어갑니다.
+3. 설치 마법사에서 "다음"을 눌러 끝냅니다. 바탕화면 바로 가기는 선택 사항이고, 마지막 화면의 "PokeTokenBar 실행"을 켜 두면 바로 켜집니다.
+
+받은 파일이 맞는지 직접 확인하려면 PowerShell에서 해시를 계산해 릴리스 노트의 "SHA-256 (Windows installer)" 줄과 비교합니다.
+
+```powershell
+Get-FileHash .\PokeTokenBar-Setup-<버전>-win-x64.exe -Algorithm SHA256
+```
+
+### 처음 켜기
+
+![트레이 메뉴(영어 화면). 샘플 데이터, Windows CI 러너에서 찍은 화면](assets/windows/tray-menu.png)
+
+- 아이콘은 작업 표시줄 오른쪽 `^`(숨겨진 아이콘) 안에 있을 수 있습니다. 눌러서 꺼낸 뒤 작업 표시줄로 끌어 두면 항상 보입니다.
+- 아이콘을 왼쪽 클릭하면 팝오버(오늘 사용량, 한도, 도감·상점·가방·컬렉션), 오른쪽 클릭하면 메뉴가 열립니다.
+- 팀 기능을 켜면 Windows 방화벽이 한 번 묻습니다. **"개인 네트워크"** 를 고르세요. 허용하지 않으면 같은 와이파이에 있어도 팀원이 보이지 않습니다.
+
+![팝오버 Home. 샘플 데이터, Windows CI 러너에서 찍은 화면](assets/windows/home-ko.png)
+
+### 업데이트
+
+새 버전이 있으면 트레이 메뉴와 팝오버 위쪽에 업데이트 안내가 뜹니다. "업데이트"를 누르면 앱이 설치 파일을 받아 확인한 뒤 설치 프로그램을 실행하고, 앱은 잠시 닫혔다가 새 버전으로 다시 열립니다. 설정과 세이브는 그대로입니다. 받기나 확인이 실패하면 릴리스 페이지가 열리고, 설치 도중 실패하면 이전 앱이 그대로 돌아옵니다.
+
+앱에서 설치하는 기능이 들어 있는 첫 버전은 릴리스 노트의 "Windows Upgrade" 문단에 적혀 있습니다. 그보다 오래된 빌드를 쓰고 있다면 새 설치 파일을 한 번 직접 실행하면 됩니다(같은 폴더 위에 덮어씁니다).
+
+![업데이트 안내가 있는 팝오버. 샘플 데이터, Windows CI 러너에서 찍은 화면](assets/windows/home-update-en.png)
+
+### 업데이트가 잘못됐을 때
+
+- 새 버전이 설치됐지만 이상하게 동작한다면, 고친 다음 버전이 나올 때까지 기다립니다. 같은 방법으로 앱에서 올라갑니다.
+- 새 버전이 아예 켜지지 않아 스스로 업데이트할 수 없다면, 이전 릴리스 페이지에서 이전 버전의 설치 파일을 받아 실행합니다. 같은 앱 위에 이전 버전이 깔리고 설정과 세이브(`%LOCALAPPDATA%\PokeTokenBar`)는 남습니다.
+- 문제가 있는 릴리스가 더 퍼지는 것을 막아야 하면, 관리자가 그 릴리스에서 Windows 설치 파일만 내릴 수 있습니다(그때마다 승인을 받습니다). 그러면 다른 PC는 그 버전을 받지 않습니다. Mac에는 영향이 없고, 고친 버전이 나올 때까지 Windows만 한 버전 뒤처집니다.
+
+### 지우기
+
+설정 → 앱 → 설치된 앱에서 PokeTokenBar를 제거합니다. 앱이 켜져 있으면 제거 프로그램이 닫으라고 안내합니다. "로그인 시 자동 시작"으로 등록한 항목과 `poketokenbar:` 링크 등록도 함께 지워집니다.
+
+남는 것: `%LOCALAPPDATA%\PokeTokenBar` 폴더(세이브, 설정, 로그, 팀 설정). 다시 설치하면 그대로 이어집니다. 완전히 지우려면 세이브를 내보낸 뒤 그 폴더를 직접 지웁니다.
+
+### 세이브 옮기기
+
+Mac에서 내보낸 세이브는 Windows 앱의 설정 → "백업 & 이전" 에서 불러옵니다. 앱을 켜지 않은 채 명령 줄로 하려면 `PokeTokenBar.exe --import-save <파일>` 을 실행합니다(앱이 켜져 있으면 거절합니다).
+
+### 에이전트 활동 (Windows)
+
+Mac의 "에이전트 활동"(README)과 같습니다. 플로팅 펫과 설정의 **에이전트 활동에 반응**을 켜 두면, 에이전트가 일하는 동안 들썩이고, 입력이 필요하면 말풍선으로 부르고, 끝나면 마우스 커서 옆으로 달려옵니다. 에이전트는 `poketokenbar://agent?state=<working|waiting|done|idle>[&label=<이름>][&message=<내용>]` 링크로 알립니다. 이 링크는 설치 프로그램이 사용자 계정에만 등록하고(관리자 권한 없음), 제거할 때 함께 지웁니다. 앱이 꺼져 있을 때 링크를 열면 앱이 조용히 켜지고(팝오버 없음) 그 알림은 버려집니다(Mac과 같음). 관리자 권한으로 실행한 터미널에서 연 링크는 꺼진 앱을 켜지 않습니다. 그래서 아래 훅은 앱이 켜져 있을 때만 링크를 엽니다.
+
+링크에 넣는 값(라벨·메시지)은 **모두** `[uri]::EscapeDataString()` 으로 감싸고, 문장은 명령 줄에 이어 붙이지 말고 매개변수나 환경 변수로 넘기세요. 훅은 도구를 쓸 때마다 실행되어 PowerShell 시작(대략 0.3~0.5초)과 PokeTokenBar 한 번 실행이 매번 들어갑니다.
+
+**Claude Code** — 아래를 `%USERPROFILE%\.claude\poketokenbar.ps1` 로 저장합니다. 세션마다 프로젝트 폴더 이름을 라벨로 씁니다.
+
+```powershell
+# PokeTokenBar agent hook: poketokenbar.ps1 <working|waiting|done|idle>
+param([ValidateSet('working', 'waiting', 'done', 'idle')][string]$State)
+if (-not (Get-Process PokeTokenBar -ErrorAction SilentlyContinue)) { exit 0 }   # 훅이 앱을 켜지 않게
+$folder = if ($env:CLAUDE_PROJECT_DIR) { Split-Path -Leaf $env:CLAUDE_PROJECT_DIR } else { '' }
+$label = [uri]::EscapeDataString($folder)
+Start-Process "poketokenbar://agent?state=$State&label=$label"
+exit 0
+```
+
+그리고 `%USERPROFILE%\.claude\settings.json` 의 훅은 README의 Mac 예시와 같은 자리에, 명령만 이렇게 바꿉니다(`<사용자>` 는 내 계정 폴더 이름. 공백이나 한글이 있어도 되게 경로를 따옴표로 감쌉니다).
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File "C:/Users/<사용자>/.claude/poketokenbar.ps1" working
+```
+
+`waiting`, `done` 도 마지막 낱말만 바꿉니다. **다른 에이전트**는 훅이나 스크립트에서 같은 링크를 엽니다. 예: 메시지를 환경 변수 `PTB_MESSAGE` 로 넘기고 `powershell -NoProfile -Command "if (Get-Process PokeTokenBar -EA 0) { Start-Process ('poketokenbar://agent?state=done&label=my-app&message=' + [uri]::EscapeDataString($env:PTB_MESSAGE)) }"`.
+
+### 팀 광장
+
+팀 만들기와 참여, 조작법은 아래 Mac 안내와 같습니다. 설정의 "팀" 섹션에서 팀 기능을 켜고, 트레이 메뉴나 팝오버의 지도 단추로 광장을 엽니다. Windows 광장 창은 앱 아이콘이 있고, Windows 11에서는 제목 줄이 광장의 청록색입니다.
+
+![광장 창. 샘플 팀원, Windows CI 러너에서 찍은 화면](assets/windows/plaza-window.png)
+
+### Mac과 다른 점, 아직 없는 것
+
+Windows 팝오버는 Mac의 화면을 그대로 따라 만든 별도 구현입니다. 의도한 차이와 이유는 `docs/reference/windows-differences.md` 에 모아 두었습니다. 크게 보면:
+
+- 라이트·다크 모드와 고대비를 따라가고, 글꼴·이모지·강조색은 Windows 것을 씁니다. 블러(반투명 유리)는 없습니다.
+- 스위치 대신 체크 상자, 분할 단추 대신 눌러 고르는 단추를 씁니다.
+- 한도 갱신은 Keychain이 아니라 Claude 로그인 파일과 세션 키(Windows 자격 증명 보호로 암호화)를 씁니다.
+- 플로팅 펫: 트레이 메뉴, 팝오버 아래쪽 눈 단추, 설정의 "플로팅 펫"에서 켭니다. 끌어 옮기고, 알을 클릭하면 기도, 부화한 포켓몬을 클릭하면 팝오버가 열리며, 우클릭 메뉴(열기, 끄기, 뒷모습)가 있습니다. 배율이 다른 모니터로 끌어 옮기면 놓을 때 크기가 바뀌고, 모니터를 뺐다 꽂으면 원래 자리로 돌아옵니다. Mac처럼 포인터를 올리면 오늘 사용량이, 쓰다듬으면 하트가, 기도하면 🙏가 뜨고, 한도 알림은 말풍선으로 보여 줍니다.
+- 설치 파일이 서명되지 않았고 Windows 10은 시험하지 못했습니다(위 "요구 사항").
+
+### Windows에서 문제가 생길 때
+
+- 로그: 트레이 메뉴의 "로그 폴더 열기", 또는 `%LOCALAPPDATA%\PokeTokenBar\Logs\PokeTokenBar.log`. 문제를 알릴 때 이 파일을 붙여 주세요(팀 코드와 세션 키는 로그에 남기지 않습니다).
+- 자체 점검: `PokeTokenBar.exe --selftest --selftest-out C:\Temp\ptb.json` 을 실행하면 앱이 스스로 점검하고 결과(`pass`/`fail`과 항목별 상세)를 그 파일에 씁니다. 사용자 PC에서 돌리면 **PC 를 건드리지 않는 점검만** 합니다: 마우스 포인터를 옮기지 않고, 키 입력을 보내지 않고, 클립보드·키보드 배치·Windows 설정(글자 크기, 테마, 고대비)·시작 프로그램(Run 키)을 바꾸지 않고, 쓰던 창을 앞으로 가져오지도 않습니다. 그런 동작이 필요한 점검 100여 개는 결과에 `skipped` 로 적고 통과로 셉니다(실제로는 CI 에서만 돕니다). 그래도 점검용 창 몇 개가 활성화 없이 화면에 잠깐 보일 수 있고, 같은 프로그램의 도우미 프로세스와 이 PC 안(127.0.0.1)의 임시 서버를 쓰며, 클라이언트 인증서 점검이 `graphql.pokeapi.co` 에 아주 작은 요청 2개를 보냅니다(닿지 않으면 '확인 못 함'으로 통과). 점검용 설정은 자기 파일(`ptb.team.….settings.plist`)에만 쓰고 끝날 때 그 파일을 지우며, 사용자의 `PokeTokenBar.exe.plist` 는 건드리지 않습니다. 사용량 로그는 읽기만 합니다. 결과 파일을 함께 보내 주세요.
+- 메뉴(트레이·드롭다운·입력 칸 우클릭)가 어둡게 보여서 읽기 어렵거나 이상하면: 앱은 Windows 의 앱 모드(어둡게)를 따라 메뉴를 어둡게 그립니다(`uxtheme` 의 문서화되지 않은 함수 사용, 로그에 `dark menus:` 한 줄이 남습니다). 끄려면 환경 변수 `PTB_LIGHT_MENUS=1` 을 주거나 레지스트리 `HKCU\Software\PokeTokenBar` 의 `LightMenus`(DWORD)를 1 로 두세요. 앱을 다시 켜면 메뉴가 예전처럼 밝아집니다. 고대비 테마에서는 항상 시스템 색을 씁니다.
+- 팀원이 안 보일 때: 방화벽에서 "개인 네트워크"를 허용했는지, 같은 와이파이인지, 회사 보안 프로그램이 mDNS(같은 망 찾기)를 막는지 확인합니다. 아래 "연결이 안 될 때"도 같습니다.
+
 ## 팀 만들기와 참여
 
 설정의 "팀" 섹션에서 합니다. 먼저 "팀 기능 켜기" 를 켜야 나머지 항목이 나타납니다.

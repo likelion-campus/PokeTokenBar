@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// Cursor 공식 한도(월간 포함 allowance) 조회 추상화.
 public protocol CursorLimitsProviding: Sendable {
@@ -71,7 +74,7 @@ public struct CursorRateLimitsProvider: CursorLimitsProviding, Sendable {
         // Limits network boundary; token grants are gated separately in CursorAuthentication.
         guard AppEnv.allowsLiveLimitsFetch else { return nil }
         do {
-            let (data, response) = try await session.data(for: request)
+            let (data, response) = try await PlatformCompat.oneShotData(for: request, session: session)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             return (data, status)
         } catch {

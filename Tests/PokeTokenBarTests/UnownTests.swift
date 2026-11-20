@@ -109,7 +109,7 @@ final class UnownTests: XCTestCase {
                               dittoDisguiseRollingEnabled: false, defaults: defaults)
     }
 
-    func testAllLettersAndPunctuationAreSelectable() {
+    func testAllLettersAndPunctuationAreSelectable() async {
         let symbols = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZ").map(String.init) + ["!", "?"]
         XCTAssertEqual(PokemonForm.unownLetters.map(\.symbol), symbols)
         XCTAssertEqual((0..<56).map { PokemonForm.roll(UInt64($0), among: PokemonForm.unownLetters, collected: []).symbol },
@@ -118,7 +118,7 @@ final class UnownTests: XCTestCase {
         XCTAssertTrue(PokemonForm.unownLetters.contains(PokemonForm.roll(UInt64.max, among: PokemonForm.unownLetters, collected: [])))
     }
 
-    func testFormWeightsAreTwoForMissingAndOneForCollectedWithoutGuaranteeingNewForms() {
+    func testFormWeightsAreTwoForMissingAndOneForCollectedWithoutGuaranteeingNewForms() async {
         for collected in [Set<PokemonForm>(), [.a, .b, .exclamation], Set(PokemonForm.unownLetters)] {
             let total = 56 - collected.count
             let samples = (0..<total).map { PokemonForm.roll(UInt64($0), among: PokemonForm.unownLetters, collected: collected) }
@@ -131,14 +131,14 @@ final class UnownTests: XCTestCase {
                        PokemonForm.unownLetters, "Completion returns selection to uniform weights")
     }
 
-    func testSharedCollectedAdjustmentPreservesCaptureRateRoundingAndMinimum() {
+    func testSharedCollectedAdjustmentPreservesCaptureRateRoundingAndMinimum() async {
         for weight in 0...255 {
             XCTAssertEqual(CollectionWeight.adjusted(weight, isCollected: false), max(1, weight))
             XCTAssertEqual(CollectionWeight.adjusted(weight, isCollected: true), max(1, weight / 2))
         }
     }
 
-    func testCollectionIncludesLegacyActiveAndReleasedFormsButCountsShinyOnlyOnce() throws {
+    func testCollectionIncludesLegacyActiveAndReleasedFormsButCountsShinyOnlyOnce() async throws {
         var original = CompanionState()
         var legacy = entry(nil)
         legacy.form = nil
@@ -154,7 +154,7 @@ final class UnownTests: XCTestCase {
         XCTAssertEqual(s.formSpecies(speciesID: PokemonForm.unownSpeciesID).map(\.isRaising), [false, false, false, true])
     }
 
-    func testTeamProfileKeepsFormsAndTheirLabelledNames() throws {
+    func testTeamProfileKeepsFormsAndTheirLabelledNames() async throws {
         var original = CompanionState()
         original.dex = [entry(.a), entry(.exclamation, shiny: true)]
         let s = try store(original)
@@ -166,7 +166,7 @@ final class UnownTests: XCTestCase {
         XCTAssertNotEqual(dex[0].name, dex[1].name)
     }
 
-    func testMissingADoesNotCreateAnOwnedFormOrPermitAnUncollectedRepresentative() throws {
+    func testMissingADoesNotCreateAnOwnedFormOrPermitAnUncollectedRepresentative() async throws {
         var original = CompanionState()
         original.dex = [entry(.question, shiny: true)]
         let s = try store(original)
@@ -238,7 +238,7 @@ final class UnownTests: XCTestCase {
     }
 
     /// 형태 필드 하나가 없거나 잘못돼도 기존 개체·도감·재화가 유실되면 안 된다.
-    func testLegacyAndInvalidFormFieldsDefaultToAWithoutLosingProgress() throws {
+    func testLegacyAndInvalidFormFieldsDefaultToAWithoutLosingProgress() async throws {
         let invalidFields: [Any?] = [nil, NSNull(), "future-form", 42]
         for invalid in invalidFields {
             var original = CompanionState()
@@ -273,7 +273,7 @@ final class UnownTests: XCTestCase {
         }
     }
 
-    func testAppearanceOwnershipIsIndependentForEachUnownForm() throws {
+    func testAppearanceOwnershipIsIndependentForEachUnownForm() async throws {
         var state = CompanionState()
         state.dex = [entry(.a), entry(.a, shiny: true), entry(.b, shiny: true), entry(.c)]
         let s = try store(state)
@@ -284,7 +284,7 @@ final class UnownTests: XCTestCase {
         XCTAssertEqual(s.dexSpecies.first?.isShiny, true)
     }
 
-    func testEveryFormRoundTripsAndSharesOneSpeciesCell() throws {
+    func testEveryFormRoundTripsAndSharesOneSpeciesCell() async throws {
         for form in PokemonForm.unownLetters {
             let restored = try JSONDecoder().decode(MonState.self,
                 from: JSONEncoder().encode(mon(form, shiny: true)))
@@ -308,7 +308,7 @@ final class UnownTests: XCTestCase {
         XCTAssertEqual(s.formSpecies(speciesID: PokemonForm.unownSpeciesID).map(\.name), PokemonForm.unownLetters.map { "안농 [\($0.symbol)]" })
     }
 
-    func testFormIsOnlyAppliedToUnown() throws {
+    func testFormIsOnlyAppliedToUnown() async throws {
         XCTAssertEqual(mon(nil).form, .a)
         XCTAssertEqual(entry(nil).form, .a)
         let otherMon = mon(.question, speciesID: 25)
@@ -387,7 +387,7 @@ final class UnownTests: XCTestCase {
         XCTAssertEqual(s.useMint(), nextNature)
     }
 
-    func testDexDeduplicatesPerLetterAndScopesShinyAndRaisingFlags() throws {
+    func testDexDeduplicatesPerLetterAndScopesShinyAndRaisingFlags() async throws {
         var original = CompanionState()
         original.dex = [entry(.a), entry(.b), entry(.b, shiny: true)]
         original.active = mon(.c)
@@ -407,7 +407,7 @@ final class UnownTests: XCTestCase {
         XCTAssertFalse(s.state.ownsShinySpecies(201, form: .c))
     }
 
-    func testRepresentativeUsesExactLetterAndPersistsSelection() throws {
+    func testRepresentativeUsesExactLetterAndPersistsSelection() async throws {
         var original = CompanionState()
         original.language = .en
         original.dex = [entry(.a), entry(.b, shiny: true)]
@@ -437,7 +437,7 @@ final class UnownTests: XCTestCase {
         XCTAssertNil(restored.representativeDexSpecies)
     }
 
-    func testReleasingActiveLetterPreservesFormProfileAndRepresentative() throws {
+    func testReleasingActiveLetterPreservesFormProfileAndRepresentative() async throws {
         var original = CompanionState()
         original.dex = [entry(.a, shiny: true)]
         original.active = mon(.b)
@@ -466,7 +466,7 @@ final class UnownTests: XCTestCase {
     }
 
 
-    func testDetailIndividualsAndRaisingFlagAreScopedToExactLetter() throws {
+    func testDetailIndividualsAndRaisingFlagAreScopedToExactLetter() async throws {
         var original = CompanionState()
         original.dex = [entry(.a), entry(.b), entry(.b, shiny: true)]
         original.active = mon(.b)
@@ -512,7 +512,7 @@ final class UnownTests: XCTestCase {
         }
     }
 
-    func testSaveExportAndImportPreserveActiveDexAndRepresentativeForms() throws {
+    func testSaveExportAndImportPreserveActiveDexAndRepresentativeForms() async throws {
         var original = CompanionState()
         original.active = mon(.question, shiny: true)
         original.dex = [entry(.a), entry(.exclamation, shiny: true)]
@@ -622,7 +622,7 @@ final class UnownTests: XCTestCase {
         XCTAssertNil(s.state.pendingForm)
     }
 
-    func testSanitizationClearsPendingLetterWithoutMatchingEgg() {
+    func testSanitizationClearsPendingLetterWithoutMatchingEgg() async {
         var original = CompanionState()
         original.active = mon(.b)
         original.pendingHatchID = 201
@@ -639,7 +639,7 @@ final class UnownTests: XCTestCase {
         XCTAssertNil(SaveTransfer.sanitized(original).pendingForm)
     }
 
-    func testSaveExportAndImportPreservePendingEggLetter() throws {
+    func testSaveExportAndImportPreservePendingEggLetter() async throws {
         var original = CompanionState()
         original.pendingHatchID = 201
         original.pendingForm = .exclamation

@@ -1,0 +1,285 @@
+# Shared copies of logic that stays in upstream UI files (stage 7, D8). A side is `file#Type` or `file#Type.member`
+# (a function or computed var; overloads count together). PopoverParityScanTests checks every row:
+#   Mac file#symbol | shared file#symbol | renames (Mac=shared, comma-separated)
+#       the two bodies, comments and white space dropped and the renames applied, must read the same. The shared side may
+#       be a verbatim copy of a private Mac member inside a Mac test (Tests/…): PopoverTwinEquivalenceTests+Mac then
+#       drives that copy and the shared twin over the same inputs.
+#   Mac file#symbol | shared file#symbol | pin <16 hex>
+#       a Mac body that cannot read as its twin (a SwiftUI view body rebuilt as values): it must still hash to the pin
+#       (PopoverParityRules.pin of the normalized body). When it fails, carry the Mac change into the twin and its
+#       tests, then write the new pin the finding prints.
+
+UI/PopoverView.swift#PopoverNavigation | Popover/PopoverState.swift#PopoverState | PopoverTab=Tab
+
+# Pure helpers whose twin reads as the original (colour names map to PopoverColorRole).
+UI/PopoverView.swift#PopoverView.grokProductName | Popover/PopoverFormat.swift#PopoverFormat.grokProductName
+UI/PopoverView.swift#LimitProgressBar.markerFraction | Popover/PopoverFormat.swift#PopoverFormat.markerFraction
+UI/PopoverView.swift#PopoverView.statusColor | Popover/PopoverFormat.swift#PopoverFormat.statusColor | green=systemGreen, yellow=systemYellow, orange=systemOrange, red=systemRed, gray=systemGray
+UI/PopoverView.swift#PaceTier.color | Popover/PopoverFormat.swift#PopoverFormat.paceColor | self=tier, blue=systemBlue, teal=systemTeal, green=systemGreen, yellow=systemYellow, orange=systemOrange, red=systemRed
+UI/PopoverView.swift#PaceTier.percentColor | Popover/PopoverFormat.swift#PopoverFormat.percentColor | self=tier, color=paceColor(tier)
+
+# Private PopoverView members that read the view's environment: a verbatim copy in the Mac test, driven against the
+# shared twin (PopoverFormat, LimitsBuilder) by PopoverTwinEquivalenceTests+Mac.
+UI/PopoverView.swift#PopoverView.selectedSnapshot | Tests/PokeTokenBarTests/PopoverTwinEquivalenceTests+Mac.swift#MacPopoverOracle.selectedSnapshot
+UI/PopoverView.swift#PopoverView.selectedProviderHasLimits | Tests/PokeTokenBarTests/PopoverTwinEquivalenceTests+Mac.swift#MacPopoverOracle.selectedProviderHasLimits
+UI/PopoverView.swift#PopoverView.limitPercentText | Tests/PokeTokenBarTests/PopoverTwinEquivalenceTests+Mac.swift#MacPopoverOracle.limitPercentText
+UI/PopoverView.swift#PopoverView.resetClockSuffix | Tests/PokeTokenBarTests/PopoverTwinEquivalenceTests+Mac.swift#MacPopoverOracle.resetClockSuffix
+UI/PopoverView.swift#PopoverView.paceFraction | Tests/PokeTokenBarTests/PopoverTwinEquivalenceTests+Mac.swift#MacPopoverOracle.paceFraction
+UI/PopoverView.swift#PopoverView.paceHelp | Tests/PokeTokenBarTests/PopoverTwinEquivalenceTests+Mac.swift#MacPopoverOracle.paceHelp
+UI/PopoverView.swift#PopoverView.selectedClaudeAccount | Tests/PokeTokenBarTests/PopoverTwinEquivalenceTests+Mac.swift#MacPopoverOracle.selectedClaudeAccount
+
+# View bodies rebuilt as values in HomeModel / LimitsModel (one model function per Mac function; fixture tests pin the
+# values on both systems).
+UI/PopoverView.swift#PopoverView.updateBanner | Popover/HomeModel.swift#HomeBuilder.updateBanner | pin 5858c719f44a819d
+UI/PopoverView.swift#PopoverView.mainContent | Popover/HomeModel.swift#HomeBuilder.plazaButton | pin 3960c17f4130f22e
+UI/PopoverView.swift#PopoverView.header | Popover/HomeModel.swift#HomeBuilder.header | pin 16d000fbf7d40d19
+UI/PopoverView.swift#PopoverView.periodTotals | Popover/HomeModel.swift#HomeBuilder.header | pin 9dbda48338ab0d38
+UI/PopoverView.swift#PopoverView.periodLabels | Popover/HomeModel.swift#HomeBuilder.header | pin 64792a31672afa46
+UI/PopoverView.swift#PopoverView.periodLabel | Popover/HomeModel.swift#HomeModel.periodLabel | pin 72de60fd2b31dd85
+UI/PopoverView.swift#PopoverView.providerTabBar | Popover/HomeModel.swift#HomeBuilder.providerTabBar | pin 431d6883cb2e9bc9
+UI/PopoverView.swift#ProviderTabBar.body | Popover/HomeModel.swift#HomeBuilder.providerTabBar | pin 5126050317cefe83
+UI/PopoverView.swift#CapsuleTabBar.body | Popover/LimitsModel.swift#CapsuleTab | pin 681f71c45cd11384
+UI/PopoverView.swift#PopoverView.providerRow | Popover/HomeModel.swift#HomeBuilder.providerRow | pin 6087c095f3a1c401
+UI/PopoverView.swift#PopoverView.tokenTypeLabel | Popover/HomeModel.swift#HomeBuilder.providerRow | pin e1ddd03278b4c088
+UI/PopoverView.swift#PopoverView.providerStatusBanner | Popover/HomeModel.swift#HomeBuilder.providerStatusBanner | pin 246c370d0dc0956f
+UI/PopoverView.swift#PopoverView.footer | Popover/HomeModel.swift#HomeBuilder.footer | pin ecdd77c53dabceed
+UI/PopoverView.swift#PopoverView.limitsSection | Popover/LimitsModel.swift#LimitsBuilder.limitsSection | pin d5b3f10e54221905
+UI/PopoverView.swift#PopoverView.claudeKeychainHelpButton | Popover/LimitsModel.swift#LimitsBuilder.claudeKeychainHelpButton | pin ecc94551d83b71ca
+UI/PopoverView.swift#PopoverView.sessionKeyExpiredNotice | Popover/LimitsModel.swift#LimitsBuilder.sessionKeyExpiredNotice | pin aeb9bff3801f2bdd
+UI/PopoverView.swift#PopoverView.authExpiredNotice | Popover/LimitsModel.swift#LimitsBuilder.authExpiredNotice | pin ee2c8ee36509b7a5
+UI/PopoverView.swift#PopoverView.claudeAuthExpiredNotice | Popover/LimitsModel.swift#LimitsBuilder.claudeAuthExpiredNotice | pin e4b92393c60c8612
+UI/PopoverView.swift#PopoverView.claudeLimitsRefreshRow | Popover/LimitsModel.swift#LimitsBuilder.claudeLimitsRefreshRow | pin 76f67cf69da417d7
+UI/PopoverView.swift#PopoverView.claudeAccountsContent | Popover/LimitsModel.swift#LimitsBuilder.claudeAccountsContent | pin b15cb4b55d307214
+UI/PopoverView.swift#PopoverView.claudeAccountLimits | Popover/LimitsModel.swift#LimitsBuilder.claudeAccountLimits | pin 91cadcc1708a6c48
+UI/PopoverView.swift#PopoverView.staleBadge | Popover/LimitsModel.swift#LimitsBuilder.staleBadge | pin e284a137432ef2d6
+UI/PopoverView.swift#PopoverView.limitRow | Popover/LimitsModel.swift#LimitsBuilder.limitRow | pin 3340b50caacf582c
+UI/PopoverView.swift#PopoverView.forecastRow | Popover/LimitsModel.swift#LimitsBuilder.forecastRow | pin d7196529c2fbd382
+UI/PopoverView.swift#PopoverView.quotaRow | Popover/LimitsModel.swift#LimitsBuilder.quotaRow | pin 9029482b41cd2921
+UI/PopoverView.swift#PopoverView.resetLabel | Popover/LimitsModel.swift#LimitsBuilder.quotaRow | pin 2f0134d39cf8a92f
+UI/PopoverView.swift#View.helpIfPresent | Popover/LimitsModel.swift#LimitsBuilder.quotaRow | pin d645ad9196bd46e2
+UI/PopoverView.swift#LimitProgressBar.body | Popover/LimitsModel.swift#LimitsBuilder.quotaRow | pin 5d5e46b856ae3dc7
+UI/PopoverView.swift#PopoverView.codexMetaRow | Popover/LimitsModel.swift#LimitsBuilder.codexMetaRow | pin 49947b0f1aeb63cc
+UI/PopoverView.swift#PopoverView.codexLimitRow | Popover/LimitsModel.swift#LimitsBuilder.codexLimitRow | pin 29fba9d99317a91e
+UI/PopoverView.swift#PopoverView.codexSpendLimitRow | Popover/LimitsModel.swift#LimitsBuilder.codexSpendLimitRow | pin f73d6f131b21e859
+UI/PopoverView.swift#PopoverView.antigravityLimitsContent | Popover/LimitsModel.swift#LimitsBuilder.antigravityLimitsContent | pin 74c23d09d98f2b05
+UI/PopoverView.swift#PopoverView.antigravityBucketRow | Popover/LimitsModel.swift#LimitsBuilder.antigravityBucketRow | pin b507aff34f3667f8
+UI/PopoverView.swift#PopoverView.antigravityRefreshRow | Popover/LimitsModel.swift#LimitsBuilder.antigravityRefreshRow | pin b69aceadacd7bcf5
+UI/PopoverView.swift#PopoverView.antigravityAuthExpiredNotice | Popover/LimitsModel.swift#LimitsBuilder.antigravityAuthExpiredNotice | pin 9b69de5a91cf144f
+UI/PopoverView.swift#PopoverView.cursorLimitsContent | Popover/LimitsModel.swift#LimitsBuilder.cursorLimitsContent | pin 450cc87ae75a573f
+UI/PopoverView.swift#PopoverView.cursorLimitRow | Popover/LimitsModel.swift#LimitsBuilder.cursorLimitRow | pin 035ed3ed9b7b274a
+UI/PopoverView.swift#PopoverView.cursorAuthExpiredNotice | Popover/LimitsModel.swift#LimitsBuilder.cursorAuthExpiredNotice | pin 5c3d5fb2e7d20511
+UI/PopoverView.swift#PopoverView.openCodeGoLimitsContent | Popover/LimitsModel.swift#LimitsBuilder.openCodeGoLimitsContent | pin 07f319d952d35566
+UI/PopoverView.swift#PopoverView.openCodeGoLimitRow | Popover/LimitsModel.swift#LimitsBuilder.openCodeGoLimitRow | pin e0cf4520ce8391be
+UI/PopoverView.swift#PopoverView.grokLimitsContent | Popover/LimitsModel.swift#LimitsBuilder.grokLimitsContent | pin a44000bb85ea1ce0
+UI/PopoverView.swift#PopoverMetrics | Popover/PopoverWindowMetrics.swift#PopoverWindowMetrics | PopoverMetrics=PopoverWindowMetrics
+
+# The companion sprite's frame-selection rules (Task 8, D16): the subject transitions and the SpriteView statics over
+# PlazaImage; driven against the Mac originals by PopoverTwinEquivalenceTests+Mac.
+UI/CompanionView.swift#SpriteSubject | Popover/PopoverSpriteSubject.swift#PopoverSpriteSubject | SpriteSubject=PopoverSpriteSubject, NSImage=PlazaImage
+UI/CompanionView.swift#SpriteView.frameTaskID | Popover/PopoverSpriteSubject.swift#PopoverSpriteRules.frameTaskID
+UI/CompanionView.swift#SpriteView.framesToApply | Popover/PopoverSpriteSubject.swift#PopoverSpriteRules.framesToApply
+UI/CompanionView.swift#SpriteView.needsReload | Popover/PopoverSpriteSubject.swift#PopoverSpriteRules.needsReload
+UI/SpriteLoader.swift#SpriteFit.size | Popover/PopoverSpriteSubject.swift#PopoverSpriteFit.size
+# The Settings page's look (stage 7 Task 3, review 12): PopoverStackMetrics holds these members' numbers (page padding 16,
+# section spacing 18, caption spacing 6 and inset 4, row padding 12 / 8, row minimum 38, row spacing 10, hint spacing 1,
+# card radius 8). A change to one fails here until PopoverStackMetrics and PopoverStackLayoutTests follow it.
+UI/SettingsView.swift#SettingsView.settingsSection | Popover/PopoverLayout.swift#PopoverStackMetrics | pin 020798d96c25bae9
+UI/SettingsView.swift#SettingsView.groupRow | Popover/PopoverLayout.swift#PopoverStackMetrics | pin de0f40885b3be327
+UI/SettingsView.swift#SettingsView.toggleRow | Popover/PopoverLayout.swift#PopoverStackMetrics | pin 5306650b1d9e7bdd
+UI/SettingsView.swift#SettingsView.body | Popover/PopoverLayout.swift#PopoverStackMetrics | pin 9943ac8116be3c71
+
+# Difficulty and backup & transfer (stage 7 Task 15): the draft of the sliders and the exported-at text. Driven over the same inputs by
+# PopoverDifficultyDraftTwinTests+Mac and the Mac's own exportedAtText.
+UI/DifficultySettingsSection.swift#DifficultyDraft | Popover/PopoverDifficultyDraft.swift#PopoverDifficultyDraft | DifficultyDraft=PopoverDifficultyDraft
+UI/SettingsView.swift#SettingsView.exportedAtText | Popover/PopoverTransferFormat.swift#PopoverTransferFormat.exportedAtText
+# --- stage 7 Task 12: the activity panel and the streak (Popover/PopoverTrendMetrics.swift, PopoverActivityModel.swift) ---
+UI/PopoverView.swift#DailyTrendColumn | Popover/PopoverTrendMetrics.swift#PopoverTrendColumn | DailyTrendColumn=PopoverTrendColumn
+UI/PopoverView.swift#DailyTrendMetrics | Popover/PopoverTrendMetrics.swift#PopoverTrendMetrics | DailyTrendMetrics=PopoverTrendMetrics, DailyTrendColumn=PopoverTrendColumn
+UI/PopoverView.swift#DailyTrendHover | Popover/PopoverTrendMetrics.swift#PopoverTrendHover | DailyTrendMetrics=PopoverTrendMetrics
+UI/PopoverView.swift#MonthDailyTrend.readout | Popover/PopoverTrendMetrics.swift#PopoverTrendSurface.readout | DailyTrendMetrics=PopoverTrendMetrics
+UI/PopoverView.swift#MonthDailyTrend.shouldShowSurface | Popover/PopoverTrendMetrics.swift#PopoverTrendSurface.shouldShowSurface
+UI/StreakBadge.swift#StreakBadge.isShown | Popover/PopoverTrendMetrics.swift#PopoverStreak.isShown
+UI/ActivityHeatmap.swift#ActivityCell | Popover/PopoverTrendMetrics.swift#PopoverHeatCell | ActivityCell=PopoverHeatCell
+UI/ActivityHeatmap.swift#ActivityHeatmapMetrics.weekdayLabels | Popover/PopoverTrendMetrics.swift#PopoverHeatmapMetrics.weekdayLabels
+UI/ActivityHeatmap.swift#ActivityHeatmapMetrics.columns | Popover/PopoverTrendMetrics.swift#PopoverHeatmapMetrics.columns | ActivityCell=PopoverHeatCell
+UI/ActivityHeatmap.swift#ActivityHeatmapMetrics.recentGrid | Popover/PopoverTrendMetrics.swift#PopoverHeatmapMetrics.recentGrid | ActivityCell=PopoverHeatCell
+UI/ActivityHeatmap.swift#ActivityHeatmapMetrics.days | Popover/PopoverTrendMetrics.swift#PopoverHeatmapMetrics.days
+UI/ActivityHeatmap.swift#ActivityHeatmapMetrics.recordedSince | Popover/PopoverTrendMetrics.swift#PopoverHeatmapMetrics.recordedSince
+UI/ActivityHeatmap.swift#ActivityHeatmapMetrics.level | Popover/PopoverTrendMetrics.swift#PopoverHeatmapMetrics.level
+UI/PopoverView.swift#WrappingHStack.arrange | Popover/PopoverTrendMetrics.swift#PopoverWrapLayout.arrange | pin c7e662c0cfca0d04
+UI/PopoverView.swift#MonthDailyTrend.body | Popover/PopoverActivityModel.swift#TrendBarsModel.make | pin f73d1f3a0e23e165
+UI/ActivityHeatmap.swift#ActivityHeatmap.body | Popover/PopoverActivityModel.swift#HeatmapModel.make | pin 30e5ce76db5afda9
+UI/ActivityHeatmap.swift#ActivityHeatmap.readout | Popover/PopoverActivityModel.swift#HeatmapModel.readout | pin aa5f6adc2a7480b0
+UI/StreakBadge.swift#StreakBadge.body | Popover/PopoverActivityModel.swift#StreakModel.make | pin 22ad5a0351c2c687
+# The recap (stage 7 Task 13): RecapContent is copied whole (driven against the original by PopoverRecapEquivalenceTests+Mac); the card and
+# the screen are SwiftUI bodies rebuilt as RecapCardModel / RecapCardPart / RecapPageModel / RecapNavigation (the model tests and the
+# equivalence test evaluate the bodies' expressions; these pins catch a change the corpus misses).
+UI/UsageRecapView.swift#RecapContent | Popover/PopoverRecapContent.swift#PopoverRecapContent | RecapContent=PopoverRecapContent
+UI/UsageRecapView.swift#RecapCard.body | Popover/RecapCardPart.swift#RecapCardPart | pin 08095d8a75333bd2
+UI/UsageRecapView.swift#RecapCard.header | Popover/RecapCardPart.swift#RecapCardPart | pin 7ee16bcc0f8ea23b
+UI/UsageRecapView.swift#RecapCard.lens | Popover/RecapCardPart.swift#RecapCardPart | pin 68029d281a6fd3c4
+UI/UsageRecapView.swift#RecapCard.screen | Popover/PopoverRecapContent.swift#RecapCardModel | pin 4bdde63c127fe92e
+UI/UsageRecapView.swift#RecapCard.deltaChip | Popover/PopoverRecapContent.swift#RecapCardModel | pin 1862d1ba9fdfd8d9
+UI/UsageRecapView.swift#RecapCard.meters | Popover/PopoverRecapContent.swift#PopoverRecapMetrics | pin 5071325d6bf4db59
+UI/UsageRecapView.swift#RecapCard.meter | Popover/PopoverRecapContent.swift#PopoverRecapMetrics | pin e0b4fb93ba359565
+UI/UsageRecapView.swift#RecapCard.readout | Popover/RecapCardPart.swift#RecapCardPart | pin 71ae30923f9e518b
+UI/UsageRecapView.swift#RecapCard.graduateStrip | Popover/RecapCardPart.swift#RecapCardPart | pin 1d4143c31638785a
+UI/UsageRecapView.swift#RecapScreen.body | Popover/PopoverRecapContent.swift#RecapPageModel | pin ac09eb1678ba61bd
+# --- stage 7 Task 9: the companion header (begin) ---
+# Text twins: the header's pure rules read as the Mac's (CompanionHeaderModel.swift, EvoLineLayout.swift).
+UI/CompanionView.swift#CompanionHeader.progressDetail | Popover/CompanionHeaderModel.swift#CompanionHeaderModel.progressDetail
+UI/CompanionView.swift#CompanionHeader.statusLine | Popover/CompanionHeaderModel.swift#CompanionHeaderBuilder.statusLine
+UI/CompanionView.swift#CompanionHeader.eggImminent | Popover/CompanionHeaderModel.swift#CompanionHeaderBuilder.eggImminent
+UI/CompanionView.swift#CompanionHeader.statusLine | Tests/PokeTokenBarTests/PopoverTwinEquivalenceTests+Mac.swift#MacCompanionOracle.statusLine
+UI/CompanionView.swift#CompanionHeader.eggImminent | Tests/PokeTokenBarTests/PopoverTwinEquivalenceTests+Mac.swift#MacCompanionOracle.eggImminent
+UI/CompanionView.swift#rarityColor | Popover/CompanionHeaderModel.swift#CompanionBadges.rarityColor | green=systemGreen, blue=systemBlue, orange=systemOrange, gray=systemGray
+UI/Badge.swift#PokemonType.hex | Popover/CompanionHeaderModel.swift#PopoverPokemonType.hex
+UI/PokemonNameLabel.swift#PokemonNameItem | Popover/CompanionHeaderModel.swift#PopoverNameItem
+UI/PokemonNameLabel.swift#PokemonNameText.text | Popover/CompanionHeaderModel.swift#PopoverNameText.text
+UI/CompanionView.swift#EvoLineView.rowWidth | Popover/EvoLineLayout.swift#EvoLineLayout.rowWidth
+UI/CompanionView.swift#EvoLineView.needsScroll | Popover/EvoLineLayout.swift#EvoLineLayout.needsScroll
+UI/CompanionView.swift#EvoLineView.scrollAffordance | Popover/EvoLineLayout.swift#EvoLineLayout.scrollAffordance
+UI/CompanionView.swift#EvoLineView.effectiveContentWidth | Popover/EvoLineLayout.swift#EvoLineLayout.effectiveContentWidth
+UI/CompanionView.swift#EvoLineView.canScrollBack | Popover/EvoLineLayout.swift#EvoLineLayout.canScrollBack
+UI/CompanionView.swift#EvoLineView.canScrollForward | Popover/EvoLineLayout.swift#EvoLineLayout.canScrollForward
+UI/CompanionView.swift#EvoLineView.pageTarget | Popover/EvoLineLayout.swift#EvoLineLayout.pageTarget
+UI/CompanionView.swift#EvoLineView.dexLinkTarget | Popover/EvoLineLayout.swift#EvoLineLayout.dexLinkTarget
+# Pinned view bodies rebuilt as values or drawing (a change fails here until the model, the parts and their tests follow).
+UI/CompanionView.swift#CompanionHeader.body | Popover/CompanionHeaderModel.swift#CompanionHeaderBuilder.lines | pin c40f5fcf223cfdc6
+UI/CompanionView.swift#CompanionHeader.playCelebrationIfNeeded | Popover/CompanionEffects.swift#CompanionCelebrationDriver.poll | pin 28482412ab9be0b3
+UI/CompanionView.swift#CompanionHeader.showCandyXPIfNeeded | Popover/CompanionEffects.swift#CompanionCelebrationDriver.poll | pin d28036ea31d5fe9a
+UI/CompanionView.swift#CompanionHeader.showMintIfNeeded | Popover/CompanionEffects.swift#CompanionCelebrationDriver.poll | pin 71e576ee5af3aa52
+UI/CompanionView.swift#CompanionHeader.syncEggWiggle | Popover/CompanionEffects.swift#CompanionCelebrationDriver.effects | pin 3939466a5e93d5c2
+UI/CompanionView.swift#LabeledProgressBar.body | Popover/GrowthBarPart.swift#GrowthBarPart.draw | pin 0dfe779fa802ddcd
+UI/CompanionView.swift#EvoLineView.body | Popover/EvoLinePart.swift#EvoLinePart.render | pin fd636b2b73ccdd13
+UI/CompanionView.swift#EvoLineView.row | Popover/EvoLinePart.swift#EvoLinePart.render | pin 33c76548f6440e80
+UI/CompanionView.swift#EvoLineView.scrollableRow | Popover/EvoLinePart.swift#EvoLinePart.render | pin 3cbdaaf258e8128c
+UI/CompanionView.swift#EvoLineView.edgeFade | Popover/EvoLinePart.swift#EvoLinePart.fade | pin 7b597b29c9737921
+UI/CompanionView.swift#EvoLineView.chevron | Popover/EvoLinePart.swift#EvoLinePart.chevronImage | pin 78ed3c74057c0305
+UI/CompanionView.swift#SpriteView.body | Popover/PopoverSpritePlayback.swift#PopoverSpriteModel.show | pin a1e0f46ae9d1974a
+# fix/windows-pet-still: the body's GIF load is this loop (a missing GIF asked again on its schedule); PopoverSpriteRetryTwinTests+Mac drives both.
+UI/SpriteLoader.swift#SpriteLoader.recoveringAnimationFrames | Popover/PopoverSpritePlayback.swift#PopoverSpriteModel.show | pin 609e856db6e28d91
+UI/Badge.swift#BadgeTint.color | Popover/CompanionHeaderModel.swift#PopoverBadgeTint.color | pin fc63b1a23f15e8a9
+UI/Badge.swift#Badge.body | Popover/CompanionHeaderPart.swift#CompanionHeaderPart.drawBadge | pin 6abfcdabbdb9f1ac
+UI/Badge.swift#TypeBadges.body | Popover/CompanionHeaderPart.swift#CompanionHeaderPart.drawBadge | pin e605cac326ffe3a6
+UI/PokemonNameLabel.swift#PokemonNameLabel.body | Platform/Windows/Popover/WinCompanionSection.swift#WinCompanionSection.loadTypeNames | pin a4e7ad7d556c9330
+# --- stage 7 Task 9: the companion header (end) ---
+
+# Task 20: the Pokédex's pure rules (the Collection tab). DexScrollPager's `step` reads NSEvent phases; its phase-less branch is
+# DexWheelPager.step (DexTwinEquivalenceTests+Mac drives both).
+UI/CompanionView.swift#DexScrollPager.pageAfterScroll | Popover/DexBrowserModel.swift#DexPaging.pageAfterScroll
+UI/CompanionView.swift#DexScrollPager.page | Popover/DexBrowserModel.swift#DexPaging.page
+UI/CompanionView.swift#DexScrollPager.direction | Popover/DexBrowserModel.swift#DexPaging.direction
+UI/CompanionView.swift#DexGridView.medalEmoji | Popover/DexBrowserModel.swift#DexBodyModel.medalEmoji
+UI/CompanionView.swift#DexSpeciesCell.tooltip | Popover/DexBrowserModel.swift#DexBodyModel.tooltip
+# Shop and Bag (stage 7 Task 19): the cards' private members that read their @State, as verbatim copies in the Mac test
+# (PopoverShopBagEquivalenceTests+Mac drives them against ShopCardRules / BagCardRules and the models), and the view bodies
+# rebuilt as values in PopoverShopModel / PopoverBagModel (the model tests pin the values on both systems).
+UI/ShopView.swift#ShopItemCard.price | Tests/PokeTokenBarTests/PopoverShopBagEquivalenceTests+Mac.swift#MacShopBagOracle.price
+UI/ShopView.swift#ShopItemCard.maxQuantity | Tests/PokeTokenBarTests/PopoverShopBagEquivalenceTests+Mac.swift#MacShopBagOracle.maxQuantity
+UI/ShopView.swift#ShopItemCard.selectedQuantity | Tests/PokeTokenBarTests/PopoverShopBagEquivalenceTests+Mac.swift#MacShopBagOracle.selectedQuantity
+UI/ShopView.swift#ShopItemCard.showsQuantity | Tests/PokeTokenBarTests/PopoverShopBagEquivalenceTests+Mac.swift#MacShopBagOracle.showsQuantity
+UI/ShopView.swift#ShopItemCard.quantityName | Tests/PokeTokenBarTests/PopoverShopBagEquivalenceTests+Mac.swift#MacShopBagOracle.quantityName
+UI/BagView.swift#ItemCard.selectedCandyCount | Tests/PokeTokenBarTests/PopoverShopBagEquivalenceTests+Mac.swift#MacShopBagOracle.selectedCandyCount
+UI/BagView.swift#ItemCard.canUse | Tests/PokeTokenBarTests/PopoverShopBagEquivalenceTests+Mac.swift#MacShopBagOracle.canUse
+UI/BagView.swift#ItemCard.effectHint | Tests/PokeTokenBarTests/PopoverShopBagEquivalenceTests+Mac.swift#MacShopBagOracle.effectHint
+UI/BagView.swift#ItemCard.performUse | Tests/PokeTokenBarTests/PopoverShopBagEquivalenceTests+Mac.swift#MacShopBagOracle.performUse
+UI/ShopView.swift#ShopView.body | Popover/PopoverShopModel.swift#ShopPageModel.make | pin 7fc99110b6310cd3
+UI/ShopView.swift#ShopView.walletHeader | Popover/PopoverShopModel.swift#ShopPageModel.make | pin bdfa5a8b9ff1451e
+UI/ShopView.swift#ShopItemCard.body | Popover/PopoverShopModel.swift#ShopPageModel.item | pin 1c38c15ec9c8a8c8
+UI/ShopView.swift#ShopItemCard.buyControls | Popover/PopoverShopModel.swift#ShopCardRules.priceLine | pin c85925830a99b4a3
+UI/ShopView.swift#ShopItemCard.buyNow | Popover/PopoverShopModel.swift#ShopPageModel.item | pin 73ab910b3a096f10
+UI/ShopView.swift#EggCard.body | Popover/PopoverShopModel.swift#ShopPageModel.egg | pin e1ca90fd2aea24db
+UI/ShopView.swift#EggCard.controls | Popover/PopoverShopModel.swift#ShopPageModel.egg | pin 9c0cf6ed0fb0897c
+UI/ShopView.swift#EggCard.commit | Popover/PopoverShopModel.swift#ShopPageModel.egg | pin ab3877b02d344d00
+UI/BagView.swift#BagView.body | Popover/PopoverBagModel.swift#BagPageModel.make | pin 8b11dc91f842f171
+UI/BagView.swift#BagView.emptyState | Popover/PopoverBagModel.swift#BagPageModel.make | pin 07a187e96ede5809
+UI/BagView.swift#ItemCard.body | Popover/PopoverBagModel.swift#BagPageModel.candyPreview | pin 8774b086acc1503f
+UI/BagView.swift#ItemCard.useControls | Popover/PopoverBagModel.swift#BagCardRules.effectHint | pin b114e565bb762df2
+UI/BagView.swift#ItemCard.useNow | Popover/PopoverBagModel.swift#BagCardRules.performUse | pin bd065911b3fd6e42
+# --- stage 7 Task 22: the floating pet (begin) ---
+# FloatingPetController's pure statics, PetClickRouter and the frame cap as renamed copies (PopoverPetTwinEquivalenceTests+Mac
+# drives the Mac's and the twin over the same inputs).
+UI/FloatingPetPanel.swift#FloatingPetController.isClick | Popover/FloatingPetRules.swift#FloatingPetRules.isClick
+UI/FloatingPetPanel.swift#FloatingPetController.panelSize | Popover/FloatingPetRules.swift#FloatingPetRules.panelSize | NSSize=CGSize
+UI/FloatingPetPanel.swift#FloatingPetController.panelOrigin | Popover/FloatingPetRules.swift#FloatingPetRules.panelOrigin | NSPoint=CGPoint
+UI/FloatingPetPanel.swift#FloatingPetController.petOrigin | Popover/FloatingPetRules.swift#FloatingPetRules.petOrigin | NSPoint=CGPoint
+UI/FloatingPetPanel.swift#FloatingPetController.RunPhase | Popover/FloatingPetRules.swift#FloatingPetRules.RunPhase
+UI/FloatingPetPanel.swift#FloatingPetController.resolveMove | Popover/FloatingPetRules.swift#FloatingPetRules.resolveMove
+UI/FloatingPetPanel.swift#FloatingPetController.allowsMotion | Popover/FloatingPetRules.swift#FloatingPetRules.allowsMotion
+UI/FloatingPetPanel.swift#FloatingPetController.ClickAction | Popover/FloatingPetRules.swift#FloatingPetRules.ClickAction
+UI/FloatingPetPanel.swift#FloatingPetController.clickAction | Popover/FloatingPetRules.swift#FloatingPetRules.clickAction
+UI/FloatingPetPanel.swift#FloatingPetController.prayerRefreshMilestone | Popover/FloatingPetRules.swift#FloatingPetRules.prayerRefreshMilestone
+UI/FloatingPetPanel.swift#FloatingPetController.shouldRefreshOnPrayer | Popover/FloatingPetRules.swift#FloatingPetRules.shouldRefreshOnPrayer
+UI/FloatingPetPanel.swift#FloatingPetController.shouldAnimate | Popover/FloatingPetRules.swift#FloatingPetRules.shouldAnimate
+UI/FloatingPetPanel.swift#PetClickRouter | Popover/FloatingPetRules.swift#PopoverPetClickRouter | FloatingPetController=FloatingPetRules
+UI/SpriteAnimation.swift#GIFDecoder.capFrameRate | Popover/PopoverSpriteFrameCap.swift#PopoverSpriteFrameCap.capFrameRate | NSImage=PlazaImage
+# Mac bodies rebuilt as values (pins): the placement, the pointer, the menu, what the pet shows, what its clicks do.
+UI/FloatingPetPanel.swift#FloatingPetController.targetFrame | Popover/FloatingPetRules.swift#FloatingPetPlacement.targetFrame | pin 95f7d806727db1dd
+UI/FloatingPetPanel.swift#FloatingPetController.defaultPetOrigin | Popover/FloatingPetRules.swift#FloatingPetPlacement.defaultPetOrigin | pin 507d6be8bf676de1
+UI/FloatingPetPanel.swift#FloatingPetController.panelDidMove | Popover/FloatingPetRules.swift#FloatingPetPlacement.savedPetOrigin | pin 25965d027816ae13
+UI/FloatingPetPanel.swift#FloatingPetController.sync | Popover/FloatingPetRules.swift#FloatingPetModel.make | pin 6b0c8ceeb5edf0c3
+UI/FloatingPetPanel.swift#FloatingPetController.show | Popover/FloatingPetRules.swift#FloatingPetModel.make | pin 541b8522521e3056
+UI/FloatingPetPanel.swift#FloatingPetController.hide | Platform/Windows/Popover/WinFloatingPet.swift#WinFloatingPet.hideWindow | pin 2f930c862fda182a
+UI/FloatingPetPanel.swift#FloatingPetView.body | Popover/FloatingPetRules.swift#FloatingPetModel.make | pin 6e9fff91ba13ca7f
+UI/FloatingPetPanel.swift#FloatingPetController.petClicked | Popover/FloatingPetRules.swift#FloatingPetActions.petClicked | pin 929a45e970deca62
+UI/FloatingPetPanel.swift#FloatingPetController.makeHostingView | Popover/FloatingPetRules.swift#FloatingPetActions.perform | pin d7261108d473d337
+UI/FloatingPetPanel.swift#PetHostingView.mouseDown | Popover/FloatingPetRules.swift#FloatingPetPointer.down | pin ad1e017bd5a3c8de
+UI/FloatingPetPanel.swift#PetHostingView.mouseDragged | Popover/FloatingPetRules.swift#FloatingPetPointer.drag | pin d01ab5cd927117e2
+UI/FloatingPetPanel.swift#PetHostingView.mouseUp | Popover/FloatingPetRules.swift#FloatingPetPointer.up | pin 1943758499896f6c
+UI/FloatingPetPanel.swift#PetHostingView.showContextMenu | Popover/FloatingPetRules.swift#FloatingPetMenu.entries | pin cc6ef9f2f042b145
+PokeTokenBarApp.swift#AppDelegate.openPopover | Platform/Windows/Popover/WinFloatingPet.swift#WinFloatingPet.openPopover | pin c75042de6088a90a
+# --- stage 7 Task 22 (end) ---
+# --- stage 7 Task 23: the pet's bubbles, hearts, prayers, hover and agent activity (begin) ---
+# Pure statics as renamed copies (PopoverPetExtrasTwinEquivalenceTests+Mac drives the Mac's and the twin over the same inputs).
+UI/FloatingPetPanel.swift#FloatingPetController.bubble | Popover/FloatingPetExtras.swift#FloatingPetBubbles.bubble
+UI/FloatingPetPanel.swift#FloatingPetController.heartsShowing | Popover/FloatingPetExtras.swift#FloatingPetBubbles.heartsShowing
+UI/FloatingPetPanel.swift#FloatingPetController.isShowingBubble | Popover/FloatingPetExtras.swift#FloatingPetBubbles.isShowingBubble
+UI/FloatingPetPanel.swift#FloatingPetController.nativeToolTip | Popover/FloatingPetExtras.swift#FloatingPetBubbles.nativeToolTip
+UI/FloatingPetPanel.swift#FloatingPetController.shouldPopEvent | Popover/FloatingPetExtras.swift#FloatingPetBubbles.shouldPopEvent
+UI/FloatingPetPanel.swift#FloatingPetController.runPanelOrigin | Popover/FloatingPetExtras.swift#FloatingPetAgentMotion.runPanelOrigin | NSPoint=CGPoint, NSSize=CGSize, NSRect=CGRect
+UI/FloatingPetPanel.swift#FloatingPetController.runsToCursor | Popover/FloatingPetExtras.swift#FloatingPetAgentMotion.runsToCursor | RunPhase=FloatingPetRules.RunPhase
+UI/FloatingPetPanel.swift#FloatingPetController.shouldBob | Popover/FloatingPetExtras.swift#FloatingPetAgentMotion.shouldBob
+UI/FloatingPetPanel.swift#FloatingPetView.hoverTooltip | Popover/FloatingPetExtras.swift#FloatingPetHoverText.hoverTooltip
+UI/FloatingPetPanel.swift#PettingDetector | Popover/FloatingPetExtras.swift#FloatingPetPetting | PettingDetector=FloatingPetPetting
+UI/FloatingPetPanel.swift#PrayerEmojiLayer.emojiSize | Popover/FloatingPetExtras.swift#FloatingPetPrayerArt.emojiSize
+UI/SpriteLoader.swift#SpriteVisibleTop.bubbleTopOffset | Popover/FloatingPetExtras.swift#FloatingPetHeartArt.bubbleTopOffset
+UI/SpriteLoader.swift#SpriteVisibleTop.inset | Popover/FloatingPetExtras.swift#FloatingPetVisibleTop.inset | SpriteFit=PopoverSpriteFit
+UI/SpriteLoader.swift#SpriteVisibleTop.anchorFraction | Popover/FloatingPetExtras.swift#FloatingPetVisibleTop.anchorFraction
+# The text cuts with the measurement as a parameter (the Mac measures with AppKit): the same strings with the Mac's
+# measurement passed in (the equivalence test).
+UI/FloatingPetPanel.swift#FloatingPetController.bubbleContent | Popover/FloatingPetExtras.swift#FloatingPetBubbles.bubbleContent | pin 1419ab2a079589c0
+UI/FloatingPetPanel.swift#FloatingPetController.agentTitle | Popover/FloatingPetExtras.swift#FloatingPetBubbles.agentTitle | pin 020544b9b6b149a1
+UI/FloatingPetPanel.swift#FloatingPetController.fittedBubbleBody | Popover/FloatingPetExtras.swift#FloatingPetBubbles.fittedBubbleBody | pin 3d87f5148e799dd1
+UI/FloatingPetPanel.swift#FloatingPetController.bubbleBody | Popover/FloatingPetExtras.swift#FloatingPetBubbles.bubbleBody | pin d51f143c3008df84
+# Mac bodies rebuilt as values or as the Windows window's work (pins): the agent flow, the transients, the art.
+UI/FloatingPetPanel.swift#FloatingPetController.handleAgentEvent | Popover/FloatingPetExtras.swift#FloatingPetAgentFlow.handle | pin 3fc3426848d39d20
+UI/FloatingPetPanel.swift#FloatingPetController.agentDidChange | Popover/FloatingPetExtras.swift#FloatingPetAgentFlow.handle | pin 3ea8a140ffee7fc1
+UI/FloatingPetPanel.swift#FloatingPetController.returnHome | Popover/FloatingPetExtras.swift#FloatingPetAgentFlow.handle | pin 6ee003273551cefb
+UI/FloatingPetPanel.swift#FloatingPetController.expireAgentActivity | Popover/FloatingPetExtras.swift#FloatingPetAgentFlow.expire | pin 4686611221e725d5
+UI/FloatingPetPanel.swift#FloatingPetController.resetAgent | Popover/FloatingPetExtras.swift#FloatingPetAgentFlow.syncReset | pin b442defddeb5d78a
+UI/FloatingPetPanel.swift#FloatingPetController.beginRun | Popover/FloatingPetExtras.swift#FloatingPetAgentFlow.beganRun | pin 8af66f3856564910
+UI/FloatingPetPanel.swift#FloatingPetController.measureSpeechBubbleLayout | Popover/FloatingPetExtras.swift#FloatingPetBubbles.SpeechBubbleLayout | pin 074f528359cb98a6
+UI/FloatingPetPanel.swift#SpeechBubbleView | Popover/FloatingPetExtras.swift#FloatingPetBubbleChrome | pin e92829c70de132dd
+UI/FloatingPetPanel.swift#AgentBob | Popover/FloatingPetExtras.swift#FloatingPetAgentMotion | pin 96285c6d6f10d4fd
+UI/FloatingPetPanel.swift#PrayerBurst | Popover/FloatingPetExtras.swift#FloatingPetPrayerArt | pin c8d4b0618b27f845
+UI/FloatingPetPanel.swift#PrayerEmojiFrame | Popover/FloatingPetExtras.swift#FloatingPetPrayerArt.particle | pin 44f17c08a0496a7d
+UI/FloatingPetPanel.swift#HeartBubbleArt | Popover/FloatingPetExtras.swift#FloatingPetHeartArt | pin 3fd7c5cef17a45d0
+UI/FloatingPetPanel.swift#FloatingPetView.body | Popover/FloatingPetExtras.swift#FloatingPetPrayerArt.wobbleAngle | pin 6e9fff91ba13ca7f
+# The hearts' anchor over a bitmap instead of an NSImage (the scan over the same pixels; the equivalence test) and the one
+# anchor for an animation; the hearts' cells. The bubble's and the hearts' entrance (FloatingPetPopIn, SwiftUI's spring)
+# are the view body's transitions: the body's pin above guards them.
+UI/SpriteLoader.swift#SpriteVisibleTop.scanOpaqueTopFraction | Popover/FloatingPetExtras.swift#FloatingPetVisibleTop.opaqueTopFraction | pin 3c7c2dd984a32579
+UI/CompanionView.swift#SpriteView.visibleTop | Popover/FloatingPetExtras.swift#FloatingPetVisibleTop | pin b680a4fe017b8fba
+UI/FloatingPetPanel.swift#HeartBubbleView | Popover/FloatingPetExtras.swift#FloatingPetHeartArt | pin 64f9e7a2e0b41684
+# --- stage 7 Task 23 (end) ---
+
+# Task 21: the detail page's derived members (which form, appearance and individual the page shows), copied verbatim.
+UI/CompanionView.swift#PokemonDetailView.formSpecies | Popover/DexDetailModel.swift#DexDetailResolver.formSpecies
+UI/CompanionView.swift#PokemonDetailView.displayedSpecies | Popover/DexDetailModel.swift#DexDetailResolver.displayedSpecies
+UI/CompanionView.swift#PokemonDetailView.allIndividuals | Popover/DexDetailModel.swift#DexDetailResolver.allIndividuals
+UI/CompanionView.swift#PokemonDetailView.displayedShiny | Popover/DexDetailModel.swift#DexDetailResolver.displayedShiny
+UI/CompanionView.swift#PokemonDetailView.individuals | Popover/DexDetailModel.swift#DexDetailResolver.individuals
+UI/CompanionView.swift#PokemonDetailView.individual | Popover/DexDetailModel.swift#DexDetailResolver.individual
+UI/CompanionView.swift#PokemonDetailView.individualLabel | Popover/DexDetailModel.swift#DexDetailResolver.individualLabel
+UI/CompanionView.swift#PokemonDetailView.formPickerColumns | Popover/DexDetailModel.swift#DexDetailResolver.formPickerColumns

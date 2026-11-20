@@ -1,5 +1,4 @@
 import Foundation
-import CoreGraphics
 
 /// 광장 지도를 CC0 타일셋(`PlazaResources.tileSheet()`, 16픽셀 칸)으로 조합해 한 장으로 만든다.
 /// 시트 그림 1픽셀은 월드 2x2 픽셀로 그린다(보간 없음). 한 칸 = 월드 32픽셀.
@@ -41,7 +40,7 @@ enum PlazaTileArt {
     }
 
     /// 지도 전체를 한 장으로(width*32 × height*32). 광장을 열 때 한 번 만든다.
-    static func mapImage(_ map: PlazaMap, sheet: CGImage, tallGrass: PlazaTallGrassArt? = nil) -> CGImage {
+    static func mapImage(_ map: PlazaMap, sheet: PlazaImage, tallGrass: PlazaTallGrassArt? = nil) -> PlazaImage {
         var canvas = Canvas(width: map.width * tile, height: map.height * tile, sheet: SheetPixels(sheet))
         for y in 0..<map.height {
             for x in 0..<map.width {
@@ -153,18 +152,9 @@ enum PlazaTileArt {
     private struct SheetPixels {
         let width: Int, height: Int
         let bytes: [UInt8]
-        init(_ image: CGImage) {
+        init(_ image: PlazaImage) {
             width = image.width; height = image.height
-            var data = [UInt8](repeating: 0, count: width * height * 4)
-            let (w, h) = (width, height)
-            data.withUnsafeMutableBytes { buf in
-                let ctx = CGContext(data: buf.baseAddress, width: w, height: h, bitsPerComponent: 8,
-                                    bytesPerRow: w * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-                ctx.interpolationQuality = .none
-                ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
-            }
-            bytes = data
+            bytes = image.pixels.bytes
         }
     }
 
@@ -211,25 +201,16 @@ enum PlazaTileArt {
             }
         }
 
-        func image() -> CGImage {
-            let provider = CGDataProvider(data: Data(bytes) as CFData)!
-            let info = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
-            return CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32,
-                           bytesPerRow: width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                           bitmapInfo: info, provider: provider, decode: nil,
-                           shouldInterpolate: false, intent: .defaultIntent)!
+        func image() -> PlazaImage {
+            var bitmap = PlazaBitmap(width: width, height: height)
+            bitmap.bytes = bytes
+            return PlazaImage(bitmap: bitmap)
         }
     }
 
     /// 시트가 없을 때 쓰는 단색 잔디 지도.
-    static func plainGrassImage(_ map: PlazaMap) -> CGImage {
-        let w = map.width * tile, h = map.height * tile
-        var bytes = [UInt8](repeating: 255, count: w * h * 4)
-        for i in stride(from: 0, to: bytes.count, by: 4) { bytes[i] = 0x6D; bytes[i + 1] = 0xB9; bytes[i + 2] = 0x55 }
-        let provider = CGDataProvider(data: Data(bytes) as CFData)!
-        return CGImage(width: w, height: h, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: w * 4,
-                       space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                       bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
-                       provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)!
+    static func plainGrassImage(_ map: PlazaMap) -> PlazaImage {
+        PlazaImage(bitmap: PlazaBitmap(width: map.width * tile, height: map.height * tile,
+                                       fill: PlazaRGBA(r: 0x6D, g: 0xB9, b: 0x55, a: 255)))
     }
 }

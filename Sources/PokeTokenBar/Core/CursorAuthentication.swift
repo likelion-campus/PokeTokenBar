@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// Shared Cursor login for dashboard cookies and API2 Bearer requests. Refreshed tokens stay in
 /// memory; Cursor owns its SQLite login. A changed login/root invalidates the refreshed credential.
@@ -126,7 +129,7 @@ enum CursorAuthentication {
     private static func perform(_ request: URLRequest) async -> (Data, Int)? {
         guard AppEnv.allowsLiveLimitsFetch else { return nil }
         do {
-            let (data, response) = try await session.data(for: request)
+            let (data, response) = try await PlatformCompat.oneShotData(for: request, session: session)
             return (data, (response as? HTTPURLResponse)?.statusCode ?? 0)
         } catch {
             AppLog.write("cursor auth: token refresh transport failed")

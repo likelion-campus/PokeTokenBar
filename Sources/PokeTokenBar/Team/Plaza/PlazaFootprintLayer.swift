@@ -1,27 +1,25 @@
-import SpriteKit
+import Foundation
 
 /// 눈 위의 발자국. 시간은 `advance`가 준 간격으로만 흐르고 타이머와 액션은 없다.
 /// 노드는 풀에서 꺼내 쓰고, 상한을 넘으면 가장 오래된 것부터 지운다.
-@MainActor final class PlazaFootprintLayer: SKNode {
+@MainActor final class PlazaFootprintLayer {
     static let maxFootprints = 160
 
     private struct Mark {
-        let node: SKSpriteNode
+        let node: PlazaSprite
         var age: TimeInterval
     }
 
+    let root = PlazaNode()
     private let worldHeight: CGFloat
     private var marks: [Mark] = []
-    private var pool: [SKSpriteNode] = []
+    private var pool: [PlazaSprite] = []
 
     /// 지도 위, 키 큰 풀 덮개(0.05)·그림자(0.5)·캐릭터 아래.
     init(worldHeight: CGFloat) {
         self.worldHeight = worldHeight
-        super.init()
-        zPosition = 0.04
+        root.zPosition = 0.04
     }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     var count: Int { marks.count }
     var alphas: [CGFloat] { marks.map { $0.node.alpha } }
@@ -29,10 +27,8 @@ import SpriteKit
     func stamp(_ prints: [PlazaSnow.Footprint]) {
         for p in prints {
             if marks.count >= Self.maxFootprints { recycle(marks.removeFirst().node) }
-            let node = pool.popLast() ?? SKSpriteNode()
-            node.color = SKColor(red: CGFloat((PlazaSnow.footprintHex >> 16) & 0xFF) / 255,
-                                 green: CGFloat((PlazaSnow.footprintHex >> 8) & 0xFF) / 255,
-                                 blue: CGFloat(PlazaSnow.footprintHex & 0xFF) / 255, alpha: 1)
+            let node = pool.popLast() ?? PlazaSprite()
+            node.color = PlazaColor(hex: PlazaSnow.footprintHex)
             node.size = p.alongX ? CGSize(width: PlazaSnow.footprintLength, height: PlazaSnow.footprintWidth)
                                  : CGSize(width: PlazaSnow.footprintWidth, height: PlazaSnow.footprintLength)
             // 왼쪽 아래 모서리를 시트 픽셀(월드 2픽셀)에 맞춘다. 가운데를 맞추면 6픽셀 변이 홀수 픽셀에 앉는다.
@@ -41,7 +37,7 @@ import SpriteKit
                                     y: ((worldHeight - p.center.y - node.size.height / 2) / 2).rounded() * 2)
             node.alpha = 1
             node.isHidden = false
-            if node.parent == nil { addChild(node) }
+            if node.parent == nil { root.addChild(node) }
             marks.append(Mark(node: node, age: 0))
         }
     }
@@ -67,7 +63,7 @@ import SpriteKit
         marks = []
     }
 
-    private func recycle(_ node: SKSpriteNode) {
+    private func recycle(_ node: PlazaSprite) {
         node.isHidden = true
         pool.append(node)
     }

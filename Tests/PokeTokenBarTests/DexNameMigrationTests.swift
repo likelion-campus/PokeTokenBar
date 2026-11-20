@@ -131,7 +131,7 @@ final class DexNameMigrationTests: XCTestCase {
         XCTAssertEqual(store.state.dex[0].names?[2]?["it"], "Ivysaur")
     }
 
-    func testNewNamesSkipMigrationButEmptyAndMissingSpeciesRetry() throws {
+    func testNewNamesSkipMigrationButEmptyAndMissingSpeciesRetry() async throws {
         var fresh = entry()
         XCTAssertFalse(fresh.needsNamesRefresh)
         let roundTrip = try JSONDecoder().decode(DexEntry.self, from: JSONEncoder().encode(fresh))

@@ -1,0 +1,25 @@
+name: idle-rules
+# The idle gate's rules that read the app log (scripts/windows/idle-rules.ps1) against real lines and the numbers of 14 full runs:
+# the wake attribution's parsing and the animated windows' judgment.
+on:
+  push:
+    paths:
+      - 'scripts/windows/idle-rules*'
+      - 'scripts/windows/idle-gate.ps1'
+      - '.github/workflows/idle-rules.yml'
+  pull_request:
+    paths:
+      - 'scripts/windows/idle-rules*'
+      - 'scripts/windows/idle-gate.ps1'
+      - '.github/workflows/idle-rules.yml'
+permissions:
+  contents: read
+jobs:
+  rules:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
+      - name: Idle rules
+        shell: pwsh
+        run: ./scripts/windows/idle-rules.tests.ps1

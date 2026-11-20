@@ -141,7 +141,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         popover.behavior = .transient
         popover.delegate = self   // didShow: outside-click monitor; didClose: 호스팅 해제 + 모니터 제거
 
-        teamRuntime = TeamRuntime(settings: teamSettings, companion: companion)
+        teamRuntime = TeamRuntime(settings: teamSettings, companion: companion, transport: BonjourTeamTransport())
         plaza = PlazaWindowController(
             preferences: PlazaPreferences(), loader: PlazaCharacterLoader(),
             nickname: { [teamSettings] in TeamSettings.validNickname(teamSettings.nickname) ?? "" },
