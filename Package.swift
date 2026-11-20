@@ -31,16 +31,19 @@ func macOnlyList(_ dir: String) -> [String] {
         .map { $0.hasSuffix("/") ? String($0.dropLast()) : $0 }  // SwiftPM matches directories without the slash
 }
 
-let package: Package
-if windowsBuild {
-    package = Package(
-        name: "PokeTokenBar",
-        platforms: [.macOS(.v14)],  // ignored on Windows; keeps the Mac pre-check on the same deployment target
-        products: onWindows ? [.executable(name: "PokeTokenBarWin", targets: ["PokeTokenBarWin"])] : [],
-        dependencies: [
-            .package(url: "https://github.com/apple/swift-crypto.git", from: "3.0.0"),
-        ],
-        targets: [
+// The pieces below are typed constants, not one expression: the Mac CI's toolchain (Xcode 16) gives up type-checking
+// the whole `Package(...)` call when the arrays and the `onWindows ? … : …` choices sit inside it.
+let windowsOnlyDependencies: [Target.Dependency] = ["CWinShim", "CTeamTLS", "CPlazaD2D"]
+let sharedTargetDependencies: [Target.Dependency] =
+    [.product(name: "Crypto", package: "swift-crypto"), "CSQLite"] + (onWindows ? windowsOnlyDependencies : [])
+let windowsLinkerSettings: [LinkerSetting] = [
+                    .linkedLibrary("dnsapi"), .linkedLibrary("iphlpapi"), .linkedLibrary("user32"),
+                    .linkedLibrary("shell32"), .linkedLibrary("advapi32"), .linkedLibrary("ws2_32"),
+                    .linkedLibrary("dbghelp"),
+                    .linkedLibrary("imm32"), .linkedLibrary("dwmapi"), .linkedLibrary("wtsapi32"), .linkedLibrary("comctl32"),
+                ]
+let sharedTargetLinkerSettings: [LinkerSetting] = onWindows ? windowsLinkerSettings : []
+let sharedTargets: [Target] = [
             .target(
                 name: "CSQLite",  // vendored amalgamation; the Mac app links the system sqlite3 instead
                 path: "Sources/CSQLite",
@@ -53,17 +56,11 @@ if windowsBuild {
             ),
             .target(
                 name: "PokeTokenBar",
-                dependencies: [.product(name: "Crypto", package: "swift-crypto"), "CSQLite"]
-                    + (onWindows ? ["CWinShim", "CTeamTLS", "CPlazaD2D"] : []),
+                dependencies: sharedTargetDependencies,
                 path: "Sources/PokeTokenBar",
                 exclude: macOnlyList("Sources/PokeTokenBar") + ["mac-only.txt", "Resources"],
                 swiftSettings: [.define("PTB_SHARED_ONLY")],  // Platform.current takes the stubs in the shared build
-                linkerSettings: onWindows ? [
-                    .linkedLibrary("dnsapi"), .linkedLibrary("iphlpapi"), .linkedLibrary("user32"),
-                    .linkedLibrary("shell32"), .linkedLibrary("advapi32"), .linkedLibrary("ws2_32"),
-                    .linkedLibrary("dbghelp"),
-                    .linkedLibrary("imm32"), .linkedLibrary("dwmapi"), .linkedLibrary("wtsapi32"), .linkedLibrary("comctl32"),
-                ] : []
+                linkerSettings: sharedTargetLinkerSettings
             ),
             .testTarget(
                 name: "PokeTokenBarTests",
@@ -71,7 +68,8 @@ if windowsBuild {
                 path: "Tests/PokeTokenBarTests",
                 exclude: macOnlyList("Tests/PokeTokenBarTests") + ["mac-only.txt", "shared-floor.txt", "Fixtures"]
             ),
-        ] + (onWindows ? [
+        ]
+let windowsOnlyTargets: [Target] = [
             .target(
                 name: "CWinShim",  // Win32/WIC glue the Swift side cannot import; placeholder until the Windows services land
                 path: "Sources/CWinShim",
@@ -109,8 +107,21 @@ if windowsBuild {
                 path: "Sources/PokeTokenBarWin",
                 linkerSettings: [.unsafeFlags(["-Xlinker", "/SUBSYSTEM:WINDOWS", "-Xlinker", "/ENTRY:mainCRTStartup"])]
             ),
-        ] : []),
-        cxxLanguageStandard: onWindows ? .cxx17 : nil  // the later WIC file in CWinShim
+        ]
+let windowsProducts: [Product] = [.executable(name: "PokeTokenBarWin", targets: ["PokeTokenBarWin"])]
+let windowsCxxStandard: CXXLanguageStandard? = onWindows ? .cxx17 : nil  // the later WIC file in CWinShim
+
+let package: Package
+if windowsBuild {
+    package = Package(
+        name: "PokeTokenBar",
+        platforms: [.macOS(.v14)],  // ignored on Windows; keeps the Mac pre-check on the same deployment target
+        products: onWindows ? windowsProducts : [],
+        dependencies: [
+            .package(url: "https://github.com/apple/swift-crypto.git", from: "3.0.0"),
+        ],
+        targets: sharedTargets + (onWindows ? windowsOnlyTargets : []),
+        cxxLanguageStandard: windowsCxxStandard
     )
 } else {
     package = Package(
