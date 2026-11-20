@@ -3343,3 +3343,12 @@ read_when:
 - **영구 캡처:** `collection.paging` 이 **실제 창의 픽셀**로 활성 화살표(1쪽의 다음, 8쪽의 이전)를 잰다 — 3:1 미만이면 실패(고치기 전 1.00:1, 고친 뒤 11.7:1). 항목 창이 덮는 칸·항목만 그린 값·항목을 숨긴 값을 한 줄에 남긴다.
   `popover.glyphContrast` 에 쪽 넘김(1·4·8쪽)과 결함쌍 `popover.glyphContrast.pagerFault`, Mac 쪽 `DexPagerInkTests`(1.5:1/3:1 하한, 화살표를 지우면 실패 확인), 스캔 테스트(리터럴 흑백 잉크·글리프 화살표 금지).
 - **규칙:** 화면에 보여야 하는 것은 부품 모델이나 오프스크린 그림이 아니라 **창에서 캡처한 픽셀**로 잰다 — 그림이 맞아도 그 위의 창이 덮을 수 있다.
+
+## 셀프테스트·CI·개발 인스턴스가 운영 시트에 썼다 (usage-reporter 최종 리뷰, 2026-11-20)
+- **증상:** 사용량 리포터가 팀이 준비된 앱이면 어디서든 회사 구글 시트로 POST 한다. CI 전용 윈도 셀프테스트 `settings.teamTransport` 는 앱의 `teamSettings` 를 몇 초간 준비 상태로 만들고, 그 사이 저장소 갱신이 일어나면 픽스처 멤버가 **운영 시트**에 기록된다. `scripts/plaza-dev.sh` 의 디버그 빌드(`PTB_STATE_DIR` + 준비된 팀)도 개발자를 이중 집계한다.
+- **직접 원인:** 리포터를 시작하는 조건이 `TeamSettings.isReady` 하나뿐이었다. "이 인스턴스가 진짜 설치인가"를 묻는 조건이 없었다.
+- **왜 못 걸렀나:** 리포터 테스트는 가짜 전송을 주입하므로 실제 전송이 나가는 경로를 한 번도 밟지 않았다. 셀프테스트는 팀 설정을 건드리는 검사와 리포터가 같은 앱 안에 산다는 사실을 아무도 겹쳐 보지 않았다 — 태스크별 리뷰는 각자 파일 안에서만 봤고, 최종 전체 브랜치 리뷰에서 처음 드러났다.
+- **부류 스윕:** 앱의 바깥 쓰기는 이것 하나다. `UpdateChecker`·PokeAPI·한도 조회·팀 연결은 읽기이거나 팀원 사이 로컬 통신이다. 시트 리다이렉트 확인(`WindowsSelftestUsageReport`)은 지원하지 않는 버전으로 보내 시트가 거절하고 아무것도 쓰지 않는다.
+- **고침:** `UsageReporter.shouldRun(stateDirectory:defaultDirectory:isSelftest:)` — 상태 폴더가 기본이고 셀프테스트 실행이 아닐 때만 리포터를 만든다(맥·윈도 공통). 아니면 리포터가 nil 이라 설정 줄은 "아직 보내지 않았어요" 로 읽힌다.
+- **영구 캡처:** `UsageReporterTests.testOnlyARealInstallOutsideASelftestReports`(네 분기), `windows-app.yml` 의 "No usage report from selftests" 단계 — 수집한 앱 로그에 `usage report sent|rejected|failed` 줄이 있으면 실패한다.
+- **규칙:** 셀프테스트·CI·개발 인스턴스는 운영 서비스에 쓰지 않는다. 바깥으로 쓰는 코드를 더할 때는 그것을 켜는 조건에 "진짜 설치인가"를 넣고, 그 조건을 CI 가 로그로 한 번 더 확인하게 한다.

@@ -58,6 +58,12 @@ final class UsageReporter {
 
     var isLoopRunning: Bool { loopTask != nil }
 
+    /// Only the real install reports: a test, CI or dev instance (own state directory, or a selftest run) must
+    /// never write to the live sheet.
+    static func shouldRun(stateDirectory: URL, defaultDirectory: URL, isSelftest: Bool) -> Bool {
+        !isSelftest && TeamSettings.suiteName(for: stateDirectory, defaultDirectory: defaultDirectory) == nil
+    }
+
     init(settings: TeamSettings, defaults: UserDefaults, appVersion: String, platform: String,
          inputs: @escaping @MainActor () -> UsageReportInputs,
          transport: any UsageReportTransport = HTTPUsageReportTransport(),
@@ -78,6 +84,7 @@ final class UsageReporter {
     /// Call once, when the app launches.
     func start() {
         let time = now()
+        _ = ledger.secret  // made and saved at launch, before any send
         observe()
         ledger.recordPresence(now: time, team: armed.stamp)
         if armed.ready {
@@ -217,7 +224,8 @@ final class UsageReporter {
                 AppLog.write("usage report failed: the reply was not JSON")
             }
         } catch {
-            AppLog.write("usage report failed: \(type(of: error))")
+            let cause = (error as? URLError).map { "URLError \($0.code.rawValue)" } ?? "\(type(of: error))"
+            AppLog.write("usage report failed: \(cause)")
         }
     }
 }

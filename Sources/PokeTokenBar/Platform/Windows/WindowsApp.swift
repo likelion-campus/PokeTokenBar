@@ -474,7 +474,11 @@ private func crtExit(_ code: Int32) -> Never {
     }
 
     /// The usage reporter (the Mac's `usageReporter` after `teamRuntime.start()`), on the team settings' own store.
+    /// Not for a selftest run or a state folder of its own (CI fixtures, dev instances): those never write to the live
+    /// sheet. The settings caption then reads "not sent yet", as on the Mac.
     private func startUsageReporter() {
+        guard UsageReporter.shouldRun(stateDirectory: AppStatePaths.directory(), defaultDirectory: Self.defaultStateDirectory,
+                                      isSelftest: arguments.contains("--selftest")) else { return }
         let reporter = UsageReporter(
             settings: teamSettings, defaults: teamSettingsDefaults,
             appVersion: WindowsInstall.version ?? "0", platform: "windows",

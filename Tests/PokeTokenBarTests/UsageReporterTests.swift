@@ -422,7 +422,63 @@ final class UsageReporterTests: XCTestCase {
         let day = try XCTUnwrap(try days(data).first)
         XCTAssertEqual(day["team"] as? String, teamA.usageTeamID)
         XCTAssertEqual(day["teamLabel"] as? String, nameA)
-        // The current team still owns the limits.
+        // The day belongs to team A, which had it longer, not to the team that is current now.
         XCTAssertNotEqual(day["team"] as? String, rig.settings.code?.usageTeamID)
+    }
+
+    // MARK: secret, gate, relaunch
+
+    func testStartMakesAndSavesTheDeviceSecretBeforeAnySend() async throws {
+        let (rig, _) = makeRig("usage.reporter.secret.\(UUID())", ready: false)
+        XCTAssertNil(rig.defaults.string(forKey: "usageReport.secret"))
+        rig.reporter.start()
+        XCTAssertEqual(rig.defaults.string(forKey: "usageReport.secret")?.count, 43)
+    }
+
+    func testOnlyARealInstallOutsideASelftestReports() async throws {
+        let standard = URL(fileURLWithPath: "/home/u/PokeTokenBar")
+        let own = URL(fileURLWithPath: "/tmp/dev-state")
+        XCTAssertTrue(UsageReporter.shouldRun(stateDirectory: standard, defaultDirectory: standard, isSelftest: false))
+        XCTAssertFalse(UsageReporter.shouldRun(stateDirectory: standard, defaultDirectory: standard, isSelftest: true))
+        XCTAssertFalse(UsageReporter.shouldRun(stateDirectory: own, defaultDirectory: standard, isSelftest: false))
+        XCTAssertFalse(UsageReporter.shouldRun(stateDirectory: own, defaultDirectory: standard, isSelftest: true))
+    }
+
+    func testDaysWithTheTeamOffStayUnsentAcrossARelaunch() async throws {
+        let suite = "usage.reporter.relaunch.\(UUID())"
+        let day = 86_400.0
+        let dates = ["2026-11-16", "2026-11-17", "2026-11-18", "2026-11-19"]
+        let snap = ProviderSnapshot(
+            providerID: "codex", displayName: "codex", today: nil, activeBlock: nil, weekTotal: nil, monthTotal: nil,
+            recentDaily: dates.map {
+                DailyUsage(date: $0, inputTokens: 10, outputTokens: 1, cacheCreationTokens: 0,
+                           cacheReadTokens: 0, totalTokens: 11, totalCost: 0)
+            }, fetchedAt: noon)
+        let box = Box(UsageReportInputs(snapshots: [snap], claudeAccounts: [], codex: nil, codexReadAt: nil))
+
+        // Day 1: the team is on, then turned off.
+        let (a, _) = makeRig(suite, inputs: box)
+        a.reporter.start()
+        a.clock.date = noon.addingTimeInterval(600)
+        a.settings.isEnabled = false
+        await eventually("the observation saw the team go off") { a.reporter.settingsChangesHandled >= 1 }
+
+        // Day 4: a new launch on the same defaults, the team still off, then turned on.
+        let defaults = a.defaults
+        let settings = TeamSettings(defaults: defaults)
+        XCTAssertFalse(settings.isReady)
+        let clock = Clock(noon.addingTimeInterval(3 * day))
+        let transport = FakeUsageTransport()
+        let b = UsageReporter(settings: settings, defaults: defaults, appVersion: "9.9.9", platform: "mac",
+                              inputs: { box.value }, transport: transport, now: { clock.date }, timeZone: seoul)
+        b.start()
+        clock.date = clock.date.addingTimeInterval(600)
+        settings.isEnabled = true
+        await eventually("the second launch saw the team come on") { b.settingsChangesHandled >= 1 }
+        await b.tick()
+
+        let bodies = await transport.bodies
+        let sent = try days(try XCTUnwrap(bodies.first)).compactMap { $0["date"] as? String }
+        XCTAssertEqual(Set(sent), ["2026-11-16", "2026-11-19"])
     }
 }

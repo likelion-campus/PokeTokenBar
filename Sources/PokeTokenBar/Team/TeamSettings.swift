@@ -157,10 +157,14 @@ final class TeamSettings {
         return "ptb.team." + hash
     }
 
-    static func defaultStore() -> UserDefaults {
-        let defaultDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+    /// The Mac's default state directory: `defaultStore()` uses `.standard` for it.
+    static var macDefaultDirectory: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("PokeTokenBar", isDirectory: true)
-        guard let name = suiteName(for: AppStatePaths.directory(), defaultDirectory: defaultDir) else { return .standard }
+    }
+
+    static func defaultStore() -> UserDefaults {
+        guard let name = suiteName(for: AppStatePaths.directory(), defaultDirectory: macDefaultDirectory) else { return .standard }
         return UserDefaults(suiteName: name) ?? .standard
     }
 
