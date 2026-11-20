@@ -24,3 +24,4 @@ collection-en.png | windows-app | ui-dump/collection/collection-grid-en.png
 pokemon-detail-en.png | windows-app | ui-dump/collection/collection-detail-top-en.png
 floating-pet.png | windows-app | ui-dump/pet/pet-hatched-192.png
 home-pet-eye-en.png | windows-app | ui-dump/pet/home-footer-eye-on-en.png
+settings-team-report.png | ui-settings | settings-en-100-team-joined-bottom.png | en-only
