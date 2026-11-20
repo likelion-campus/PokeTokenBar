@@ -3352,3 +3352,11 @@ read_when:
 - **고침:** `UsageReporter.shouldRun(stateDirectory:defaultDirectory:isSelftest:)` — 상태 폴더가 기본이고 셀프테스트 실행이 아닐 때만 리포터를 만든다(맥·윈도 공통). 아니면 리포터가 nil 이라 설정 줄은 "아직 보내지 않았어요" 로 읽힌다.
 - **영구 캡처:** `UsageReporterTests.testOnlyARealInstallOutsideASelftestReports`(네 분기), `windows-app.yml` 의 "No usage report from selftests" 단계 — 수집한 앱 로그에 `usage report sent|rejected|failed` 줄이 있으면 실패한다.
 - **규칙:** 셀프테스트·CI·개발 인스턴스는 운영 서비스에 쓰지 않는다. 바깥으로 쓰는 코드를 더할 때는 그것을 켜는 조건에 "진짜 설치인가"를 넣고, 그 조건을 CI 가 로그로 한 번 더 확인하게 한다.
+
+## 저장소 전체 스캔 테스트가 병합 뒤 CI 에서야 걸렸다 (usage-reporter #311, 2026-11-20)
+- **증상:** #311 병합 뒤 맥 CI 와 윈도 테스트 shard 1 이 실패했다. ① `TeamReleaseScriptTests.testTeamGuideHoldsNoPrivateDetails` — 새 TEAM.md 문장 "이메일의 도메인(@ 뒷부분)" 의 `@` (TEAM.md 에는 `@` 가 하나도 없어야 한다). ② `WindowsSeamScanTests.testNoRequestOutsideTheSeamInCodeThatRunsOnWindows` — 새 셀프테스트 `WindowsSelftestUsageReport` 가 `WinHTTPFetch.data(for:)` 를 직접 불렀다.
+- **직접 원인:** ① 문서 규칙(개인정보처럼 보이는 글자 금지)을 모른 채 설명용으로 `@` 를 썼다. ② 클라이언트 인증서 점검을 본떴는데, 그 파일은 대조군 때문에 직접 호출 허용 목록에 있고 새 파일은 아니었다.
+- **왜 못 걸렀나:** 계획의 검증 단계가 태스크마다 필터 몇 개(`UsageReport*`, `SharedSourcesScanTests`, `SettingsModelTests` …)만 돌렸다. 새 파일·문서가 걸릴 수 있는 저장소 전체 스캔(`*ScanTests`, `TeamReleaseScriptTests`)은 아무 태스크도 돌리지 않았다. 리뷰어도 스캔 규칙을 모른 채 모델 파일과의 일치만 봤다. 린 흐름대로 CI 를 기다리지 않고 병합했으므로 CI 가 마지막 그물이었다(설계대로 작동).
+- **부류 스윕:** 같은 PR 의 다른 새 네트워크 호출은 `HTTPUsageReportTransport`(이음매 `PlatformCompat.oneShotData` 를 씀) 하나다. TEAM.md·README 의 새 문장에 `@`·`.local` 은 더 없다.
+- **고침:** TEAM.md 는 "(예: likelion.net)". 셀프테스트는 리포터와 같은 이음매(`PlatformCompat.oneShotData`, 점검용 세션의 10 s/15 s 설정)로 보낸다 — 앱의 실제 경로를 확인하게 되어 더 맞다. `WindowsSeamScanTests.routedSites` 에 두 호출 지점을 올렸다.
+- **규칙:** 공용 코드에 네트워크 호출을 더하거나 TEAM.md·README·`scripts/team-release.sh` 를 고치는 브랜치는 PR 전에 `swift test --filter 'ScanTests|TeamReleaseScriptTests'` 를 한 번 돌린다. 계획을 쓸 때 이 줄을 해당 태스크의 검증 단계에 넣는다.
