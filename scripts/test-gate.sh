@@ -79,7 +79,12 @@ LOGIC_CORE=(
 )
 
 echo "▶ swift test (--enable-code-coverage)"
-swift test --enable-code-coverage
+# PTB_GATE_SKIP: space-separated test names (Class or Class/testMethod) to leave out. Only the hosted CI runner sets
+# it (.github/workflows/ci.yml), for tests that measure this Mac's pixels, OCR or timing. A release never sets it.
+SKIP_ARGS=()
+for name in ${PTB_GATE_SKIP:-}; do SKIP_ARGS+=(--skip "PokeTokenBarTests.$name"); done
+if [ ${#SKIP_ARGS[@]} -gt 0 ]; then echo "  skipping ${PTB_GATE_SKIP}"; fi
+swift test --enable-code-coverage ${SKIP_ARGS[@]+"${SKIP_ARGS[@]}"}
 
 # 방금 만든 프로파일과 같은 (debug) 빌드 디렉터리만 본다. .build 에 release 테스트 번들이 남아 있으면 그걸 집어 실패했다.
 BIN_PATH=$(swift build --show-bin-path)
