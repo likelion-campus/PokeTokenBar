@@ -53,6 +53,18 @@ import SwiftUI
             host.layoutSubtreeIfNeeded()
         }
         var size: CGSize { host.fittingSize }
+        /// A `ScrollView` takes the system's scroller style, and a Mac with no trackpad (a hosted CI runner) answers "always show scroll
+        /// bars": its legacy scroller takes 17 points off the content width and every row lays out differently from the panel's,
+        /// which has none. The originals here are the overlay-scroller Mac's, so pin that style (then let the layout settle).
+        func useOverlayScrollers() {
+            func each(_ view: NSView) {
+                if let scroll = view as? NSScrollView { scroll.scrollerStyle = .overlay }
+                view.subviews.forEach(each)
+            }
+            each(host)
+            host.needsLayout = true
+            host.layoutSubtreeIfNeeded()
+        }
         func capture() throws -> CGImage {
             host.layoutSubtreeIfNeeded()
             let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))

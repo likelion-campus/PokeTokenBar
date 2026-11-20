@@ -65,7 +65,12 @@ final class SecretSeamTests: XCTestCase {
         let store = SessionKeyStore(fileURL: dir.appendingPathComponent("session-key.json"))
         let credential = SessionKeyCredential(key: "sk-ant-sid02-" + String(repeating: "m", count: 60), organizationID: "org-mac")
         try store.save(credential)
-        XCTAssertEqual(try Data(contentsOf: store.fileURL), try JSONEncoder().encode(credential))
+        // Plain JSON of the credential. Not byte-equal to a second `JSONEncoder().encode`: the key order of an unsorted encoder is
+        // not stable (swift-foundation), and the runner's two encodes came out as two orders of the same 110 bytes.
+        let onDisk = try Data(contentsOf: store.fileURL)
+        XCTAssertEqual(try JSONDecoder().decode(SessionKeyCredential.self, from: onDisk), credential)
+        XCTAssertEqual(try JSONSerialization.jsonObject(with: onDisk) as? [String: String],
+                       ["key": credential.key, "organizationID": "org-mac"], "plain JSON, exactly these two fields")
         let mode = (try FileManager.default.attributesOfItem(atPath: store.fileURL.path)[.posixPermissions] as? NSNumber)?.int16Value
         XCTAssertEqual(mode, 0o600)
         XCTAssertEqual(store.load(), credential)

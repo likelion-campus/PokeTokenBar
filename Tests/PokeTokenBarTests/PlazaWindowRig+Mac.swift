@@ -72,6 +72,19 @@ private struct RigNoSprites: PlazaSpriteFetching {
 
     func flush() async { for _ in 0..<20 { await Task.yield() } }
 
+    /// Waits for `condition`, up to `seconds`. A hosted runner renders several times slower than a Mac, so a fade that ends 1.1 s after the
+    /// last scroll there ends later here; a test about "it does end" waits for the end instead of sleeping for the Mac's duration.
+    func wait(upTo seconds: Double = 10, until condition: () -> Bool) async throws {
+        let deadline = ContinuousClock.now + .seconds(seconds)
+        while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
+    }
+
+    /// The window follows the system's scroller style, and a Mac with no trackpad (a CI runner) answers "always show scroll bars":
+    /// the thumb then stays and no hold/fade timer ever runs. A test about those timers pins the overlay scrollers a trackpad Mac has.
+    func useOverlayScrollers() {
+        for case let panel as any PlazaScrollIndicating in hud.panels { panel.scrollIndicator.alwaysVisible = false }
+    }
+
     func host(_ id: PlazaPanelID) -> PlazaPanelHostView? {
         container.subviews.compactMap { $0 as? PlazaPanelHostView }.first { $0.panelID == id }
     }

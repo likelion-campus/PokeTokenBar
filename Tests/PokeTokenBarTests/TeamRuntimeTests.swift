@@ -80,11 +80,14 @@ final class TeamRuntimeTests: XCTestCase {
 
     // MARK: - Focus
 
-    /// Real time: teammates drop a focus end that is already past by their own clock.
+    /// Real time: teammates drop a focus end that is already past by their own clock. XCTest builds every test's instance up
+    /// front, so a stored `Date()` is the suite's start; on a slow runner the suite is more than 25 minutes old by the time these
+    /// tests run, and the 25-minute focus they start was already over for the teammate. `focusingNode` sets it to now.
     private var focusNow = Date()
 
     /// A node whose plaza sits at the campfire, with a notifier posting to a fake.
     private func focusingNode() async -> (a: RuntimeNode, b: RuntimeNode, plaza: PlazaWindowController, poster: RuntimePoster) {
+        focusNow = Date()
         let code = newCode()
         let a = RuntimeNode(hub: hub, code: code, nickname: "가")
         let b = RuntimeNode(hub: hub, code: code, nickname: "나")

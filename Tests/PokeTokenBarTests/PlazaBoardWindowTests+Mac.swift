@@ -204,6 +204,7 @@ import XCTest
     func testOpeningAndClosingNeverRelayoutsTheHostAndTheIndicatorEndsItsTimers() async throws {
         let rig = try await rig(open: false)
         defer { rig.close() }
+        rig.useOverlayScrollers()
         let host = try XCTUnwrap(rig.host(.board))
         let passes = host.layoutPassesForTesting, invalidations = host.intrinsicInvalidationsForTesting
         for i in 0..<6 {
@@ -222,7 +223,7 @@ import XCTest
         for _ in 0..<20 { _ = try rig.panelTakesScroll(.board, at: CGPoint(x: 170, y: 200), dy: -6); await rig.flush() }
         XCTAssertGreaterThanOrEqual((rig.hud.renderCounts[.board] ?? 0) - base, 20, "a render per scroll step that moved")
         XCTAssertTrue(panel.scrollIndicator.isTimerRunning)
-        try await Task.sleep(for: .seconds(1.6))
+        try await rig.wait { !panel.scrollIndicator.isTimerRunning }
         XCTAssertFalse(panel.scrollIndicator.isTimerRunning)
         let idle = rig.hud.renderCounts[.board] ?? 0
         try await Task.sleep(for: .seconds(1))

@@ -84,6 +84,8 @@ import SwiftUI
         let theFeed = feed(c)
         let b = Rig.Before(LegacyPlazaOverlayView(model: model, feed: theFeed, myMemberID: "me"), viewport: c.viewport, scale: scale, fill: true)
         await Rig.settle()
+        b.useOverlayScrollers()
+        await Rig.settle()
         var scrolled: CGFloat = 0
         if c.scroll > 0, let sv = findScroll(b.host) {
             let maxY = max(0, (sv.documentView?.frame.height ?? 0) - sv.contentView.bounds.height)
