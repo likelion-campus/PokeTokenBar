@@ -481,6 +481,8 @@ final class WindowsSeamScanTests: XCTestCase {
         "Core/SpriteStore.swift": 3,                  // sprites, items, egg
         "Platform/InstallerReleaseFeed.swift": 1,     // release feed on Windows
         "Team/Plaza/PlazaIconStore.swift": 1,         // plaza icons
+        "Team/UsageReport/UsageReporter.swift": 1,    // the usage report POST, about hourly while the team is on
+        "Platform/Windows/WindowsSelftestUsageReport.swift": 1, // selftest: the same POST's redirect on the real host
     ]
 
     static func directRequestFiles(in files: [URL], root: URL) throws -> Set<String> {

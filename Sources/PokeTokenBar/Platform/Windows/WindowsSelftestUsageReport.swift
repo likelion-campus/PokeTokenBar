@@ -7,6 +7,8 @@ import FoundationNetworking
 /// Google's real redirect works on WinHTTP. The probe body `{"v":0}` is answered with `bad_version` before the sheet takes a lock
 /// or writes anything. Like `net.clientCertificateOptional`, only "our answer is wrong" fails (`UsageReportProbe.classify`);
 /// the network, a proxy or the host being unavailable passes as unverified (the rule is on `classify`). 10 s per request, 15 s for the whole fetch.
+/// It goes through `PlatformCompat.oneShotData`, the seam the reporter itself uses, so it checks the app's own route
+/// (WinHTTP, or URLSession where the seam keeps it) rather than WinHTTP alone.
 extension WindowsSelftest {
     @MainActor static func usageReportRedirectCheck(_ r: Recorder) async {
         let name = "net.usageReportRedirect"
@@ -21,9 +23,11 @@ extension WindowsSelftest {
         request.httpBody = UsageReportProbe.body
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForResource = clientCertificateCheckDeadline
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
         let outcome: Result<(status: Int, body: Data, finalHost: String?), URLError>
         do {
-            let (data, response) = try await WinHTTPFetch.data(for: request, configuration: configuration)
+            let (data, response) = try await PlatformCompat.oneShotData(for: request, session: session)
             outcome = .success((status: (response as? HTTPURLResponse)?.statusCode ?? -1, body: data, finalHost: response.url?.host))
         } catch let error as URLError {
             outcome = .failure(error)
