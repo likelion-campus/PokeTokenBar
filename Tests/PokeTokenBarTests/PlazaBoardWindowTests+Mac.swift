@@ -204,6 +204,7 @@ import XCTest
     func testOpeningAndClosingNeverRelayoutsTheHostAndTheIndicatorEndsItsTimers() async throws {
         let rig = try await rig(open: false)
         defer { rig.close() }
+        rig.useOverlayScrollers()
         let host = try XCTUnwrap(rig.host(.board))
         let passes = host.layoutPassesForTesting, invalidations = host.intrinsicInvalidationsForTesting
         for i in 0..<6 {

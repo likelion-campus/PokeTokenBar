@@ -178,6 +178,7 @@ import XCTest
     func testItRendersOnlyForChangesAndTheIndicatorsTimersEndAfterTheFade() async throws {
         let rig = try PlazaWindowRig()
         defer { rig.close() }
+        rig.useOverlayScrollers()
         fill(rig, 50)
         rig.controller.toggleChatLog()
         await rig.flush()

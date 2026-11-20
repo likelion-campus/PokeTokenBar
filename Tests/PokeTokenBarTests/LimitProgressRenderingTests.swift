@@ -135,6 +135,7 @@ final class LimitProgressRenderingTests: XCTestCase {
         let trackHeight = Double(paintedRows(column: trackOnlyColumn, darkerThan: 0.98)) / scale
         let markerHeight = Double(paintedRows(column: markerColumn, darkerThan: 0.6)) / scale
 
+        print("PROBE-LIMIT scale \(scale) px \(rep.pixelsWide)x\(rep.pixelsHigh) marker col \(markerColumn): " + (0..<rep.pixelsHigh).map { String(format: "%.2f", brightness(x: markerColumn, y: $0)) }.joined(separator: " ") + " | track col: " + (0..<rep.pixelsHigh).map { String(format: "%.2f", brightness(x: trackOnlyColumn, y: $0)) }.joined(separator: " "))
         XCTAssertGreaterThan(trackHeight, 0, "트랙이 칠해져야 아래 비교가 뜻을 가진다")
         XCTAssertEqual(markerHeight, trackHeight + 4, accuracy: 1,
                        "눈금은 트랙 위아래로 2pt 씩만 물려야 한다 (트랙 \(trackHeight)pt, 눈금 \(markerHeight)pt)")

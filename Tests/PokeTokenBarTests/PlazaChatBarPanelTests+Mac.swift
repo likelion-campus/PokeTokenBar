@@ -43,7 +43,13 @@ import AppKit
             XCTAssertEqual(topLeft(input.emojiButton.frame, in: view), bar.emojiButtonRect, "😀 button, open=\(open)")
             if open {
                 let buttons = input.emojiPanelButtons.map { topLeft($0.convert($0.bounds, to: view), in: view) }
-                XCTAssertEqual(buttons, bar.gridButtons)
+                // AppKit puts a frame on whole device pixels: x = 21.5 on a 2x window is 22 on a 1x one (a runner with no display).
+                let scale = w.backingScaleFactor
+                func onPixels(_ r: CGRect) -> CGRect {
+                    func snap(_ v: CGFloat) -> CGFloat { (v * scale).rounded() / scale }
+                    return CGRect(x: snap(r.minX), y: snap(r.minY), width: snap(r.width), height: snap(r.height))
+                }
+                XCTAssertEqual(buttons, bar.gridButtons.map(onPixels))
             }
         }
     }

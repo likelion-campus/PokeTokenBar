@@ -72,6 +72,12 @@ private struct RigNoSprites: PlazaSpriteFetching {
 
     func flush() async { for _ in 0..<20 { await Task.yield() } }
 
+    /// The window follows the system's scroller style, and a Mac with no trackpad (a CI runner) answers "always show scroll bars":
+    /// the thumb then stays and no hold/fade timer ever runs. A test about those timers pins the overlay scrollers a trackpad Mac has.
+    func useOverlayScrollers() {
+        for case let panel as any PlazaScrollIndicating in hud.panels { panel.scrollIndicator.alwaysVisible = false }
+    }
+
     func host(_ id: PlazaPanelID) -> PlazaPanelHostView? {
         container.subviews.compactMap { $0 as? PlazaPanelHostView }.first { $0.panelID == id }
     }

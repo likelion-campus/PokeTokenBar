@@ -1,0 +1,42 @@
+name: ci-probe
+on:
+  push:
+    branches: [fix/ci-runner-proof-tests]
+jobs:
+  probe:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
+      - name: Select the newest Xcode on the image
+        run: |
+          newest=$(ls -d /Applications/Xcode_*.app | grep -v -i beta | sort -V | tail -1)
+          sudo xcode-select -s "$newest/Contents/Developer"
+      - name: Build tests
+        run: swift build --build-tests
+      - name: Goldens write
+        continue-on-error: true
+        env:
+          PTB_PLAZA_GOLDENS_WRITE: "1"
+        run: swift test --skip-build --filter 'PlazaParityGoldensMacTests/testWriteParityGoldens'
+      - name: HUD images
+        continue-on-error: true
+        env:
+          PTB_LIVE_WINDOW_TESTS: "1"
+          PTB_PLAZA_HUD_OUT: ${{ runner.temp }}/hud
+        run: swift test --skip-build --filter 'PlazaBoardPanelRenderTests/testWriteBoardImages|PlazaCardPanelRenderTests/testWriteCardImages'
+      - name: Targeted tests
+        continue-on-error: true
+        env:
+          PTB_LIVE_WINDOW_TESTS: "1"
+          PTB_ZERO_USAGE_SCREENSHOT_DIR: ${{ runner.temp }}/zero
+        run: swift test --skip-build --filter 'LimitProgressRenderingTests|ZeroUsageHomeRenderingTests|TeamRuntimeTests/test(ChangingTeam|TurningTheTeamOff)|SecretSeamTests|PlazaChatBarPanelMacTests|PlazaBoardWindowTests/testOpeningAndClosing|PlazaChatLogWindowTests/testItRenders' 2>&1 | tee ${{ runner.temp }}/targeted.log
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        if: always()
+        with:
+          name: probe
+          path: |
+            ${{ runner.temp }}/hud
+            ${{ runner.temp }}/zero
+            ${{ runner.temp }}/targeted.log
+            Tests/PokeTokenBarTests/PlazaParityGoldens
+            Tests/PlazaParityGoldens
