@@ -39,8 +39,8 @@ final class UsageReporter {
     private(set) var lastSentAt: Date?
     /// Counts the settings changes the observation has dealt with. Tests wait on it.
     private(set) var settingsChangesHandled = 0
-    /// Replaces the hourly sleep in tests.
-    @ObservationIgnored var loopSleepForTesting: Duration?
+    /// Replaces the loop's sleep in tests; it receives the duration the loop asks for.
+    @ObservationIgnored var sleepForTesting: (@MainActor @Sendable (Duration) async -> Void)?
 
     @ObservationIgnored private let settings: TeamSettings
     @ObservationIgnored private let ledger: UsageReportLedger
@@ -124,16 +124,30 @@ final class UsageReporter {
 
     // MARK: - Loop
 
-    /// Runs only while the team is on. It holds the reporter weakly while it sleeps.
+    /// Runs only while the team is on. It holds the reporter weakly while it sleeps, and each cycle it
+    /// sleeps until the next send is due, so an attempt made by a refresh does not push the loop a period late.
     private func startLoop() {
-        let interval = loopSleepForTesting ?? .seconds(UsageReportPlanner.sendInterval(memberID: settings.memberID))
+        let sleeper = sleepForTesting
         loopTask = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(for: interval, tolerance: .seconds(60))
+                guard let duration = self?.nextSleep() else { return }
+                if let sleeper {
+                    await sleeper(duration)
+                } else {
+                    try? await Task.sleep(for: duration, tolerance: .seconds(60))
+                }
                 guard !Task.isCancelled, let self else { return }
                 await self.tick()
             }
         }
+    }
+
+    /// Until `lastAttemptAt + interval` on the injected clock, the whole interval when nothing was attempted yet,
+    /// and never less than a second so an overdue send cannot spin the loop.
+    private func nextSleep() -> Duration {
+        let interval = UsageReportPlanner.sendInterval(memberID: settings.memberID)
+        guard let last = lastAttemptAt else { return .seconds(interval) }
+        return .seconds(max(last.addingTimeInterval(interval).timeIntervalSince(now()), 1))
     }
 
     private func stopLoop() {

@@ -225,24 +225,73 @@ final class UsageReporterTests: XCTestCase {
         XCTAssertEqual(rig.ledger.dayTeams.map(\.seconds), [600])
     }
 
+    /// A sleep the test controls: it records what the loop asks for and waits until released.
+    private final class Sleeps: @unchecked Sendable {
+        var requested: [Duration] = []
+        var gates: [CheckedContinuation<Void, Never>] = []
+        var skipFirst = false
+        @MainActor func sleep(_ duration: Duration) async {
+            requested.append(duration)
+            if skipFirst && requested.count == 1 { return }
+            await withCheckedContinuation { gates.append($0) }
+        }
+        func releaseAll() { let all = gates; gates = []; all.forEach { $0.resume() } }
+    }
+
     func testTheLoopSendsByItselfAndStopsWhenTheReporterIsGone() async throws {
         let (rig, _) = makeRig("usage.reporter.loop.\(UUID())")
-        rig.reporter.loopSleepForTesting = .milliseconds(10)
+        let sleeps = Sleeps()
+        sleeps.skipFirst = true
+        rig.reporter.sleepForTesting = { await sleeps.sleep($0) }
         rig.reporter.start()
         await eventually("the loop sent without any refresh") { await rig.transport.bodies.count == 1 }
         rig.settings.isEnabled = false
         await eventually("the loop stopped") { !rig.reporter.isLoopRunning }
+        sleeps.releaseAll()
 
         // A reporter nobody holds is not kept alive by its sleeping loop.
         weak var weakReporter: UsageReporter?
+        let asleep = Sleeps()
         do {
             let (other, _) = makeRig("usage.reporter.loop.gone.\(UUID())")
-            other.reporter.loopSleepForTesting = .seconds(3600)
+            other.reporter.sleepForTesting = { await asleep.sleep($0) }
             other.reporter.start()
-            XCTAssertTrue(other.reporter.isLoopRunning)
+            await eventually("the loop is asleep") { asleep.gates.count == 1 }
             weakReporter = other.reporter
         }
         await eventually("the sleeping loop let the reporter go") { weakReporter == nil }
+        asleep.releaseAll()
+    }
+
+    func testARefreshInTheFirstPeriodDoesNotPushTheLoopAWholePeriodLate() async throws {
+        let (rig, _) = makeRig("usage.reporter.loopdue.\(UUID())")
+        let sleeps = Sleeps()
+        rig.reporter.sleepForTesting = { await sleeps.sleep($0) }
+        rig.reporter.start()
+        await eventually("the loop is asleep") { sleeps.requested.count == 1 }
+        XCTAssertEqual(sleeps.requested, [.seconds(rig.interval)], "nothing attempted yet: the whole interval")
+
+        // A refresh sends 10 minutes in; the loop's own schedule ends one interval after the start.
+        rig.clock.date = noon.addingTimeInterval(600)
+        await rig.reporter.storeRefreshed().value
+        rig.clock.date = noon.addingTimeInterval(rig.interval)
+        sleeps.releaseAll()
+        await eventually("the loop woke and asked for the rest") { sleeps.requested.count == 2 }
+        var count = await rig.transport.bodies.count
+        XCTAssertEqual(count, 1, "the attempt 10 minutes ago is not yet an interval old")
+        XCTAssertEqual(sleeps.requested[1], .seconds(600), "it sleeps to the due time, not another interval")
+
+        // At the due time the loop sends on its own.
+        rig.clock.date = noon.addingTimeInterval(600 + rig.interval)
+        sleeps.releaseAll()
+        await eventually("the loop sent at the due time") { await rig.transport.bodies.count == 2 }
+        await eventually("the loop slept again") { sleeps.requested.count == 3 }
+        XCTAssertEqual(sleeps.requested[2], .seconds(rig.interval))
+        count = await rig.transport.bodies.count
+        XCTAssertEqual(count, 2)
+        rig.settings.isEnabled = false
+        await eventually("the loop stopped") { !rig.reporter.isLoopRunning }
+        sleeps.releaseAll()
     }
 
     // MARK: results
