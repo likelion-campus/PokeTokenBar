@@ -396,7 +396,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private func onStoreRefreshed() {
         updateCompanion()
         companion.grantCandies(from: store.candyEligibleWindows, limitsReady: store.limitsReady)
-        usageReporter.storeRefreshed()
+        usageReporter?.storeRefreshed()
     }
 
     // MARK: 메뉴바 애니메이션
