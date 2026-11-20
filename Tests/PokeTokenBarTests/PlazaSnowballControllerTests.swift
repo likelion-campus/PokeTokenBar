@@ -1,11 +1,10 @@
 import XCTest
-import AppKit
 @testable import PokeTokenBar
 
 private struct EmptyFetcher: PlazaSpriteFetching {
-    func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: NSImage, delay: TimeInterval)] { [] }
-    func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> NSImage? { nil }
-    func egg() async -> NSImage? { nil }
+    func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: PlazaImage, delay: TimeInterval)] { [] }
+    func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> PlazaImage? { nil }
+    func egg() async -> PlazaImage? { nil }
 }
 
 /// Throwing a snowball with V and being hit by one: the controller side of snow days.
@@ -14,10 +13,10 @@ final class PlazaSnowballControllerTests: XCTestCase {
     private var hub: FakeTransportHub!
     private var dirs: [URL] = []
     private var code: TeamCode!
-    private var now = PlazaSnowballControllerTests.day(6)
+    var now = PlazaSnowballControllerTests.day(6)
     private var t: TimeInterval = 0
     private let map = PlazaMapData.map
-    private let vKey: UInt16 = 9, zKey: UInt16 = 6, spaceKey: UInt16 = 49
+    let vKey: UInt16 = 9, zKey: UInt16 = 6, spaceKey: UInt16 = 49
 
     static func day(_ day: Int, _ hour: Int = 12, _ minute: Int = 0, _ second: Int = 0) -> Date {
         PlazaWeather.gregorian.date(from: DateComponents(year: 2026, month: 11, day: day, hour: hour, minute: minute, second: second))!
@@ -36,7 +35,7 @@ final class PlazaSnowballControllerTests: XCTestCase {
         dirs = []
     }
 
-    @MainActor private struct Node {
+    @MainActor struct Node {
         let settings: TeamSettings
         let session: TeamSession
         let transport: FakeTeamTransport
@@ -82,30 +81,31 @@ final class PlazaSnowballControllerTests: XCTestCase {
                                      nickname: { "나" }, memberID: { me.settings.memberID },
                                      subject: { .init(speciesID: speciesID, isShiny: false) },
                                      myRosterEntry: { nil }, evolutionStage: { stage }, session: me.session, clock: { [unowned self] in now },
-                                     dittoLoopSleep: ParkedDitto.loopSleep, dittoSeed: { ParkedDitto.seed })
+                                     dittoLoopSleep: ParkedDitto.loopSleep, dittoSeed: { ParkedDitto.seed },
+                                     shell: PlazaHeadlessShell(), chatInput: PlazaStubChatInput())
     }
 
-    private func settle() async {
+    func settle() async {
         for _ in 0..<20 { await Task.yield() }
     }
 
-    private func run(_ scene: PlazaScene, _ seconds: TimeInterval) {
+    func run(_ scene: PlazaScene, _ seconds: TimeInterval) {
         let end = t + seconds
         scene.update(t)
         while t < end - 1e-9 { t += 0.05; scene.update(t) }
     }
 
-    private func press(_ scene: PlazaScene, _ key: UInt16) {
+    func press(_ scene: PlazaScene, _ key: UInt16) {
         scene.handleKeyDown(keyCode: key, characters: "ㅁ", isRepeat: false)
     }
 
-    @MainActor private struct World {
+    @MainActor struct World {
         let c: PlazaWindowController, me: Node, b: Node
         var scene: PlazaScene { c.scene! }
     }
 
     /// Me at `mine` facing `facing`, teammate b (when given) at `bTile`, the plaza scene seeing both.
-    private func world(me mine: TilePoint, b bTile: TilePoint? = nil, facing: PlazaDirection = .right, stage: Int = 1,
+    func world(me mine: TilePoint, b bTile: TilePoint? = nil, facing: PlazaDirection = .right, stage: Int = 1,
                        speciesID: Int? = 25) async -> World {
         let me = node("나"), b = node("가")
         let c = controller(me, start: mine, speciesID: speciesID, stage: stage)
@@ -125,9 +125,9 @@ final class PlazaSnowballControllerTests: XCTestCase {
         XCTAssertEqual(w.scene.memberTiles[w.b.id], tile, "test precondition")
     }
 
-    private func snowballs(_ n: Node) -> [TeamEmote] { n.received.emotes.filter { $0.kind == .snowball } }
+    func snowballs(_ n: Node) -> [TeamEmote] { n.received.emotes.filter { $0.kind == .snowball } }
 
-    private func p(_ x: Int, _ y: Int) -> TilePoint { TilePoint(x: x, y: y) }
+    func p(_ x: Int, _ y: Int) -> TilePoint { TilePoint(x: x, y: y) }
 
     // MARK: - Throwing
 
@@ -174,17 +174,6 @@ final class PlazaSnowballControllerTests: XCTestCase {
         await assertNothing("a tree ahead", await world(me: p(3, 12), b: p(7, 12), facing: .left))
     }
 
-    func testVThrowsOnAnyDate() async {
-        now = Self.day(7, 23, 59, 59)
-        let w = await world(me: p(10, 12), b: p(14, 12))
-        XCTAssertEqual(w.c.shortcutThrowLabel, "눈뭉치")
-        press(w.scene, vKey)
-        await settle()
-        XCTAssertEqual(snowballs(w.b).count, 1)
-        now = Self.day(20, 0, 0, 0)
-        run(w.scene, 0.1)
-        XCTAssertEqual(w.c.shortcutThrowLabel, "눈뭉치")
-    }
 
     func testVIsLimitedLikeTheOtherKeys() async {
         let w = await world(me: p(10, 12), b: p(14, 12))
@@ -221,7 +210,7 @@ final class PlazaSnowballControllerTests: XCTestCase {
         w.scene.handleKeyUp(keyCode: key)
         run(w.scene, 1.2)
         XCTAssertEqual(w.scene.walker.tile, side, "walked off, not pushed along the row")
-        XCTAssertEqual(w.scene.impactCount, 0, "no star on a tile the ball never touched")
+        XCTAssertEqual(w.scene.impactsShown, 0, "no star on a tile the ball never touched")
     }
 
     func testAHitFromOutOfLineOrTooFarOnlyBursts() async {
@@ -233,7 +222,7 @@ final class PlazaSnowballControllerTests: XCTestCase {
             w.c.showSnowball(from: w.b.id, on: w.me.id, tiles: 2, direction: direction)
             run(w.scene, 1.5)
             XCTAssertEqual(w.scene.walker.tile, me, name)
-            XCTAssertEqual(w.scene.impactCount, 1, name)
+            XCTAssertEqual(w.scene.impactsShown, 1, name)
         }
     }
 
@@ -263,7 +252,7 @@ final class PlazaSnowballControllerTests: XCTestCase {
         await place(w, from)
         w.c.showSnowball(from: w.b.id, on: w.me.id, tiles: 1, direction: d)
         run(w.scene, 1.0)
-        XCTAssertEqual(w.scene.impactCount, 1, "the impact always plays")
+        XCTAssertEqual(w.scene.impactsShown, 1, "the impact always plays")
         let moved = w.scene.walker.tile != spot
         w.c.handleClose()
         return moved
@@ -308,12 +297,12 @@ final class PlazaSnowballControllerTests: XCTestCase {
         press(w.scene, zKey)
         run(w.scene, 0.3)
         XCTAssertTrue(w.scene.isDiving, "test precondition")
-        let before = w.scene.impactCount
+        let before = w.scene.impactsShown
         w.c.showSnowball(from: w.b.id, on: w.me.id, tiles: 1, direction: .left)
         run(w.scene, 1.0)
         XCTAssertEqual(w.scene.walker.tile, p(14, 14))
-        XCTAssertEqual(w.scene.impactCount, before)
-        XCTAssertEqual(w.scene.impactCount, 0)
+        XCTAssertEqual(w.scene.impactsShown, before)
+        XCTAssertEqual(w.scene.impactsShown, 0)
     }
 
     // MARK: - Frames only a modified app sends
@@ -324,7 +313,7 @@ final class PlazaSnowballControllerTests: XCTestCase {
         XCTAssertEqual(w.scene.snowballFlightCount, 0)
         run(w.scene, 1.0)
         XCTAssertEqual(w.scene.walker.tile, p(14, 12))
-        XCTAssertEqual(w.scene.impactCount, 0)
+        XCTAssertEqual(w.scene.impactsShown, 0)
     }
 
     func testAnUnknownOrHugeTargetFliesAsAMiss() async {
@@ -333,7 +322,7 @@ final class PlazaSnowballControllerTests: XCTestCase {
         XCTAssertEqual(w.scene.snowballFlightCount, 1)
         run(w.scene, 1.0)
         XCTAssertEqual(w.scene.walker.tile, p(14, 12))
-        XCTAssertEqual(w.scene.impactCount, 0)
+        XCTAssertEqual(w.scene.impactsShown, 0)
     }
 
     func testAFloodOfSnowballsStaysUnderTheCap() async {
@@ -341,7 +330,7 @@ final class PlazaSnowballControllerTests: XCTestCase {
         for _ in 0..<500 { w.c.showSnowball(from: w.b.id, on: w.me.id, tiles: 1, direction: .right) }
         XCTAssertLessThanOrEqual(w.scene.snowballFlightCount, PlazaSnowballLayer.maxFlights)
         XCTAssertLessThanOrEqual(w.scene.snowballNodeCount, PlazaSnowballLayer.maxFlights * 8)
-        XCTAssertEqual(w.scene.impactCount, 0, "refused flights draw no impact")
+        XCTAssertEqual(w.scene.impactsShown, 0, "refused flights draw no impact")
     }
 
     // MARK: - A covered window

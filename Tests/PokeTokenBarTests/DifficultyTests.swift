@@ -129,7 +129,7 @@ final class DifficultyTests: XCTestCase {
     }
 
     /// 첫 실행 안내가 실제 부화 임계를 말하는지 — 난이도 10% 에서도 "약 5M" 으로 고정돼 있던 결함.
-    func testFirstRunEggHintShowsTheScaledHatchPoint() {
+    func testFirstRunEggHintShowsTheScaledHatchPoint() async {
         let easy = store(growth: 0.1)
         XCTAssertEqual(easy.eggHatchThreshold, 500_000)
         XCTAssertEqual(store(growth: 1.0).eggHatchThreshold, PokemonBalance.eggHatchThreshold)
@@ -218,7 +218,7 @@ final class DifficultyTests: XCTestCase {
     // MARK: 6. 클램프 — 외부에서 쓰인 쓰레기 값
 
     /// 경계값은 상수에서 파생한다 — 범위를 조정해도 테스트가 같이 따라오게(하드코딩 드리프트 방지).
-    func testGarbageDefaultsAreClamped() {
+    func testGarbageDefaultsAreClamped() async {
         let lo = PokemonBalance.difficultyRange.lowerBound
         let hi = PokemonBalance.difficultyRange.upperBound
         XCTAssertEqual(PokemonBalance.clampDifficulty(0), lo, accuracy: 1e-9)
@@ -257,14 +257,14 @@ final class DifficultyTests: XCTestCase {
 
     // MARK: 7. 슬라이더 위치 매핑 (로그) + 퍼센트 표기
 
-    func testPositionRoundTripsThroughDifficulty() {
+    func testPositionRoundTripsThroughDifficulty() async {
         for value in [0.1, 0.25, 0.5, 1.0, 1.5, 2.0] {
             let back = PokemonBalance.difficulty(atPosition: PokemonBalance.difficultyPosition(value))
             XCTAssertEqual(back, value, accuracy: value * 0.02, "value=\(value)")
         }
     }
 
-    func testPositionEndpointsMapToRangeBounds() {
+    func testPositionEndpointsMapToRangeBounds() async {
         XCTAssertEqual(PokemonBalance.difficulty(atPosition: 0),
                        PokemonBalance.difficultyRange.lowerBound, accuracy: 1e-9)
         XCTAssertEqual(PokemonBalance.difficulty(atPosition: 1),
@@ -274,7 +274,7 @@ final class DifficultyTests: XCTestCase {
     }
 
     /// 로그 슬라이더에서도 기본값(100%)으로 되돌릴 수 있어야 한다 — 스냅이 없으면 도달 불가.
-    func testDefaultIsReachableByDragging() {
+    func testDefaultIsReachableByDragging() async {
         let exactPosition = PokemonBalance.difficultyPosition(1.0)
         for offset in [-0.009, -0.005, 0.0, 0.005, 0.009] {
             XCTAssertEqual(PokemonBalance.difficulty(atPosition: exactPosition + offset), 1.0,
@@ -283,13 +283,13 @@ final class DifficultyTests: XCTestCase {
     }
 
     /// 스냅 결과는 유효숫자 2자리 — 표시가 1.0473 같은 값으로 지저분해지지 않는다.
-    func testSnapKeepsTwoSignificantDigits() {
+    func testSnapKeepsTwoSignificantDigits() async {
         XCTAssertEqual(PokemonBalance.snapDifficulty(1.234), 1.2, accuracy: 1e-9)
         XCTAssertEqual(PokemonBalance.snapDifficulty(15.7), 16, accuracy: 1e-9)
         XCTAssertEqual(PokemonBalance.snapDifficulty(0.0123), 0.012, accuracy: 1e-9)
     }
 
-    func testPercentFormatting() {
+    func testPercentFormatting() async {
         let l = L(.en)
         XCTAssertEqual(l.difficultyValue(1.0), "100%")
         XCTAssertEqual(l.difficultyValue(0.5), "50%")

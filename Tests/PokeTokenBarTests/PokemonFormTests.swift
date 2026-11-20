@@ -1,4 +1,7 @@
 import XCTest
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 @testable import PokeTokenBar
 
 private enum FormTestError: Error { case offline }
@@ -73,7 +76,7 @@ final class PokemonFormTests: XCTestCase {
 
     // MARK: Catalog
 
-    func testCatalogListsDefaultFirstWithinTheHatchableRange() {
+    func testCatalogListsDefaultFirstWithinTheHatchableRange() async {
         XCTAssertEqual(PokemonForm.catalog.count, 23)
         for (speciesID, entries) in PokemonForm.catalog {
             XCTAssertTrue(PokemonAssets.animatedSpeciesIDs.contains(speciesID))
@@ -89,7 +92,7 @@ final class PokemonFormTests: XCTestCase {
         XCTAssertFalse(PokemonForm.hasForms(speciesID: 592), "Gender differences are not forms")
     }
 
-    func testLinesCarryFormsFromTheirBaseEvenWhenTheBaseLooksTheSame() {
+    func testLinesCarryFormsFromTheirBaseEvenWhenTheBaseLooksTheSame() async {
         XCTAssertEqual(PokemonForm.formSpecies(baseID: 412), [412, 413])
         XCTAssertEqual(PokemonForm.lineForms(baseID: 412), [plant, sandy, PokemonForm("trash")])
         XCTAssertEqual(PokemonForm.formSpecies(baseID: 420), [421])
@@ -100,7 +103,7 @@ final class PokemonFormTests: XCTestCase {
         XCTAssertNil(PokemonForm.resolved(speciesID: 420, form: PokemonForm("sunshine")), "Cherubi has one look")
     }
 
-    func testFormResolvesPerSpeciesOfTheLine() {
+    func testFormResolvesPerSpeciesOfTheLine() async {
         XCTAssertEqual(PokemonForm.resolved(speciesID: 412, form: sandy), sandy)
         XCTAssertEqual(PokemonForm.resolved(speciesID: 413, form: sandy), sandy)
         XCTAssertNil(PokemonForm.resolved(speciesID: 414, form: sandy))
@@ -111,7 +114,7 @@ final class PokemonFormTests: XCTestCase {
 
     // MARK: Sprites
 
-    func testVarietyFormsUseTheVarietyPNGAndTheFormGIF() {
+    func testVarietyFormsUseTheVarietyPNGAndTheFormGIF() async {
         let base = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon"
         XCTAssertEqual(SpriteStore.spriteURL(speciesID: 492, animated: false, shiny: false, form: sky).absoluteString,
                        "\(base)/10006.png")
@@ -127,7 +130,7 @@ final class PokemonFormTests: XCTestCase {
                        "\(base)/versions/generation-v/black-white/animated/414.gif")
     }
 
-    func testCacheKeysSeparateFormsAndKeepDefaultKeys() {
+    func testCacheKeysSeparateFormsAndKeepDefaultKeys() async {
         XCTAssertEqual(SpriteStore.cacheKey(speciesID: 492, animated: false, shiny: false, form: sky), "492-sky-s")
         XCTAssertEqual(SpriteStore.cacheKey(speciesID: 492, animated: true, shiny: true, form: sky), "492-sky-sha")
         XCTAssertEqual(SpriteStore.cacheKey(speciesID: 492, animated: false, shiny: false, form: land),
@@ -157,7 +160,7 @@ final class PokemonFormTests: XCTestCase {
 
     // MARK: Saves
 
-    func testSavesWrittenBeforeGenericFormsKeepTheirUnownLetters() throws {
+    func testSavesWrittenBeforeGenericFormsKeepTheirUnownLetters() async throws {
         let json = """
         {"pendingHatchID":201,"pendingUnownForm":"k","representativeSpeciesID":201,"representativeUnownForm":"q",
          "active":{"baseID":201,"pathIDs":[201],"stageIndex":0,"usedAtStage":0,"rarity":"common","totalForms":1,
@@ -175,7 +178,7 @@ final class PokemonFormTests: XCTestCase {
         XCTAssertEqual(reencoded["representativeForm"] as? String, "q")
     }
 
-    func testStoredFormIsNormalizedAgainstTheLine() throws {
+    func testStoredFormIsNormalizedAgainstTheLine() async throws {
         let json = """
         {"active":{"baseID":412,"pathIDs":[412,413],"stageIndex":1,"usedAtStage":0,"rarity":"common",
                    "totalForms":2,"form":"sky"},
@@ -188,7 +191,7 @@ final class PokemonFormTests: XCTestCase {
 
     // MARK: Collection
 
-    func testEvolutionKeepsTheCloakAndMothimKeepsItsSingleLook() {
+    func testEvolutionKeepsTheCloakAndMothimKeepsItsSingleLook() async {
         var state = CompanionState()
         state.active = MonState(baseID: 412, pathIDs: [412, 413], stageIndex: 1, usedAtStage: 0,
                                 rarity: .common, totalForms: 2, form: sandy)
@@ -201,7 +204,7 @@ final class PokemonFormTests: XCTestCase {
         XCTAssertEqual(state.collectedForms(speciesID: 414), [])
     }
 
-    func testLineFormCountsOnlyOnceEverySpeciesShowingItIsOwned() {
+    func testLineFormCountsOnlyOnceEverySpeciesShowingItIsOwned() async {
         var state = CompanionState()
         state.dex = [burmy([412, 414], form: sandy)]
         XCTAssertFalse(state.collectedLineForms(baseID: 412).contains(sandy), "Sandy Wormadam is still missing")
@@ -210,7 +213,7 @@ final class PokemonFormTests: XCTestCase {
         XCTAssertEqual(state.collectedLineForms(baseID: 201), [])
     }
 
-    func testDetailListsOwnedFormsAndMainDexKeepsOneCell() throws {
+    func testDetailListsOwnedFormsAndMainDexKeepsOneCell() async throws {
         var state = CompanionState()
         state.dex = [burmy([412, 413], form: sandy), burmy([412, 413], form: plant, shiny: true),
                      burmy([412, 414], form: PokemonForm("trash"))]
@@ -317,7 +320,7 @@ final class PokemonFormTests: XCTestCase {
                        ["10058", "10059", "10060", "10061", "10062"], "Rotom's usual look has no official name")
     }
 
-    func testUnnamedUsualLooksUseLocalizedNormalForm() {
+    func testUnnamedUsualLooksUseLocalizedNormalForm() async {
         let names = PokemonNameDisplayStore()
         for id in [351, 479, 646, 649] {
             XCTAssertEqual(PokemonForm.label(speciesID: id, form: nil, language: .fr, names: names), "Forme Normale")
@@ -347,10 +350,4 @@ final class PokemonFormTests: XCTestCase {
         XCTAssertEqual(PokemonForm.displayName("Pikachu", speciesID: 25, form: sky, label: "Sky"), "Pikachu")
     }
 
-    func testFormPickerKeepsSevenColumnsForUnownAndWidensNamedForms() {
-        XCTAssertEqual(PokemonDetailView.formPickerColumns(formCount: 28), 7)
-        XCTAssertEqual(PokemonDetailView.formPickerColumns(formCount: 18), 6)
-        XCTAssertEqual(PokemonDetailView.formPickerColumns(formCount: 6), 4)
-        XCTAssertEqual(PokemonDetailView.formPickerColumns(formCount: 2), 2)
-    }
 }

@@ -1,5 +1,4 @@
 import XCTest
-import AppKit
 @testable import PokeTokenBar
 
 private final class Calls: @unchecked Sendable {
@@ -16,12 +15,8 @@ private final class CountingFetcher: PlazaSpriteFetching, @unchecked Sendable {
     /// A picture that loads, so the plaza's own Ditto (which a lone host now shows as soon as a teammate arrives) never joins
     /// a retry the test is counting. An instance property, not a file-scope `let`: `NSImage` is not `Sendable` in the
     /// macOS 15 SDK, so a global of it does not compile on CI (Xcode 16.4).
-    private let dittoPicture: NSImage = {
-        let ctx = CGContext(data: nil, width: 2, height: 2, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
-                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-        ctx.setFillColor(CGColor(red: 1, green: 0, blue: 1, alpha: 1))
-        ctx.fill(CGRect(x: 0, y: 0, width: 2, height: 2))
-        return NSImage(cgImage: ctx.makeImage()!, size: NSSize(width: 2, height: 2))
+    private let dittoPicture: PlazaImage = {
+        PlazaImage(bitmap: PlazaTestImages.solid(width: 2, height: 2, PlazaRGBA(r: 255, g: 0, b: 255, a: 255)))
     }()
     private let lock = NSLock()
     private var gates: [Int: CheckedContinuation<Void, Never>] = [:]
@@ -35,40 +30,35 @@ private final class CountingFetcher: PlazaSpriteFetching, @unchecked Sendable {
         c?.resume()
     }
 
-    func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: NSImage, delay: TimeInterval)] {
+    func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: PlazaImage, delay: TimeInterval)] {
         calls.add(speciesID)
         if isSlow(speciesID) { await withCheckedContinuation { park(speciesID, $0) } }
         return []
     }
-    func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> NSImage? {
+    func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> PlazaImage? {
         speciesID == PlazaDitto.speciesID ? dittoPicture : nil
     }
-    func egg() async -> NSImage? { nil }
+    func egg() async -> PlazaImage? { nil }
 }
 
 /// 앞모습은 항상 주고, 뒷모습은 `backAfter`번 실패한 뒤에 준다. nil이면 끝내 주지 않는다.
 private final class BacklessFetcher: PlazaSpriteFetching {
-    private let image: NSImage = {
-        let ctx = CGContext(data: nil, width: 2, height: 2, bitsPerComponent: 8, bytesPerRow: 0,
-                            space: CGColorSpaceCreateDeviceRGB(),
-                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-        ctx.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
-        ctx.fill(CGRect(x: 0, y: 0, width: 2, height: 2))
-        return NSImage(cgImage: ctx.makeImage()!, size: NSSize(width: 2, height: 2))
+    private let image: PlazaImage = {
+        PlazaImage(bitmap: PlazaTestImages.solid(width: 2, height: 2, PlazaRGBA(r: 255, g: 0, b: 0, a: 255)))
     }()
     private let backAfter: Int?
     private(set) var backRequests = 0
 
     init(backAfter: Int? = nil) { self.backAfter = backAfter }
 
-    func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: NSImage, delay: TimeInterval)] { [] }
-    func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> NSImage? {
+    func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: PlazaImage, delay: TimeInterval)] { [] }
+    func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> PlazaImage? {
         guard back, speciesID != PlazaDitto.speciesID else { return image }
         backRequests += 1
         if let backAfter, backRequests > backAfter { return image }
         return nil
     }
-    func egg() async -> NSImage? { nil }
+    func egg() async -> PlazaImage? { nil }
 }
 
 /// Holds the retry timer until the test fires it.
@@ -141,7 +131,8 @@ final class PlazaMembersTests: XCTestCase {
                               myRosterEntry: { nil }, session: me.session,
                               spriteRetrySleep: { d in
                                   if let retry { await retry.sleep(d) } else { try? await Task.sleep(for: d) }
-                              })
+                              },
+                              shell: PlazaHeadlessShell(), chatInput: PlazaStubChatInput())
     }
 
     /// 관찰 콜백(Task)이 돌 틈을 준다.
@@ -279,7 +270,7 @@ final class PlazaMembersTests: XCTestCase {
         XCTAssertNil(c.scene?.memberTitle(id))
     }
 
-    func testMyNatureComesFromMyEntryAndFollowsItsRefresh() {
+    func testMyNatureComesFromMyEntryAndFollowsItsRefresh() async {
         let me = node("나")
         var mine = PlazaRosterEntry(id: me.settings.memberID, nickname: "나", speciesID: 25, speciesName: "Pikachu", gender: nil,
                                     isShiny: false, presence: .online, isMe: true, nature: .calm)
@@ -287,7 +278,8 @@ final class PlazaMembersTests: XCTestCase {
                                       loader: PlazaCharacterLoader(fetcher: CountingFetcher()),
                                       nickname: { "나" }, memberID: { me.settings.memberID },
                                       subject: { .init(speciesID: 25, isShiny: false) },
-                                      myRosterEntry: { mine }, session: me.session)
+                                      myRosterEntry: { mine }, session: me.session,
+                                      shell: PlazaHeadlessShell(), chatInput: PlazaStubChatInput())
         c.prepareScene()
         XCTAssertEqual(c.scene?.myTitle, "차분한")
         mine.nature = .rash
@@ -303,7 +295,8 @@ final class PlazaMembersTests: XCTestCase {
                                       loader: PlazaCharacterLoader(fetcher: CountingFetcher()),
                                       nickname: { "나" }, memberID: { me.settings.memberID },
                                       subject: { .init(speciesID: 25, isShiny: false) },
-                                      myRosterEntry: { mine }, session: me.session)
+                                      myRosterEntry: { mine }, session: me.session,
+                                      shell: PlazaHeadlessShell(), chatInput: PlazaStubChatInput())
         let watcher = controller(other)
         c.prepareScene(); watcher.prepareScene()
         await connect(me, other)
@@ -396,7 +389,8 @@ final class PlazaMembersTests: XCTestCase {
                                       loader: PlazaCharacterLoader(fetcher: CountingFetcher()),
                                       nickname: { "나" }, memberID: { me.settings.memberID },
                                       subject: { .init(speciesID: 25, isShiny: false) },
-                                      myRosterEntry: { builds += 1; return nil }, session: me.session)
+                                      myRosterEntry: { builds += 1; return nil }, session: me.session,
+                                      shell: PlazaHeadlessShell(), chatInput: PlazaStubChatInput())
         c.prepareScene()
         let afterOpen = builds
         XCTAssertGreaterThan(afterOpen, 0)
@@ -569,13 +563,14 @@ final class PlazaMembersTests: XCTestCase {
     }
 
     /// Picking a colour saves it, paints my name at once, folds the palette, and is still there when the plaza reopens.
-    func testPickingMyNameColorPaintsMeAndIsKept() {
+    func testPickingMyNameColorPaintsMeAndIsKept() async {
         let me = node("나"), id = me.settings.memberID
         var saved: UInt32?
         let c = PlazaWindowController(preferences: PlazaPreferences(defaults: defaults()),
                                       loader: PlazaCharacterLoader(fetcher: CountingFetcher()),
                                       nickname: { "나" }, memberID: { id }, subject: { .init(speciesID: 25, isShiny: false) },
-                                      nameColor: { saved }, chooseNameColor: { saved = $0 }, session: me.session)
+                                      nameColor: { saved }, chooseNameColor: { saved = $0 }, session: me.session,
+                                      shell: PlazaHeadlessShell(), chatInput: PlazaStubChatInput())
         c.prepareScene()
         let own = PlazaNameColor.hex(forMemberID: id, chosen: nil)
         XCTAssertEqual(c.shownNameColor, own)

@@ -1,4 +1,3 @@
-import CoreGraphics
 import Foundation
 
 /// 던진 눈덩이 하나의 경로. 어디서 어느 쪽으로 날아 어디서 끝나는가만 담은 값 타입이다.
@@ -100,7 +99,7 @@ enum PlazaSnowball {
 enum PlazaSnowballArt {
     typealias Palette = [Character: (r: UInt8, g: UInt8, b: UInt8)]
     /// 그림과, 그림 한 픽셀의 월드 픽셀 수.
-    typealias Piece = (image: CGImage, scale: CGFloat)
+    typealias Piece = (image: PlazaImage, scale: CGFloat)
 
     /// 밝은 칸("W"), 어두운 칸("S"), 그림자("o").
     static func palette(_ season: PlazaSeason) -> Palette {
@@ -129,7 +128,7 @@ enum PlazaSnowballArt {
 
     /// `PlazaWeatherArt.grids(.snow)`의 눈송이 셋을 그림자와 함께 그 계절 색으로 그린다. [0]이 공이다.
     /// 여름에 `balloon`이 있으면 공은 그 그림 그대로다(월드 픽셀당 한 픽셀).
-    static func pieces(_ season: PlazaSeason = .winter, balloon: CGImage? = nil) -> [Piece] {
+    static func pieces(_ season: PlazaSeason = .winter, balloon: PlazaImage? = nil) -> [Piece] {
         var pieces: [Piece] = PlazaWeatherArt.grids(.snow).map {
             (PlazaWeatherArt.image(shaded($0), palette: palette(season)), PlazaSnowball.cell)
         }

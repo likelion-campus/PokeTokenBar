@@ -1,12 +1,11 @@
 import XCTest
-import AppKit
 @testable import PokeTokenBar
 
 /// A fetcher that never delivers, so every frame set is a placeholder and the retry chain keeps asking.
 private struct NeverDeliversFetcher: PlazaSpriteFetching {
-    func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: NSImage, delay: TimeInterval)] { [] }
-    func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> NSImage? { nil }
-    func egg() async -> NSImage? { nil }
+    func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: PlazaImage, delay: TimeInterval)] { [] }
+    func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> PlazaImage? { nil }
+    func egg() async -> PlazaImage? { nil }
 }
 
 /// The sprite retry chain used to hold the controller strongly while it waited to ask again, so a controller whose
@@ -44,7 +43,8 @@ final class PlazaControllerLifetimeTests: XCTestCase {
                                           loader: PlazaCharacterLoader(fetcher: NeverDeliversFetcher()),
                                           nickname: { "나" }, memberID: { meS.memberID },
                                           subject: { .init(speciesID: 25, isShiny: false) },
-                                          myRosterEntry: { nil }, session: me, clock: { Date() })
+                                          myRosterEntry: { nil }, session: me, clock: { Date() },
+                                          shell: PlazaHeadlessShell(), chatInput: PlazaStubChatInput())
             c.prepareScene()
             _ = hub.connect(meT, to: otherT)
             let s = try XCTUnwrap(c.scene)

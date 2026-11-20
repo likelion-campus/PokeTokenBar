@@ -1,0 +1,25 @@
+name: release-tools
+# The release helpers' unit tests (scripts/tests: team_release.py and the other Python scripts), all against fakes:
+# no gh, no network. The release Mac runs the same tests with its own python3 (3.9) before every release.
+# Informational: not a required check.
+on:
+  push:
+    paths:
+      - 'scripts/**'
+      - '.github/workflows/release-tools.yml'
+  pull_request:
+    paths:
+      - 'scripts/**'
+      - '.github/workflows/release-tools.yml'
+permissions:
+  contents: read
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
+      - name: Python
+        run: python3 --version
+      - name: Helper tests
+        run: python3 -m unittest discover -s scripts/tests -v

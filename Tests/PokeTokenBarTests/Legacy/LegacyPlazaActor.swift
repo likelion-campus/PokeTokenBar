@@ -1,0 +1,622 @@
+// Verbatim copy of Sources/PokeTokenBar/Team/Plaza/PlazaActor.swift before Track A Task 9 (base 709dee6), renamed, without
+// PlazaActorContext. The oracle for SpriteKitMirrorParityTests.testActorPlacementMatchesTheLegacyActor; deleted in Task 19.
+// Do not edit except to port a fix from main.
+@testable import PokeTokenBar
+import SpriteKit
+
+/// 광장에 서는 캐릭터 하나: 그림, 발밑 그림자, 머리 위 이름표, 프레임 순환, 텍스처 캐시.
+/// 그림과 그림자는 월드에, 이름표는 카메라 자식이라 배율과 무관하게 또렷하다.
+@MainActor final class LegacyPlazaActor {
+    /// GIF는 지연 0 또는 0.01초가 흔하다.
+    private static let minFrameDelay: TimeInterval = 0.02
+    /// 캐릭터 그림을 월드 단위로 키우는 배율. 발 위치(아래 가운데)는 그대로이고 이름·그림자는 키운 크기에 맞춘다.
+    static let characterScale: CGFloat = 1.5
+
+    private let characterNode = SKSpriteNode()
+    private let plateNode = SKSpriteNode()
+    private let shadowNode = SKSpriteNode()
+    /// 헤엄칠 때 몸이 물에 잠기는 높이에 얹는 물결 고리.
+    private let swimRingNode = SKSpriteNode()
+    /// 물에 잠긴 아랫부분(알은 몸통 전체)을 물 아래에 비치게 그리는 반투명 스프라이트. 연못 사각형으로 자르는 크롭 노드 안에 둔다.
+    private let ghostCrop = SKCropNode()
+    private let ghostNode = SKSpriteNode()
+    private let ghostMask = SKSpriteNode(color: .white, size: .zero)
+    /// 아래쪽 월드 픽셀을 잘라 낸 양(헤엄). 0이면 온전하다. 알은 자르지 않아도 0보다 크면 물에 든 것이다.
+    private var swimSink: CGFloat = 0
+    /// 알이 물에 들었다(헤엄 높이가 있는 알). 알은 자르지 않고 통째로 물빛에 잠긴다.
+    private var eggSunk: Bool { shadowIsNest && swimSink > 0 }
+    /// 알일 때 알 앞에 얹는 둥지 앞 테두리. 알이 둥지 안에 앉아 보이게 한다.
+    private let nestFrontNode = SKSpriteNode()
+    private var nestFrontImage: CGImage?
+    /// 말풍선은 이름표처럼 카메라 공간에 둔다.
+    private let emoteNode = SKSpriteNode()
+    /// 물보라에 젖었을 때 이름표 옆에 잠깐 뜨는 💧. 말풍선과 별개의 노드라 말풍선을 지우지도 가리지도 않는다.
+    private let wetNode = SKSpriteNode()
+    private var wetRemaining: TimeInterval = 0
+    private static let wetSize = CGSize(width: 16, height: 16)
+    private static let wetTexture: SKTexture = {
+        let texture = SKTexture(cgImage: PlazaPondArt.wetImage(scale: 4).cgImage)
+        texture.filteringMode = .nearest
+        return texture
+    }()
+    /// 그림자 텍스처는 크기가 바뀔 때만 다시 만든다.
+    private var shadowTextureSize: (width: Int, height: Int)?
+    /// 발밑 그림: 그림자나 알의 둥지. 기념사진도 같은 그림을 쓴다.
+    private var shadowImage: CGImage?
+    private var shadowIsNest = false
+    /// 이름판은 닉네임이나 배율이 바뀔 때만 다시 만든다.
+    private var plateKey: (nickname: String, title: String?, backing: CGFloat, color: PlazaColor)?
+    /// 말풍선을 보여 주는 시간.
+    static let emoteDuration: TimeInterval = 2.5
+    private var emoteKey: (kind: TeamEmoteKind, backing: CGFloat)?
+    private var emoteRemaining: TimeInterval = 0
+    private(set) var emoteKind: TeamEmoteKind?
+    /// 글 말풍선을 보여 주는 시간. 읽어야 하므로 이모트보다 길다. 이모트와 같은 자리를 쓰고 나중 것이 이긴다.
+    static let chatDuration: TimeInterval = 6
+    private var chatKey: (text: String, backing: CGFloat)?
+    private(set) var chatText: String?
+    private(set) var name: String
+    private(set) var title: String?
+    private(set) var nameColor: PlazaColor
+
+    /// 점프: 그림과 이름표가 위로 폴짝 뛰었다 내려온다. 그림자는 땅에 남는다.
+    static let jumpDuration: TimeInterval = 0.36
+    /// 가장 높이 떴을 때의 월드 픽셀.
+    static let jumpHeight: CGFloat = 14
+    private var jumpElapsed: TimeInterval?
+
+    /// 기도: 알이 제자리에서 좌우로 두 번 흔들리다 멎는다.
+    static let wobbleDuration: TimeInterval = 0.5
+    /// 가장 크게 기울었을 때의 각도(라디안).
+    static let wobbleAngle: CGFloat = 0.18
+    private var wobbleElapsed: TimeInterval?
+
+    /// 몸통박치기: 상대 쪽으로 잠깐 뛰어들었다 돌아온다.
+    static let lungeDuration: TimeInterval = 0.24
+    /// 가장 멀리 나갔을 때의 월드 픽셀.
+    static let lungeDistance: CGFloat = 8
+    private var lunge: (direction: PlazaDirection, elapsed: TimeInterval)?
+
+    /// 마지막 `place`가 받은 풀숲 가림 정도와 내 캐릭터 여부. 기념사진이 같은 값으로 그린다.
+    private(set) var concealment: CGFloat = 0
+    private(set) var isMeForConcealment = false
+
+    private var frames: PlazaCharacterFrames?
+    private var showingBack = false
+    private var frameIndex = 0
+    private var frameElapsed: TimeInterval = 0
+    private var textureCache: [ObjectIdentifier: SKTexture] = [:]
+
+    init(name: String, color: PlazaColor) {
+        self.name = name
+        self.nameColor = color
+        shadowNode.anchorPoint = .zero
+        shadowNode.zPosition = 0.5
+        shadowNode.isHidden = true
+        swimRingNode.texture = Self.swimRingTexture
+        swimRingNode.size = CGSize(width: 24, height: 6)   // 12×3 시트 픽셀 × 2
+        swimRingNode.isHidden = true
+        ghostNode.anchorPoint = CGPoint(x: 0.5, y: 1)
+        ghostNode.color = PlazaPondArt.waterColor.skColor
+        ghostNode.colorBlendFactor = PlazaPondArt.submergedBlend
+        ghostCrop.isHidden = true
+        ghostMask.anchorPoint = .zero
+        ghostCrop.addChild(ghostNode)
+        nestFrontNode.anchorPoint = .zero
+        nestFrontNode.isHidden = true
+        characterNode.anchorPoint = CGPoint(x: 0.5, y: 0)
+        characterNode.zPosition = 1
+        characterNode.isHidden = true
+        plateNode.anchorPoint = CGPoint(x: 0.5, y: 0)
+        plateNode.zPosition = 10
+        emoteNode.anchorPoint = CGPoint(x: 0.5, y: 0)
+        emoteNode.zPosition = 11
+        emoteNode.isHidden = true
+        wetNode.texture = Self.wetTexture
+        wetNode.size = Self.wetSize
+        wetNode.anchorPoint = CGPoint(x: 0, y: 0.5)
+        wetNode.zPosition = 11
+        wetNode.isHidden = true
+    }
+
+    func attach(world: SKNode, camera: SKCameraNode) {
+        world.addChild(shadowNode)
+        world.addChild(characterNode)
+        world.addChild(swimRingNode)
+        world.addChild(ghostCrop)
+        world.addChild(nestFrontNode)
+        camera.addChild(plateNode)
+        camera.addChild(emoteNode)
+        camera.addChild(wetNode)
+    }
+
+    func detach() {
+        shadowNode.removeFromParent()
+        characterNode.removeFromParent()
+        swimRingNode.removeFromParent()
+        ghostCrop.removeFromParent()
+        nestFrontNode.removeFromParent()
+        plateNode.removeFromParent()
+        emoteNode.removeFromParent()
+        wetNode.removeFromParent()
+    }
+
+    /// 💧를 `PlazaPond.wetDuration`초 동안 이름표 옆에 띄운다. 다시 젖으면 시간을 처음부터 잰다.
+    func showWet() {
+        wetRemaining = PlazaPond.wetDuration
+        wetNode.isHidden = false
+    }
+
+    var isWet: Bool { wetRemaining > 0 }
+
+    /// 캐릭터 위 말풍선은 모두 인사하기와 같은 큰 그림(1.5배)으로 그린다. 새 말풍선이 옛것을 바꾸고 시간을 처음부터 다시 잰다. 그림은 `place`에서 그린다.
+    func showEmote(_ kind: TeamEmoteKind) {
+        chatText = nil
+        chatKey = nil
+        emoteKind = kind
+        emoteRemaining = Self.emoteDuration
+        emoteNode.isHidden = false
+    }
+
+    func showChat(_ text: String) {
+        emoteKind = nil
+        emoteKey = nil
+        chatText = text
+        emoteRemaining = Self.chatDuration
+        emoteNode.isHidden = false
+    }
+
+    func setFrames(_ f: PlazaCharacterFrames) {
+        frames = f
+        textureCache.removeAll()
+        frameIndex = 0
+        frameElapsed = 0
+        characterNode.isHidden = false
+        shadowNode.isHidden = false
+        refreshShadow()
+        applyFrame()
+    }
+
+    func setName(_ name: String, color: PlazaColor) {
+        self.name = name
+        self.nameColor = color
+    }
+
+    /// 이름 위에 쓰는 줄(성격). nil이면 이름만 쓴다.
+    func setTitle(_ title: String?) {
+        self.title = title
+    }
+
+    func lunge(toward d: PlazaDirection) {
+        lunge = (d, 0)
+    }
+
+    func jump() {
+        jumpElapsed = 0
+    }
+
+    func wobble() {
+        wobbleElapsed = 0
+    }
+
+    /// 지금 흔들려 기운 각도(라디안). 흔들리지 않으면 0. 뒤로 갈수록 작아진다.
+    var wobbleTilt: CGFloat {
+        guard let wobbleElapsed else { return 0 }
+        let progress = min(wobbleElapsed / Self.wobbleDuration, 1)
+        return sin(progress * 4 * .pi) * (1 - progress) * Self.wobbleAngle
+    }
+
+    /// 춤: `elapsed`는 박자 격자에서 지난 시간에서 시작한다. `danceLength`를 채우면 끝난다(내 춤은 한 판, 팀원 춤은 한 판 + 여유).
+    private(set) var dance: (style: PlazaDance.Style, elapsed: TimeInterval)?
+    private var danceLength = PlazaDance.round
+    /// 춤이 시간이 다 돼 끝났다(걷기 같은 이유로 멈춘 것은 아니다). `takeFinishedDance`가 읽고 지운다.
+    private var danceFinished = false
+
+    var isDancing: Bool { dance != nil }
+
+    /// 새 춤을 시작한다. 하던 춤은 버린다. ♪는 춤추는 동안 계속 떠 있으므로 지우지 않고 그대로 이어 간다.
+    func startDance(_ style: PlazaDance.Style, offset: TimeInterval, length: TimeInterval) {
+        dance = (style, max(0, min(offset, PlazaDance.beat)))
+        danceLength = length
+        danceFinished = false
+        showDanceNotesIfFree()
+    }
+
+    func stopDance() {
+        clearDanceNotes()
+        dance = nil
+        danceFinished = false
+    }
+
+    /// 춤이 저절로 끝났으면 true를 한 번 돌려준다.
+    func takeFinishedDance() -> Bool {
+        defer { danceFinished = false }
+        return danceFinished
+    }
+
+    /// 춤추는 동안 다른 말풍선이 없으면 머리 위에 ♪를 띄운다. 시간이 다해 사라지지 않고 춤이 멈출 때 지워진다.
+    private func showDanceNotesIfFree() {
+        guard isDancing, !isBubbleShown else { return }
+        chatKey = nil   // 말풍선 노드를 ♪가 쓰므로, 같은 글이 다시 오면 글 그림을 새로 그리게 한다
+        emoteKind = .dance
+        emoteNode.isHidden = false
+    }
+
+    private func clearDanceNotes() {
+        if emoteKind == .dance { hideEmote() }
+    }
+
+    /// 말풍선(이모트나 글)이 떠 있다. 춤의 ♪도 센다.
+    var isBubbleShown: Bool { emoteKind != nil || chatText != nil }
+
+    /// 지금 걸음의 자세. 춤추지 않으면 `rest`.
+    var dancePose: PlazaDancePose {
+        guard let dance else { return .rest }
+        return PlazaDancePose.pose(dance.style, tick: PlazaDance.tick(elapsed: dance.elapsed))
+    }
+
+    /// 지금 떠 있는 높이(월드 픽셀). 땅에 있으면 0.
+    var jumpLift: CGFloat {
+        guard let jumpElapsed else { return 0 }
+        return (sin(.pi * min(jumpElapsed / Self.jumpDuration, 1)) * Self.jumpHeight).rounded()
+    }
+
+    /// 지금 뛰어든 만큼(월드 픽셀, y가 아래로). 뛰어들지 않았으면 0.
+    var lungeOffset: CGPoint {
+        guard let lunge else { return .zero }
+        let amount = (sin(.pi * min(lunge.elapsed / Self.lungeDuration, 1)) * Self.lungeDistance).rounded()
+        switch lunge.direction {
+        case .right: return CGPoint(x: amount, y: 0)
+        case .left: return CGPoint(x: -amount, y: 0)
+        case .down: return CGPoint(x: 0, y: amount)
+        case .up: return CGPoint(x: 0, y: -amount)
+        }
+    }
+
+    func animate(by dt: TimeInterval, useBack: Bool) {
+        if var d = dance {
+            d.elapsed += dt
+            if PlazaDance.isOver(elapsed: d.elapsed, length: danceLength) {
+                clearDanceNotes()
+                dance = nil
+                danceFinished = true
+            } else {
+                dance = d
+            }
+        }
+        let useBack = dancePose.back ?? useBack
+        if var l = lunge {
+            l.elapsed += dt
+            lunge = l.elapsed >= Self.lungeDuration ? nil : l
+        }
+        if let e = jumpElapsed {
+            jumpElapsed = e + dt >= Self.jumpDuration ? nil : e + dt
+        }
+        if let e = wobbleElapsed {
+            wobbleElapsed = e + dt >= Self.wobbleDuration ? nil : e + dt
+        }
+        if wetRemaining > 0 {
+            wetRemaining -= dt
+            if wetRemaining <= 0 { wetNode.isHidden = true }
+        }
+        if (emoteKind != nil && emoteKind != .dance) || chatText != nil {
+            emoteRemaining -= dt
+            if emoteRemaining <= 0 { hideEmote() }
+        }
+        showDanceNotesIfFree()   // 다른 말풍선이 사라졌는데 아직 춤추면 ♪가 돌아온다
+        if useBack != showingBack {
+            showingBack = useBack
+            frameIndex = 0
+            frameElapsed = 0
+        }
+        guard let list = currentFrames, !list.isEmpty else { return }
+        frameElapsed += dt
+        var guardCount = 0
+        while guardCount < list.count {
+            let delay = max(list[frameIndex % list.count].delay, Self.minFrameDelay)
+            guard frameElapsed >= delay else { break }
+            frameElapsed -= delay
+            frameIndex = (frameIndex + 1) % list.count
+            guardCount += 1
+        }
+        applyFrame()
+    }
+
+    /// 그림, 그림자, 이름표 위치를 정한다. 위치는 기기 픽셀 단위로 맞춘다. `foot`은 월드 좌표(y가 아래로)다.
+    /// `concealment`(0–1)는 풀숲에 가려진 정도다. 그림·그림자·둥지 앞 테두리를 흐리게 하고 이름표를 풀숲 위로 내린다. `isMe`면 내 화면에서 40%까지만 흐려진다.
+    /// `swimSink`가 0보다 크면 헤엄이다: 그림 아래를 그만큼 잘라 윗부분만 보이고, 그림자는 숨기고, 물높이 고리를 얹는다.
+    /// 알(`eggSunk`)은 자르지 않고 몸통을 숨긴 채 통째로 잠긴 그림 하나만 그리며, 고리는 그 꼭대기에 둔다.
+    func place(foot: CGPoint, pose: PlazaSpriteChoice, in context: PlazaActorContext, concealment: CGFloat = 0, isMe: Bool = false,
+               swimSink: CGFloat = 0, waterRect: CGRect? = nil) {
+        if swimSink != self.swimSink {
+            self.swimSink = swimSink
+            applyFrame()
+        }
+        self.concealment = concealment
+        isMeForConcealment = isMe
+        let alpha = PlazaTallGrass.opacity(concealment: concealment, isMe: isMe)
+        characterNode.alpha = alpha
+        shadowNode.alpha = swimSink > 0 ? 0 : alpha
+        nestFrontNode.alpha = swimSink > 0 ? 0 : alpha
+        swimRingNode.alpha = alpha
+        if eggSunk { characterNode.alpha = 0 }   // 몸통은 숨기되 `isHidden`은 건드리지 않는다(그림이 있다는 표시로 쓴다)
+        let lunge = lungeOffset
+        let dancePose = dancePose
+        let foot = CGPoint(x: foot.x + lunge.x + dancePose.offsetX, y: foot.y + lunge.y)
+        let backing = context.backing
+        let zoom = context.zoom
+        func snap(_ v: CGFloat) -> CGFloat { PlazaPixelSnap.snap(v, backing: backing, zoom: zoom) }
+
+        characterNode.xScale = (pose.flipped != dancePose.flipped) ? -1 : 1
+        characterNode.yScale = dancePose.squash
+        characterNode.zRotation = dancePose.tilt + wobbleTilt
+        characterNode.zPosition = 1 + foot.y / context.worldHeight   // 화면 아래쪽이 앞
+        // 그림자는 발보다 조금 위(높이의 0.12)에 가운데를 두어 발 뒤에 깔리게 하고, 아래·왼쪽 모서리를 기기 픽셀에 맞춘다. 통통 튐은 받지 않는다.
+        let shadowSize = shadowNode.size
+        let shadowCenterY = context.worldHeight - (foot.y - (shadowSize.height * 0.12).rounded())
+        shadowNode.position = CGPoint(x: snap(foot.x - shadowSize.width / 2), y: snap(shadowCenterY - shadowSize.height / 2))
+        nestFrontNode.position = shadowNode.position
+        // 내 알 바로 앞. 더 아래(앞)에 선 캐릭터보다는 뒤다(한 칸 차이가 이 값보다 훨씬 크다).
+        nestFrontNode.zPosition = characterNode.zPosition + 0.0001
+        let footScene = CGPoint(x: snap(foot.x), y: snap(context.worldHeight - foot.y + CGFloat(pose.bob) + jumpLift + dancePose.lift))
+        characterNode.position = CGPoint(x: PlazaPixelSnap.centerX(footX: foot.x, width: characterNode.size.width, backing: backing, zoom: zoom),
+                                         y: footScene.y)
+
+        swimRingNode.isHidden = swimSink <= 0 || characterNode.isHidden
+        // 고리는 수면에 붙어 있다: 통통 튐은 따르되 점프 높이는 따르지 않는다.
+        // 잠긴 알은 수면이 알의 꼭대기다. 점프로 뜨지 않고, 연못 맨 윗줄에서는 꼭대기가 연못 위 가장자리를 넘지 않게 내려앉는다.
+        var eggTop = footScene.y - jumpLift + characterNode.size.height
+        if let r = waterRect { eggTop = min(eggTop, r.maxY) }
+        swimRingNode.position = CGPoint(x: characterNode.position.x,
+                                        y: eggSunk ? eggTop - 2 : footScene.y - jumpLift)
+        swimRingNode.zPosition = characterNode.zPosition + 0.0002
+
+        // 잠긴 아랫부분: 수면 아래, 물결 고리 아래에 반투명하게. 연못 밖(`waterRect`가 nil)이면 그리지 않아 땅에 띠가 남지 않는다.
+        if swimSink > 0, !characterNode.isHidden, let r = waterRect {
+            ghostCrop.isHidden = false
+            ghostNode.xScale = characterNode.xScale
+            ghostNode.position = eggSunk ? CGPoint(x: characterNode.position.x, y: eggTop)
+                                         : characterNode.position
+            ghostNode.alpha = (eggSunk ? PlazaPondArt.submergedEggAlpha : PlazaPondArt.submergedAlpha) * alpha
+            ghostCrop.zPosition = characterNode.zPosition + 0.0001
+            ghostMask.position = r.origin
+            ghostMask.size = r.size
+            ghostCrop.maskNode = ghostMask
+        } else {
+            ghostCrop.isHidden = true
+        }
+
+        // 이름표는 카메라 공간(화면 포인트)에 둔다.
+        // 춤의 눌림은 이름표와 말풍선에 따르지 않는다(박자마다 덜컥거린다). 사진도 눌리지 않은 높이로 놓는다.
+        let top = footScene.y + characterNode.size.height / characterNode.yScale
+        let labelBacking = max(backing, 1)
+        refreshPlate(backing: labelBacking)
+        let plateBase = PlazaTallGrass.plateBaseY(spriteTopY: top, footSceneY: context.worldHeight - foot.y,
+                                                 concealment: isMe ? 0 : concealment)   // 내 포켓몬은 40%로 보이니 이름표는 머리 위에 둔다
+        plateNode.position = PlazaPixelSnap.platePosition(footSceneX: footScene.x, topY: plateBase, cameraPos: context.cameraPosition,
+                                                          plateWidth: plateNode.size.width, viewport: context.viewport,
+                                                          backing: labelBacking, zoom: zoom)
+        placeEmote(backing: labelBacking, viewport: context.viewport)
+        wetNode.position = CGPoint(x: plateNode.position.x + plateNode.size.width / 2 + 1,
+                                   y: plateNode.position.y + plateNode.size.height / 2)
+    }
+
+    /// 기념사진에 찍을 값. 그림을 아직 못 받았으면 nil이다. 이름표와 말풍선은 화면 배율과 상관없이 배율 2로 새로 만든다.
+    /// `waterClip`은 헤엄칠 때 발이 선 연못의 사각형(월드, y 아래로)이다.
+    func photoActor(foot rawFoot: CGPoint, pose: PlazaSpriteChoice, waterClip: CGRect? = nil) -> PlazaPhotoActor? {
+        guard let list = currentFrames, !list.isEmpty else { return nil }
+        // 춤의 옆걸음은 그림자도 함께 간다(화면의 `place`와 같다).
+        let dancePose = dancePose
+        let foot = CGPoint(x: rawFoot.x + dancePose.offsetX, y: rawFoot.y)
+        let image = list[frameIndex % list.count].image.cgImage
+        var shadow: CGImage?
+        var shadowRect = CGRect.zero
+        if let size = shadowTextureSize {
+            shadow = shadowImage
+            shadowRect = CGRect(x: foot.x - CGFloat(size.width) / 2,
+                                y: foot.y - (CGFloat(size.height) * 0.12).rounded() - CGFloat(size.height) / 2,
+                                width: CGFloat(size.width), height: CGFloat(size.height))
+        }
+        var opacity: CGFloat = 1
+        var plateBaseY: CGFloat?
+        if concealment > 0 {
+            opacity = PlazaTallGrass.opacity(concealment: concealment, isMe: isMeForConcealment)
+            // 화면과 같은 높이 규칙(PlazaTallGrass.plateBaseY)을 월드 y(아래로)로 옮긴 값.
+            let height = CGFloat(image.height) * Self.characterScale - (eggSunk ? 0 : swimSink)
+            if !isMeForConcealment { plateBaseY = foot.y - (height - (height - PlazaTallGrass.hiddenPlateLift) * min(1, concealment * 2)) }
+        }
+        return PlazaPhotoActor(image: PlazaImage(cgImage: image), flipped: pose.flipped != dancePose.flipped, foot: foot, bob: CGFloat(pose.bob),
+                               scale: Self.characterScale, shadow: shadow.map(PlazaImage.init(cgImage:)), shadowRect: shadowRect,
+                               front: shadowIsNest && !eggSunk ? nestFrontImage.map(PlazaImage.init(cgImage:)) : nil,
+                               plate: name.isEmpty ? nil : PlazaNamePlate.image(text: name, title: title, color: nameColor, scale: 2),
+                               bubble: chatText.flatMap { PlazaChatBubble.image(text: $0, scale: 2) }
+                                   ?? emoteKind.map { PlazaEmoteArt.image($0, scale: 2, large: true) },
+                               opacity: opacity, plateBaseY: plateBaseY, sink: eggSunk ? 0 : swimSink, waterClip: swimSink > 0 ? waterClip : nil, eggSunk: eggSunk,
+                               lift: dancePose.lift, squash: dancePose.squash, tilt: dancePose.tilt)
+    }
+
+    // MARK: - 값 읽기
+
+    /// 배율을 적용한 앞모습 높이의 절반. 카메라가 큰 포켓몬의 머리를 자르지 않게 올려 보는 양이다(앞모습 기준).
+    var cameraLift: CGFloat { frames?.front.first.map { Self.scaledSize(of: $0.image).height / 2 } ?? 0 }
+    var groundShadowSize: (width: Int, height: Int) { shadowTextureSize ?? (0, 0) }
+    var isOnNest: Bool { shadowIsNest }
+    /// 둥지 앞 테두리가 보이고 내 그림보다 앞에 있는지(테스트용).
+    var nestFrontIsInFront: Bool { !nestFrontNode.isHidden && nestFrontNode.zPosition > characterNode.zPosition }
+    var groundShadowY: CGFloat { shadowNode.position.y }
+    var characterX: CGFloat { characterNode.position.x }
+    var characterY: CGFloat { characterNode.position.y }
+    var characterZ: CGFloat { characterNode.zPosition }
+    /// 테스트용: 풀숲에서 흐려진 그림과 둥지 앞 테두리의 투명도.
+    var characterOpacity: CGFloat { characterNode.alpha }
+    var nestFrontOpacity: CGFloat { nestFrontNode.alpha }
+    var shadowOpacity: CGFloat { shadowNode.alpha }
+    /// 지금 보이는 그림 높이(월드 픽셀). 헤엄이면 잘린 만큼 줄어든다. 물에 든 알은 자르지 않아 전체 높이(몸통은 투명).
+    var visibleSpriteHeight: CGFloat { characterNode.size.height }
+    /// 잠긴 아랫부분(테스트용).
+    var isSubmergedBodyVisible: Bool { !ghostCrop.isHidden }
+    var submergedBodyAlpha: CGFloat { ghostNode.alpha }
+    var submergedBodyTopY: CGFloat { ghostNode.position.y }
+    var submergedBodySize: CGSize { ghostNode.size }
+    var submergedBodyTextureRect: CGRect { ghostNode.texture?.textureRect() ?? .zero }
+    var submergedBodyClip: CGRect? { ghostCrop.isHidden || ghostCrop.maskNode == nil ? nil : CGRect(origin: ghostMask.position, size: ghostMask.size) }
+    var isSwimRingVisible: Bool { !swimRingNode.isHidden }
+    var swimRingY: CGFloat { swimRingNode.position.y }
+    /// 자르기 전 지금 그림의 높이(월드 픽셀). 그림이 없으면 0.
+    var fullSpriteHeight: CGFloat { currentFrames?.first.map { Self.scaledSize(of: $0.image).height } ?? 0 }
+    var characterSize: CGSize { characterNode.size }
+    var namePlatePosition: CGPoint { plateNode.position }
+    var namePlateWidth: CGFloat { plateNode.size.width }
+    var namePlateTop: CGFloat { plateNode.position.y + plateNode.size.height }
+    /// 보이는 말풍선의 카메라 공간 사각형(아래 가운데 기준). 없으면 nil.
+    var emoteFrame: CGRect? {
+        guard emoteKind != nil || chatText != nil, !emoteNode.isHidden else { return nil }
+        return CGRect(x: emoteNode.position.x - emoteNode.size.width / 2, y: emoteNode.position.y,
+                      width: emoteNode.size.width, height: emoteNode.size.height)
+    }
+    /// 닉네임이 비어 있으면 이름판을 숨긴다.
+    var isNamePlateVisible: Bool { !plateNode.isHidden }
+
+    // MARK: - 내부
+
+    private func hideEmote() {
+        emoteKind = nil
+        chatText = nil
+        emoteNode.isHidden = true
+    }
+
+    /// 이름표 바로 위에 놓는다. 왼쪽·아래 모서리를 기기 픽셀에 맞춘다(홀수 크기 뷰포트는 반 픽셀을 보정한다).
+    private func placeEmote(backing: CGFloat, viewport: CGSize) {
+        if let text = chatText {
+            if chatKey?.text != text || chatKey?.backing != backing {
+                chatKey = (text, backing)
+                guard let image = PlazaChatBubble.image(text: text, scale: backing)?.cgImage else { return hideEmote() }
+                setBubble(image, backing: backing)
+            }
+        } else if let kind = emoteKind {
+            if emoteKey?.kind != kind || emoteKey?.backing != backing {
+                emoteKey = (kind, backing)
+                setBubble(PlazaEmoteArt.image(kind, scale: backing, large: true).cgImage, backing: backing)
+            }
+        } else {
+            return
+        }
+        func snapView(_ v: CGFloat) -> CGFloat { (v * backing).rounded() / backing }
+        let halfW = viewport.width / 2, halfH = viewport.height / 2
+        var origin = CGPoint(x: snapView(plateNode.position.x - emoteNode.size.width / 2 + halfW) - halfW,
+                             y: snapView(namePlateTop + halfH) - halfH)
+        if chatText != nil {
+            origin = Self.chatBubbleOrigin(origin, size: emoteNode.size, plate: plateNode.position, viewport: viewport)
+        }
+        emoteNode.position = CGPoint(x: origin.x + emoteNode.size.width / 2, y: origin.y)
+    }
+
+    /// 글 말풍선은 넓어서 화면 가장자리에서 잘리지 않게 안쪽으로 민다. 이름표가 화면 밖이면 누구 말인지 알 수 없으므로 같이 밖에 둔다.
+    /// 좌표는 카메라 공간(가운데가 원점)이고 `origin`은 왼쪽 아래 모서리다.
+    static func chatBubbleOrigin(_ origin: CGPoint, size: CGSize, plate: CGPoint, viewport: CGSize) -> CGPoint {
+        let halfW = viewport.width / 2, halfH = viewport.height / 2
+        guard abs(plate.x) <= halfW, abs(plate.y) <= halfH else { return origin }
+        let margin: CGFloat = 4
+        return CGPoint(x: min(max(origin.x, -halfW + margin), halfW - size.width - margin),
+                       y: min(origin.y, halfH - size.height - margin))
+    }
+
+    private func setBubble(_ image: CGImage, backing: CGFloat) {
+        let texture = SKTexture(cgImage: image)
+        texture.filteringMode = .nearest
+        emoteNode.texture = texture
+        emoteNode.size = CGSize(width: CGFloat(image.width) / backing, height: CGFloat(image.height) / backing)
+    }
+
+    private var currentFrames: [PlazaFrame]? {
+        guard let frames else { return nil }
+        return showingBack ? frames.back : frames.front
+    }
+
+    /// 배율을 적용한 그림 크기. 정확한 배율을 쓰고(반올림하면 홀수 크기에서 도트가 일그러진다) 위치만 기기 픽셀에 맞춘다.
+    private static func scaledSize(of image: PlazaImage) -> CGSize {
+        CGSize(width: CGFloat(image.width) * characterScale, height: CGFloat(image.height) * characterScale)
+    }
+
+    private func applyFrame() {
+        guard let list = currentFrames, !list.isEmpty else { return }
+        let image = list[frameIndex % list.count].image
+        let texture: SKTexture
+        if let cached = textureCache[ObjectIdentifier(image)] {
+            texture = cached
+        } else {
+            texture = SKTexture(cgImage: image.cgImage)
+            texture.filteringMode = .nearest
+            textureCache[ObjectIdentifier(image)] = texture
+        }
+        let full = Self.scaledSize(of: image)
+        // `size`는 현재 배율을 곱한 값이라, 춤의 눌림이 남은 채 대입하면 눌림이 지워지거나 두 번 곱해진다. `place`가 눌림을 다시 건다.
+        characterNode.yScale = 1
+        let cut = swimSink > 0 && !shadowIsNest ? min((swimSink / Self.characterScale).rounded(), CGFloat(image.height) - 1) : 0   // 그림 줄 단위로 자른다
+        if cut > 0 {
+            let f = cut / CGFloat(image.height)
+            let top = SKTexture(rect: CGRect(x: 0, y: f, width: 1, height: 1 - f), in: texture)
+            top.filteringMode = .nearest
+            characterNode.texture = top
+            characterNode.size = CGSize(width: full.width, height: full.height - cut * Self.characterScale)
+            let low = SKTexture(rect: CGRect(x: 0, y: 0, width: 1, height: f), in: texture)   // 잘려 나간 아래 줄
+            low.filteringMode = .nearest
+            ghostNode.texture = low
+            ghostNode.size = CGSize(width: full.width, height: cut * Self.characterScale)
+        } else {
+            characterNode.texture = texture
+            characterNode.size = full
+            if eggSunk {   // 물에 든 알: 통째로 물빛 몸통 하나
+                ghostNode.texture = texture
+                ghostNode.size = full
+            }
+        }
+    }
+
+    private static let swimRingTexture: SKTexture = {
+        let t = SKTexture(cgImage: PlazaPondArt.swimRing().cgImage)
+        t.filteringMode = .nearest
+        return t
+    }()
+
+    private func refreshShadow() {
+        guard let frames, let first = frames.front.first else { return }
+        let size = frames.isEgg ? PlazaNestArt.size
+            : PlazaGroundShadow.size(forSpriteWidth: Int(Self.scaledSize(of: first.image).width.rounded()))
+        if let old = shadowTextureSize, old == size, shadowIsNest == frames.isEgg { return }
+        shadowTextureSize = size
+        shadowIsNest = frames.isEgg
+        let image = frames.isEgg ? PlazaNestArt.image().cgImage : PlazaGroundShadow.image(width: size.width, height: size.height).cgImage
+        shadowImage = image
+        nestFrontImage = frames.isEgg ? PlazaNestArt.frontImage().cgImage : nil
+        nestFrontNode.isHidden = !frames.isEgg
+        if let front = nestFrontImage {
+            let texture = SKTexture(cgImage: front)
+            texture.filteringMode = .nearest
+            nestFrontNode.texture = texture
+            nestFrontNode.size = CGSize(width: size.width, height: size.height)
+        }
+        let texture = SKTexture(cgImage: image)
+        texture.filteringMode = .nearest
+        shadowNode.texture = texture
+        shadowNode.size = CGSize(width: size.width, height: size.height)
+    }
+
+    private func refreshPlate(backing: CGFloat) {
+        plateNode.isHidden = name.isEmpty
+        if name.isEmpty { return }
+        if let key = plateKey, key.nickname == name, key.title == title, key.backing == backing, key.color == nameColor { return }
+        plateKey = (name, title, backing, nameColor)
+        guard let image = PlazaNamePlate.image(text: name, title: title, color: nameColor, scale: backing)?.cgImage else {
+            // The next frame un-hides the node before the key check, so nothing of the old name may remain.
+            plateNode.isHidden = true
+            plateNode.texture = nil
+            plateNode.size = .zero
+            return
+        }
+        let texture = SKTexture(cgImage: image)
+        texture.filteringMode = .nearest
+        plateNode.texture = texture
+        plateNode.size = CGSize(width: CGFloat(image.width) / backing, height: CGFloat(image.height) / backing)
+    }
+}

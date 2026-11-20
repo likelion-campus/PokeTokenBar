@@ -1,0 +1,249 @@
+# Test files NOT built on Windows (relative to this file's directory). A file is listed when it needs an Apple-only framework
+# (AppKit, SpriteKit, CoreGraphics drawing, ...), a Mac-only type, or when its assertions do not hold on Windows (reason above the entry).
+AaaNSCachePressureGuardTests.swift
+ActivityVisualizationTests.swift
+AdditionalClaudeAccountsTests.swift
+AgentURLHandlerTests.swift
+# AntigravityRateLimitsProviderTests: needs AntigravityTokenCache (Security)
+AntigravityRateLimitsProviderTests.swift
+AppLogTests.swift
+CatchLogRenderingTests.swift
+CodexLargeRolloutPerformanceTests.swift
+CollectionReadabilityRenderingTests.swift
+# CompanionTests+Mac: RelativeDateTimeFormatter (missing from Foundation on Windows)
+CompanionTests+Mac.swift
+CorePlatformRoutingTests.swift
+# CredentialSwitchCacheTests: needs KeychainReader (Security)
+CredentialSwitchCacheTests.swift
+DailyTrendStackTests.swift
+DexBackNavigationTests.swift
+DexColorRenderingTests.swift
+# DexEntryLinkCursorTests: needs DexEntryLink (UI)
+DexEntryLinkCursorTests.swift
+DexPageButtonHitAreaTests.swift
+DexScrollPagerTests.swift
+DifficultySaveTests.swift
+EggPrayerRenderTests.swift
+# EggPrayerTests: needs FloatingPetController (UI)
+EggPrayerTests.swift
+EvoLineLayoutTests.swift
+FloatingPetAgentTests.swift
+FloatingPetPettingTests.swift
+FormMetadataNoteRenderingTests.swift
+GenerationDexScreenshotTests.swift
+# GrokUsageTests: NSData zlib in a helper; the cache is stored uncompressed on Windows (needs Windows-aware assertions)
+GrokUsageTests.swift
+IndividualPickerRenderingTests.swift
+# KeychainAutoPathTests: needs KeychainReader (Security)
+KeychainAutoPathTests.swift
+LanguageSurfaceRegressionTests.swift
+# LimitPaceTests+Mac: needs LimitProgressBar (UI)
+LimitPaceTests+Mac.swift
+LimitProgressRenderingTests.swift
+# LiveCredentialCallGateTests: needs OAuthLimitsProvider and AntigravityRateLimitsProvider (Security)
+LiveCredentialCallGateTests.swift
+# LocalUsageCacheTests: NSData zlib in several helpers and assertions; the cache is stored uncompressed on Windows (needs Windows-aware assertions)
+LocalUsageCacheTests.swift
+# LocalUsageReaderTests: needs Bundle.module fixtures (the Windows build has no test resources)
+LocalUsageReaderTests.swift
+LoginItemTests.swift
+# MacPlazaGraphicsTests: the CoreGraphics / CoreText / ImageIO backend against direct CG calls (Mac only)
+MacPlazaGraphicsTests.swift
+MenuGrowthTests.swift
+MenuLimitColoringTests.swift
+MonthDailyTrendTests.swift
+NetworkReachabilityTests.swift
+# PaceTierTests+Mac: needs PaceTier.color (SwiftUI)
+PaceTierTests+Mac.swift
+PerformanceTests.swift
+# PetEventLineTests: needs FloatingPetController (UI)
+PetEventLineTests.swift
+# PlatformGlobFnmatchTests compares globMatch with the C fnmatch, which Windows does not have
+PlatformGlobFnmatchTests.swift
+# PlazaBoardTests+Mac: the SwiftUI board row (PlazaBoardRow)
+PlazaBoardTests+Mac.swift
+# PlazaCardTests+Mac: NSAttributedString / NSLayoutManager font metrics, NSHostingController sizing and SwiftUI ImageRenderer
+PlazaCardTests+Mac.swift
+# PlazaChatTests+Mac: the AppKit chat input field (NSTextView, NSWindow, NSEvent; also the controller tests that type into it) and CoreGraphics pixel reads
+PlazaChatTests+Mac.swift
+# PlazaInputMappingTests: maps NSEvent key events and modifier flags (AppKit)
+PlazaInputMappingTests.swift
+PlazaNameColorTests.swift
+# PlazaNamePlateTests+Mac: NSFont metrics and CGImage pixel reads of the name plate
+PlazaNamePlateTests+Mac.swift
+PlazaPhotoParityTests.swift
+# PlazaFireworksTests+Mac: the firework tests that need the SwiftUI shortcut guide or its render
+PlazaFireworksTests+Mac.swift
+PlazaRosterTests.swift
+# PlazaResourcesTests+Mac: the Mac resource bundle (CryptoKit digests of the bundled files, the CoreText font grid, build-app.sh, the Mac loaders)
+PlazaResourcesTests+Mac.swift
+# PlazaWindowTests+Mac: the Mac shell's NSWindow, SKView and SwiftUI hosting views, and the roster / minimap view tests (AppKit, SpriteKit, SwiftUI)
+PlazaWindowTests+Mac.swift
+PokeTokenBarTests.swift
+# PokemonFormTests+Mac: needs PokemonDetailView (UI)
+PokemonFormTests+Mac.swift
+PokemonNameLocalizationTests.swift
+PokemonTypeColorTests.swift
+# PopoverNavigationTests: needs PopoverNavigation (UI)
+PopoverNavigationTests.swift
+# ProgressDetailTests: needs CompanionHeader (UI)
+ProgressDetailTests.swift
+ProviderTabLayoutTests.swift
+RepresentativeFooterLayoutTests.swift
+ScreenshotGenTests.swift
+SessionKeySettingsRenderingTests.swift
+SharedSourcesScanTests.swift
+# ShinyCharmTests+Mac: needs SpriteView (UI)
+ShinyCharmTests+Mac.swift
+# SingleInstanceTests: needs SingleInstance (Mac-only)
+SingleInstanceTests.swift
+SnapshotHistoryRenderingTests.swift
+SpriteAnimationPreviewTests.swift
+SpriteAnimationRecoveryTests.swift
+SpriteAspectRatioTests.swift
+SpriteImageCacheTests.swift
+SpriteSubjectTests.swift
+StandardEditMenuTests.swift
+StatusItemMenuTests.swift
+SulkRenderTests.swift
+SulkTests.swift
+# TeamHostilePeerTests: needs PlazaScene (SpriteKit)
+TeamNotificationsTests.swift
+TeamRuntimeTests.swift
+TeamSessionLoopbackTests.swift
+TeamSettingsTests.swift
+TeamTransportTests.swift
+# TestDefaultsPoolTests reads CFPreferences directly; the pool is a macOS cfprefsd concern
+TestDefaultsPoolTests.swift
+UnownSpriteTests.swift
+UnownSpriteViewTests.swift
+UsageCostTests.swift
+UsageRecapTests.swift
+UsageStreakTests.swift
+# WindowsSeamScanTests: scans the source tree with SharedSources (SharedSourcesScanTests.swift), which is Mac-only
+WindowsSeamScanTests.swift
+ZeroUsageHomeRenderingTests.swift
+# PlazaActivityTests+Mac: the SwiftUI member card (NSHostingView of PlazaCardView) and PlazaCardMetrics (Mac-only view file)
+PlazaActivityTests+Mac.swift
+# from main (#134): builds the scene
+# from main (#140): pins the macOS defaults pool against late writers; its tests must stay synchronous
+TestDefaultsLateWriteTests.swift
+# plaza offscreen render harness (Track A): SpriteKit + Metal, Mac only. The scenes themselves are shared (PlazaRenderScenes.swift); +Mac holds the CGImage fixtures and the real-sprites scene
+PlazaRenderScenes+Mac.swift
+PlazaRender/
+# Track A legacy art oracles: verbatim pre-conversion CoreGraphics art and the CGImage byte comparison (deleted in Task 19)
+Legacy/
+PlazaArtParityTests.swift
+# ToolLaunchArgumentScanTests: scans the source tree with SharedSources (SharedSourcesScanTests.swift), which is Mac-only
+ToolLaunchArgumentScanTests.swift
+# PlazaArtParityPixelArtTests: legacy-versus-new byte oracles for the pixel art and character frames (CoreGraphics, ImageIO)
+PlazaArtParityPixelArtTests.swift
+PlazaTextArtParityTests.swift
+# AppWiringDriftScanTests: compares source text of the Mac AppDelegate with Platform/AppWiring.swift (Mac-side scan, like WindowsSeamScanTests)
+AppWiringDriftScanTests.swift
+# PlazaGIFDecoderParityTests+Mac: compares against ImageIO (CGImageSource)
+PlazaGIFDecoderParityTests+Mac.swift
+# PlazaPanelRenderTests+Mac: the canvas-drawn HUD panels against their SwiftUI originals (ImageRenderer, NSHostingView, CoreText) and the AppKit panel host view
+PlazaPanelRenderTests+Mac.swift
+ReachabilityParityTests.swift
+# PlazaHUDControlRenderTests+Mac: the canvas-drawn guide, toggle, picker and photo frame against their SwiftUI originals (ImageRenderer, NSHostingView, CoreText) through the AppKit panel hosts
+PlazaHUDControlRenderTests+Mac.swift
+# PlazaHUDMenuRenderTests+Mac: the canvas-drawn menus and minimap against their SwiftUI originals (ImageRenderer, NSHostingView, CoreText) through the AppKit panel hosts
+PlazaHUDMenuRenderTests+Mac.swift
+# PlazaTextRunsTests+Mac: text made of runs through the real CoreText/TextKit engine (CTLine, NSLayoutManager)
+PlazaTextRunsTests+Mac.swift
+# PlazaChatLogPanelRenderTests+Mac: the canvas-drawn chat log against the SwiftUI PlazaChatLogView (NSHostingView in an unshown window, CoreText, TextKit) through the AppKit panel host
+PlazaChatLogPanelRenderTests+Mac.swift
+# PlazaContentRig+Mac: shared helpers of the roster/board/card render tests (SwiftUI hosting views in unshown windows, NSBitmapImageRep sample pictures, URLProtocol)
+PlazaContentRig+Mac.swift
+# PlazaRosterPanelRenderTests+Mac: the canvas-drawn roster against the SwiftUI PlazaRosterView (NSHostingView in an unshown window, CoreText) through the AppKit panel host
+PlazaRosterPanelRenderTests+Mac.swift
+# PlazaBoardPanelRenderTests+Mac: the canvas-drawn board against PlazaBoardView in PlazaOverlayView (NSHostingView, NSScrollView in an unshown window, CoreText) through the AppKit panel host
+PlazaBoardPanelRenderTests+Mac.swift
+# PlazaCardPanelRenderTests+Mac: the canvas-drawn member card against PlazaCardView in PlazaOverlayView (NSHostingView, NSScrollView in an unshown window, CoreText, sample pictures in SpriteLoader's cache) through the AppKit panel host
+PlazaCardPanelRenderTests+Mac.swift
+# PlazaContentPanelsMacTests+Mac: the roster/board/card panels in the AppKit panel host (tooltips, accessibility elements, hitTest of the SwiftUI roster, real timer and CoreText costs)
+PlazaContentPanelsMacTests+Mac.swift
+# TeamOpenSSLInteropTests: the Mac's Network.framework TLS-PSK against the OpenSSL command line (scripts/team-interop-check.sh)
+TeamOpenSSLInteropTests.swift
+# PlazaDecodeGoldensMacTests: re-measures the decode goldens with ImageIO and CoreGraphics
+PlazaDecodeGoldensMacTests.swift
+# PlazaParityGoldens+Mac: the Mac's side of the stage 6 parity goldens (SKRenderer swatches, CoreGraphics premultiply and gray tables, CoreText/TextKit breaks and font metrics, SwiftUI corners)
+PlazaParityGoldens+Mac.swift
+# PlazaStoreSpriteParityTests+Mac: the shared sprite/icon loaders against LivePlazaSpriteFetcher, PlazaIconLoader and SpriteLoader (AppKit, ImageIO)
+PlazaStoreSpriteParityTests+Mac.swift
+# RedirectHeadersMacTests: what the Mac's URLSession re-sends on a redirect (Darwin sockets; the Windows seam follows these rules)
+RedirectHeadersMacTests.swift
+# OneShotDataMacTests: pins the Mac branch of PlatformCompat.oneShotData to URLSession.shared (a URLProtocol stub; Windows takes WinHTTP, WindowsHTTPFetchTests)
+OneShotDataMacTests.swift
+# PlazaWindowRig+Mac, PlazaChatLogWindowTests+Mac: the real PlazaMacWindow (never shown) over a real controller, driven through its panel hosts (Task 17w)
+PlazaWindowRig+Mac.swift
+PlazaChatLogWindowTests+Mac.swift
+PlazaRosterWindowTests+Mac.swift
+PlazaBoardWindowTests+Mac.swift
+PlazaCardWindowTests+Mac.swift
+# PlazaCanvasShapesMacTests: writes and re-checks the CoreGraphics goldens of the text-free canvas scripts
+PlazaCanvasShapesMacTests.swift
+PlazaFirstMouseTests+Mac.swift
+PlazaHiddenPanelsTests+Mac.swift
+PlazaOverlayCoverTests+Mac.swift
+PlazaPanelCostTests+Mac.swift
+PlazaLegacyScrollerTests+Mac.swift
+PlazaTwoOverlaysImageTests+Mac.swift
+PlazaBlankLineTests+Mac.swift
+PlazaLiveSendEventTests+Mac.swift
+PlazaNoWindowsOrderedInScanTests+Mac.swift
+PlazaLegacyScrollerControlTests+Mac.swift
+# PlazaTextFrameTests+Mac: the shared CoreText frame and truncation rules against live CTFramesetter / CTLineCreateTruncatedLine (CoreText, fallback fonts)
+PlazaTextFrameTests+Mac.swift
+# PopoverParityScanTests: compares the Mac popover's sources with Tests/PopoverParity (a Mac-side source scan, like WindowsSeamScanTests; its extractor, loader and rules are shared and tested on both systems in PopoverParityTests)
+PopoverParityScanTests.swift
+# PopoverTwinEquivalenceTests+Mac: drives the Mac originals (PopoverNavigation, LimitProgressBar, verbatim copies of private PopoverView members) against their shared twins
+PopoverTwinEquivalenceTests+Mac.swift
+# PlazaPhotoGoldensMacTests: writes and re-checks the Mac's own photo goldens (what the Windows photo is compared with)
+PlazaPhotoGoldensMacTests.swift
+# PopoverGoldens+Mac: resolves the SwiftUI / AppKit colours of the Mac popover (NSColor, NSAppearance) and writes or re-checks Tests/PopoverParity/mac-colors.json
+PopoverGoldens+Mac.swift
+# PopoverTextStyleGoldensMacTests: measures the Mac's text styles and label colours (AppKit NSFont / NSColor, no window) into Tests/PopoverParity/mac-text-styles.json; the Windows kit's font table is held to that file on both systems by PopoverTextStyleTests
+PopoverTextStyleGoldensMacTests.swift
+# TeamReleaseScriptRunTests: runs scripts/team-release.sh with bash, perl and /usr/bin/openssl against fakes (a macOS release script)
+TeamReleaseScriptRunTests.swift
+# PlazaChatBarPanelTests+Mac: the shared chat bar against the AppKit chat bar it copies (PlazaChatInput laid out by Auto Layout in an unshown NSWindow, CALayer colours)
+PlazaChatBarPanelTests+Mac.swift
+# LimitBarPartMacTests: reads the Mac view PopoverView.swift as text (it is not compiled on Windows) and holds the Windows limit bar to the Mac's private marker and track numbers
+LimitBarPartMacTests.swift
+# PopoverDifficultyDraftTwinTests+Mac: drives the Mac's DifficultyDraft and SettingsView.exportedAtText (upstream SwiftUI files, not compiled on Windows) against their shared twins
+PopoverDifficultyDraftTwinTests+Mac.swift
+# PopoverTrendTwinTests+Mac: drives the Mac-only originals (DailyTrendMetrics, ActivityHeatmapMetrics, MonthDailyTrend, StreakBadge) against the shared twins
+PopoverTrendTwinTests+Mac.swift
+# PopoverActivityImagesMac: writes the parts' drawings with CoreGraphics ImageIO (the PR images of the Mac canvas)
+PopoverActivityImagesMac.swift
+# PopoverRecapEquivalenceTests+Mac: drives the Mac's RecapContent (UI) against its shared twin PopoverRecapContent and the page model
+PopoverRecapEquivalenceTests+Mac.swift
+# CompanionHeaderRendersMacTests: renders the Mac's SwiftUI CompanionHeader offscreen (ImageRenderer, AppKit) for the companion samples, the reference the Windows captures are put next to (env-gated writer)
+CompanionHeaderRendersMacTests.swift
+# LiveWindowTestSupport: the one gated place an older Mac rendering test may order a window in (AppKit)
+LiveWindowTestSupport.swift
+# NoWindowsOrderedInScanTests+Mac: scans the Mac test sources for window-ordering calls outside the gated helper
+NoWindowsOrderedInScanTests+Mac.swift
+# PopoverShopBagEquivalenceTests+Mac: the Shop and Bag rules against verbatim copies of the Mac cards (stage 7 Task 19)
+PopoverShopBagEquivalenceTests+Mac.swift
+PopoverDexImagesMac.swift
+# PopoverPetTwinEquivalenceTests+Mac: drives the Mac's FloatingPetController, PetClickRouter and GIFDecoder.capFrameRate (AppKit) against the floating pet's shared twins (stage 7 Task 22)
+PopoverPetTwinEquivalenceTests+Mac.swift
+# FloatingPetRendersMacTests: renders the Mac's SwiftUI FloatingPetView offscreen (ImageRenderer, AppKit) for the pet's capture states, the reference the Windows captures are put next to (env-gated writer; stage 7 Task 22)
+FloatingPetRendersMacTests.swift
+PopoverDexDetailImagesMac.swift
+# PopoverPetExtrasTwinEquivalenceTests+Mac: drives the Mac's FloatingPetController statics, PettingDetector, HeartBubbleArt, PrayerEmojiLayer and SpriteVisibleTop (AppKit, SwiftUI) against the pet extras' shared twins (stage 7 Task 23)
+PopoverPetExtrasTwinEquivalenceTests+Mac.swift
+# FloatingPetExtrasRendersMacTests: renders the Mac's SwiftUI FloatingPetView with bubbles, hearts and a prayer particle offscreen (ImageRenderer, AppKit), the reference for the Windows captures (env-gated writer; stage 7 Task 23)
+FloatingPetExtrasRendersMacTests.swift
+# PopoverSpriteRetryTwinTests+Mac: drives the Mac's SpriteLoader.recoveringAnimationFrames (AppKit) against the shared sprite model's GIF retry (fix/windows-pet-still)
+PopoverSpriteRetryTwinTests+Mac.swift
+# WindowsPaintScanTests: scans the Windows sources for RoundRect( and DrawFocusRect( with SharedSources (SharedSourcesScanTests.swift), which is Mac-only (visual polish K2)
+WindowsPaintScanTests.swift
+DexGlyphButtonScanTests.swift
+# DexPagerInkTests: renders the DexBodyPart on the CoreGraphics canvas and measures the pager arrows' pixels (fix/windows-dex-pager-glyphs)
+DexPagerInkTests.swift
+# SelftestUserPCSafetyScanTests: scans the selftest sources with SharedSources (SharedSourcesScanTests.swift), which is Mac-only
+SelftestUserPCSafetyScanTests.swift

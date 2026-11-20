@@ -1,46 +1,31 @@
 import Foundation
-import CoreGraphics
 
 /// 번들된 풀숲 시트(208×144, 16픽셀 칸)에서 풀숲 조각을 자른다. 시트 그림은 그대로 두고,
 /// 새로 그린 픽셀은 흩날리는 잎 두 장뿐이다.
 struct PlazaTallGrassArt: @unchecked Sendable {
     private static let cell = 16
     private static let sheetSize = (width: 208, height: 144)
-    private static let space = CGColorSpace(name: CGColorSpace.sRGB)!
 
     private let sheetBytes: [UInt8]
     /// 잎 두 장. 각 4×4 시트 픽셀.
-    let leaves: [CGImage]
+    let leaves: [PlazaImage]
 
-    init?(sheet: CGImage) {
+    init?(sheet: PlazaImage) {
         guard sheet.width == Self.sheetSize.width, sheet.height == Self.sheetSize.height else { return nil }
-        let (w, h) = (sheet.width, sheet.height)
-        var data = [UInt8](repeating: 0, count: w * h * 4)
-        data.withUnsafeMutableBytes { buf in
-            let ctx = CGContext(data: buf.baseAddress, width: w, height: h, bitsPerComponent: 8,
-                                bytesPerRow: w * 4, space: Self.space,
-                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-            ctx.interpolationQuality = .none
-            ctx.draw(sheet, in: CGRect(x: 0, y: 0, width: w, height: h))
-        }
-        sheetBytes = data
+        sheetBytes = sheet.pixels.bytes
         leaves = [Self.leaf(["ll", "lm"]), Self.leaf(["l.", "mm"])]
     }
 
-    static func load() -> PlazaTallGrassArt? {
-        PlazaResources.tallGrassSheet().flatMap(PlazaTallGrassArt.init(sheet:))
-    }
-
     /// 시트의 해당 칸 16×16.
-    func tile(_ s: PlazaTallGrassSlice) -> CGImage { slice(s, rows: 0..<Self.cell) }
+    func tile(_ s: PlazaTallGrassSlice) -> PlazaImage { slice(s, rows: 0..<Self.cell) }
 
     /// 아래 띠만. 행 0..<frontFromRow 는 투명.
-    func front(_ s: PlazaTallGrassSlice) -> CGImage { slice(s, rows: PlazaTallGrass.frontFromRow..<Self.cell) }
+    func front(_ s: PlazaTallGrassSlice) -> PlazaImage { slice(s, rows: PlazaTallGrass.frontFromRow..<Self.cell) }
 
     /// 흔들리는 윗부분만. 행 swayRows..<16 은 투명.
-    func top(_ s: PlazaTallGrassSlice) -> CGImage { slice(s, rows: 0..<PlazaTallGrass.swayRows) }
+    func top(_ s: PlazaTallGrassSlice) -> PlazaImage { slice(s, rows: 0..<PlazaTallGrass.swayRows) }
 
-    private func slice(_ s: PlazaTallGrassSlice, rows: Range<Int>) -> CGImage {
+    private func slice(_ s: PlazaTallGrassSlice, rows: Range<Int>) -> PlazaImage {
         let c = Self.cell
         var out = [UInt8](repeating: 0, count: c * c * 4)
         let originX = s.col * c, originY = (PlazaTallGrass.sheetRowOffset + s.row) * c
@@ -52,7 +37,7 @@ struct PlazaTallGrassArt: @unchecked Sendable {
     }
 
     /// 2×2 무늬(`l` 밝은 초록, `m` 짙은 초록, `.` 투명)를 4×4 한가운데 두고 4방향 1픽셀 테두리를 두른다.
-    private static func leaf(_ pattern: [String]) -> CGImage {
+    private static func leaf(_ pattern: [String]) -> PlazaImage {
         let rows = pattern.map { Array($0) }
         func painted(_ x: Int, _ y: Int) -> Character? {
             guard (1...2).contains(x), (1...2).contains(y) else { return nil }
@@ -80,10 +65,9 @@ struct PlazaTallGrassArt: @unchecked Sendable {
         return image(out, width: 4, height: 4)
     }
 
-    private static func image(_ bytes: [UInt8], width: Int, height: Int) -> CGImage {
-        CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: width * 4,
-                space: space, bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
-                provider: CGDataProvider(data: Data(bytes) as CFData)!, decode: nil,
-                shouldInterpolate: false, intent: .defaultIntent)!
+    private static func image(_ bytes: [UInt8], width: Int, height: Int) -> PlazaImage {
+        var bitmap = PlazaBitmap(width: width, height: height)
+        bitmap.bytes = bytes
+        return PlazaImage(bitmap: bitmap)
     }
 }

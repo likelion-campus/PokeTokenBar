@@ -1,4 +1,4 @@
-import CoreGraphics
+import Foundation
 
 /// 광장 카메라. 배율은 정수(화면 포인트 ÷ 월드 픽셀)이고 보이는 영역의 원점은 기기 픽셀에 맞춘다.
 enum PlazaCamera {

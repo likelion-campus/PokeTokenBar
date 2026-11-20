@@ -1,5 +1,9 @@
 import Foundation
+#if canImport(SQLite3)
 import SQLite3
+#else
+import CSQLite
+#endif
 
 enum LocalAdditionalSource: String, Sendable {
     case opencode
@@ -484,7 +488,7 @@ enum LocalAdditionalUsageReader {
         if root.pathExtension == "db" { return root }
         let standard = root.appendingPathComponent("opencode.db")
         if FileManager.default.fileExists(atPath: standard.path) { return standard }
-        return (try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil))?
+        return (try? PlatformCompat.contentsOfDirectory(FileManager.default, at: root, includingPropertiesForKeys: nil))?
             .filter { url in
                 let name = url.lastPathComponent
                 guard name.hasPrefix("opencode-"), name.hasSuffix(".db") else { return false }
@@ -774,10 +778,10 @@ enum LocalAdditionalUsageReader {
 
     static var defaultCursorRoots: [URL] {
         environmentPaths("CURSOR_DATA_DIR") ?? [
-            FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent("Library/Application Support/Cursor/User/globalStorage"),
-            FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent("Library/Application Support/Cursor Nightly/User/globalStorage"),
+            PlatformCompat.userApplicationSupport(home: FileManager.default.homeDirectoryForCurrentUser)
+                .appendingPathComponent("Cursor/User/globalStorage"),
+            PlatformCompat.userApplicationSupport(home: FileManager.default.homeDirectoryForCurrentUser)
+                .appendingPathComponent("Cursor Nightly/User/globalStorage"),
         ]
     }
 
@@ -786,8 +790,8 @@ enum LocalAdditionalUsageReader {
         home: URL = FileManager.default.homeDirectoryForCurrentUser
     ) -> [URL] {
         let curated = environmentPaths("CURSOR_DATA_DIR") ?? [
-            home.appendingPathComponent("Library/Application Support/Cursor/User/globalStorage"),
-            home.appendingPathComponent("Library/Application Support/Cursor Nightly/User/globalStorage"),
+            PlatformCompat.userApplicationSupport(home: home).appendingPathComponent("Cursor/User/globalStorage"),
+            PlatformCompat.userApplicationSupport(home: home).appendingPathComponent("Cursor Nightly/User/globalStorage"),
         ]
         return CustomScanRoots.union(defaults: curated, extraRaw: customRootsValue)
     }
@@ -1440,7 +1444,7 @@ enum LocalAdditionalUsageReader {
     /// from real on-disk files — do not invent a third shape.
     private static func kiroJSONLSessionFiles(in root: URL) -> [URL] {
         if kiroIsJSONLSessionFile(root) { return [root] }
-        guard let enumerator = FileManager.default.enumerator(
+        guard let enumerator = PlatformCompat.enumerator(FileManager.default,
             at: root,
             includingPropertiesForKeys: [.isRegularFileKey],
             options: [.skipsHiddenFiles, .skipsPackageDescendants]) else { return [] }
@@ -1732,7 +1736,7 @@ enum LocalAdditionalUsageReader {
     }
 
     private static func files(in root: URL, modifiedSince: Date) -> [URL] {
-        guard let enumerator = FileManager.default.enumerator(
+        guard let enumerator = PlatformCompat.enumerator(FileManager.default,
             at: root,
             includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey],
             options: [.skipsHiddenFiles, .skipsPackageDescendants]) else { return [] }

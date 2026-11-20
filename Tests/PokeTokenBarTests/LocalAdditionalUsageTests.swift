@@ -1,4 +1,8 @@
+#if canImport(SQLite3)
 import SQLite3
+#else
+import CSQLite
+#endif
 import XCTest
 @testable import PokeTokenBar
 
@@ -199,7 +203,7 @@ final class LocalAdditionalUsageTests: XCTestCase {
     }
 
     @MainActor
-    func testDefaultRegistryIncludesOnlyRequestedAdditionalProviders() {
+    func testDefaultRegistryIncludesOnlyRequestedAdditionalProviders() async {
         XCTAssertEqual(
             Set(UsageStore.defaultProviders().map(\.id)),
             Set(["claude_code", "codex", "gemini", "antigravity",

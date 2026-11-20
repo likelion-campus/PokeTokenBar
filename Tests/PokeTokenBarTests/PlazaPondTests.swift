@@ -1,5 +1,5 @@
 import XCTest
-import CoreGraphics
+import Foundation
 @testable import PokeTokenBar
 
 final class PlazaPondTests: XCTestCase {
@@ -122,7 +122,7 @@ final class PlazaPondTests: XCTestCase {
     }
 
     @MainActor
-    func testNumbers() {
+    func testNumbers() async {
         XCTAssertEqual(PlazaPond.splashRadius(stage: 0), 1)
         XCTAssertEqual(PlazaPond.splashRadius(stage: 2), 2)
         XCTAssertEqual(PlazaPond.splashRadius(stage: 5), 3)

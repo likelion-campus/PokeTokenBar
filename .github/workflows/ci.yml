@@ -18,7 +18,7 @@ jobs:
     # (swift-tools-version: 6.0, platform macOS 14).
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
 
       - name: Show Swift version
         run: swift --version
@@ -31,13 +31,14 @@ jobs:
       # the tests still run, and a coverage regression now fails the build.
       - name: Test + coverage gate
         env:
+          PTB_LIVE_WINDOW_TESTS: "1"   # headless runner: the window-server-only tests (event routing, OCR reads) run here
           PTB_SNAPSHOT_SCREENSHOT_DIR: ${{ runner.temp }}/snapshot-history-renders
           PTB_ZERO_USAGE_SCREENSHOT_DIR: ${{ runner.temp }}/snapshot-history-renders/zero-usage
         run: ./scripts/test-gate.sh
 
       - name: Preserve native snapshot-history renders
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
           name: snapshot-history-renders
           path: ${{ runner.temp }}/snapshot-history-renders

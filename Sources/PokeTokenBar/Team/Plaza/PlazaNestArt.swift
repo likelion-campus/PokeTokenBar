@@ -1,4 +1,3 @@
-import CoreGraphics
 import Foundation
 
 /// 알이 앉는 둥지. 지도 그림과 같은 2배 도트(한 칸 = 월드 2픽셀)로 그린 엮은 짚 그릇이다.
@@ -35,10 +34,10 @@ enum PlazaNestArt {
     ]
 
     /// 둥지 전체. 알 뒤에 깐다.
-    static func image() -> CGImage { render { _, _ in true } }
+    static func image() -> PlazaImage { render { _, _ in true } }
 
     /// 앞 테두리만. 알 앞에 얹는다.
-    static func frontImage() -> CGImage { render { y, ch in y >= frontFromRow && ch != "H" && ch != "K" } }
+    static func frontImage() -> PlazaImage { render { y, ch in y >= frontFromRow && ch != "H" && ch != "K" } }
 
     /// 그 칸의 색. 빈 칸이면 nil.
     static func color(_ x: Int, _ y: Int) -> [UInt8]? {
@@ -46,7 +45,7 @@ enum PlazaNestArt {
         return palette[row[row.index(row.startIndex, offsetBy: x)]]
     }
 
-    private static func render(_ keep: (_ y: Int, _ ch: Character) -> Bool) -> CGImage {
+    private static func render(_ keep: (_ y: Int, _ ch: Character) -> Bool) -> PlazaImage {
         let width = cols * cell, height = rows * cell
         var data = [UInt8](repeating: 0, count: width * height * 4)
         for (y, row) in grid.enumerated() {
@@ -60,10 +59,8 @@ enum PlazaNestArt {
                 }
             }
         }
-        let provider = CGDataProvider(data: Data(data) as CFData)!
-        return CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: width * 4,
-                       space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                       bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
-                       provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)!
+        var bitmap = PlazaBitmap(width: width, height: height)
+        bitmap.bytes = data
+        return PlazaImage(bitmap: bitmap)
     }
 }

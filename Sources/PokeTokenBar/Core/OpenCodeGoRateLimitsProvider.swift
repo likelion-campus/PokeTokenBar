@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// OpenCode Go subscription limits (rolling 5h / weekly / monthly allowance).
 public protocol OpenCodeGoLimitsProviding: Sendable {
@@ -62,7 +65,7 @@ public struct OpenCodeGoRateLimitsProvider: OpenCodeGoLimitsProviding, Sendable 
     private static func perform(_ request: URLRequest) async throws -> (Data, Int)? {
         guard AppEnv.allowsLiveLimitsFetch else { throw LimitsError.liveFetchNotPermitted }
         do {
-            let (data, response) = try await session.data(for: request)
+            let (data, response) = try await PlatformCompat.oneShotData(for: request, session: session)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             return (data, status)
         } catch {

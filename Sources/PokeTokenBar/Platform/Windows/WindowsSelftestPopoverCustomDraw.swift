@@ -1,0 +1,325 @@
+#if os(Windows)
+import Foundation
+import WinSDK
+
+// Visual polish K3: the custom-drawn native controls (segmented control, switch, push buttons, slider, capsule chips). Fixture
+// texts only; the windows are KitWindows (no popover, nothing shown to a person except on the runner).
+//
+// What is proved, per appearance (light, dark, simulated high contrast):
+//   - custom draw ran for every kind (a control that silently fell back to the system's drawing has `customDrawCount` 0);
+//   - the raised segment and the unselected track are the look's colours (pixels), AND the checked state is the radio's (`BM_GETCHECK`);
+//   - a switch's on and off differ in pixels (accent track vs plain) AND in the check box's state;
+//   - a disabled button's text is visibly weaker than an enabled one's, and the primary button is the accent;
+//   - the controls keep their native classes and styles (role: radio button, check box, push button, trackbar);
+//   - high contrast: nothing is custom drawn and the system's drawing still shows the checked segment (pixels differ).
+// `popover.customDraw.fault` runs the same evaluation with custom draw turned off and passes only when the evaluation FAILS: the
+// guard is proved to guard, in every run, without a second CI round.
+
+extension WindowsSelftest {
+    @MainActor static func popoverCustomDrawChecks(_ r: Recorder, _ app: WindowsAppDelegate) async {
+        await WindowsSelftestPopoverCustomDraw.run(r)
+    }
+}
+
+@MainActor final class CustomDrawPage {
+    var segments: WinControl?, chips: WinControl?, on: WinControl?, off: WinControl?
+    var enabled: WinControl?, disabled: WinControl?, primary: WinControl?, small: WinControl?, slider: WinControl?
+    /// K4 additions the hover check moves over: the tab strip's kind (a tall radio group that fills its row), a drop-down and a stepper.
+    var strip: WinControl?, dropDown: WinControl?, stepper: WinControl?
+
+    func build(_ s: WinStack) {
+        let section = s.addSection("Custom draw")
+        segments = section.addRow(nil, style: .full) { pane, ctx in WinControls.radioGroup(["Used", "Remaining", "Third"], selected: 1, in: pane, ctx: ctx) }.control
+        chips = section.addRow(nil, style: .full) { pane, ctx in
+            WinControls.chipGroup(names: ["Claude", "Codex", "Gemini"], marks: [false, true, false], selected: 0, in: pane, ctx: ctx)
+        }.control
+        on = section.addToggle("Switch on", isOn: true).control
+        off = section.addToggle("Switch off", isOn: false).control
+        enabled = section.addRow("Enabled") { pane, ctx in WinControls.button("Refresh", in: pane, ctx: ctx) }.control
+        disabled = section.addRow("Disabled") { pane, ctx in WinControls.button("Refresh", in: pane, ctx: ctx) }.control
+        primary = section.addRow("Primary") { pane, ctx in WinControls.button("Update", style: .primary, in: pane, ctx: ctx) }.control
+        small = section.addRow("Small") { pane, ctx in WinControls.button("Buy", small: true, in: pane, ctx: ctx) }.control
+        slider = section.addRow("Slider") { pane, ctx in
+            WinControls.trackbar(range: 0...10, step: 1, value: 4, format: { "\($0)" }, width: 170, in: pane, ctx: ctx)
+        }.control
+        disabled?.isEnabled = false
+        strip = section.addRow(nil, style: .full) { pane, ctx in
+            WinControls.radioGroup(["Home", "Collection", "Shop", "Bag"], selected: 0, tall: true, fillsRow: true, in: pane, ctx: ctx)
+        }.control
+        dropDown = section.addRow("Drop-down") { pane, ctx in WinControls.combo(["English", "한국어", "日本語"], selected: 0, in: pane, ctx: ctx) }.control
+        stepper = section.addRow("Stepper") { pane, ctx in WinControls.stepper(range: 1...5, step: 1, value: 3, format: { "×\($0)" }, in: pane, ctx: ctx) }.control
+    }
+}
+
+@MainActor enum WindowsSelftestPopoverCustomDraw {
+    static let names = ["popover.customDraw", "popover.customDraw.fault"]
+
+    private static func wait(_ seconds: TimeInterval) async { _ = await WindowsSelftest.waitUntil(timeout: seconds) { false } }
+
+    /// A window's client pixels (BGRA).
+    struct Shot {
+        let width: Int, height: Int
+        let bgra: [UInt8]
+
+        func rgb(_ x: Int, _ y: Int) -> (r: Int, g: Int, b: Int) {
+            let cx = min(max(0, x), width - 1), cy = min(max(0, y), height - 1)
+            let i = (cy * width + cx) * 4
+            return (Int(bgra[i + 2]), Int(bgra[i + 1]), Int(bgra[i]))
+        }
+
+        func luma(_ x: Int, _ y: Int) -> Double {
+            let c = rgb(x, y)
+            return 0.2126 * Double(c.r) + 0.7152 * Double(c.g) + 0.0722 * Double(c.b)
+        }
+
+        /// How far the strongest-contrast pixel is from the reference pixel's brightness: the text's strength.
+        func contrast(against reference: (x: Int, y: Int)) -> Double {
+            let ref = luma(reference.x, reference.y)
+            var best = 0.0
+            for y in 0..<height { for x in 0..<width { best = max(best, abs(luma(x, y) - ref)) } }
+            return best
+        }
+    }
+
+    static func shot(_ hwnd: HWND) -> Shot? {
+        var client = RECT()
+        _ = GetClientRect(hwnd, &client)
+        let w = Int(client.right - client.left), h = Int(client.bottom - client.top)
+        guard w > 0, h > 0, let dc = CreateCompatibleDC(nil) else { return nil }
+        defer { _ = DeleteDC(dc) }
+        var info = BITMAPINFO()
+        info.bmiHeader.biSize = DWORD(MemoryLayout<BITMAPINFOHEADER>.size)
+        info.bmiHeader.biWidth = Int32(w)
+        info.bmiHeader.biHeight = -Int32(h)
+        info.bmiHeader.biPlanes = 1
+        info.bmiHeader.biBitCount = 32
+        var bits: UnsafeMutableRawPointer?
+        guard let dib = CreateDIBSection(dc, &info, 0, &bits, nil, 0), let bits else { return nil }
+        defer { _ = DeleteObject(UnsafeMutableRawPointer(dib)) }
+        let old = SelectObject(dc, UnsafeMutableRawPointer(dib))
+        defer { _ = SelectObject(dc, old) }
+        // WM_PRINTCLIENT is what a button, a radio button and a trackbar paint from (PrintWindow on a child gave no picture on the runner)
+        _ = WinKit.send(hwnd, 0x0318 /* WM_PRINTCLIENT */, Int(bitPattern: UnsafeMutableRawPointer(dc)), 0x0004 | 0x0008 /* PRF_CLIENT | PRF_ERASEBKGND */)
+        _ = GdiFlush()
+        return Shot(width: w, height: h, bgra: Array(UnsafeRawBufferPointer(start: bits, count: w * h * 4)))
+    }
+
+    static func near(_ a: (r: Int, g: Int, b: Int), _ c: COLORREF, tolerance: Int = 4) -> Bool {
+        abs(a.r - Int(c & 0xFF)) <= tolerance && abs(a.g - Int((c >> 8) & 0xFF)) <= tolerance && abs(a.b - Int((c >> 16) & 0xFF)) <= tolerance
+    }
+
+    static func byte(_ v: Int) -> String { (v < 16 ? "0" : "") + String(v, radix: 16, uppercase: true) }
+    static func hex(_ a: (r: Int, g: Int, b: Int)) -> String { "#" + byte(a.r) + byte(a.g) + byte(a.b) }
+
+    /// One appearance: the problems found (empty = all proved) and a note of the measured values.
+    static func evaluate(dark: Bool, highContrast: Bool) async -> (problems: [String], note: String) {
+        var problems: [String] = []
+        let page = CustomDrawPage()
+        guard let w = KitWindow(heightDIP: 700, highContrast: highContrast, dark: highContrast ? nil : dark, register: true,
+                                origin: POINT(x: 0, y: 0), build: { _, s in page.build(s) }) else { return (["no window"], "") }
+        defer { w.destroy() }
+        w.fitToContent()
+        w.show(activate: false)
+        _ = RedrawWindow(w.hwnd, nil, nil, UINT(0x0001 | 0x0004 | 0x0080 | 0x0100))  // INVALIDATE | ERASE | ALLCHILDREN | UPDATENOW
+        await wait(0.4)
+        var notes: [String] = []
+
+        // The native classes and styles are untouched (role and state come from them).
+        func style(_ h: HWND) -> DWORD { DWORD(bitPattern: GetWindowLongW(h, -16)) }
+        guard let seg = page.segments, let chips = page.chips, let on = page.on, let off = page.off, let enabled = page.enabled,
+              let disabled = page.disabled, let primary = page.primary, let slider = page.slider, let small = page.small else {
+            return (["the page's controls were not made"], "")
+        }
+        for part in seg.parts + chips.parts where WinKit.className(part) != "Button" || style(part) & 0xF != 0x9 || style(part) & 0x1000 == 0 {
+            problems.append("a segment is not a push-like auto radio button")
+        }
+        for h in [on.hwnd, off.hwnd] where WinKit.className(h) != "Button" || style(h) & 0xF != 0x3 { problems.append("a switch is not an auto check box") }
+        for h in [enabled.hwnd, disabled.hwnd, primary.hwnd, small.hwnd] where WinKit.className(h) != "Button" || style(h) & 0xF != 0x0 {
+            problems.append("a push button lost its class or style")
+        }
+        if WinKit.className(slider.hwnd) != "msctls_trackbar32" { problems.append("the slider is not a trackbar") }
+
+        // Custom draw ran for every kind (never in high contrast: the system draws there).
+        let drawn = [("segments", seg), ("chips", chips), ("switch", on), ("button", enabled), ("primary", primary), ("slider", slider)]
+        // The spike's answer per class: `NM_CUSTOMDRAW` delivered (customDrawCount) or only the WM_PAINT safety net painted (fallback).
+        notes.append("NM_CUSTOMDRAW/fallback paints " + drawn.map { "\($0.0)=\($0.1.customDrawCount)/\($0.1.fallbackPaintCount)" }.joined(separator: " "))
+        if highContrast {
+            for (name, c) in drawn where c.customDrawCount + c.fallbackPaintCount != 0 { problems.append("\(name) was custom drawn in high contrast") }
+        } else {
+            for (name, c) in drawn where c.customDrawCount + c.fallbackPaintCount == 0 { problems.append("\(name): neither custom draw nor the fallback painted it") }
+            for (name, c) in drawn where c.customDrawCount == 0 && c.fallbackPaintCount > 0 { problems.append("\(name): NM_CUSTOMDRAW was not delivered (the fallback painted)") }
+        }
+
+        // The checked segment is the radio's checked state and a different picture than its neighbours.
+        guard let p0 = seg.parts.first, let p1 = seg.parts.dropFirst().first,
+              let a = shot(p0), let b = shot(p1) else { problems.append("no picture of the segments"); return (problems, notes.joined(separator: "; ")) }
+        let checked0 = WinKit.send(p0, 0x00F0), checked1 = WinKit.send(p1, 0x00F0)
+        if checked0 != 0 || checked1 != 1 { problems.append("segment states \(checked0)/\(checked1), expected 0/1") }
+        if highContrast {
+            var different = 0
+            for i in 0..<min(a.bgra.count, b.bgra.count) where abs(Int(a.bgra[i]) - Int(b.bgra[i])) > 8 { different += 1 }
+            if different < 20 { problems.append("high contrast: the checked segment looks like an unchecked one (\(different) channel values differ)") }
+            notes.append("high contrast: \(different) channel values differ between a checked and an unchecked segment")
+        } else {
+            let look = WinLook(seg)
+            let y = Int(look.px(5)), x = b.width / 2
+            let raised = b.rgb(x, y), flat = a.rgb(x, y)
+            if !near(raised, look.thumb) { problems.append("the raised segment is \(hex(raised)), expected the thumb \(hex(from: look.thumb))") }
+            if !near(flat, look.track) { problems.append("an unselected segment is \(hex(flat)), expected the track \(hex(from: look.track))") }
+            notes.append("segment raised \(hex(raised)) vs track \(hex(flat))")
+        }
+
+        // A switch: on and off differ in pixels and in state.
+        if !highContrast, let onShot = shot(on.hwnd), let offShot = shot(off.hwnd) {
+            var client = RECT()
+            _ = GetClientRect(on.hwnd, &client)
+            let look = WinLook(on)
+            let track = WinCustomDraw.switchTrack(in: client, look)
+            let x = Int((track.left + track.right) / 2), y = Int((track.top + track.bottom) / 2)
+            let onPixel = onShot.rgb(x, y), offPixel = offShot.rgb(x, y)
+            if !near(onPixel, look.accent) { problems.append("an on switch is \(hex(onPixel)), expected the accent \(hex(from: look.accent))") }
+            if near(offPixel, look.accent, tolerance: 40) { problems.append("an off switch is as accent as an on one (\(hex(offPixel)))") }
+            if WinKit.send(on.hwnd, 0x00F0) != 1 || WinKit.send(off.hwnd, 0x00F0) != 0 { problems.append("switch check states are not 1/0") }
+            notes.append("switch on \(hex(onPixel)) off \(hex(offPixel))")
+        }
+
+        // Buttons: disabled is weaker than enabled; primary is the accent.
+        if !highContrast, let e = shot(enabled.hwnd), let d = shot(disabled.hwnd), let p = shot(primary.hwnd) {
+            let ref = (x: e.width / 2, y: 3)
+            let strong = e.contrast(against: ref), weak = d.contrast(against: ref)
+            if !(weak < strong - 25) { problems.append("a disabled button's text (\(Int(weak))) is not visibly weaker than an enabled one's (\(Int(strong)))") }
+            if IsWindowEnabled(disabled.hwnd) { problems.append("the disabled button is enabled") }
+            let look = WinLook(primary)
+            let corner = p.rgb(p.width / 2, 3)
+            if !near(corner, look.accent) { problems.append("the primary button is \(hex(corner)), expected the accent \(hex(from: look.accent))") }
+            // The button's edge against the card it sits on (a flat dark button was the complaint): WCAG contrast ratio of the stroke pixel.
+            func lum(_ c: (r: Int, g: Int, b: Int)) -> Double {
+                func ch(_ v: Int) -> Double { let s = Double(v) / 255; return s <= 0.03928 ? s / 12.92 : pow((s + 0.055) / 1.055, 2.4) }
+                return 0.2126 * ch(c.r) + 0.7152 * ch(c.g) + 0.0722 * ch(c.b)
+            }
+            let cardColour = WinLook(enabled).bg  // the card behind the button (the button's own fill is not what the edge is against)
+            let edgePixel = e.rgb(0, e.height / 2)
+            let cardPixel = (r: Int(cardColour & 0xFF), g: Int((cardColour >> 8) & 0xFF), b: Int((cardColour >> 16) & 0xFF))
+            let hi = max(lum(edgePixel), lum(cardPixel)), lo = min(lum(edgePixel), lum(cardPixel))
+            let ratio = (hi + 0.05) / (lo + 0.05)
+            let want = dark ? 2.4 : 1.15
+            if ratio < want { problems.append("a secondary button's edge is \(String(format: "%.2f", ratio)):1 against its card, expected at least \(want):1") }
+            notes.append("button edge \(hex(edgePixel)) on card \(hex(cardPixel)) = \(String(format: "%.2f", ratio)):1")
+            notes.append("button text contrast enabled \(Int(strong)) disabled \(Int(weak)); primary \(hex(corner))")
+        }
+        // The slider's accent fill reaches the thumb: the track left of the thumb is the accent, right of it the strong stroke.
+        if !highContrast, let s = shot(slider.parts[0]) {
+            let look = WinLook(slider)
+            let y = s.height / 2
+            let left = s.rgb(Int(look.px(8)), y)
+            let right = s.rgb(s.width - Int(look.px(8)), y)
+            if !near(left, look.accent) { problems.append("the slider's filled track is \(hex(left)), expected the accent") }
+            if near(right, look.accent, tolerance: 30) { problems.append("the slider's empty track is as accent as the filled one (\(hex(right)))") }
+            notes.append("slider filled \(hex(left)) empty \(hex(right))")
+        }
+        return (problems, notes.joined(separator: "; "))
+    }
+
+    static func hex(from c: COLORREF) -> String { hex((r: Int(c & 0xFF), g: Int((c >> 8) & 0xFF), b: Int((c >> 16) & 0xFF))) }
+
+    /// Hover costs one repaint on entering a segment and none while the pointer moves inside it; no repaint erases the background first, and
+    /// every picture reaches the screen in one blit (a repaint that drew its steps on the window's own DC flashed the bare track). The
+    /// controls' PARENT pane must not paint or erase at all while the pointer moves over them (K4 adds the tab strip's kind, the drop-down
+    /// and both halves of the stepper). `parentRepaints` is the fault: the pane is invalidated once per control, so the counters must see it.
+    static func hoverEvaluate(parentRepaints: Bool = false) async -> (problems: [String], note: String) {
+        var problems: [String] = []
+        let page = CustomDrawPage()
+        guard let w = KitWindow(heightDIP: 900, register: true, origin: POINT(x: 0, y: 0), build: { _, s in page.build(s) }) else { return (["no window"], "") }
+        defer { w.destroy() }
+        w.fitToContent()
+        w.show(activate: false)
+        _ = RedrawWindow(w.hwnd, nil, nil, UINT(0x0001 | 0x0004 | 0x0080 | 0x0100))
+        await wait(0.4)
+        guard let seg = page.segments, let on = page.on, let enabled = page.enabled, let strip = page.strip, let dd = page.dropDown,
+              let stepper = page.stepper, let pane = w.stack?.pane else { return (["controls missing"], "") }
+        let all = [seg, strip, on, enabled, dd, stepper]
+        func settle() {
+            for c in all { for p in c.parts { _ = UpdateWindow(p) } }
+            _ = UpdateWindow(pane.hwnd)
+        }
+        func counts() -> (paints: Int, erases: Int) {
+            var paints = 0, erases = 0
+            for c in all { paints += c.customDrawCount; erases += c.eraseCount }
+            return (paints, erases)
+        }
+        func move(_ p: HWND, _ n: Int, x: ((RECT, Int) -> Int)? = nil, y: ((RECT) -> Int)? = nil) {
+            var r = RECT()
+            _ = GetClientRect(p, &r)
+            for i in 0..<n {
+                let px = x?(r, i) ?? (4 + i % max(1, Int(r.right) - 8)), py = y?(r) ?? Int(r.bottom) / 2
+                _ = SendMessageW(p, 0x0200 /* WM_MOUSEMOVE */, 0, LPARAM(py << 16 | px))
+                settle()
+            }
+        }
+        settle()
+        let before = counts(), blits0 = WinCustomDraw.blits, paneBefore = (paints: pane.paints, erases: pane.erases)
+        // 30 moves inside each of the three segments in turn, then the tab strip's kind
+        var perControl: [String] = [], perCount: [Int] = []
+        func run(_ name: String, _ body: () -> Void) {
+            let b = counts().paints
+            body()
+            if parentRepaints { _ = InvalidateRect(pane.hwnd, nil, true); settle() }
+            perControl.append(name)
+            perCount.append(counts().paints - b)
+        }
+        for (i, p) in seg.parts.enumerated() { run("segment \(i + 1)") { move(p, 30) } }
+        for (i, p) in strip.parts.enumerated() { run("tab \(i + 1)") { move(p, 30) } }
+        // the push button, the switch and the drop-down
+        run("button") { move(enabled.hwnd, 30) }
+        run("switch") { move(on.hwnd, 30) }
+        run("drop-down") { move(dd.hwnd, 30) }
+        // both halves of the stepper: the spin box is the right 18 DIP, the upper half above the middle
+        let spinX: (RECT, Int) -> Int = { r, i in Int(r.right) - Int(stepper.ctx.px(CGFloat(2 + i % 12))) - 1 }
+        run("stepper upper") { move(stepper.hwnd, 30, x: spinX, y: { r in Int(r.bottom) / 4 }) }
+        run("stepper lower") { move(stepper.hwnd, 30, x: spinX, y: { r in Int(r.bottom) * 3 / 4 }) }
+        let after = counts(), blits = WinCustomDraw.blits - blits0
+        let paints = after.paints - before.paints, erases = after.erases - before.erases
+        let parent = (paints: pane.paints - paneBefore.paints, erases: pane.erases - paneBefore.erases)
+        let shown = zip(perControl, perCount).map { "\($0) \($1)" }.joined(separator: ", ")
+        // entering a control repaints it and the one it left: at most 2; the 29 further moves repaint nothing
+        if perCount.contains(where: { $0 > 2 }) { problems.append("a run of 30 moves inside one control repainted [\(shown)] times (at most 2 each: the entered and the left)") }
+        // an erase request is answered with "done" (nothing is drawn); the first paint of a window may still carry one, a move must not
+        if erases > perCount.count { problems.append("hovering asked for \(erases) background erases for \(perCount.count) runs: they grow with the moves") }
+        if blits != paints { problems.append("\(paints) paints but \(blits) whole-picture blits: a paint drew in steps on the window's own DC") }
+        // the parent pane: hovering must not repaint or erase it (it would flash the page colour behind the control)
+        // (a themed button asks its parent for the background once per paint; the pane answers "done" and draws nothing, so those requests may
+        // equal the children's paints but never exceed them)
+        if parent.paints != 0 { problems.append("the parent pane painted \(parent.paints) times while the pointer moved over its controls (must be 0)") }
+        if parent.erases > paints { problems.append("the parent pane answered \(parent.erases) erase requests for \(paints) child paints (more than one per paint)") }
+        return (problems, "repaints per run [\(shown)], erases \(erases), blits \(blits) of \(paints) paints; parent pane paints \(parent.paints) erases \(parent.erases)")
+    }
+
+    static func run(_ r: WindowsSelftest.Recorder) async {
+        let hover = await hoverEvaluate()
+        r.add("popover.hoverRepaint", hover.problems.isEmpty, hover.note + (hover.problems.isEmpty ? "" : " | PROBLEMS: " + hover.problems.joined(separator: "; ")))
+        WinCustomDraw.testUnbuffered = true
+        let flicker = await hoverEvaluate()
+        WinCustomDraw.testUnbuffered = false
+        // the parent counters must see a parent repaint when there is one (a counter that never counts proves nothing)
+        let parentFault = await hoverEvaluate(parentRepaints: true)
+        let seesParent = parentFault.problems.contains { $0.contains("parent pane") }
+        r.add("popover.hoverRepaint.fault", !flicker.problems.isEmpty && seesParent,
+              "painting on the window's DC (the old behaviour): \(flicker.problems.count) problems found as expected (\(flicker.note)); a repainted parent is \(seesParent ? "seen" : "NOT seen") (\(parentFault.note))")
+        var problems: [String] = []
+        var notes: [String] = []
+        for (name, dark, high) in [("light", false, false), ("dark", true, false), ("high contrast", false, true)] {
+            let result = await evaluate(dark: dark, highContrast: high)
+            problems.append(contentsOf: result.problems.map { "\(name): \($0)" })
+            notes.append("\(name): \(result.note)")
+        }
+        r.add("popover.customDraw", problems.isEmpty, notes.joined(separator: " | ") + (problems.isEmpty ? "" : " | PROBLEMS: " + problems.joined(separator: "; ")))
+
+        // The guard guards: the same evaluation with custom draw off must find problems.
+        WinCustomDraw.testDisabled = true
+        let broken = await evaluate(dark: false, highContrast: false)
+        WinCustomDraw.testDisabled = false
+        r.add("popover.customDraw.fault", !broken.problems.isEmpty,
+              "custom draw switched off: \(broken.problems.count) problems found as expected (first: \(broken.problems.first ?? "none"))")
+    }
+}
+#endif

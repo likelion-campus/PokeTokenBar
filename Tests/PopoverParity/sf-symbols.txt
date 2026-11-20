@@ -1,0 +1,35 @@
+# Every SF Symbol the Mac popover draws (systemName:, systemImage:, systemSymbolName:), for the Windows glyph table
+# (Task 3: WinGlyphs maps each to a Segoe Fluent / MDL2 code point or marks it).
+#   name | entry
+
+arrow.clockwise | P29
+arrow.right | C11
+arrow.triangle.2.circlepath | D5
+arrow.up.arrow.down | D3
+arrowtriangle.left.fill | R1
+arrowtriangle.right.fill | R1
+chart.bar.xaxis | P8
+checkmark | P10
+checkmark.circle | P22
+checkmark.seal.fill | B2
+chevron.backward | G0
+chevron.down | G16
+chevron.forward | G17
+chevron.left | C11
+chevron.right | C11
+exclamationmark.triangle | P29
+exclamationmark.triangle.fill | P18
+eye | P29e
+eye.slash | P29e
+flame.fill | P7
+gearshape | P29
+key.slash.fill | P17
+magnifyingglass | D3
+map | P3
+power | P29
+questionmark.circle | P15h
+sparkle | D3
+sparkles | D3
+star | D5
+star.fill | D5
+xmark.circle.fill | D3

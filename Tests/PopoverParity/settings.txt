@@ -1,0 +1,45 @@
+# Every persisted setting (stage 7, D9): the UserDefaults keys UsageStore, CompanionStore, TeamSettings and UpdateChecker
+# read or write, and any the popover files touch. A key is "literal" or the constant that holds it (Self resolved).
+#   key | entry [| n/a: <reason>]
+
+"NSInitialToolTipDelay" | A5t
+"activityVisualization" | P9
+"alwaysFacesBack" | G12b
+"animationQuality" | G4
+"companionNotifications" | G14c
+"critThreshold" | G14
+"dailyTrendWindow" | G6
+"disableKeychainAccess" | G17x
+"floatingPetAgentActivity" | G12a
+"floatingPetBubbleAlerts" | G12a
+"floatingPetEnabled" | G12
+"floatingPetSize" | G12
+"growthDifficulty" | G9
+"limitDisplayMode" | G5
+"limitNotifications" | G14
+"menuLimitColorMode" | G10
+"refreshInterval" | G3
+"shopDifficulty" | G9
+"showCostInMenu" | G10
+"showGrowthInMenu" | G10
+"showLimitInMenu" | G10
+"showTokensInMenu" | G10
+"statusChecksEnabled" | G14s
+"team.code" | G13c
+"team.enabled" | G13
+"team.memberID" | G13 | n/a: the member id TeamSettings creates once and never shows; the shared store keeps it on Windows too
+"team.nameColor" | G13 | n/a: chosen in the plaza (stage 6), not in the popover
+"team.nickname" | G13k
+"team.notifications" | G13t
+"team.saved" | G13s
+"team.schedules" | G13h
+"updateNotificationsEnabled" | G15
+"warnThreshold" | G14
+ClaudeAccountRoots.defaultsKey | G17c
+ClaudeTrackedAccountMode.defaultsKey | G7
+CustomScanRoots.defaultsKey(for:providerID) | G17s
+FloatingPetController.originXKey | F1
+FloatingPetController.originYKey | F1
+UpdateChecker.skippedVersionKey | P1
+UsageStore.armedCandyWindowsKey | P22 | n/a: internal candy bookkeeping of the limit windows, never shown; the shared store keeps it on Windows too
+UsageStore.disabledProvidersKey | G11

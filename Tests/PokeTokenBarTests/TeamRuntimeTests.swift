@@ -314,7 +314,7 @@ final class TeamRuntimeTests: XCTestCase {
         let sender = a.settings.memberID
         await settle { plaza.scene?.memberTiles[sender] != nil }
         a.runtime.session.sendEmote(.jump, target: nil)
-        await settle { (plaza.scene?.dustCount ?? 0) == 2 }
+        await settle { (plaza.scene?.dustShown ?? 0) == 2 }
         var t: TimeInterval = 0
         plaza.scene?.update(t)
         while t < PlazaActor.jumpDuration / 2 { t += 1.0 / 60; plaza.scene?.update(t) }
@@ -370,7 +370,7 @@ final class TeamRuntimeTests: XCTestCase {
         a.runtime.session.updatePlazaPosition(inPlaza: true, tile: TilePoint(x: start.x - 2, y: start.y), facing: .right, isWalking: false)
         await settle { scene.memberTiles[sender] == TilePoint(x: start.x - 2, y: start.y) }
         a.runtime.session.sendEmote(.tackle, target: b.settings.memberID)
-        await settle { scene.impactCount == 1 }
+        await settle { scene.impactsShown == 1 }
         scene.update(0); scene.update(1)
         XCTAssertEqual(scene.walker.tile, start, "two tiles away: no push")
         a.runtime.session.updatePlazaPosition(inPlaza: true, tile: left, facing: .right, isWalking: false)
@@ -379,7 +379,7 @@ final class TeamRuntimeTests: XCTestCase {
         for _ in 0..<200 where scene.memberTiles[sender] != left { await Task.yield(); t += 0.05; scene.update(t) }
         XCTAssertEqual(scene.memberTiles[sender], left)
         a.runtime.session.sendEmote(.tackle, target: b.settings.memberID)
-        await settle { scene.impactCount == 2 }
+        await settle { scene.impactsShown == 2 }
         for _ in 0..<20 { t += 0.05; scene.update(t) }
         XCTAssertEqual(scene.walker.tile, right, "pushed one tile away from the teammate on my left")
     }
@@ -410,7 +410,7 @@ final class TeamRuntimeTests: XCTestCase {
             if hidden {
                 await settle { scene.walker.tile == far }
             } else {
-                await settle { scene.impactCount == 1 }
+                await settle { scene.impactsShown == 1 }
                 for _ in 0..<40 { t += 0.05; scene.update(t) }
             }
             XCTAssertEqual(scene.walker.tile, far, "three tiles away (hidden: \(hidden))")
@@ -514,7 +514,31 @@ final class TeamRuntimeTests: XCTestCase {
     }
 
     func testSystemIdleTimeIsReadable() {
-        XCTAssertGreaterThanOrEqual(TeamRuntime.systemSecondsSinceInput(), 0)
+        XCTAssertGreaterThanOrEqual(MacIdleClock().secondsSinceLastInput(), 0)
+    }
+
+    /// With no closure override, the runtime asks the injected clock whether the user is idle.
+    func testIdleSecondsComeFromTheClock() {
+        final class FakeIdle: IdleClock, @unchecked Sendable {
+            var seconds: TimeInterval = 123
+            func secondsSinceLastInput() -> TimeInterval { seconds }
+        }
+        let clock = FakeIdle()
+        let defaults = TestDefaults.make(suite: "ptb.test.team.runtime.idle.\(UUID().uuidString)")
+        let settings = TeamSettings(defaults: defaults)
+        let tmp = FileManager.default.temporaryDirectory
+        let companion = CompanionStore(provider: RuntimeTestProvider(), clock: { runtimeNow },
+                                       fileURL: tmp.appendingPathComponent("rt-companion-\(UUID().uuidString).json"),
+                                       rng: SeededRNG(seed: 7), dittoDisguiseRollingEnabled: false, defaults: defaults)
+        let runtime = TeamRuntime(settings: settings, companion: companion, transport: hub.makeTransport(),
+                                  feed: TeamFeedStore(fileURL: tmp.appendingPathComponent("rt-feed-\(UUID().uuidString).json"),
+                                                      myMemberID: settings.memberID),
+                                  idle: clock)
+        runtime.tickOnce()
+        XCTAssertFalse(runtime.session.isIdle, "123s is under the 300s limit")
+        clock.seconds = TeamRuntime.idleAfter
+        runtime.tickOnce()
+        XCTAssertTrue(runtime.session.isIdle, "the clock's value decides")
     }
 
     func testCompanionEventIsPublished() {
@@ -616,9 +640,9 @@ final class TeamRuntimeTests: XCTestCase {
     }
 
     private struct NoSprites: PlazaSpriteFetching {
-        func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: NSImage, delay: TimeInterval)] { [] }
-        func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> NSImage? { nil }
-        func egg() async -> NSImage? { nil }
+        func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: PlazaImage, delay: TimeInterval)] { [] }
+        func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> PlazaImage? { nil }
+        func egg() async -> PlazaImage? { nil }
     }
 
     func testReceivedEmoteReachesThePlaza() async {
@@ -763,9 +787,9 @@ final class TeamRuntimeTests: XCTestCase {
         a.runtime.session.onEmote = { found.items.append($1) }
         plaza.chooseMenu(.tackle, memberID: aID)
         XCTAssertEqual(plaza.mimicking, aID, "test precondition")
-        let before = scene.impactCount   // my own tackle on a already drew one
+        let before = scene.impactsShown   // my own tackle on a already drew one
         a.runtime.session.sendEmote(.tackle, target: b.settings.memberID, pushTiles: 3)
-        await settle { scene.impactCount == before + 1 }
+        await settle { scene.impactsShown == before + 1 }
         var t: TimeInterval = 100
         for _ in 0..<40 { t += 0.05; scene.update(t) }
         XCTAssertEqual(scene.walker.tile, start)
@@ -780,7 +804,7 @@ final class TeamRuntimeTests: XCTestCase {
         let start = scene.walker.tile
         let session = a.runtime.session
         session.sendEmote(.mimicTackle, target: b.settings.memberID)
-        await settle { scene.impactCount == 1 }
+        await settle { scene.impactsShown == 1 }
         var t: TimeInterval = 100
         for _ in 0..<40 { t += 0.05; scene.update(t) }
         XCTAssertEqual(scene.walker.tile, start)
@@ -797,9 +821,9 @@ final class TeamRuntimeTests: XCTestCase {
 @MainActor private final class RuntimeFoundLog { var items: [TeamEmote] = [] }
 
 private struct DecoyNoSprites: PlazaSpriteFetching {
-    func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: NSImage, delay: TimeInterval)] { [] }
-    func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> NSImage? { nil }
-    func egg() async -> NSImage? { nil }
+    func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: PlazaImage, delay: TimeInterval)] { [] }
+    func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> PlazaImage? { nil }
+    func egg() async -> PlazaImage? { nil }
 }
 
 @MainActor
@@ -877,9 +901,9 @@ final class TeamRuntimeNotificationTests: XCTestCase {
         let scene = try XCTUnwrap(plaza.scene)
 
         // decoyJump: the copy hops (dust), and nothing is drawn as a bubble over the host.
-        XCTAssertEqual(scene.dustCount, 0)
+        XCTAssertEqual(scene.dustShown, 0)
         host.runtime.session.sendEmote(.decoyJump, target: nil)
-        await settle { scene.dustCount > 0 }
+        await settle { scene.dustShown > 0 }
         XCTAssertNil(scene.shownEmote(memberID: hostID))
 
         // decoyFound: the banner names the finder and the copy turns back.

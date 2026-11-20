@@ -25,7 +25,7 @@ final class PlazaPondMotionTests: XCTestCase {
         while t < start + seconds - 1e-9 { t += 1.0 / 30; s.update(t) }
     }
 
-    func testArrowKeysNeverEnterTheWater() {
+    func testArrowKeysNeverEnterTheWater() async {
         for shift in [false, true] {
             let s = scene(start: p(31, 18))
             s.currentModifiers = { shift ? .shift : [] }
@@ -37,7 +37,7 @@ final class PlazaPondMotionTests: XCTestCase {
         }
     }
 
-    func testPlungeEntersWaterInOneJumpStep() {
+    func testPlungeEntersWaterInOneJumpStep() async {
         var w = PlazaWalker(tile: p(31, 18))
         let isWater = { [map] (q: TilePoint) in map.isWater(q) }
         let dur: (TilePoint, TilePoint, Bool) -> TimeInterval = { PlazaPond.stepDuration(from: $0, to: $1, running: $2, isWater: isWater) }
@@ -53,7 +53,7 @@ final class PlazaPondMotionTests: XCTestCase {
         XCTAssertEqual(w.tile, p(32, 18))
     }
 
-    func testSwimmingStepsTakeAQuarterSecondAndClimbOut() {
+    func testSwimmingStepsTakeAQuarterSecondAndClimbOut() async {
         for shift in [false, true] {
             let s = scene(start: p(33, 18))
             s.currentModifiers = { shift ? .shift : [] }
@@ -74,7 +74,7 @@ final class PlazaPondMotionTests: XCTestCase {
         XCTAssertFalse(out.isMeInWater)
     }
 
-    func testTeammateOnWaterSwimsAndABlockedPushStopsBeforeThem() {
+    func testTeammateOnWaterSwimsAndABlockedPushStopsBeforeThem() async {
         let s = scene(start: p(35, 18))
         s.applyMembers([member("a", p(33, 18))])
         XCTAssertEqual(s.memberTiles["a"], p(33, 18), "not sent to the shelter")
@@ -85,7 +85,7 @@ final class PlazaPondMotionTests: XCTestCase {
         XCTAssertEqual(s.walker.tile, p(34, 18), "pushed through the water, stopped before the swimmer in the way")
     }
 
-    func testFollowingSomeoneWhoPlungesStopsAtTheShore() {
+    func testFollowingSomeoneWhoPlungesStopsAtTheShore() async {
         let s = scene(start: p(28, 18))
         s.applyMembers([member("a", p(30, 18))])
         XCTAssertTrue(s.follow(member: "a"))
@@ -97,7 +97,7 @@ final class PlazaPondMotionTests: XCTestCase {
         XCTAssertFalse(s.isMeInWater)
     }
 
-    func testWalkingToASwimmer() throws {
+    func testWalkingToASwimmer() async throws {
         let start = p(29, 17), target = p(34, 18)
         XCTAssertTrue(map.isWalkable(start))
         for dx in -2...2 { for dy in -2...2 { XCTAssertFalse(map.isWater(p(start.x + dx, start.y + dy)), "start is away from water") } }
@@ -124,7 +124,7 @@ final class PlazaPondMotionTests: XCTestCase {
 
     /// The only shore tile next to the swimmer is taken by a teammate: the walk picks another water edge,
     /// not the swimmer's own tile, and ends on a free shore tile.
-    func testWalkingToASwimmerWhoseShoreTileIsTaken() {
+    func testWalkingToASwimmerWhoseShoreTileIsTaken() async {
         let s = scene(start: p(29, 17))
         s.applyMembers([member("a", p(32, 18)), member("b", p(31, 18))])
         XCTAssertTrue(s.walk(toMember: "a"))

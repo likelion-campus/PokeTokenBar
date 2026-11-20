@@ -1,0 +1,21 @@
+# Paths (relative to this file's directory) that are NOT built on Windows. A trailing / marks a directory.
+# A file belongs here only when it imports an Apple-only framework or draws with CoreGraphics / SpriteKit / AppKit.
+# Everything else is shared; OS calls go through Platform/. See SharedSourcesScanTests.
+#
+# Windowing, menu bar, SwiftUI views, the app entry point
+UI/
+Team/UI/
+PokeTokenBarApp.swift
+# Platform/Mac: the real Mac implementations of the Platform protocols
+Platform/Mac/
+# OS services: Keychain, Security framework, login item, single instance, crash report, updater, NWPathMonitor
+Core/AntigravityRateLimitsProvider.swift
+Core/CrashReporter.swift
+Core/KeychainAccess.swift
+Core/LoginItem.swift
+Core/NetworkReachabilityMonitor.swift
+Core/OAuthLimitsProvider.swift
+Core/SingleInstance.swift
+# Team: system notification poster (UserNotifications) and the Network.framework transport
+Team/TeamNotificationsMac.swift
+Team/TeamTransport.swift

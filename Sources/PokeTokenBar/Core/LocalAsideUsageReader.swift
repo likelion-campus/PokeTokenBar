@@ -1,5 +1,9 @@
 import Foundation
+#if canImport(SQLite3)
 import SQLite3
+#else
+import CSQLite
+#endif
 
 /// Aside persists mutable turn aggregates, not append-only usage events, and `ON DELETE
 /// CASCADE` removes a session's turns outright when the user deletes the session. The
@@ -24,9 +28,9 @@ enum LocalAsideUsageReader {
         let fm = FileManager.default
         var found = Set<URL>()
         for root in roots {
-            let children = (try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? []
+            let children = (try? PlatformCompat.contentsOfDirectory(fm, at: root, includingPropertiesForKeys: nil)) ?? []
             for directory in [root] + children {
-                let db = directory.appendingPathComponent("state.db").resolvingSymlinksInPath().standardizedFileURL
+                let db = PlatformCompat.resolvedFileURL(directory.appendingPathComponent("state.db"))
                 if fm.fileExists(atPath: db.path) { found.insert(db) }
             }
         }

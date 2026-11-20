@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// Shared by species names and battle metadata. Keep every language returned by the API;
 /// adding an app language must not require changing a second allowlist or redownloading names.
@@ -78,7 +81,7 @@ actor PokemonNameClient: PokemonNameProviding {
     static func download(_ url: URL) async throws -> Data {
         var request = URLRequest(url: url)
         request.timeoutInterval = 15
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await PlatformCompat.oneShotData(for: request)
         guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
         return data
     }

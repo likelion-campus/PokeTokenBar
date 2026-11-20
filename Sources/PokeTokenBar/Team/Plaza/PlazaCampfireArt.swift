@@ -1,4 +1,3 @@
-import CoreGraphics
 import Foundation
 
 /// 모닥불 픽셀 아트. 32x40 칸에 절차적으로 그리고 정수 배로 키운다. 규칙은 사용자가 시안으로 승인한 그대로다.
@@ -76,16 +75,17 @@ enum PlazaCampfireArt {
                 rgb[i] = mix(16) | mix(8) | mix(0)
             }
         }
-        func image(scale k: Int) -> CGImage {
-            let ctx = CGContext(data: nil, width: w * k, height: h * k, bitsPerComponent: 8, bytesPerRow: 0,
-                                space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        /// Each cell becomes a `k`x`k` block, y up from the bottom, premultiplied as CoreGraphics does a fill of
+        /// that colour and alpha (`(c * a + 127) / 255`; checked over every colour and alpha by the parity oracle).
+        func image(scale k: Int) -> PlazaImage {
+            var bitmap = PlazaBitmap(width: w * k, height: h * k)
             for y in 0..<h { for x in 0..<w where alpha[y * w + x] > 0 {
-                let c = rgb[y * w + x], a = CGFloat(alpha[y * w + x]) / 255
-                ctx.setFillColor(CGColor(srgbRed: CGFloat(c >> 16 & 0xFF) / 255, green: CGFloat(c >> 8 & 0xFF) / 255,
-                                         blue: CGFloat(c & 0xFF) / 255, alpha: a))
-                ctx.fill(CGRect(x: x * k, y: y * k, width: k, height: k))
+                let c = rgb[y * w + x], a = Int(alpha[y * w + x])
+                let pixel = PlazaRGBA(r: UInt8((Int(c >> 16 & 0xFF) * a + 127) / 255), g: UInt8((Int(c >> 8 & 0xFF) * a + 127) / 255),
+                                      b: UInt8((Int(c & 0xFF) * a + 127) / 255), a: UInt8(a))
+                for dy in 0..<k { for dx in 0..<k { bitmap[x * k + dx, bitmap.height - 1 - (y * k + dy)] = pixel } }
             } }
-            return ctx.makeImage()!
+            return PlazaImage(bitmap: bitmap)
         }
     }
 
@@ -115,7 +115,7 @@ enum PlazaCampfireArt {
         return logs
     }
 
-    static func image(_ state: State, phase: Int, scale: Int) -> CGImage {
+    static func image(_ state: State, phase: Int, scale: Int) -> PlazaImage {
         let t = Double(phase % PlazaCampfire.frameCount) / Double(PlazaCampfire.frameCount)
         let W = cellsW, H = cellsH
         var canvas = Raster(W, H)
@@ -239,10 +239,10 @@ enum PlazaCampfireArt {
     }
 
     private static let cacheLock = NSLock()
-    nonisolated(unsafe) private static var cachedFrames: [State: [CGImage]] = [:]
+    nonisolated(unsafe) private static var cachedFrames: [State: [PlazaImage]] = [:]
 
     /// 8배 프레임 목록. 프로세스 동안 상태별로 한 번만 만든다. ready는 1장, 나머지는 12장.
-    static func frames(_ state: State) -> [CGImage] {
+    static func frames(_ state: State) -> [PlazaImage] {
         cacheLock.lock(); defer { cacheLock.unlock() }
         if let cached = cachedFrames[state] { return cached }
         let count = state == .ready ? 1 : PlazaCampfire.frameCount

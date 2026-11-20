@@ -7,6 +7,7 @@ read_when:
   - 메뉴바·플로팅 펫 등 상시 표시 애니메이션의 성능을 손볼 때
   - 스프라이트·이미지를 고정 크기 프레임에 그릴 때(비율 왜곡 부류)
   - 세이브 이전/병합·외부 파일 입력 경로를 만들 때
+  - 윈도우 공용 집합(`mac-only.txt`)·`Platform/`·윈도우 CI 테스트를 건드릴 때
   - 팀 프레임을 받거나 저장하는 코드, 다른 Mac이 고른 값을 쓰는 코드를 손볼 때
 ---
 
@@ -882,6 +883,248 @@ read_when:
   설치 경로도 마찬가지다. 원작 cask의 `xattr -cr` 단계가 빠진 채 zip 설치로 바꾸자 팀원 Mac에서 Gatekeeper가
   앱을 막았다. 자체 서명 앱이라 공증이 없고, 원작은 cask가 격리 표시를 지워서 경고가 보이지 않았을 뿐이다. 이 Mac은
   직접 빌드해서 격리 표시가 없으므로 재현되지 않는다. 팀 탭 cask의 `postflight_steps`가 같은 일을 한다.
+  **Windows 게이트도 같은 한 번의 릴리스에 들어 있다. Mac 만 나가는 릴리스는 없다.** `team-release.sh` 는 두 OS 의 게이트가
+  모두 통과해야 공개하고(`team_release.py publish` 는 zip 과 설치 파일 둘이 없으면 거절한다), 한쪽이 실패하면 아무것도
+  공개되지 않는다. 가드: `TeamReleaseScriptTests` 의 단계 순서 시험(publish 한 줄, collect 가 publish 앞)과
+  `TeamReleaseScriptRunTests`(Windows 실패 시나리오).
+
+- **움직이는 ref 로 릴리스를 빌드하지 않는다.** 릴리스는 검증한 커밋 SHA 하나에서만 만든다. Windows 빌드를 `main`
+  같은 가변 ref 로 돌리면, 릴리스를 시작한 뒤 병합된 커밋이 설치 파일에 섞이고 Mac zip 과 다른 코드가 같은 버전으로 나간다.
+  **왜 못 걸렀나:** 일반 CI 실행은 "그때의 main" 을 빌드하는 것이 정상이라, 릴리스 실행이 그 규칙을 따르는지 보는 시험이 없었다.
+  가드(stage 8 Task 1): 릴리스 모드 워크플로는 `release_sha`·`release_version` 입력을 받고 첫 단계 "Release pin" 이 체크아웃이
+  그 커밋이 아니거나 `VERSION` 이 그 버전이 아니거나 워크플로 파일이 디스패치한 ref 와 다르면 실패한다. 릴리스 실행은 자기
+  동시성 그룹(`<workflow>-release-<sha>`)에서 돌고 푸시로 취소되지 않으며, 산출물 `windows-release` 에는 커밋·버전·게이트
+  결과·해시가 들어간다. `team_release.py collect` 가 매니페스트의 sha 와 해시를 확인한다.
+
+- **릴리스 단계가 clone 안에 파일을 남기면, 같은 clone 에서 다시 실행할 때 깨끗한 트리 확인에서 멈춘다.** stage 8의
+  `team-release.sh` 가 1단계에서 `python3 -m unittest discover -s scripts/tests` 로 도우미를 시험하자 Python 이
+  `scripts/__pycache__/`·`scripts/tests/__pycache__/` 를 만들었고(무시 목록에 없다), 실제 리허설(새 clone, 52분) 뒤 같은
+  clone 에서 다시 실행하자 0단계 `git status --porcelain` 에서 "커밋하지 않은 변경"으로 멈췄다. 실패 뒤 고치고 다시 실행하는
+  것이 이 스크립트의 정상 흐름(Windows 실행 실패, 노트 수정)이라 릴리스를 막는다. **왜 못 걸렀나:** 스크립트 테스트의 가짜
+  `python3` 는 아무것도 쓰지 않고 가짜 `git status` 는 정해 준 값만 돌려줘서, 다시 실행 테스트가 진짜 부작용이 없는 다른
+  경로로 통과했다. 리허설 뒤 clone 의 `git status` 를 보고 찾았다. 수정: 스크립트가 `PYTHONDONTWRITEBYTECODE=1` 을 export 한다.
+  가드: 가짜 `python3` 가 그 변수가 없으면 진짜처럼 `scripts/__pycache__/` 를 쓰고 가짜 `git status` 가 그것을 보고하므로,
+  `TeamReleaseScriptRunTests` 의 다시 실행 테스트가 export 없이는 실패한다(결함 주입으로 확인). 스윕: 다른 단계가 쓰는 곳은
+  무시되는 `build/`(start 의 runs.json, collect, fill, build-app.sh)와 `.build/`(test-gate.sh)뿐이다.
+
+- **한 줄씩 읽는 목록·설정 파일에서 값 뒤의 `# 주석`은 파서가 떼지 않으면 주석이 아니다.** 윈도우 이식의 테스트용
+  `mac-only.txt` 에 `BinaryLocatorTests.swift  # 이유` 처럼 적었더니 한 줄 전체가 파일명이 되어 그 파일이 제외되지
+  않았다(조용히). 파서는 전체 줄 주석(`#` 로 시작하는 줄)만 안다. **왜 못 걸렀나:** 제외 목록은 "있는 것만 빼는"
+  구조라 틀린 항목이 에러 없이 무시됐다. 잡은 것은 `SharedSourcesScanTests.testEveryListedPathExists`(목록의 모든 경로가 실제로
+  있어야 함)였다. **규칙:** 목록·설정 파서의 주석 문법을 파일 머리에 적고 그 밖의 형태는 쓰지 않는다. 목록의 항목이 가리키는
+  것이 실제로 있는지 확인하는 테스트를 둔다(없는 항목이 조용히 무시되는 목록에는 필수).
+
+- **윈도우의 Foundation은 같은 API를 조용히 다르게 돌린다 (타이머·검색 경로·번들·defaults) — 첫 항목: `Timer(timeInterval:repeats:block:)` 는 윈도우에서 즉시 한 번 발화한다.**
+  swift-corelibs-foundation 은 이 생성자를 `init(fire: Date(), …)` 로 구현해, 맥(첫 발화가 간격 뒤)과 달리 윈도우에서는 만드는 즉시
+  첫 틱이 온다(E1 실측: 윈도우 8 ms, 맥 1009 ms). 공용 `UsageStore.reschedule()` 은 기동·간격 변경마다 즉시 갱신을 한 번 더 돌리고(`autoRefresh` 면
+  기동 때 이중 갱신), `suspendPolling()` 의 프로브는 300 초 뒤가 아니라 디스플레이가 꺼지자마자 로그를 파싱한다. **왜 못 걸렀나:** 맥에서는
+  옛 생성자가 항상 옳게 동작해 어떤 테스트도 실패하지 않았고, 타이머의 *첫 발화 시점*을 기다려 보는 테스트가 없었으며 윈도우 스위트는
+  주입한 프로바이더로 타이밍을 재지 않았다. **규칙:** 공용·윈도우 코드는 `Timer(timeInterval:…)` 대신
+  `Timer(fire: Date(timeIntervalSinceNow: i), interval: i, repeats: …)` 를 쓴다(`Timer.scheduledTimer(withTimeInterval:)` 은 양쪽 모두 간격 뒤라 무방).
+  **가드(기계):** `WindowsSeamScanTests.testNoTimerIntervalInitializerInSharedOrWindowsCode` 가 `mac-only.txt` 밖 모든 소스의 해당 생성자를
+  실패시키고(맥에서 옛 생성자를 되돌리면 이 스캔이 실패 — 결함 주입으로 확인), `UsageStoreTimerTests.testPollingTimerFirstFiresAfterTheInterval`
+  이 양쪽 OS 에서 첫 발화가 간격 뒤임을 고정한다(윈도우에서 옛 생성자는 실패 확인). 스윕: `Sources/` 의 `Timer(timeInterval:` 4 곳 중 `UsageStore` 2 곳만
+  공용이라 고쳤고 `PokeTokenBarApp`·`Team/TeamTransport` 는 맥 전용(`mac-only.txt`)이라 그대로다. 이 부류의 다음 항목(defaults)은 해당 작업이 이 항목 아래에 더한다.
+  **검색 경로·번들(Task 3):** 윈도우에서 `urls(for: .libraryDirectory)` 는 매핑이 없어 `[]` 이고(`.applicationSupportDirectory` 는 `%LOCALAPPDATA%`, 슬래시 `/` 구분),
+  `Bundle.main.bundleIdentifier` 는 항상 nil 이라 `AppEnv.isBundledApp` 이 늘 false 다. `AppLog` 의 `[0]` 은 첫 로그에서 트랩인데, `write` 가 번들 밖에서
+  일찍 돌아와 가려져 있었다 — 같은 게이트가 저장·라이브 한도까지 조용히 껐다. **왜 못 걸렀나:** 맥에서는 두 호출이 항상 옳았고, 윈도우에서는 게이트가
+  닫혀 로그 경로 계산에 닿지 않았다(게이트를 열면 비로소 도달 가능). **규칙:** 로그 폴더는 `PlatformCompat.logsDirectory()`, 번들 판정은
+  `PlatformCompat.isBundledApp`(윈도우: exe 옆 `PokeTokenBar.version` 이 비어 있지 않을 때), 윈도우 셸 API 에는 `WinPath.native`, 경로 비교는 `WinPath.sameFile`.
+  **가드(기계):** `WindowsSeamScanTests.testSharedFilesDoNotAskForTheLibraryDirectory`(결함 주입으로 실패 확인), `PlatformCompatTests` 가 맥의 옛 값을 고정,
+  `WindowsFoundationTests` 가 러너에서 실제 동작을 단언. 스윕(`urls(for:in:)[0]`): `.applicationSupportDirectory` 6곳은 매핑돼 안전, `AppLog` 는 고침,
+  `CrashReporter` 는 맥 전용(`mac-only.txt`)이라 그대로, `NSHomeDirectory()` 는 `BinaryLocator`·`PlatformCompat` 에서 정규화돼 쓰이며 하드코딩 `/Library/`·`/tmp` 는 공용 소스에 없다.
+  **defaults(Task 5):** 윈도우의 `UserDefaults` 는 `set` 이 메모리만 바꾸고 디스크(`<프로필 폴더>\<사용자 이름>\AppData\Local\<프로세스 이름>.plist`,
+  프로세스 이름에 `.exe` 포함)에는 `synchronize()` 때만 쓴다. `TerminateProcess` 는 물론 정상 `exit(0)` 에서도, 타이머로도 저장되지 않는다(E1 P9).
+  맥은 cfprefsd 가 알아서 저장하므로 공용 코드 어디에도 `synchronize` 가 없고, 그대로면 설정과 `team.memberID` 가 매 종료마다 사라진다.
+  **왜 못 걸렀나:** 맥 테스트는 cfprefsd 가 저장해 주는 환경이고, 윈도우 스위트는 한 프로세스 안에서 쓰고 읽어(메모리 캐시) 디스크를 보지
+  않았으며, 앱 실행 파일이 없어 "끄고 다시 켜기" 를 할 대상이 없었다. **규칙:** 윈도우 앱은 공용 init 의 `defaults:` 에 `WinSyncingDefaults`
+  (쓰기마다 2 초 뒤 저장)를 넣고, 30 초 안전 저장·스토어 생성 직후 저장을 두며, 프로세스는 `WindowsApp.exit` 로만 끝낸다(먼저 저장한다).
+  **가드(기계):** `WindowsSeamScanTests.testWindowsCodeExitsOnlyThroughWindowsAppExit`(`Platform/Windows/**` 의 다른 `exit(`·`ExitProcess(`·
+  `TerminateProcess(GetCurrentProcess` 를 실패시킨다, 주입 테스트 포함), `WindowsShellTests.testSyncingDefaultsSeesTypedSetters`(타입별 setter 도 저장
+  예약에 닿음, G-i), 셀프테스트의 자식 프로세스 검사 `defaults.persist.debounce`·`defaults.persist.restart`(쓰고 3 초 뒤 강제 종료 → 새 프로세스가
+  읽음)·`defaults.persist.exit`·`exit.closeRequest`·`exit.endSession`·`defaults.control`(정상 `exit(0)` 은 여전히 잃는다는 대조), 그리고
+  `windows-app` 의 전체 앱 kill 단계. 스윕: 공용 소스의 `synchronize(` 호출은 0 곳(맥은 필요 없음)이고, 공용 코드가 `.standard` 에 직접 쓰는 곳도 없다
+  (`BinaryLocator`·`KeychainAccessGate`·`CompanionStore` 는 읽기만 한다). 앞으로 생길 직접 쓰기는 30 초 안전 저장이 덮는다. 설정 파일 이름이 exe 이름에 묶이므로 배포 exe 이름(`PokeTokenBar.exe`)은 고정이다.
+  **메인 스레드·메시지 펌프(Task 5):** 윈도우에서는 `RunLoop.main` 을 창보다 먼저 만져야 CF 가 Win32 메시지를 펌프하고(늦으면 그 창은 메시지를
+  못 받고 스레드 간 `SendMessageTimeoutW` 가 막힌다), `async` main 은 첫 `await` 뒤 메인 액터 코드를 풀 스레드로 옮기며 창을 잃고, CF 의 펌프는
+  ANSI 라 코드 페이지 밖 문자(예: U+D55C)가 `?` 로 온다(E1 P2, P6, TEXT). **규칙:** `main.swift` 는 동기, `WindowsApp.main()` 은 첫 줄에서
+  `RunLoop.main` 을 만지고, 스레드 로컬 `WH_GETMESSAGE` 훅이 유니코드 창의 문자 메시지를 `DispatchMessageW` 로 다시 보낸다. 풀 스레드 콜백
+  (`Platform/Windows/Team/**`)은 `DispatchQueue.main.async` 블록 안에서만 `MainActor.assumeIsolated` 를 쓴다. **가드(기계):**
+  `testWindowsMainIsSynchronous`·`testNoAssumeIsolatedInPoolThreadCallbacks`(각각 주입 테스트 포함)와 셀프테스트 `loop.*`(스레드 id·지연·
+  `SendMessageTimeoutW`·게시/입력한 U+D55C 가 그대로 도착) — XCTest 는 런루프를 제 방식으로 돌리므로 이 검사는 배포 루프 안에서만 의미가 있다.
+  **메인 스레드의 파일 쓰기(Task 5 관찰 → 수정됨):** 윈도우의 FoundationEssentials `Data.write(to:options: .atomic)` 은 임시 파일을
+  `FlushFileBuffers` 로 디스크까지 내린 뒤 바꿔 넣는다(맥은 fsync 하지 않는다). `@MainActor` 인 `CompanionStore.save()`(기동 갱신 한 번에 11 회)와
+  `UsageStore.writeParitySnapshot()`(2 회)이 이를 메인 스레드에서 불러 러너에서 메인 스레드가 한 번에 146–231 ms 멈췄다(스톨 프로브: 17 개 표본
+  모두 `ZwFlushBuffersFile` ← `FlushFileBuffers` ← `Data.write(to:options:)`). **왜 못 걸렀나:** 맥에서는 같은 쓰기가 짧고, XCTest 는 메인 스레드
+  지연을 재지 않는다. **수정:** `PlatformCompat.atomicWrite` — 맥은 예전 호출 그대로, 윈도우는 같은 폴더의 임시 파일에 쓴 뒤 `MoveFileExW(REPLACE_EXISTING)`
+  로 바꿔 넣는다(flush·WRITE_THROUGH 없음. `ReplaceFileW` 는 대상이 있어야 하고 쓰지 않는 속성·ACL 병합을 해서 고르지 않았다). 내구성은 맥과 같다:
+  전원이 끊기면 마지막 저장은 잃을 수 있어도 이전 파일은 온전하다. **스윕:** `.atomic` 쓰기 20곳 — 메인 액터인 `CompanionStore.save`·`UsageStore.writeParitySnapshot`·
+  `TeamFeedStore.save`·`SaveSnapshotManager.createSnapshot`(`update` 끝의 `autoSnapshotIfNeeded` 가 12 시간마다 메인 액터에서 부른다. 처음엔 "드물고 사용자가 시작"이라 잘못 분류했다: 호출자를 따라가야 한다)를 옮겼고(각 한 줄), actor 캐시(`LocalUsageCache`·`SpriteStore`·`PokeAPIClient`·`PokemonNameClient`)·드물고 사용자가 시작하는 쓰기
+  (`CompanionStore.backupStateBeforeImport`)·자격증명 파일(`SessionKeyLimitsProvider`, 0600 보장이 먼저)·맥 전용(`CrashReporter`, `PlazaIconLoader`)은 그대로 뒀다.
+  **가드(기계):** `AtomicWriteTests`(양쪽: 왕복·교체·임시 파일 없음·동시 쓰기자), `WinAtomicWriteTests`(주입한 실패 뒤 이전 파일 유지), `WindowsSeamScanTests.testMainActorStoresWriteThroughPlatformCompat`,
+  셀프테스트 `loop.mainThreadStalls`(FlushFileBuffers 안의 표본이 하나라도 있거나 1000 ms 넘으면 실패. 수정 뒤 8 회 기동은 프로브 하한 30 ms 미만이었으나 이후 실행에서 로그 쓰기·파일 열기에 157·221 ms 가 한 번씩 나왔다(디스크 지연, flush 아님): 시간 상한만으로는 잡음에 걸리므로 원인을 이름으로 잡는다. 전에는 231·146 ms). **규칙:** 메인 액터나 갱신 경로의 파일 쓰기는 `PlatformCompat.atomicWrite` 로.
+  **설정 plist(같은 부류의 반대편):** CF 는 plist 를 제자리에 쓴다(임시 파일·rename 없음, `CFURLWriteDataAndPropertiesToResource`; corelibs `CFXMLPreferencesDomain.c` 로 확인).
+  읽을 때 파싱이 3 번 실패하면 **빈 사전**을 쓰므로, 쓰는 도중 kill·정전이 나면 다음 동기화가 바뀐 키만 써서 모든 설정과 `team.memberID` 가 사라질 수 있다. 3 s 뒤 kill 하는 CI 테스트는
+  쓰는 도중을 못 친다. **수정:** `SettingsPlistGuard` — 동기화 뒤 plist 가 파싱될 때만 `<plist>.bak` 를 `atomicWrite` 로 남기고, 기동 시 첫 읽기 전에 없거나 파싱 안 되면 백업을 되돌린다
+  (멀쩡한 plist 는 옛 백업으로 덮지 않는다). `synchronize()` 가 false 면 한 번 로그. 셀프테스트는 자기 suite 를 써서 실제 `PokeTokenBar.exe.plist` 를 건드리지 않는다.
+  **Observation 재수출(Track A Task 12):** 맥의 Foundation 은 Observation 을 다시 내보내 `withObservationTracking`·`@Observable` 이
+  `import Observation` 없이도 빌드되지만, 윈도우의 corelibs Foundation 은 내보내지 않는다. 공용으로 옮긴 `PlazaWindowController` 가 윈도우에서만
+  `cannot find 'withObservationTracking' in scope` 로 실패했다. **왜 못 걸렀나:** `shared-check.sh` 는 공용 집합을 맥의 Foundation 으로
+  빌드하므로 재수출이 그대로 보인다. **가드(기계):** `WindowsSeamScanTests.testSharedFilesThatObserveImportObservation`(고치기 전 트리에서
+  실패 확인). 스윕: `withObservationTracking` 을 쓰는 소스 4곳 중 공용은 `TeamRuntime`(이미 import)과 이 컨트롤러뿐이고, `@Observable` 을 쓰는
+  공용 파일은 모두 `import Observation` 이 있다(스캔이 확인).
+  **COM 아파트(Stage 6 Task 2, S10):** 윈도우 앱은 UI 스레드(프로세스 메인 스레드)의 COM 아파트를 어디서도 정하지 않았다. `CWinShim` 의 WIC 호출은 호출한
+  스레드에서 `CoInitializeEx(MTA)` 를 하고 끝나면 `CoUninitialize` 하므로(트레이 아이콘 디코드가 메인 스레드에서 돈다), 그 스레드는 평소 아파트 없음/묵시적 MTA 이고
+  첫 WIC 호출 동안만 MTA 다. 한글 IME(TSF)·이모지 패널·드래그 앤 드롭은 창을 소유한 스레드가 STA 이기를 기대한다. **왜 못 걸렀나:** 어떤 검사도 아파트를
+  읽지 않았고(`tray.icon` 은 디코드가 *되는지*만 본다 — MTA 든 STA 든 WIC 는 돈다), 입력 쪽 결함은 IME 로 한글을 칠 때 비로소 보이는데 그 경로는 PC 에서만 돈다.
+  **수정:** `WindowsApp.main` 의 첫 줄이 `ptb_com_init_sta`(`CoInitializeEx(STA | DISABLE_OLE1DDE)`)를 부른다. `CPlazaD2D` 의 WIC 는 스레드마다 처음 한 번 MTA 를
+  얻고(이미 STA 인 메인 스레드는 `RPC_E_CHANGED_MODE` 라 그대로 쓴다), shim 의 옛 호출도 같은 이유로 STA 에서 계속 동작한다. **가드(기계):** 셀프테스트
+  `com.uiThreadSTA`(기동 직후·초기화 뒤·트레이 디코드와 WIC 디코드 뒤의 `CoGetApartmentType` 을 한 줄에 — STA 또는 main STA 여야 통과; 첫 STA 는 main STA 로 보고된다),
+  `com.workerThreads`(새 스레드에서 두 경로가 되고 스레드가 끝난 뒤에도 메인이 STA), XCTest `testAThreadThatIsAnSTAStillDecodes`/`testAThreadWithoutCOMGetsAnMTAFromTheCodec`.
+  **스윕:** `Sources/` 의 `CoInitializeEx` 는 `CWinShim/wic.cpp` 2곳(둘 다 MTA 요청 뒤 성공했을 때만 `CoUninitialize`, `RPC_E_CHANGED_MODE` 는 무시)과 `CPlazaD2D` 뿐이고,
+  `CoCreateInstance` 는 모두 WIC 팩토리다. COM 을 쓰는 다른 호출(`Shell_NotifyIconW`, 레지스트리, 소켓)은 아파트가 필요 없다.
+
+- **윈도우 URLSession 은 새 연결의 전송이 끝날 때까지 디스패치 스레드 둘이 서로를 깨운다 (상태 확인 버스트, 유휴 게이트 간헐 실패).**
+  **증상:** `windows-port` 의 유휴 게이트(설치 앱, 300 s 창에 스토어 갱신 2 회)가 간헐 실패했다 — 7209 cs/분(예산 4000; 이전 4 회 1568–2598). 갱신(120 s)마다
+  15 s 조각 하나에서 디스패치 스레드 하나가 4500–8000 회 깨어났고, 프로바이더 상태 확인을 끄면 33–44 회였다. CPU 는 작았다(300 s 에 0.5 s).
+  **원인(업스트림 소스로 확인, swift-6.3.2-RELEASE):** corelibs `FoundationNetworking/URLSession/libcurl/MultiHandle.swift` 는 curl 소켓을 디스패치
+  소스로 감시한다(윈도우는 `makeReadSource/makeWriteSource(handle:)`, 527–549행). `register`(110–140행)는 curl 이 관심을 바꿀 때 없는 소스만 만들고,
+  두 소스를 함께 치우는 건 `CURL_POLL_REMOVE`(125–131·551–577행)뿐이다 — 연결(connect)·TLS 때 만든 쓰기 소스가 curl 이 읽기만 원하게 된 뒤에도
+  전송이 끝날 때까지 남는다. 윈도우 libdispatch(`src/event/event_windows.c`)는 소켓 쓰기 소스를 레벨 트리거처럼 흉내 내려고 다시 무장할 때마다
+  0 바이트 `send()` 를 하고 성공하면 곧바로 "쓰기 가능" 을 IOCP 에 올린다(487–505행; 재무장은 `_dispatch_unote_resume_muxed`, 581–588행).
+  연결된 소켓은 늘 쓰기 가능하므로: 발화 → `performAction` → `curl_multi_socket_action(socket, 0)`(MultiHandle 288–303행), 쓸 것 없음 → 재무장 → 0 바이트
+  `send` 성공 → 발화 … 이벤트 루프 스레드(`GetQueuedCompletionStatus`)와 루트 큐 워커 사이를 전송 내내 오간다. **새 연결에서만** 생긴다: 재사용된
+  keep-alive 연결은 curl 이 쓰기 관심을 묻지 않아 조용하다(루프백 2 s 대기: 새 연결 2027 ms 내내 41,104 회/s, 프로세스 167k cs·4.1 G 사이클 /
+  재사용 48 cs; 10 s 대기 843k cs; 8 MB 를 한 번에 받기 1,035 cs — 양이 아니라 기다린 시간에 비례한다).
+  앱의 120 s 갱신은 libcurl 의 유휴 연결 재사용 한도 118 s(curl 8.9.1 `url.c` 481행 `maxage_conn = 118`, 722–733행; corelibs 는 바꾸지 않는다)를 넘겨
+  매번 새로 연결한다. 실측(러너): 앱의 상태 확인 경로(두 호스트 동시, 새 연결) 한 번 18,811 cs·478 M 사이클(369 ms), status.openai.com 한 번
+  6–20k cs(142–279 ms); XCTest 프로세스에서 2 s 응답을 1.5 s 기다리는 동안 가장 바쁜 스레드 42–71k cs. 스택 표본 150 개 중 3–6 개가 `dispatch.dll`
+  이 부른 `WS2_32!send`(curl 은 보낼 게 없다), 짝 워커는 `dispatch_semaphore_wait` 에서 깨어 `FoundationNetworking.dll` 을 거쳐 IOCP 에 다시 올린다.
+  corelibs 의 10 s 요청 타임아웃은 멈춘 본문을 끝내지 못했다(서버가 20 s 에 닫아서야 끝남: 1.71 M cs·41.5 G 사이클) — 새 연결에서 응답이
+  멈추면 버스트는 서버가 포기할 때까지 한 코어를 쓴다.
+  **왜 게이트가 운으로 통과했나:** ① 버스트 양 = 러너에서 두 상태 호스트로의 새 HTTPS 전송 시간(DNS·TCP·TLS·서버 응답) × 루프 속도다. 앱 코드가 아니라
+  네트워크 타이밍이 정하는 값을 4 회 표본의 1.5 배로 예산을 잡았고, 응답이 느린 run(갱신마다 한 스레드에 17.8k cs, 전송 0.4–0.7 s 에 해당)이 넘었다. ② 게이트(`measure-idle.ps1`)는 창 끝에 살아
+  있는 스레드만 센다 — 짝 워커는 갱신마다 새로 생겼다 사라져(타임라인의 tid 8792→5540) 버스트의 절반가량이 보이지 않았다(사이클 합계는 죽은 스레드도
+  포함한다). ③ 셀프테스트의 유휴 창은 갱신을 빼고 쟀고, 전송 한 번의 깨움을 재는 테스트가 없었으며, CI 픽스처에는 자격증명이 없어 같은 버스트를
+  내는 한도 조회가 한 번도 돌지 않았다.
+  **고침:** `PlatformCompat.oneShotData(for:)` — 맥은 `URLSession.shared.data(for:)` 그대로, 윈도우는 평범한 GET 을 자기 스레드에서 WinHTTP 동기 호출로
+  보낸다(`Platform/Windows/WinHTTPFetch.swift`: 커널에서 블록, 폴링 없음). 요청은 같다: 헤더·`timeoutInterval`(resolve·connect·send·receive), Schannel
+  인증서 검증 + 폐기 확인(curl Schannel 기본값, `schannel.c` 8.9.1 493–495행), gzip/deflate 해제, 리디렉션(WinHTTP 기본: 최대 10, HTTPS→HTTP 금지),
+  크기 제한 없음(전과 같음), 직접 연결(corelibs 의 libcurl 도 윈도우 프록시 설정을 읽지 않는다). `http_proxy`·`https_proxy`·`all_proxy` 가 있으면
+  libcurl 이 그걸 따르므로 URLSession 을 그대로 쓴다(POST 등·WinHTTP 로드 실패도). 업스트림 줄 하나: `ProviderStatusChecker.swift` `fetchOne` 의 호출.
+  **같은 부류, 고치다 생긴 것:** 처음엔 WinHTTP 세션을 프로세스에 하나 두었더니 기동 때의 연결이 풀에 남아 스레드 풀 워커가 2–3 s 마다 깼다(갱신 없는
+  120 s 창에서 43–59 회, 고치기 전엔 없던 스레드). 120 s 뒤의 다음 요청은 어차피 새로 연결하므로(libcurl 도 그랬다) 요청마다 세션을 열고 마지막에
+  닫는다 — 그 창은 다시 두 스레드(libdispatch 1 Hz 쌍)뿐이다. 상태 확인 한 번: 129 cs·70 M 사이클(253 ms), 뒤 30 s 에 남는 것 없음.
+  결과: 유휴 게이트 정상 300 s(같은 머리 d46c7b3 에서 연속 3 회, 같은 코드의 a78a992 1 회) 166–186 cs/분·1.39–2.03 M 사이클/s·CPU 0.14–0.20 s — 같은 날 `windows-port` 대조
+  3 회는 2148–2620 cs/분·3.3–4.1 M·0.44–0.64 s(실패한 run 7209). 예산을 다시 잡았다: 정상 창 4000 → 280 cs/분, 6 M → 3 M 사이클/s(같은 코드 네 run 최악의
+  1.5 배; 처음 잡은 2.75 M 은 넷째 run 의 2.03 M 에 여유가 1.35 배뿐이라 넓혔다; 주 스레드 30·메모리 5 MB·핸들 10 은 그대로) — 이런 갱신 하나(≥ 6k cs)면 그것만으로 실패한다. 갱신 없는 120 s 창은 이 결함과 무관해 Task 12 값
+  그대로다(133–134.5 cs/분·198–214 k 사이클/s; 대조 125.5–126·167–174 k 에 WinHTTP 가 남기는 스레드 풀 깨움이 120 s 에 12–19 회 더해진다 — 시스템
+  DLL 의 타이머로 6–10 s 에 한 번, 언로드 없이는 못 끈다). WinHTTP 로딩으로 비공유 메모리 +2.4 MB·핸들 +100 이 한 번 늘고(세션을 닫으면 핸들은 창 안에서 줄어든다) 그 뒤로 자라지 않는다.
+  **규칙:** 윈도우에서 도는 코드는 URLSession 으로 직접 요청하지 않는다 — 모든 일회성 HTTP 는 `PlatformCompat.oneShotData(for:session:)` 또는
+  `oneShotData(from:)` 로 보낸다(맥은 호출부가 쓰던 바로 그 URLSession 호출). 깨움을 잴 때는 창 안에서 끝난 스레드도 센다.
+  **가드(기계):** `WindowsSeamScanTests.testNoRequestOutsideTheSeamInCodeThatRunsOnWindows`(직접 요청은 이음매·진단 도우미에만)·
+  `testEveryRoutedSiteStaysOnTheSeam`(경유한 호출부마다 횟수 고정)·`testTheRequestScanCatchesEachForm`(첫 판의 세 스캔은 호출부를 URLSession 으로 되돌리고
+  맥 분기를 ephemeral 세션으로 바꾸는 결함 주입으로 실패 확인), `OneShotDataMacTests`(맥 분기 셋: 공유 세션, 호출부 자신의 세션, `data(from:)`; `URLProtocol`
+  스텁), `WindowsHTTPFetchTests`(대조군 URLSession 과 같은 답: 헤더·본문·리디렉션·압축·청크·10 MB·204/304·오류·취소·프록시, 그리고
+  `testAWaitingTransferThroughTheSeamDoesNotKeepAThreadAwake`: 2 s 전송의 1.5 s 동안 가장 바쁜 스레드 < 150 cs, URLSession 대조군은 42–71k),
+  `WindowsProxyRouteTests`(libcurl 의 프록시 변수 규칙), 다시 잡은 유휴 게이트 예산, 진단 `--selftest-net-burst`(`windows-app` 의 `net_burst` 입력).
+  **스윕(후속, 같은 날):** 윈도우에서 도는 앱 코드의 직접 요청 14 곳(상태 확인 포함)을 모두 이음매로 옮겼다 — 한도(Claude 사용량·프로필, 세션 키,
+  Cursor 토큰·사용량·한도, Grok, OpenCode Go: 갱신마다), 업데이트 피드 둘, PokeAPI 둘, 이름 표, 스프라이트 셋, 플라자 아이콘. 각 업스트림 줄은 한 줄 호출 교체다.
+  스트리밍·웹소켓·백그라운드 세션은 없다. 맥 전용(`AntigravityRateLimitsProvider`, `PlazaIconLoader`)은 해당 없음. 같은 결함의 두 번째 공백:
+  **CI 픽스처에 자격증명이 없어 갱신마다 도는 한도 조회가 게이트에서 한 번도 돌지 않았다**. Claude 한도 URL 은 업스트림의 `private static let` 이라
+  루프백으로 돌릴 이음매가 없고 업스트림에 새로 만들지 않는다 — 그 요청 모양(헤더·토큰·타임아웃)을 셀프테스트(`--selftest-net-burst`)에서 잰다.
+  측정(러너, 루프백, 200 ms 뒤 응답, run 43704153204): 호출부마다 요청 한 번 — URLSession(새 연결) 18,969–21,254 cs·390–406 M 사이클 → 이음매
+  61–70 cs·6–8 M (Claude 사용량·프로필, 세션 키, Cursor 토큰·사용량·한도, Grok·OpenCode, 업데이트 피드, PokeAPI REST·GraphQL·이름). 바로 답하는
+  스프라이트(40 KB)는 기다림이 없어 둘 다 55 cs. 윈도우 프록시 설정(`WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY`) 대 직접: 루프백 중앙값 2.3 대 0.9 ms,
+  status.claude.com 32.1 대 29.3 ms, 프로세스 첫 요청 9.3 ms — 캐시는 두지 않는다(세션을 오래 두면 유휴 깨움이 돌아온다). 교차 세션 연결 풀을
+  끄자(`WINHTTP_OPTION_DISABLE_GLOBAL_POOLING`) 갱신 없는 120 s 창이 112.5 cs/분(대조 125.5–126)으로, WinHTTP 가 남기던 스레드 풀 깨움이 사라졌다.
+  **WinHTTP 가 libcurl 과 다르게 하던 것(루프백에서 URLSession 대조로 확인):** zlib 로 감싼 deflate 를 못 풀어(`E_ABORT`) gzip 만 요청한다; 수신
+  타임아웃을 데이터가 올 때만 확인해 1 s 타임아웃이 5.4 s 걸렸다 → 요청 동안만 있는 우리 유휴 타이머가 끝낸다; 본문이 Content-Length 보다 일찍 끊겨도
+  오류 없이 멈출 수 있어 길이를 대조해 `.networkConnectionLost` 로 알린다. 같은 것: 교차 호스트 리디렉션(Authorization 도 둘 다 넘긴다), 303 뒤 GET,
+  청크·gzip·10 MB·204/304. 오류 코드(이음매/libcurl): 시간 초과 -1001/(libcurl 은 끝내지 못함), 중간 끊김 -1005/-1, 거부 -1004/-1001, 이름 없음
+  -1003/-1003, TLS 실패 -1200/-1 — 공용 코드는 `NSURLErrorDomain` 도메인만 보고(`LocalizationErrors.swift` 7행) 호출부는 코드로 분기하지 않는다.
+  **테스트의 가짜도 같은 부류다:** `URLProtocol` 스텁은 URLSession 만 본다. 이음매를 처음 넓혔을 때 `InstallerReleaseFeedTests` 가 스텁 대신 실제
+  api.github.com 으로 나갔고(윈도우 CI), `ClaudeOAuthFileCredentialTests` 가 실패했다. 호출부 세션의 `protocolClasses` 에 자기 프로토콜이 있으면
+  URLSession 을 쓰고(`WinHTTPFetch.handles`), 전역 등록 스텁(corelibs 는 목록을 내주지 않는다)을 쓰는 테스트는
+  `PlatformCompat.oneShotStaysOnURLSessionForTesting` 을 켠다. **규칙 추가:** 네트워크를 바꾸는 이음매는 기존 가짜 경로가 여전히 가짜에 닿는지 윈도우 CI 에서 본다.
+  **리뷰 라운드(같은 브랜치, 머지 전): 자격증명·로그온·본문 수명·핸들.** 독립 리뷰가 찾은 넷과 고침.
+  ① **교차 호스트 리디렉션이 자격증명을 들고 갔다.** WinHTTP 자동 리디렉션(최대 20, HTTPS→HTTP 만 막음)은 요청 헤더를 전부 다시 보낸다 —
+  `Authorization: Bearer …`, `Cookie: sessionKey=…`, `WorkosCursorSessionToken`. 공급자 호스트 하나의 오픈 리디렉트면 토큰이 제3자에게 간다.
+  **왜 못 걸렀나:** 기준을 윈도우 URLSession(corelibs 는 리디렉션에 헤더를 모두 유지, `HTTPURLProtocol.swift` 564행)으로 잡고 맥과 비교하지 않았다.
+  테스트(`…IncludingToAnotherHost`)는 Authorization 이 넘어가는지 **print 만 했다** — 단언이 아니라 출력이라 통과가 아무것도 지키지 않았다.
+  **맥 실측(`RedirectHeadersMacTests`, 루프백 서버 둘):** 맥 URLSession 은 모든 홉(같은 출처 포함)에서 `Authorization` 을 빼고, 명시한 `Cookie`·사용자
+  헤더는 교차 호스트에도 다시 보낸다(공유·쿠키 끈 ephemeral 세션 모두); 307 은 POST·본문 유지, 303 은 GET. **고침:** 리디렉션을 우리가 따른다
+  (`WINHTTP_OPTION_REDIRECT_POLICY_NEVER`, `WinHTTPFetch.nextHop`): 홉마다 `Authorization` 제거(맥과 같음), `Cookie` 가 남은 요청은 다른 출처(스킴·호스트·
+  포트)로 따르지 않고 3xx 를 돌려준다(맥보다 엄격; 호출부는 200 이 아니면 실패로 본다), HTTPS→HTTP 금지, 20 홉·루프 즉시 중단.
+  ② **서버의 NTLM/Negotiate 401 에 윈도우 로그온이 나갈 수 있었다.** 기본 자동 로그온 정책 MEDIUM 은 "프록시 우회 목록의 서버"를 인트라넷으로 본다
+  (`WinHttpRequestAutoLogonPolicy`, AutoLogonPolicy_OnlyIfBypassProxy) — 프록시가 없으면 어느 호스트든 우회다. libcurl 은 자격증명 없이 인증하지 않았으니
+  새 능력이었다(NTLMv2 응답은 오프라인 크랙·릴레이 대상). **왜 못 걸렀나:** 문서의 "인트라넷만" 을 정의 확인 없이 믿었고, 401 로 도전하는 테스트 서버가
+  없었다. **러너 대조(프록시 없음):** 이전 설정(인증 켬, MEDIUM)은 127.0.0.1·localhost 의 401 에 두 번째 요청으로 `Authorization: Negotiate` 를 보냈다 —
+  리뷰의 추정대로다. **고침:** 모든 요청은 자동 인증 끔(`WINHTTP_DISABLE_AUTHENTICATION`) + 정책 HIGH 로 시작(HIGH 는 "localhost·IP 로 지정한 서버에는 효과가 없다"고
+  문서에 적혀 있어 둘 다 건다). 요청이 지난 프록시(환경 변수 프록시, 또는 윈도우 설정에서 `WINHTTP_OPTION_PROXY` 가 이름을 대는 프록시)의 407 에만 한 번,
+  새 요청을 MEDIUM 으로, 그래도 NTLM/Negotiate 를 요구하면 이름 없는 `WinHttpSetCredentials` 로 — .NET WinHttpHandler 와 같은 방식(dotnet/runtime v9.0.0
+  `WinHttpAuthHelper.cs` 288–300·335–346, `WinHttpHandler.cs` 1517–1528).
+  ③ **요청 본문 포인터가 `body.withUnsafeBytes` 안에서만 유효했다.** WinHTTP 는 `WinHttpReceiveResponse` 가 끝날 때까지(인증 라운드·리디렉션) 그 버퍼를
+  다시 보낼 수 있다(`WinHttpSendRequest`: "must remain available until the request handle is closed or the call to WinHttpReceiveResponse has completed").
+  **고침:** 가져오기 내내 사는 복사본, 모든 핸들을 닫은 뒤 해제.
+  ④ **취소·유휴 타이머가 다른 스레드에서 요청 핸들을 닫았다.** 문서: "An application should never call WinHttpCloseHandle on a synchronous request. This can
+  create a race condition"(`WinHttpCloseHandle`). 작업 스레드는 닫힌 값을 읽기·조회에 다시 넘길 수 있었다(값이 재사용되면 다른 요청의 핸들).
+  **고침:** 취소·타이머는 호출자에게 바로 답하고 신호만 준다; 핸들은 작업 스레드만, 지금 하던 WinHTTP 호출이 돌아온 뒤 닫는다(그 대기는 WinHTTP
+  타임아웃이 묶고, 헤더 수신 타임아웃도 요청 타임아웃으로 낮췄다 — 기본 90 s).
+  ⑤ **동기 `WinHttpReadData`(64 KB 버퍼)는 버퍼가 찰 때까지 기다렸다**(리뷰의 질문; 러너에서 1 KB/500 ms 로 오는 20 KB 본문이 2 s 유휴 타이머에 걸려
+  실패). **왜 못 걸렀나:** 느리게 오는 본문 테스트가 없었고, `/hang`(10 B 뒤 침묵)은 타임아웃이 정답이라 같은 증상이 정상처럼 보였다. **고침:** 문서 예제의
+  고리 — `WinHttpQueryDataAvailable` 로 도착한 만큼을 물은 뒤 그만큼만 읽는다.
+  ⑥ 러너에서 함께 드러난 것: WinHTTP 는 프록시와의 NTLM/Negotiate 레그를 본문 없이(Content-Length 0) 보내고 핸드셰이크가 끝나야 본문을 보낸다 — 우리가 보낸
+  두 요청(처음·재시도)은 본문 그대로였다.
+  소항목도 함께: TLS 1.2/1.3 만(`WINHTTP_OPTION_SECURE_PROTOCOLS`; 윈도우 10 의 WinHTTP 기본은 SSL3·1.0·1.1 허용), 압축 해제 뒤 32 MB 본문 한도, 전체
+  마감(호출부 세션의 resource timeout — Cursor 사용량 120 s — 없으면 300 s), 동시 8 개 상한(슬롯은 작업 스레드가 끝날 때 반납, 대기는 취소로 끝남),
+  앱 밖(`swift test`)에서는 루프백·`.invalid`/`.test` 외 호스트 거부, WinHTTP 가 못 받는 프록시 변수는 값 없이 한 번 로그.
+  **스윕:** 호출부가 넣는 자격증명 헤더는 `Authorization`(Claude OAuth 사용량·프로필, Cursor 한도·사용량, Grok, OpenCode Go)과 `Cookie`(claude.ai 세션
+  키, Cursor 사용량) 둘뿐(`WinHTTPFetch.credentialHeaders`). Cursor 토큰 갱신의 refresh token 은 본문에 있어 교차 출처 307/308 이면 맥처럼 다시 간다(남김).
+  호출 뒤에도 호출자 버퍼를 쥐는 윈도우 API 는 DNS-SD 요청뿐이고 이미 자체 할당이다(`WinDNSSD.swift`). 다른 스레드가 쓰는 핸들을 닫는 곳은 없다(팀 소켓은
+  한 스레드가 소유, `WinSocketLoop`). URLSession 으로 남는 경로(본문 스트림·WinHTTP 가 못 받는 프록시 변수·테스트 플래그)는 corelibs 대로 헤더를 다
+  넘긴다 — 이 브랜치 이전과 같은 동작.
+  **가드(기계):** `RedirectHeadersMacTests`(맥 동작 고정), `WindowsHTTPFetchTests` — 리디렉션 단언(같은 출처: Cookie 유지·Authorization 없음; 교차:
+  Authorization 없이 따름, Cookie 면 302 반환·상대 서버 연결 0; 규칙 단위 테스트·HTTPS→HTTP; 20 홉·루프), 401 NTLM 서버(127.0.0.1·localhost 모두 요청
+  1 번·Authorization 없음, 대조 = 이전 기본값), 프록시 407(재요청·로그온 제시)·직접 경로의 407(재요청 없음), 307·407 재요청 뒤 본문 동일, 압축 해제 뒤
+  한도(230 B gzip → 200,000 B), 느린 본문·전체 마감, 동시 상한·대기 취소; `WindowsSeamScanTests.testWinHTTPRelaxesNoCertificateCheck`(보안 플래그 금지);
+  `windows.yml` 이 거부된 실제 호스트를 나열(앱 밖 전체 스위트: 상태 호스트 둘·raw.githubusercontent.com — 기다리는 테스트 없음). **규칙:** 플랫폼 이음매의 동작 기준은 그 호출부가 원래 돌던 플랫폼(맥)이다 — 대체 구현끼리 비교하지 않는다.
+  보안에 걸린 비교는 print 가 아니라 단언으로 남긴다.
+
+- **윈도우 XCTest는 `@MainActor` 클래스에 동기 테스트 메서드가 있으면 테스트를 0개로 돌리고도 끝난다.** 그 클래스의
+  테스트가 발견되지 않아 윈도우 CI가 초록이어도 아무것도 검증하지 않았다. **왜 못 걸렀나:** 맥에서는 그대로 발견돼 통과하고,
+  윈도우 워크플로는 종료 코드만 봤다. **가드(기계):** `SharedSourcesScanTests` 가 윈도우에서 도는 파일의 `@MainActor`
+  클래스(확장 포함) 안 동기 `func test…()` 를 실패시키고, 윈도우 워크플로가 실행된 테스트 수 하한을 확인한다.
+  **규칙:** 윈도우에서 도는 `@MainActor` 테스트는 `async` 로 쓴다.
+
+- **기록된 순서의 `.last` 를 단언하는 테스트는 늦게 합쳐져 도착하는 비동기 조회의 순서에 기댄다.** 마지막 값이 "기대한 최종
+  상태"인지는 어느 조회가 늦게 끝나느냐에 달려 있어, 실행 환경의 타이밍에 따라 결과가 달라질 수 있다(윈도우 CI 이식 중 발견). **규칙:** 어떤 시점까지의
+  시퀀스 전체를 단언하거나, 알려진 지점까지 기다린 뒤 단언한다. `.last` 로 최종 상태를 보려면 그 값이 정말 마지막에 쓰이는 것이
+  보장돼야 한다.
+
+- **SwiftPM은 `mac-only.txt` 가 바뀐 뒤에도 옛 소스 목록을 쓸 수 있다.** 매니페스트가 파일 시스템 목록을 읽어 만든 결과가
+  캐시되어 있으면 목록을 고쳐도 같은 파일 집합을 빌드한다(공용 집합 빌드가 "통과"해도 새 목록을 본 것이 아니다).
+  `scripts/shared-check.sh` 가 `debug.yaml` 을 지우고 매니페스트 캐시를 끄는 것으로 막는다. **규칙:** 빌드 입력을 파일
+  목록으로 정하는 구성은, 목록을 바꾼 뒤 캐시를 지우고 재현되는지 한 번 확인한다.
+
+- **`await store.refresh()` 가 돌아왔다고 그 결과가 이미 기록됐다고 가정하지 않는다 (테스트에서의 강제 언래핑 금지).**
+  `LocalizationErrorsTests` 가 `refresh` 직후 `store.lastErrorDescription!` 를 풀었는데, 윈도우 CI 에서 한 번 nil 이어서
+  프로세스가 죽었고 뒤의 테스트 1,500여 개가 돌지 않았다(직전 실행들은 통과). 위의 "기록된 순서의 `.last`" 항목과 같은 부류다:
+  합쳐진 조회가 늦게 끝나면 기다린 호출이 먼저 돌아온다. 정확한 경로는 재현하지 못했다. **고침:** 값이 기록될 때까지 기다린 뒤
+  단언하고, 끝내 없으면 `XCTFail` 한다. **규칙:** 테스트에서 비동기 결과를 `!` 로 풀지 않는다 — 크래시는 실패 하나가 아니라
+  실행 전체를 잃는다.
+- **경로 목록 구분자(`:`)와 경로 구분자(`/`)를 문자열로 박아 두면 윈도우에서 조용히 틀린다.** `BinaryLocator` 가 PATH 를
+  `":"` 로 나누고 이어서, 윈도우(`;`, 드라이브 문자에 `:` 포함)에서는 항목이 잘못 쪼개졌다. **왜 못 걸렀나:** 맥에서는 옳은 값이라
+  모든 테스트가 통과했고, 그 테스트 파일은 윈도우 실행에서 빠져 있었다(기대값도 `:` 를 박아 두었다). **고침:**
+  `PlatformCompat.pathListSeparator` 를 쓰고 테스트가 플랫폼 구분자로 단언한다(`WindowsPathTests`, `BinaryLocatorTests` 가 두 OS 에서 돈다).
+  **부류 스윕(2026-11-13):** 공용 소스(`Core`, `Team`)에서 `separator: ":"`, `separatedBy: ":"`, PATH 기본값 리터럴을 grep 했고
+  남은 것은 `BinaryLocator` 의 POSIX 기본 PATH 한 곳뿐이다(윈도우용 도구 디렉터리는 4단계 범위). 홈 경로를 문자열로 비교하는 곳은
+  윈도우에서 `\` 와 `/` 표기가 섞여 중복 제거가 듣지 않는다 — 경로 비교는 `URL.path` 끼리 한다. **규칙:** 공용 코드에서 경로를
+  나누거나 잇는 문자는 `PlatformCompat` 에서 가져오고, 그 코드를 지키는 테스트는 윈도우에서도 돌게 둔다.
+- **윈도우 체크아웃은 텍스트 파일을 CRLF 로 바꾸므로 목록을 읽는 스크립트는 `\r` 을 떼야 한다.** 줄 끝의 `\r` 이 경로의
+  일부가 되어 항목이 어떤 파일과도 맞지 않는다. 스캔 테스트의 목록 파서는 이미 `isNewline`/trim 으로 견디고, 스크립트는 `\r` 을
+  제거한다. **규칙:** 목록·스크립트 입력 파일을 읽는 코드는 CRLF 를 입력으로 가정하고, `.gitattributes` 로 고정이 필요한 파일은
+  고정한다. (JSONL 사용량 로그는 줄 끝 `\r` 이 있어도 JSON 공백으로 파싱되어 같은 결과다: `WindowsPathTests`.)
 
 ## 자격증명·Keychain
 
@@ -1559,6 +1802,83 @@ read_when:
   변경을 되살리면 잡는 쪽이지 호버 자체를 재현하지는 않는다). 호스팅 뷰 안에서 크기가 바뀌는 UI(호버로 펼침·툴팁)를 더할 때는 크기를
   고정하거나 별도 오버레이로 띄운다.
 
+- **윈도 팝오버 키트(Stage 7 Task 3): 창이 보이기 전에 숨긴 줄이 보였고, 150 % 글자 크기에서 줄 라벨이 0 px 로 눌렸다 — 둘 다 점검이
+  못 봤다.** (출시 전, 키트 갤러리 캡처를 직접 열어보다 발견.) ① `WinKit.setVisible` 이 `IsWindowVisible(child) != visible` 로 바뀔
+  때만 움직였는데, `IsWindowVisible` 은 조상 창이 숨겨져 있으면 자식에게도 false 다 — 팝오버는 보이기 전에 페이지를 배치하므로 그때
+  "숨김"은 아무 일도 안 하고 `WS_VISIBLE` 이 남아, 창이 뜨면 숨긴 줄이 보인다. ② 컨트롤이 줄 폭 대부분을 차지하면(윈도 "텍스트 크기"
+  150 %, 긴 링크) 라벨 폭이 0 이 됐다. **왜 못 걸렀나:** ① 갤러리 페이지에 숨긴 줄이 하나도 없어 그 가지를 밟지 않았다. ② 라벨이
+  잘렸는지 보는 트리 점검이 *라벨 자기 폭에서* 글을 재서, 폭 0 에서도 `DrawTextW(DT_WORDBREAK)` 는 "한 줄"을 돌려줘 맞는다고
+  판정했다 — 같은 측정이 원인과 판정을 함께 지나쳤다. **고침:** ① 창 자신의 `WS_VISIBLE` 비트로 판단. ② 라벨이 있는 줄에서 컨트롤이
+  60 %를 넘으면 라벨을 위로 쌓는다(공유 `PopoverStackLayout`, 테스트). 점검은 "가장 긴 낱말보다 좁은 라벨"을 잡고, 네 가지 캡처
+  (100 %, 144 dpi, 글자 150 %, 고대비) 모두 통과해야 한다. **스윕:** 남은 `IsWindowVisible` 은 최상위 창(광장 가림 판정, 광장 자가
+  점검)에만 쓰여 그 창 자신의 상태다. **규칙:** 자식 창의 표시 여부는 `WS_VISIBLE` 로 판단하고, 키트 페이지는 숨긴 줄·넓은 컨트롤·큰
+  글자로도 캡처해 본다. **회귀 점검:** `ui.kit.capture`/`ui.kit.tree` (갤러리의 숨긴 줄, 눌린 라벨) — 옛 `setVisible` 과 쌓기 없는
+  배치를 되살린 실행에서 "a hidden row shows", "labels squeezed: 'Nickname' 37 px < its widest word 87 px" 로 실패함을 확인했다.
+  **사후 리뷰 (같은 키트, 머지 뒤):** ① 60 % 규칙은 컨트롤 폭만 봤다 — 컨트롤이 60 % 아래여도 독일어·러시아어의 긴 낱말("Aktualisierungsintervall",
+  "Предупреждение")은 125–150 % 글자에서 옆자리보다 넓다. 갤러리 라벨이 영어·한국어뿐이라 그 입력을 밟지 않았다. 고침: 라벨의 가장 넓은 낱말이 옆자리보다
+  넓으면 쌓는다, 단위 스윕은 실제 `L` 설정 라벨 24 개 × 8 개 언어 × 글자 1/1.25/1.5 × 컨트롤 폭 5 가지를 GDI 로 잰다(규칙을 뺀 실행: 독일어·러시아어 14 줄
+  잘림). 스윕 첫 판은 일본어 38 줄을 잘렸다고 했다 — 띄어쓰기 없는 일본어 구 전체를 한 낱말로 쳤는데 GDI 는 가나·한자 사이에서 줄을 바꾼다. 트리 점검의
+  "눌린 라벨" 규칙도 같은 낱말 나누기를 써서 같이 고쳤다(`KitTree.unbreakableRuns`). ② 여러 줄 입력칸은 `DLGC_WANTALLKEYS` 라 대화상자 모드에서 Tab 을
+  자기가 먹고(키보드 함정) Esc 에 부모로 `WM_CLOSE` 를 보내 페이지 창이 파괴됐다 — 갤러리에 여러 줄 입력칸이 있었지만 Tab/Esc 점검은 한 줄 입력칸으로만
+  돌았다. ③ 그린 부품의 크기가 바뀌어도 페이지가 다시 배치되지 않아 다음 줄과 겹쳤다 — 갤러리 부품은 크기가 고정이라 그 가지가 없었다. **규칙:** 키트의
+  모든 줄 종류(한 줄/여러 줄 입력칸, 크기가 변하는 부품)를 점검이 한 번씩 밟고, 라벨 규칙은 실제 번역 문자열로, 낱말 나누기는 언어의 줄바꿈 단위로 잰다.
+  **회귀 점검:** `testNoSettingsLabelIsCutInAnyLanguageOrTextSize`, `testALabelWithAWordWiderThanItsRoomGoesAboveTheControl`, `ui.kit.multiLineKeys`,
+  `ui.kit.partResize` — 각각 가드를 뺀 실행에서 실패를 확인했다.
+
+- **윈도 팝오버(Stage 7 Task 4): 숨은 아이콘(^ 넘침 영역)에서 연 팝오버의 아래쪽을 넘침 플라이아웃이 덮었다.** (출시 전, 러너의
+  실제 클릭 점검 캡처를 열어보다 발견.) 배치가 아이콘은 늘 작업 표시줄 띠(작업 영역 밖)에 있다고 보고 팝오버 아래끝을 작업 영역
+  아래끝에 붙였다. 넘침 영역의 아이콘은 작업 영역 *안*의 셸 창(플라이아웃)에 있고, 러너(Server 2025)에서는 팝오버가 포그라운드를
+  가져간 뒤에도 그 창이 맨 위에 열린 채 남아 팝오버 아래 45 px 를 덮었다 (Task 5 하단 줄의 자리). 사용자 PC 는 아이콘을 넘침
+  영역에만 둔다. **왜 못 걸렀나:** 배치 단위 테스트의 아이콘·클릭 지점이 모두 띠 안에 있었다 — 테스트가 구현과 같은 가정을 했다.
+  합성 `NIN_SELECT` 점검들도 셸이 준 사각형(넘침이면 띠 위의 ^ 버튼)을 썼다. ^ 를 실제로 눌러 연 플라이아웃 안의 아이콘을 실제로
+  누른 `popover.realClick` 만 그 가지를 밟았다. **고침:** 작업 영역 안의 아이콘은 덮지 않는다 — 작업 표시줄 쪽으로 여백만큼 비킨다
+  (공유 `PopoverPlacement.frame`). 윈도에서는 그 아이콘을 담은 작은 셸 창(플라이아웃) 전체를 비킨다 (열 때 한 번 찾고, DPI·페이지
+  크기 재배치 때는 그 사각형을 유지). **스윕:** 아이콘이 띠에 있다고 가정한 곳 — 토글 가드의 아이콘 영역(이미 클릭 지점 기준,
+  사각형이 클릭을 담지 않으면 클릭 둘레 상자), 트레이 메뉴(맨 위 창이라 무관). **규칙:** 트레이 아이콘 위치는 띠와 넘침 플라이아웃
+  두 경우로 테스트한다. **회귀 점검:** `PopoverPlacementTests.testAnAnchorInsideTheWorkAreaIsNotCovered`, `popover.realClick`
+  (플라이아웃 안 실제 클릭 → 열림, 그 창과 겹치지 않음).
+  **부류 (병합 후 리뷰 I1):** 원인은 위치가 아니라 *맨 위(topmost) 창이 아닌 플라이아웃*이었다 — 넘침 플라이아웃도, 브라우저 PIP
+  영상·회의 앱 미니 창·PowerToys "항상 위"도 맨 위 창이라 팝오버를 덮고, 덮인 곳을 누르면 그 창이 활성화를 가져가 팝오버가 닫힌다.
+  첫 스윕은 배치만 바꿔 같은 부류의 다른 창을 놓쳤다. **고침:** 팝오버는 `WS_EX_TOPMOST` (활성화를 잃으면 닫히고, 하위 루프 때문에
+  닫기를 미루는 동안에는 보통 띠로 내려간다; 소유 대화상자도 맨 위). **규칙:** 트레이 플라이아웃은 맨 위 창이고, 활성화를 잃으면
+  즉시 닫혀 다른 앱 위에 남지 않는다. **회귀 점검:** `popover.aboveTopmost` (활성화 없이 띄운 맨 위 창 자리에서 연 팝오버가 그
+  창 위에 있다; 다른 창이 활성화되면 닫히고 그 창이 다시 보인다), `popover.open` 의 `WS_EX_TOPMOST`.
+
+- **윈도 팝오버: 홈의 톱니로 설정을 열면 창이 몇 초 동안 버벅이다가 설정이 섰다 — 보이는 창 안에서 페이지를 컨트롤 하나씩 지었다.**
+  (사용자 PC 리포트 2026-11-17, 실제 GPU·원격 접속, 가져온 세이브·팀 코드·사용량 없음.) **직접 원인:** 페이지 교체
+  (`WinPopover.replacePage`: 홈→설정, Back, 리캡)는 *이미 떠 있는* 팝오버 창에서 옛 페이지를 부수고 새 페이지를 지었다. 그 사이
+  창은 그리기를 멈추지 않아 ① 정적 텍스트마다 `WM_SETFONT`(다시 그리기 켬)로 만든 자리(창 왼쪽 위 10×10)에서 바로 그려지고,
+  ② 배치 패스마다 보이는 컨트롤 수백 개가 `SetWindowPos` 로 옮겨지며 부모를 그 자리에서 지우고, ③ 설정은 모든 줄을 보이게 배치한 뒤
+  `sync()` 가 절반을 숨기고 다시 배치, 창 높이 변경(600→460 DIP)에 또 배치했다. 하나하나가 합성기가 화면에 낼 수 있는 중간
+  그림이다. 러너(WARP)에서 잰 고치기 전 값(사용자와 같은 상태, `settings.openCost`): 클릭→정지 1406 ms, 빌드 1284 ms(배치 단계만
+  571 ms), 배치 3 번, 빌드 *안*에서 보이는 창으로 보낸 그리기 메시지 35 184 개(지우기 18 713 — 컨트롤을 하나 옮길 때마다 부모 판이
+  지워진다), 그리기가 든 60 Hz 프레임 85 개가 1.4 초에 걸쳐. 같은 페이지를 숨은 창에서 지으면(트레이 메뉴) 빌드 145 ms — 비용의
+  거의 전부가 *보이는 창에서 지은 것*이었다. 실제 GPU·원격 화면에서는 그리기 한 번이 더 비싸 몇 초가 된다. **왜 못 걸렀나 (5-whys):** 처음 여는 길(`present`)은 창을 *보이기 전에* 짓기 때문에 이 비용이 없다 —
+  교체 길은 같은 창을 재사용하면서 그 보장을 조용히 잃었다. `settings.*` 점검은 전부 트레이 메뉴처럼 `present(showSettings)` 로
+  열어 숨은 창에서 지었고, 톱니 길을 밟는 유일한 점검 `home.settingsRoundTrip` 은 0.6 초 뒤 *결과 페이지가 설정인지*만 보고
+  `PrintWindow` 로 최종 그림만 찍었다 — 시간·패스·그리기 횟수를 세는 것이 없었다. 러너는 WARP·로컬 세션이라 그리기 한 번이 싸서
+  사람 눈에도 안 보였다. 유휴 게이트는 열린 뒤의 정지 상태만 잰다. **고침:** `WinKit.drawingOnce` — 보이는 창에서 페이지를
+  짓거나 다시 짓는 동안 `WM_SETREDRAW` 로 그리기를 끄고, 끝난 뒤 `RedrawWindow(… ALLCHILDREN | UPDATENOW)` 로 한 번 그린다
+  (`replacePage`, DPI·외형 `rebuild`, 설정의 자체 재빌드: 언어·팀 목록·스냅샷 목록·고급 폴더). 아직 안 보인 창은 건드리지 않는다
+  (`WM_SETREDRAW` TRUE 가 창을 보이게 한다). 설정은 `sync()` 를 배치 *앞에* 두어 한 번만 배치하고, 높이만 바뀐 재배치는 줄을
+  다시 놓지 않는다(`layoutIfNeeded`). 키트는 만들 때 `WM_SETFONT` 를 다시 그리기 없이 보낸다(새 창은 첫 `WM_PAINT` 에 어차피
+  그린다) — 보이는 페이지의 구역 재생성(홈 한도 줄, 리캡 머리줄)도 만든 자리에서 깜박이지 않는다. 고친 뒤 같은 점검: 클릭→정지
+  165 ms, 빌드 136 ms, 배치 1 번, 빌드 안 화면 그리기 0, 그리기 메시지 116 개가 프레임 3 개(51 ms)에. Back(설정→홈)은 빌드 안
+  그리기 1 109→0·프레임 7→1, 리캡은 667→0·4→1. **스윕:** 보이는 창에서 컨트롤을
+  만드는 길 — `replacePage`·`rebuild(dpi:)`·`WinSettingsPage.rebuildNow` 는 고침 대상, 홈·리캡의 구역 재생성(`removeRows` 후
+  다시 만들기)은 `WM_SETFONT` 고침으로 즉석 그리기만 없앴고 배치는 다음 메인 큐 차례에 한 번 — 전체 동결은 하지 않았다(모델이
+  바뀔 때마다 페이지 전체를 다시 그리면 열린 동안의 비용이 늘어난다). 팝오버 밖에는 키트 페이지가 없다. **영구 캡처:**
+  `WinOpenTrace` — 페이지마다(열기·교체·재빌드) 빌드 수, 배치·새로고침 패스, 만든 창, 팝오버 창들의 그리기·지우기(빌드 *안*의 것
+  따로), 단계별 시간, 마지막 변화 시각을 세어 페이지가 갈 때 로그 한 줄로 남긴다(이름과 숫자만, 타이머 없음) — 다음 사용자 PC
+  로그가 무엇이 비쌌는지 말한다. 점검 `settings.openCost`(사용자와 같은 상태로 홈에서 톱니를 누름)와 `popover.swapCost`(Back,
+  리캡)는 스레드 훅으로 모든 그리기 메시지를 세어 예산을 건다: 빌드 1 번, 빌드 중 *화면에 있는* 창의 그리기 0 (숨은 창이나 그리기를 끈
+  창의 지우기는 아무것도 안 그린다 — 설정은 숨은 창에서 지어도 지우기 6 개를 보낸다), 그리기가 든 60 Hz 프레임 ≤ 4, 화면에서 줄을 옮긴
+  배치 ≤ 1, 클릭→정지 ≤ 3 s, 단계 하나 ≤ 500 ms, 창이 열린 채 앞에 있고 합성기 프레임이 창 크기와 같음. **결함 주입:** 최종 코드에서
+  `drawingOnce` 만 그냥 `body()` 로 바꾼 실행(scratch 브랜치, 지움)에서 두 점검 모두 실패 — 설정: 빌드 안 화면 그리기 34 884 개, 프레임 42,
+  클릭→정지 689 ms; Back: 1 154 개·프레임 5; 리캡: 667 개. **규칙:** 보이는 창에서
+  컨트롤을 한꺼번에 만들거나 다시 만드는 코드는 그리기를 끈 채 짓고 한 번 그린다. 페이지를 바꾸는 점검은 결과만 보지 말고 그 사이
+  그린 횟수와 패스 수를 센다.
+
 ## 에너지 (상시 표시 애니메이션)
 
 - **절전용 정지 상태는 짝 알림 하나에만 복구를 맡기지 마라.** `screensDidSleep` 이 폴링 타이머를 끄고
@@ -1757,6 +2077,31 @@ read_when:
 
 ## 렌더 기하 (스프라이트·이미지)
 
+- **Direct2D 의 `ID2D1Bitmap::CopyFromBitmap` 은 `BeginDraw` 안에서 쌓아 둔(배치된) 그리기를 먼저 실행하지 않는다.** (Stage 6 Task 4)
+  윈도우 플라자 렌더러의 곱하기·곱하기X2(낮밤 색·모닥불빛·불꽃빛)는 스프라이트 아래 영역을 스크래치 비트맵으로 복사해 섞는데, 복사가 같은 프레임에서
+  앞서 그린 지도·캐릭터를 못 보고 빈 프레임을 읽어 화면이 통째로 검게 나왔다(첫 CI: `dusk` 미리보기 전면 검정, SpriteKit 스와치 multiply·
+  multiplyX2·daylight 가 50–254 차이). **왜 못 걸렀나:** 처음 쓰는 경로라 이전 테스트가 없었고, 같은 프레임의 색 혼합(스크래치에 그린 뒤 이펙트로 읽기)은
+  D2D 가 순서를 지켜 줘 통과했다 — "D2D 가 의존성을 알아서 지킨다"는 가정을 그리기가 아닌 자원 API 에도 적용했다. 회귀 테스트(골든)가 첫 실행에서 잡았다.
+  **수정:** 복사 직전 `Flush()`. **가드(기계):** `WindowsPlazaRendererTests.testSwatchesMatchSpriteKit` 의 multiply/multiplyX2/daylight 그룹,
+  `testPreviewScenesRenderOnWARP`(캡처가 대부분 불투명이고 앞 캡처와 달라야 한다). **스윕:** `CopyFromBitmap` 은 `scene_device.cpp` 의 두 곱하기 경로(고침)와
+  읽기(`EndDraw` 뒤라 안전)뿐이다. Task 8 캔버스의 multiply(영역 복사)도 같은 부류 — 복사 전에 `Flush()`.
+
+- **최근접 샘플링의 경계 동점: WARP 는 픽셀 중심이 텍셀 경계에 정확히 걸리면 왼쪽(위쪽) 텍셀을, SpriteKit 은 화면 기준 오른쪽(아래쪽) 텍셀을 고른다.**
+  (Stage 6 Task 4) 골든 `nearest 2x2 scale 3 x+0.5` 에서 Δ255, 좌우 반전 스프라이트에서는 시트 조각이 이웃 텍셀(테두리)을 끌어왔다. SpriteKit 규칙은
+  화면 공간이다(반전돼도 오른쪽·아래가 이긴다, 픽셀 덮기의 좌·상 포함과 같은 규칙). **수정:** 픽셀 중심보다 1/256 기기 픽셀 오른쪽·아래에서 샘플하도록
+  원본 사각형을 그 양만큼(변환을 거꾸로 거쳐 텍셀 단위로) 옮긴다 — 동점이 아닌 픽셀은 그대로다. **가드(기계):** 스와치 `nearest` 그룹,
+  `testNearestSamplingAndEdges`(조각 테두리 번짐, 반전 포함), `testFractionalBackingScale`(1.25 배에서 동점이 많은 타일). 캔버스의 보간 없음 그리기와
+  패널 이미지(Task 8·10)도 같은 규칙을 따라야 한다.
+
+- **이미지에 붙인 GPU 캐시가 디바이스를 강하게 쥐면, 앱 수명 이미지가 닫은 창의 Direct3D 디바이스를 놓지 않는다.** (Stage 6 Task 5)
+  Task 4 의 `WinBitmapRef`(`PlazaImage.backendCache` 에 붙는 텍스처 참조)가 `WinGfxDeviceHandle` 을 강하게 참조했다. 광장 컨트롤러는 지도·계절 그림·
+  풀숲·얼음 그림을 프로세스당 한 번 만들어 `static` 으로 둔다(`cachedMapImage`, `cachedSeasonLooks` 등) — 창을 닫아도 그 이미지들의 캐시가 디바이스와
+  WARP 스레드, 수십 MB 를 붙잡는다(결함 주입 실행: 닫고 10 s 뒤 사설 메모리 56.6 MB, 고친 뒤 34.2 MB). **왜 못 걸렀나:** Task 4 는 창 없는 오프스크린
+  렌더러라 "닫기"가 없었고, 테스트는 매번 새 디바이스를 만들고 끝났다 — 수명이 앱과 같은 캐시와 수명이 창과 같은 디바이스가 만나는 경로를 밟는 점검이 없었다.
+  **수정:** 참조를 `weak` 로 — 디바이스가 사라지면 그 비트맵도 함께 사라졌으므로 참조는 낡은 것이 되고, 다음 그리기에서 다시 올린다. **가드(기계):** 자가 점검
+  `plaza.close`(닫은 뒤 디바이스 약한 참조가 nil, 사설 메모리 보고) — 강한 참조로 되돌린 결함 주입 실행(run 43696336004)에서 FAIL 확인. **스윕:** Windows 에서
+  `backendCache` 를 채우는 곳은 `WinGfxDevice.bitmap(for:)` 하나다(캔버스는 쓰지 않는다). 규칙: 창·디바이스 수명의 자원을 가리키는 캐시는 그 자원을 약하게 쥔다.
+
 - **`.resizable()` + `.frame(w:h:)` 는 "맞춤"이 아니라 "늘여 채움"이다.** 대조 없이 정사각 프레임에 넣으면
   비정사각 원본은 그대로 왜곡된다. 이 부류가 오래 안 잡힌 이유가 핵심이다 — **정적 자산이 전부 정사각이라
   증상이 안 났다**(종 PNG 96×96, 아이템 30×30). 왜곡은 캔버스가 종마다 크롭된 **Gen-V 움직이는 GIF**
@@ -1805,6 +2150,18 @@ read_when:
   `testAPausedPushIntoTheWaterLeavesAnEggOnTheShore`, `testAPausedEggWithNoFreeShoreWaitsInTheWater`, `testASunkEggInThePondsTopRowSinksDeeperInsteadOfBeingCut`,
   `testPhotoClipsASunkEggToThePondAndKeepsItWholeAtTheTopEdge`, `testAJumpingSunkEggStaysSunk`,
   `testAPlazaThatPausesWithMyEggStillInTheWaterClimbsItOut`, `testAPausedEggWhoseRouteIsBlockedByASwimmerStaysAndDoesNotHang`.
+
+- **렌더 하니스의 가짜 시각(시간대)은 고정한다.** 하니스 시계를 `Calendar.current` 로 만들면 같은 "6월 15일 12시"가 KST Mac 과 UTC 러너에서 다른 순간이 되어, 순간에서 정해지는 아이템 스케줄이 달라져
+  낮 장면에 노드가 하나 더 생겼다(스테이지 6 작업 4 에서 발견). **왜 못 걸렀나:** 렌더 비교는 같은 기계 두 커밋만 비교했고, 두 OS 를 비교한 적이 없었다(같은 기계에서는 시간대가 같다).
+  **고침:** `PlazaFixtureTime` 이 고정 오프셋(+09:00, DST 없음, 시간대 DB 불필요)을 실행 동안 `NSTimeZone.default` 로 걸고 `Calendar.current` 가 따라오는지 `precondition` 으로 확인한다(KST Mac 의 렌더는 그대로).
+  **규칙:** 시각을 쓰는 하니스는 시간대를 명시적으로 고정한다; 두 OS 렌더 비교(`scripts/plaza-render-cross.sh`, 윈도 `render` 잡)가 트리를 줄 단위로 비교하므로 순간이 어긋나면 노드 수 차이로 바로 드러난다.
+- **Direct2D `DrawImage(..., SOURCE_COPY)` 는 `imageRect` 가 아니라 이미지 전체 경계를 덮어쓴다 — 영역에 쓰는 복사는 클립으로 가둔다.** 불꽃놀이 장면 60프레임(`fireworks-*@60`)에서 프레임 맨 아래 64 디바이스 행이
+  투명 검정으로 나왔다(Mac 은 지도). 원인: 곱하기 효과(`scene_device.cpp` `drawEffect`)가 결과를 `SOURCE_COPY` 로 프레임에 그리는데, 효과 이미지는 프레임 크기 스크래치 비트맵이라
+  `region`(스프라이트 자기 픽셀, 불꽃 빛은 0..896행) 밖의 행(896..959)까지 투명 검정으로 교체됐다. 진단: CI 에서 빛 명령의 `region=(-344,-384,1416,896)` 과 완전 투명 행 `896...959` 가 정확히 맞물림.
+  **왜 못 걸렀나:** 일광·모닥불 곱하기 스프라이트는 프레임 전체를 덮어 영역 밖이 없었고, 작업별 골든은 스프라이트 안쪽 셀만 비교했다. 영역이 프레임보다 작은 곱하기는 두 OS 하니스가 처음 밟았다.
+  **고침:** `copyRegion` 이 `PushAxisAlignedClip(region)` 안에서만 `SOURCE_COPY` 한다(두 곳: 색 곱하기·산술 합성). **부류 스윕:** `scene_device.cpp` 의 `DrawImage` 는 `SOURCE_OVER`(영향 없음)와 이 두 곳뿐,
+  `window_surface.cpp` 의 프레임→백버퍼 복사는 전체 프레임 복사라 의도대로. **가드:** 하니스의 두 캡처(`knownRendererBugs` 에서 제거, 목록은 이제 비어 있고 목록 메커니즘은 대역 스템으로 단위 테스트),
+  `testAMultiplySpriteThatEndsInsideTheFrameLeavesTheRestAlone`. **규칙:** 목록에 있는 캡처가 통과하면 테스트가 실패해 목록이 썩지 않는다.
 
 ## 프로세스 제어·업데이트
 
@@ -2089,3 +2446,904 @@ read_when:
   **직접 원인:** 광장 아이템은 유닉스 시각을 20분으로 나눈 칸 번호만으로 때·자리·종류가 정해진다(`PlazaItems.spawn(slot:)`). 시험이 `Date()` 의 날짜에 21:00 을 얹어 `scene.now` 로 넣어서, 그 칸의 아이템이 0분에 떨어지는 날에는 땅에 사탕이 놓여 `items.isEmpty` 가 깨졌다. **왜 못 걸렀나:** 시험을 쓴 날과 그 뒤 며칠은 그 칸의 아이템이 아직 안 떨어진 시각이라 통과했다 — 벽시계 날짜가 입력인 줄 모르고 "밤"만 고정했다고 여겼다.
   **부류 스윕:** `Tests/` 의 `bySettingHour … of: Date()` 전수 — `PlazaCampfireSceneTests.at(hour:)` 도 같은 꼴이라 함께 고정했다. `LocalUsageReaderTests` 의 것은 장면이 아니라 로그 날짜 창이라 무관, 나머지는 이미 고정 날짜다.
   **고침:** 두 파일 모두 고정된 날(2026-05-10)의 시각을 쓴다. **규칙:** 장면 시험의 `now` 는 날짜까지 고정한다 — 광장에는 날짜·칸 번호로 정해지는 것(아이템, 계절, 눈 오는 날)이 있다.
+- **윈도우 프로세스 환경의 검색 경로 키는 `Path` 인데 코드는 `"PATH"` 만 읽고 썼다.** `BinaryLocator.augmentedEnvironment` 가 `base["PATH"]`(nil)를
+  읽고 `env["PATH"]` 를 써서, 자식 프로세스 환경에 `Path` 와 `PATH` 가 둘 다 생겼다(어느 쪽이 이기는지 미정의). 도달 경로: Codex 한도 조회 등
+  `augmentedEnvironment` 를 쓰는 모든 자식 프로세스. **왜 못 걸렀나:** `testAugmentedPathUsesThePlatformSeparator` 는 `["PATH": …]` 를 주입했다 —
+  실제 윈도우 프로세스의 `Path` 키가 아니라 결함 트리거와 *다른 경로*로 통과했다. **고침:** `PlatformCompat.pathVariableKey(in:)`(윈도우: 이미 있는 키를 대소문자 무시로
+  찾고 없으면 `Path`; 맥: `"PATH"`). **부류 스윕:** 공용 소스의 `["PATH"]`·`"PATH"` 사용처 전수 — `BinaryLocator` 외에 없다. 같은 부류로 `.cmd` 해석(`PATHEXT`,
+  `executableCandidates`)과 앱 데이터 폴더(`userApplicationSupport(home:)`)도 PlatformCompat 로 모았다. **회귀 테스트:** `WindowsPathTests.testAugmentedEnvironmentKeepsOnePathKey`
+  (`Path` 만 있는 기반 환경 → 키가 하나; 맥은 옛 출력 고정). `pathVariableKey` 가 `"PATH"` 를 돌려주게 주입해 윈도우 CI 에서 실패하는지 확인.
+- **npm `.cmd` shim 은 cmd.exe 가 실행하므로 인자의 `& | < > ^ % !` 가 해석된다 (F19).** 오늘 shim 에 가는 인자는 Codex 의 `["app-server", "--stdio"]` 뿐이라 도달 가능한 결함은
+  없다 — 런타임 가드는 두지 않고 규칙만 고정했다. **가드(기계):** `PlatformCompat.isBatchSafe` + `ToolLaunchArgumentTests`(문자 거부), `ToolLaunchArgumentScanTests`(공용 소스의
+  `arguments: ["…"]` 리터럴이 전부 안전한 고정 문자열이고, `Process` 의 `.arguments =` 지점이 `BinaryLocator`·`ProcessRunner` 둘뿐임을 고정; 맥 전용). 규칙은 `provider-extension.md`.
+- **위치를 확인하지 못한 도구 경로를 추측으로 채우지 않는다.** 윈도우 로그 루트·도구 디렉터리는 도구의 공개 문서·소스·문서화된 환경변수로 확인된 것만 넣고, 나머지는 비워 "데이터 없음"으로 둔다
+  (Claude Desktop 세션 폴더가 그 예: `claudeDesktopSessionStores` 는 윈도우에서 `[]`).
+- **병렬 브랜치가 각자 통과해도 합친 결과는 실패할 수 있다 — 맥 전용 스캔은 윈도우 CI 가 못 본다.** 도구 경로 작업이 넣은 `ToolLaunchArgumentScanTests`(실행 지점 허용 목록)와 앱 중심부 작업이
+  넣은 `WindowsSelftest`(자기 실행 파일을 띄움)가 따로 통과한 뒤, 합쳐진 `windows-port` 의 전체 게이트에서 실패했다. 스캔이 `.arguments =` 문자열만 봐서 `self.arguments = arguments`(실행
+  아님, `WindowsApp`)까지 잡은 것도 겹쳤다. **왜 못 걸렀나:** 속도 규칙상 작업별로 걸러 돌린 묶음에 상대 브랜치의 새 스캔이 없었고, 이 스캔은 맥 전용이라 윈도우 CI 도 돌리지 않는다.
+  **고침:** 스캔이 `Process()` 와 `.arguments =` 가 함께 있는 파일만 실행 지점으로 보고, 자가 점검을 허용 목록에 넣었다(shim 이 아닌 자기 실행 파일, 인자는 스스로 만든 플래그).
+  **규칙:** `windows-port` 로 합치기 전에 `swift test --filter 'ScanTests'` 를 합친 트리에서 돌린다(몇 초). 전체 게이트는 계속 중간 점검 지점에서만.
+
+- **패널이 같은 값을 다시 쓰는 모델 변화에도 그려진다 / 테스트가 약하게 쥔 객체를 곧바로 놓는다 (Track A Task 15–16).** `@Observable` 은 값이 같아도 쓰기마다 알린다 — 컨트롤러가 창이 이미 보여 주는 값을
+  다시 쓰면(열 때 `backgroundModel.isHidden = …`) 패널이 두 번 그려졌다(이름 색 패널 2회; "열 때 패널마다 한 번" 테스트가 잡았다). **고침:** 패널은 마지막으로 그린 상태와 다를 때만 `onChange` 를 부른다(`PlazaPillsPanel`
+  과 같은 규칙, 이제 `PlazaChangeObserver` + `rendered` 로 모든 패널). 같은 부류 — HUD 는 호스트와 패널의 `onChange` 를 약하게 쥔다: 테스트가 `let (hud, _, …) = rig()` 처럼 호스트를 `_` 로 받으면 곧바로 사라져 이후
+  렌더가 조용히 멈추고 단언이 엉뚱한 곳에서 깨진다(Task 14 에서도 한 번). 규칙: 약하게 쥐는 객체는 지역 변수로 붙든다. **영구 캡처:** `testControlsRenderOnlyWhenTheirContentChanges`, `testMinimapRendersOncePerMinuteAtMost`.
+
+- **윈도우 모달 루프(트레이 메뉴 `TrackPopupMenu`, `MessageBoxW`, 창 이동·크기 조절 루프)가 열려 있는 동안 메인 큐가 멈춘다.** 모달 루프는 메인 스레드에서 자기 메시지 루프를
+  돌며 창 메시지만 디스패치한다. 앱의 메인 루프(`RunLoop.main.run`)가 돌려 주던 `DispatchQueue.main`·`RunLoop` 타이머·`@MainActor` Task 는 메뉴가 닫힐 때까지 서 있다 —
+  스토어 갱신 없음, 팀 링크가 생기면 하트비트도 없어 30 s 뒤 팀원이 이 멤버를 내린다. 맥은 메뉴가 열려 있어도 메인 큐를 계속 돌린다. **왜 못 걸렀나:** CI 자가 점검은 메뉴를 열 때
+  메인 큐 일이 필요하지 않았다 — 메뉴 키 점검(`tray.menuKeys`)은 메뉴가 닫힌 뒤 갱신이 돌았는지만 보았다. 결함 트리거(메뉴가 *열려 있는 동안* 일이 도는가)를 밟는 점검이 없었다.
+  **고침:** `WinModalPump`(`Platform/Windows/WinModalPump.swift`) — 모달 루프가 하나라도 활성인 동안만 싱크 창에 50 ms `SetTimer`, `WM_TIMER` 핸들러가 `RunLoop.main.run(mode: .default,
+  before: Date())` 를 한 번 돈다(재진입 가드: 이미 틱 안이면 건너뜀). 마지막 `end` 에서 `KillTimer` — 모달 루프가 없을 때는 타이머도 깨움도 없다(유휴 비용 0). **규칙:** 새 모달 루프(대화상자,
+  창 이동·크기, `MessageBoxW`)를 시작하는 코드는 호출 전 `WinModalPump.begin(_:)`, 호출 뒤 `defer { end(_:) }` 를 부른다. 이동·크기 루프는 싱크로 오는 `WM_ENTERSIZEMOVE`/`WM_EXITSIZEMOVE` 가
+  자동으로 begin/end 한다(다른 창은 같은 `WinSinkWindow` 라우팅이라 그대로). **회귀 점검:** `modalPump.*` 자가 점검(메뉴를 1.5 s 열어 둔 채 큐·타이머·Task 가 도는가, 재진입, 풍선, 타이머 수명, 메뉴 안에서
+  `WindowsApp.exit`, 유휴) — 펌프를 끈 상태로 먼저 실행해 실패함을 확인했다.
+
+- **"전/후" 비교의 *전* 쪽이 틀렸다 — `NSHostingView` + `cacheDisplay` 는 SwiftUI `.shadow(y:)` 를 위아래 뒤집어 그린다.** 같은 `Text.shadow(radius: 0, x: 1, y: 1)` 이 `ImageRenderer` 에서는 오른쪽 아래, 창 안
+  호스팅 뷰 캡처에서는 오른쪽 *위*에 생긴다(1x 에서 확인, `testWhereSwiftUIPutsTheTextShadow`). 그림자 있는 글자가 많은 로스터·카드는 호스팅 캡처로 비교하면 글자마다 수백 픽셀이 틀려 보여 패널이 틀린 줄
+  알게 된다(Task 17c–d 에서 한동안 그렇게 읽었다). **왜 못 걸렀나:** 17b 채팅 기록에는 그림자가 없어 호스팅 캡처가 맞았고, 그 방법을 그대로 물려받았다. **규칙:** `ScrollView` 가 없는 뷰는 `ImageRenderer`,
+  있는 뷰는 `ImageRenderer` 그림에 스크롤 영역만 호스팅 캡처를 덧댄다(`ContentRig.renderedWithPatch`). 새 비교 방법을 쓸 때는 먼저 알려진 모양(그림자·둥근 모서리) 하나로 그 방법 자체를 확인한다.
+  같은 부류: SwiftUI 느슨한 스택(`LazyVStack/LazyVGrid`)은 건너뛴 행을 어림잡은 높이로 쳐서, 한 번에 끝까지 스크롤하면 실제 끝을 지나 빈 칸이 보인다 — 비교는 100pt 씩 나눠 스크롤하고 패널이 갈 수 있는 끝까지만 간다.
+  **두 번째 결함 (같은 항목, 2026-11-15): 펌프 틱이 메뉴의 키 입력을 가로챘다.** 틱이 부른 `RunLoop.main.run(mode:before:)` 는 CoreFoundation 의 Windows 루프라 입력이 있다고 나오면
+  스스로 `PeekMessage(PM_REMOVE)` 로 메시지 하나를 꺼내 창에 디스패치한다 — 메뉴의 모달 루프가 막 읽으려던 키가 그 한 개였다면 메뉴는 그 키를 못 받는다(사용자 눈에는 "메뉴에서 키를 눌렀는데 가끔
+  아무 일도 안 일어난다"; CI 의 `tray.menuKeys` 가 간헐 실패: Return 이 안 닿아 `action=none`). **왜 못 걸렀나:** 첫 수정의 점검은 키를 틱이 *돌지 않을 때* 보냈다 — 틱이 일을 하는 동안 큐에 키가
+  있는 순간(수십 µs/50 ms)을 밟는 점검이 없었다. 처음 시도한 결정적 재현(30 ms 짜리 블록 안에서 키 전송)은 틱이 디스패치 포트 경로로 나가 `PeekMessage` 를 건너뛰어 0 건이라 틀린 가설이었다 —
+  재현은 **6000 개 Down 키를 0.2–0.8 ms 무작위 간격으로 쏟아붓고, 싱크에 평범한 `WM_KEYDOWN` 으로 도착한 수**(메뉴 안의 키는 메뉴가 번역해 디스패치되지 않는다)를 세는 것이다: 옛 틱 13/6000 유실.
+  시도하고 버린 안: ① CF 의 모드별 메시지 큐 마스크 SPI(`_CFRunLoopSetWindowsMessageQueueMask`)를 0 으로 — Foundation.dll 이 내보내지 않고 `CoreFoundation` 모듈도 임포트되지 않는다(러너에서 확인).
+  ② 틱 직전 `GetQueueStatus` 로 입력이 없을 때만 — 검사와 CF 의 `PeekMessage` 사이 경합이 남는다(10–15/6000). **고침:** 틱이 (1) `_dispatch_main_queue_callback_4CF`(`dispatch.dll`)로 메인 큐·main-actor Task 를
+  직접 비우고(메시지 큐 무관), (2) 런루프 패스 직전에 싱크로 미끼 `WM_NULL` 을 포스트한 뒤 큐의 첫 메시지가 그 미끼일 때만 패스를 돈다 — 포스트된 메시지는 포스트 순서로, 하드웨어 입력보다 먼저 나가므로
+  CF 가 꺼내는 한 개는 미끼다; 앞에 다른 메시지가 있으면 그 틱을 건너뛴다(다음 틱은 50 ms 뒤). 결과: 6000 키 유실 0, `modalPump.*` 전부 통과, 유휴 불변. **규칙:** 모달 루프 안에서 일을 돌리는 코드는
+  메시지 큐에서 아무것도 꺼내지 않아야 한다 — 입력 경합은 "가끔 한 개"라 통과가 증거가 아니므로 **유실 수를 세는 폭주 점검**(`modalPump.keysReachMenu`)으로 막는다.
+  **세 번째 발견 (Stage 6 Task 5, 광장 창 끌기): 메인 큐 작업 *안에서* 모달 루프에 들어가면 펌프가 메인 큐를 못 비운다.** 자가 점검 `plaza.dragDraws` 가
+  `@MainActor` Task(셀프테스트 본문) 안에서 `SendMessage(WM_SYSCOMMAND, SC_MOVE)` 로 이동 루프를 열었더니, 싱크의 `WM_TIMER` 펌프 틱은 루프 안에서 15–16 번
+  돌았는데 그 사이 보낸 `DispatchQueue.main` 블록은 0/19 만 돌았다. main-actor 작업은 메인 디스패치 큐가 비우는 중에 실행되고, libdispatch 는 비우는 중에
+  `_dispatch_main_queue_callback_4CF` 를 다시 불러도 큐를 다시 비우지 않는다(재진입 금지) — 펌프의 직접 비우기가 아무 일도 안 한다. 같은 루프를 *창 메시지로*
+  (`PostMessage(SC_MOVE)`, 사용자의 끌기와 같은 경로) 열면 19/19, 18/19. **왜 헷갈렸나:** 첫 가설("광장의 60 Hz 틱 메시지가 `WM_TIMER` 를 굶긴다")로 우회
+  코드를 넣었다가, 펌프 틱 수를 세는 진단을 붙이고서야 타이머가 정상으로 돈다는 것을 보았다 — 우회는 지웠다. **스윕:** 제품 코드에서 모달 루프에 들어가는 곳은
+  트레이 메뉴(`WinTray` 콜백, 창 메시지) 하나라 안전하다. **규칙:** 모달 루프(대화상자·메시지 상자·메뉴·창 이동)는 창 메시지에서 연다. `Task`·`DispatchQueue.main`
+  블록 안에서 열면 그동안 메인 큐 전체가 선다. 점검도 사용자와 같은 경로(포스트된 메시지)로 연다.
+  **네 번째 (Stage 7 Task 3, 팝오버 키트):** 메뉴로도 같다 — `ui.kit.menuKeys` 의 첫 판(셀프테스트 Task 안에서 `TrackPopupMenu`)은 메인 큐 블록 0/10, 창 메시지로
+  열면 10/10. 점검은 두 숫자를 다 찍는다(Task 안의 것은 정보용). 팝오버는 같은 훅 안에서 `IsDialogMessageW` 로 키를 나눠 주므로, **모달 루프가 도는 동안
+  (`WinModalPump.depth > 0` 이거나 메뉴·이동 모드) 훅은 대화상자 경로를 건너뛴다** — 안 그러면 메뉴·스크롤 막대 끌기 루프가 읽을 키와 마우스를 훅이 먼저
+  디스패치해 루프가 입력을 잃는다. 팝오버의 모달 루프(스크롤 막대 끌기 `WinScrollArea`, 이후 메뉴·대화상자)는 모두 `WinModalPump.begin/end` 안에서 돈다.
+  **다섯 번째 (Stage 7 Task 3 사후 리뷰, 스크롤 막대 추적 루프가 마우스를 잃었다):** 네 번째의 가드는 "모달 루프의 입구를 하나씩 `begin/end` 로 감싸야"
+  지켜지는 형태였는데, 감싼 입구는 뷰포트의 `WM_NCLBUTTONDOWN` 하나였다. 같은 `DefWindowProc` 추적 루프에 들어가는 다른 입구 — 스크롤 막대 화살표의
+  두 번째 클릭(`WM_NCLBUTTONDBLCLK`, `CS_DBLCLKS` 가 없어도 비클라이언트에는 온다)과 여러 줄 입력칸 *자신의* 스크롤 막대(키트 서브클래스, 감싸지 않음) —
+  에서는 `depth == 0` 이라 훅이 루프의 마우스(버튼 뗌)를 `IsDialogMessageW` 로 먼저 디스패치했고, 루프는 버튼 뗌을 못 받아 캡처를 쥔 채 계속 굴렀다.
+  사용자 눈에는 "화살표를 두 번 눌렀더니 페이지가 끝까지 굴러가고 마우스가 붙잡힌다". 고치기 전 실행(run 43772318344): 화살표 더블클릭 → 오프셋 0 → 704
+  (기대 32, 두 줄), 입력칸 화살표 한 번 → 첫 줄 0 → 9 (기대 +1), 둘 다 2 s 뒤에도 캡처를 쥐고 있어 감시자가 `WM_CANCELMODE` 로 풀었다.
+  **왜 못 걸렀나:** 결함 주입 B 와 `ui.kit.scroll` 은 감싼 입구(썸 끌기, 첫 클릭)만 밟았다 — 같은 루프의 다른 입구를 밟는 점검이 없었다. 리뷰도 코드에서
+  "감싼 곳"만 보고 루프가 어디서 시작될 수 있는지는 세지 않았다. **고침:** ① 훅은 마우스 메시지(0x0200–0x020E, 0x00A0–0x00AD)를 대화상자 경로로 보내지
+  않는다 — `IsDialogMessageW` 가 마우스에 하는 일은 그냥 디스패치라 잃는 것이 없고, 앞으로 감싸지 않은 입구가 생겨도 루프의 마우스를 뺏지 않는다.
+  ② 뷰포트와 키트 서브클래스가 `WM_NCLBUTTONDOWN`/`WM_NCLBUTTONDBLCLK` + `HTVSCROLL`/`HTHSCROLL` 을 `begin/end("scroll")` 로 감싸 루프 동안 메인 큐가 돈다.
+  ③ 입력칸의 편집 메뉴(`WM_CONTEXTMENU` → `TrackPopupMenu`)도 감쌌다. **스윕 (비클라이언트·추적 루프 입구 전수):** 광장 창 — 이동·크기는 싱크의
+  `WM_ENTERSIZEMOVE` 가 펌프를 열고 훅은 `GUI_INMOVESIZE` 로 비켜 남, 스크롤 막대 없음, 대화상자 창이 아님(훅 경로 밖). 콤보 드롭다운 목록 — 별도 팝업
+  (`ComboLBox`, 대화상자의 자식이 아님)이라 대화상자 경로 밖, 목록 스크롤 막대를 누르는 동안 메인 큐가 서는 것은 이전과 같다(버튼을 쥔 동안만).
+  트레이 메뉴 — `WinTray` 가 감쌈, 메뉴 모드. 슬라이더·버튼·입력칸 글자 끌기 — `SetCapture` 만 쓰고 자기 루프가 없음. **규칙:** 훅은 모달·추적 루프가 읽을
+  입력을 가로채지 않는다(마우스는 아예, 키는 루프 중에). `DefWindowProc` 에 추적 루프를 맡기는 메시지(비클라이언트 버튼 다운·더블클릭, `WM_CONTEXTMENU`)는
+  감싸고, 점검은 입구마다(첫 클릭, 더블클릭, 누른 채, 자식 컨트롤 자신의 막대) 밟는다. **회귀 점검:** `ui.kit.scrollClicks` — `SendInput` 으로 페이지 아래
+  화살표 더블클릭(오프셋 정확히 두 줄), 입력칸 화살표 한 번(+1 줄), 각각 뒤에 캡처 없음·메인 큐 블록이 돈다; 입력칸 화살표와 페이지 화살표 더블클릭의 두 번째
+  누름을 0.8 s 쥔 채 메인 큐 블록이 *쥔 동안* 돈다. `ui.kit.editMenu` — 입력칸 편집 메뉴가 열린 동안 메인 큐 블록. 결함 주입(감싸기만 제거, 훅의 마우스
+  건너뛰기는 남김, `fault/w7-t3-scrollwrap` run 43775805367): 클릭은 더 이상 걸리지 않았다(오프셋 32, +1 줄, 캡처 없음 — 고치기 전 실행과의
+  차이는 훅의 마우스 건너뛰기뿐이라 그 가드의 몫), 그러나 쥔 동안의 메인 큐 블록은 입력칸·페이지 모두 false 로 `ui.kit.scrollClicks` FAIL(감싸기의 몫).
+  같은 실행에서 `ui.kit.editMenu` 의 첫 판은 감싸기 없이도 10/10 으로 통과했다 — 블록이 메뉴가 닫히기를 기다렸다가 닫힌 직후, 점검 스레드가 "열림"
+  플래그를 내리기 전에 돌아 "열린 동안"으로 셌다. 점검이 결함과 다른 조건(플래그)으로 판정한 같은 부류다: 블록이 돌 때 메인 스레드의
+  `GUI_POPUPMENUMODE` 를 스스로 읽게 고쳤다(재주입 결과는 Task 3 보고서 사후 리뷰 절).
+
+- **맥 `CoreTextPlazaEngine.wrappedLines` 가 빈 줄을 "글 나머지 전부"로 바꿨다 — `CFRange` 길이 0 은 "끝까지"다.** `"a\n\nbcd"` 가 `a`, `bcd`, `bcd` 세 줄로 그려졌다(`bcd` 두 번). TextKit 이 빈 줄의 줄 조각을
+  주면(끝의 공백·개행을 뗀 뒤 길이 0) 그 범위를 `CTTypesetterCreateLine(typesetter, CFRange(location:, length: 0))` 에 그대로 넘겼고, CoreText 는 길이 0 을 "location 부터 끝까지"로 읽는다.
+  글이 개행으로 끝나는 경우도 같은 부류의 빠짐이었다: SwiftUI `Text` 는 끝 개행 뒤에 빈 줄 하나를 더 보이는데 TextKit 은 그것을 줄 조각이 아니라 `extraLineFragmentRect` 로만 알려서 줄이 하나 모자랐다.
+  **닿는 입력:** 채팅은 `TeamChat.prepared` 가 개행을 공백으로 바꿔 닿지 않는다. 닉네임(`TeamSettings`)도 개행을 거절한다. 닿는 것은 피어가 보낸 `TeamEvent` 의 `speciesName`·`authorNickname`·
+  반응 닉네임(길이만 제한, 개행은 거르지 않음) — 정상 클라이언트는 개행을 보내지 않으므로 악의적·이상한 피어에서만 보인다. 지워진 SwiftUI 뷰는 같은 글에서 빈 줄을 제대로 보였으므로 패널 전환이 만든
+  회귀다(낮은 심각도). **왜 못 걸렀나:** 줄바꿈 말뭉치(`PlazaBreakCorpus`)에는 `"안녕\n두 번째 줄\n\n네 번째 줄"` 이 이미 있었지만 맥 쪽 골든은 TextKit/`CTFramesetter`(`paragraph` 경로)를
+  재서 `wrappedLines` 의 타입세터 경로는 밟지 않았다 — 같은 글이 다른 코드 경로로 통과해 안심을 줬다. **고침:** 길이 0 범위는 빈 줄(`line("", font:)` / `line([])`)로, 글 끝 개행은 `extraLineFragmentRect`
+  가 비어 있지 않을 때 빈 줄 하나를 더한다. 줄 수는 같은 글의 SwiftUI `Text` 높이/줄 높이와 맞춘다. **규칙:** `CFRange`/`NSRange` 의 길이 0 을 "빈 구간"으로 믿지 않는다 — CoreText 는 "끝까지"로 읽는다.
+  **회귀 점검:** `PlazaBlankLineTests`(빈 줄, 연속·앞·끝 빈 줄, 색 조각 버전, SwiftUI `Text` 줄 수와 일치) — 고침을 빼고 실패함을 확인했다. 윈도 엔진은 이미 진짜 빈 줄을 만든다.
+
+- **기본 상한은 그 값을 정한 호출부의 크기다 — API 응답용 32 MiB 본문 상한과 31.6 MiB 설치 파일 사이 여유가 1.3% 뿐이었다 (stage 8, 잠복).**
+  윈도의 원샷 요청 이음매(`WinHTTPFetch.data`)는 본문을 `maxBodyBytes` 로 묶고, 기본값 `defaultMaxBodyBytes` 는 32 MiB 다. 그 값은
+  "가장 큰 응답이 1 MB 미만"인 API 호출부를 보고 정했고(`WinHTTPFetch.swift` 39·63), `PlatformCompat.oneShotData` 가 그 기본값을 그대로
+  물려준다. 앱 안 업데이트(stage 8 Task 6)가 이 이음매로 설치 파일을 받으면 상한을 따로 적지 않는 한 이 기본값을 받는다. 설치 파일은 stage 6
+  Task 2 이후 31.6 MiB(2.5.634 CI 빌드 33,121,702 B, windows-app run 43736993382)이고 상한 33,554,432 B 와의 여유는 432,730 B(1.3%)다 — 글꼴이나
+  그림 묶음 하나로 넘는다. 넘으면 `.dataLengthExceedsMaximum` → 다운로드 실패 → 릴리스 페이지가 열리고 로그 한 줄만 남아, 업데이트가 조용히
+  죽는다. 계획 단계에서 찾았고(stage 8 계획 F13) 다운로드 코드가 아직 없어 사용자 영향은 없다.
+  **왜 못 걸렀나:** ① 상한 테스트(`WindowsHTTPFetchTests`, 230 B gzip → 200,000 B)는 작은 `maxBodyBytes` 를 직접 넣어 "상한이 작동하는가"만
+  봤고, 기본값과 실제로 가장 큰 페이로드의 관계는 아무것도 묶지 않았다. ② 설치 파일 크기는 워크플로 로그(`windows-app.yml` 의 바이트 출력)에만
+  있고 Swift 상수와 이어진 곳이 없다. ③ 이음매 리뷰(status-burst 와 그 후속)는 그때의 호출부만 봤다 — 그들에게는 맞는 값이었지만 다음에 올
+  호출부를 위한 값은 아니었다.
+  **부류 스윕(고정 상한 ↔ 실제 크기):** `WinHTTPFetch.defaultMaxBodyBytes` 32 MiB ↔ 이음매의 모든 호출부(상태·한도·릴리스 JSON, PokeAPI
+  REST·GraphQL, 이름표, 스프라이트·아이콘): 모두 1 MB 미만. `TeamWire.maxFrameBytes` 1 MiB ↔ 팀 프레임: 필드별 상한으로 이미 묶였다
+  (§팀 네트워크 "저장하는 값을 재야 한다"). `SaveTransfer.maxFileBytes` 8 MiB, `PlazaGIFDecoder.maxOutputBytes` 256 MiB, `CPlazaD2D` 디코드
+  512 MiB, `codexProbeByteLimit` 1 MiB(첫 줄만 찾는다), `AppLog.maxBytes` 2 MiB(회전이지 막지 않는다): 실제 크기 근처가 아니다. 이 작업의 새 상한
+  `InstallerReleaseFeed.installerBytes`(1–200 MiB)는 실제의 6 배다. 실제 크기 근처의 고정 상한은 이음매 기본값 하나뿐이다.
+  **가드(기계): Task 6 에서 닫힘.** ① 이음매 서명 — 다운로드는 `PlatformCompat.oneShotDownload(for:maxBytes:deadline:)` 하나뿐이고 `maxBytes`·
+  `deadline` 에 기본값이 없다(WinHTTP 만 탄다: URLSession 으로 돌아가면 상한도 마감도 없으므로 그 경로는 실패로 끝난다). 호출부는
+  `WindowsUpdateInstaller.install` 하나이고 상한으로 자산의 `installer.size` 를, 마감으로 15 분을 넘긴다 —
+  `WindowsSeamScanTests.testTheUpdateDownloadAndItsCIHooksStayWhereTheyAre`(호출부 1곳·`installer.size` 전달·기본값 없음, 각 깨짐을 주입한
+  `testTheUpdateSeamScanCatchesEachBreak`)와 `WindowsUpdateInstallerTests.testGoodBytesAreWrittenExactlyAndSetupGetsThatPathAndItsArguments`
+  (주입한 다운로드가 받은 상한 == 크기, 마감 == 900 s). ② 트리거 브랜치 — 32 MiB + 1 B 본문이 *실제* WinHTTP 이음매를 러너의 루프백으로 지난다:
+  `WindowsUpdateInstallerTests.testABodyOverTheSeamsDefaultCapPassesWithTheInstallersOwnCap`(같은 본문이 기본 상한으로는
+  `.dataLengthExceedsMaximum`, 설치 파일 자신의 크기 상한으로는 통과해 디스크에 33,554,433 B), 출하 바이너리 안에서는 selftest
+  `update.passesOver32MiB`(번들·설치본 둘 다). 끝에서 끝: CI 단계 `in-app-update` 의 `long` 시나리오가 크기보다 1 B 긴 본문이 상한에서
+  끊기는 것(`URLError -1103`)을 본다. **잠복이 아니게 됐다:** 이 브랜치의 설치 파일은 이미 33,970,371 B 로 32 MiB 보다 415,939 B 크다(scratch run
+  43780695861, `in-app-update` 의 `ok` 가 그 파일을 받아 설치) — 기본 상한을 물려받았다면 첫 앱 안 업데이트부터 조용히 페이지로 떨어졌을 것이다.
+  Task 4 의 피드 테스트(200 MiB 경계 `209,715,200` 통과)는 피드 자신의 범위만 고정할 뿐 이 결함을 지키지
+  않는다 — 다른 경로로 통과하는 테스트를 가드라고 부르지 않는다(처음 넣었던 32 MiB + 1 B 테스트 둘은 그래서 뺐다).
+  **규칙:** 새 다운로드(기존 이음매의 새 호출부도)는 자기 상한과 마감을 이름으로 적는다 — 다른 호출부를 보고 정한 기본값을 물려받지 않는다.
+  상한을 정할 때는 실제로 가장 큰 페이로드를 재서 값과 출처를 적고, 여유가 2 배 미만이면 그 자리에서 고친다.
+
+- **Inno Setup 의 롤백은 덮어쓴 파일을 되돌리지 않는다 — "업데이트가 실패하면 이전 앱이 돌아온다"(8단계 계획 D8 7단계)는 전제가 틀렸다 (출시 전 발견).**
+  Inno 6.7.1 소스(`Setup.Install.pas`, `Setup.UninstallLog.pas`): 기존 파일은 `DeleteFile` 한 뒤 임시 파일을 `MoveFile` 로 들이고(사본을 두지 않는다), 중단 때의
+  롤백(`PerformUninstall(False)`)은 이번 설치가 *새로 만든* 파일만 지운다 — 덮어쓴 파일에는 `utDeleteFile_ExistedBeforeInstall` 이 붙어 새 내용 그대로 남는다.
+  러너 실측(보호를 뺀 결함 주입, exe 를 쓴 뒤 복사 실패): 47개 중 44개가 새 파일로 남았다. 복사 도중 멈춘 업데이트는 섞인 설치를 남기고, 버전 파일이 먼저 바뀌면 앱이 실패를 성공으로 읽는다.
+  **첫 고침도 틀렸다 — 보호가 "누가 Setup 을 시작했나"에 달려 있었다 (리뷰가 찾음).** 처음엔 `ssInstall` 에서 앱 폴더를 `.previous` 로 *이름만 바꿨다*. 그런데 앱은
+  설치 폴더를 작업 폴더로 갖고 시작되고(`[Run]`·시작 메뉴 바로 가기·재실행 모두), 앱이 시작하는 Setup 의 로더도 그 폴더를 물려받아 끝까지 쥔다 — 어떤 프로세스의 작업 폴더인
+  폴더는 이름을 바꿀 수 없다. 러너에서 Setup 을 설치 폴더에서 시작하자(`-WorkingDirectory`) "could not move … updating in place" 와 47개 중 44개 새 파일
+  (run 43755066548, 고치기 전). 또 이름 바꾸기와 복사 끝 사이에 Setup 이 죽으면(전원, "그래도 종료") 앱 폴더가 비어 실행할 앱이 아예 없었다.
+  **왜 못 걸렀나:** CI 업그레이드 단계는 성공 경로만 밟았고 계획은 문서의 "rolls back" 을 "원래대로"로 읽었다. 첫 고침의 시나리오는 모두 pwsh 가 작업 공간에서 Setup 을
+  시작했다 — 실제 경로(앱이 자기 폴더에서 시작)와 다른 경로로 통과해 안심을 줬다. "죽은 Setup" 은 시나리오에 없었다.
+  **고침:** `PrepareToInstall` 이 앱 폴더를 `…\PokeTokenBar.previous` 로 *복사*하고(완료 표시 파일을 마지막에), 복사를 못 하면 아무것도 건드리지 않고 멈춘다(exit 7, 옛 앱 재실행).
+  Inno 는 제자리로 업데이트하고 exe 와 버전 파일이 맨 끝이다 — 앱 폴더는 이름이 바뀌거나 비지 않아 중간에 죽어도 실행된다. 끝나지 못한 설치는 바뀐 파일만 사본에서 되돌리고
+  (크기·시각이 같으면 그대로, 다르면 300 ms × 10 재시도), 되돌리기에 실패하면 앱을 켜지 않고 사본을 남긴다. 남은 사본은 앱 폴더가 온전하면 지우고, 아니면 먼저 되돌린다.
+  두 Setup 이 서로의 사본을 지우지 않게 `Local\PokeTokenBar-Setup` 뮤텍스를 앱을 닫기 *전에* 검사한다(Inno 의 `SetupMutex` 지시어는 `InitializeSetup` 뒤, 앱을 이미 닫은 뒤에 검사한다).
+  앱은 시작하자마자 작업 폴더를 로그 폴더로 옮긴다(`WindowsInstall.leaveInstallFolder`) — 브라우저·CLI·Setup 이 설치 폴더를 물려받지 않는다.
+  **같은 부류 스윕:** 호출자의 작업 폴더에 기대는 곳 — 앱의 `ShellExecuteW`(폴더 인자 없음)·`Process` 실행·Task 6 의 Setup 실행이 모두 작업 폴더를 물려준다(앱 쪽 고침으로 닫힘;
+  Task 6 은 Setup 에 설치 폴더 밖 작업 폴더를 명시한다). 폴더 이름 바꾸기에 기대는 코드는 이제 없다. `MinVersion`·아키텍처 거절은 `[Code]` 전이라 아무것도 닫지도 켜지도 않는다(exit 1).
+  **규칙:** 외부 도구의 실패 의미(롤백·원자성)는 소스와 강제 실패로 확인하고, 실패 경로 테스트는 "실패 뒤 디스크에 무엇이 있나"(내용 해시)를 본다. 시나리오는 실제 호출자와
+  같은 조건(작업 폴더, 앱이 이미 끝난 순서, 동시 실행, 강제 종료)에서 돌린다.
+  **회귀 점검:** `windows-app.yml` 단계 `failed-update-relaunch`(`fromAppFolder`, `inAppOrder`, `failDuringCopy`, `backupFails`, `failedRestore`, `twoSetups`, `staleComplete`,
+  `staleIncomplete`, `killedMidCopy`) — 결함 주입(되돌리기 제거, 뮤텍스 검사 제거, 되돌리기 실패 뒤 재실행, 남은 사본 되돌리기 제거, 복사 실패 무시)이 각각 해당 줄을 FAIL 로 만든다.
+  셀프테스트 `packaged.workingFolder` 는 작업 폴더 옮기기를 빼면 FAIL.
+  **2차 리뷰 — 같은 상태를 두 규칙이 다르게 읽었다.** 완료 표시가 있는 남은 사본은 "앱 폴더에 exe 와 버전 파일이 있으면" 지웠는데, 표시된 사본이 남는 상태(쓰는 중·되돌리는 중
+  강제 종료, 되돌리기 실패)는 모두 exe 와 버전 파일을 가진 *섞인* 폴더다 — 다음 Setup 이 하나뿐인 온전한 사본을 지우고 섞인 폴더를 백업했고, 그 Setup 이 실패했다면 앞 Setup 이
+  켜기를 거부한 폴더를 되돌려 켰을 것이다. 이제 사본은 앱 폴더의 버전 파일이 사본과 *다를* 때만 지운다(버전 파일은 맨 마지막에 쓰고 되돌릴 때는 맨 먼저 되돌린다). 남은 사본을
+  못 되돌려 멈출 때도 `RestoreFailed` 로 켜지 않는다. **그리고 "바뀌지 않았다"는 내용으로 판단한다:** 크기·시각만 보던 규칙은 하네스에서 간헐적으로 vN+1 버전 파일을 vN 것으로
+  봤다 — Inno 는 설치 파일 시각을 2 초로 반올림하고(`TimeStampRounding`) 버전 파일은 버전 사이에 길이가 같다. `RestoreFile` 은 SHA-256 을 비교한다.
+  **왜 못 걸렀나:** 남은 사본 시나리오가 "앱 폴더와 같은 내용의 사본"만 만들어 두 규칙이 갈리는 상태(섞인 폴더 + 같은 버전)를 한 번도 만들지 않았고, 테스트 페이로드가 모든 파일의
+  크기를 바꿔 시각 비교를 시험하지 않았다. 간헐 실패는 결함 주입 실행에서만 보였다 — 주입과 상관없는 시나리오가 깨지면 플레이크로 넘기지 말고 원인을 찾는다.
+  **회귀 점검(추가):** `failLate`(버전 파일까지 쓴 뒤 실패), `killedDuringRestore`, `killedFirstEntry`, `leftOverRestoreFails`, `noVersionFile`, `partialCopy`, `appFolderMissing`; 페이로드의
+  `THIRD-PARTY.txt` 는 크기·시각이 같고 내용만 다르다. 결함 주입: 옛 규칙, `RestoreFailed` 빼기, 폴더 다시 만들기 빼기, 크기·시각 비교, 버전 파일 먼저 빼기, exe 만으로 "온전".
+
+- **앱 안 업데이트의 테스트 둘이 실행 환경 덕에 통과했다 (stage 8 Task 6, 병합 전).** ① `WindowsUpdateInstallerTests.testSetupsArgumentsAreExactAndTheLogPathIsQuoted`
+  가 URL 을 `==` 로 비교했다 — corelibs 의 `appendingPathComponent(_:)` 는 디스크를 물어 폴더가 있으면 끝에 `/` 를 붙인다(`PlatformCompat.logsDirectory()`).
+  전체 스위트에서는 다른 테스트가 Logs 를 먼저 만들어 통과했고(windows run 43778115607), 필터해 돌린 결함 주입 실행에서만 실패했다(scratch run
+  43780695861). 고침: 경로(`WinPath.native`)로 비교. ② e2e 스크립트(`in-app-update.ps1`)가 앱 로그를 `[IO.File]::ReadAllText` 로 읽었다 — 읽기
+  공유만 주므로 앱이 쓰기로 연 동안 공유 위반(결함 주입 실행 8 회 중 1 회, run 43780709740). 고침: 읽기·쓰기·삭제 공유로 연다.
+  **왜 못 걸렀나:** 둘 다 첫 실행(전체 스위트, 대조 실행)에서는 맞는 상태가 우연히 갖춰져 있었다 — 결함 주입 실행이 다른 테스트 선택과 타이밍을 줘서
+  드러났다. **스윕:** 이 작업의 다른 URL 비교는 `standardizedFileURL`·`.path`·같은 객체로 한다; 스크립트의 다른 로그 읽기는 `Get-Content`(쓰기 공유).
+  **규칙:** 윈도에서 있을지 없을지 모르는 폴더의 URL 은 경로로 비교하고, 다른 프로세스가 쓰는 파일은 쓰기 공유로 연다.
+
+- **무인(silent) 경로는 사람을 기다리지 않는다 — 앱이 안 닫히면 조용한 Setup·제거가 아무도 누를 수 없는 확인 창에서 영원히 멈췄다 (stage 8, 출시 전).**
+  `InitializeSetup`·`InitializeUninstall` 은 앱이 15 초 안에 안 닫히면 `[Code]` 의 `MsgBox` 를 띄웠다. Inno 의 `MsgBox` 는 억제 불가로 등록돼 있어
+  (`Setup.ScriptFunc.pas`: `Suppressible := False`) `/SUPPRESSMSGBOXES` 를 무시한다. 러너 재현(run 43819088565, 앱 뮤텍스를 쥐고 `WM_CLOSE` 에 답하지 않는
+  도우미): 앱 안 업데이트 스위치의 조용한 Setup 이 15.8 초 뒤 "Message box (OK)" 를 화면에 띄우고 120 초가 지나도 끝나지 않았고, 조용한 제거도 같았다. 남은
+  제거 프로세스는 `unins000.dat` 를 쥐고 있어 뒤따른 모든 Setup 이 사본을 못 만들어 거절했다(exit 7). 사용자 PC 에서는 앱이 이미 끝난 뒤의 앱 안 업데이트가
+  눈에 잘 안 띄는 확인 창 하나에서 멈춘다. Inno 자신의 확인 창(AppMutex, Restart Manager, 파일 오류, MinVersion, 제거의 실행 중 확인)은 모두 억제 가능이고
+  기본값이 Abort/Cancel 이라 기다리지 않는다 — 기다린 것은 우리 코드 둘뿐이었다.
+  **고침:** 둘 다 `PTB setup:`/`PTB uninstall:` 한 줄을 남기고 `SuppressibleMsgBox` 를 쓴다(대화형에서는 그대로 보이고, 조용하면 기록만 하고 끝난다: Setup
+  exit 1, 아무것도 건드리지 않고 앱 뮤텍스가 남아 있으니 다시 켜지도 않는다). 기다림은 이름 붙은 30 초(`CloseWaitSeconds`). 그 뒤엔 죽이지 않고 거절한다 —
+  죽이면 앱의 종료(설정 동기화, 팀 연결 정리)를 건너뛰고, 30 초 동안 `WM_CLOSE` 에 답하지 않는 앱은 사용자를 기다리는 중일 수 있다.
+  **왜 못 걸렀나:** 앱 닫기 시나리오는 모두 잘 닫히는 앱만 썼고, CI 도우미는 시간 제한이 있었지만 로더만 죽이고 기록 없이 실패했다(Setup 의 .tmp 와
+  제거기의 `_unins.tmp` 는 살아남았다). 몇 단계는 `Start-Process -Wait` 에 단계 시간 제한도 없었다. 멈춘 run 43808578589 의 원인은 이것이 아니었다
+  (주석: "The hosted runner lost communication with the server"; 그 단계는 Setup 을 180 초로 묶고 있었다) — 가설을 확인하다 실제 결함을 찾았다.
+  **규칙:** 조용한(무인) 실행에서 닿을 수 있는 모든 확인 창은 억제 가능해야 하고(`[Code]` 에 `MsgBox`/`TaskDialogMsgBox` 금지), CI 가 Setup·제거를 돌릴 때는
+  언제나 시간 제한이 있는 도우미로 돌린다: 넘기면 화면의 창 이름을 남기고 Setup·제거 프로세스를 모두 죽이고 setup 로그를 붙여 실패한다.
+  **회귀 점검:** `failed-update-relaunch` 의 `appDoesNotClose`·`uninstallAppDoesNotClose`(30 초 근처에 스스로 끝남), `Invoke-Setup`(`ci-helpers.ps1`);
+  결함 주입(`MsgBox` 되돌리기)에서 두 시나리오가 120 초 제한에 걸린다.
+
+## 윈도 로케일·알림 (windows-port)
+
+- **한국어 윈도에서 앱이 영어로 떴다 — swift-foundation 이 비 Apple 플랫폼에서 `Locale.preferredLanguages` 를 `["en-001"]` 로 고정한다.**
+  사용자 PC(윈도 11, 표시 언어 한국어)의 트레이 메뉴가 영어였다. `AppLanguage.systemDefault` 는 `Locale.preferredLanguages.first` 를 쓰는데,
+  swift-foundation `Locale_Cache.swift` 의 `#else`(= `FOUNDATION_FRAMEWORK && !NO_CFPREFERENCES` 가 아닌 쪽)가 `languages = ["en-001"]`,
+  `locale = "en_001"` 을 하드코딩한다. 러너 실측: `Locale.preferredLanguages=["en-001"]`, `Locale.current=en_001`, 같은 순간
+  `GetUserPreferredUILanguages=["en-US"]`. 즉 "비어 있다"가 아니라 **언제나 영어 한 개**라 어떤 PC 에서도 영어가 된다.
+  **왜 못 걸렀나:** 테스트가 `AppLanguage.systemDefault(for:)` 순수 함수에 문자열을 주입해 통과했고(`CompanionTests`), 실제 `Locale.preferredLanguages`
+  를 윈도에서 읽는 경로는 한 번도 밟지 않았다 — 주입 검증은 "매핑이 맞는가"에만 답한다. 러너가 영어라 CI 도 영어가 "정답"이었다.
+  **고침:** `PlatformCompat.preferredUILanguages` (맥: 정확히 `Locale.preferredLanguages`, 윈도: `GetUserPreferredUILanguages(MUI_LANGUAGE_NAME)` →
+  비면 `GetUserDefaultLocaleName`) 를 만들고 `CompanionModel.swift` 의 한 줄만 그리로 돌렸다. 맥과 같게 **첫 항목만** 본다(첫 항목이 미지원이고 둘째가 지원이어도 영어).
+  **이미 "en" 이 저장된 설치:** `CompanionState.language` 는 신규 설치 때 감지값이 그대로 저장된다(맥도 같다). 윈도엔 언어 설정 UI 가 없어 "en" 은 아무도 고른 적 없는 값이다 →
+  `WinUILanguage.migrateStoredLanguage` 가 설치당 **한 번** "저장된 en + 감지값 ≠ en" 이면 감지값으로 바꾼다(`windows.languageDetectionMigrated`). 한 번뿐이라 이후 사용자가 고른 영어는 지켜진다.
+  **같은 부류 스윕:** `Locale.current`/`autoupdatingCurrent` 는 윈도에서 늘 `en_001` — `NumberFormatter` 의 `TokenFormatter.grouped`(팝오버 UI, 윈도엔 아직 없음), `Calendar.current.firstWeekday`(= 월요일 고정; 잔액 요약·히트맵 UI, 아직 없음)가 영향권이다. 트레이 요약 숫자는 `String(format:)` 이라 무관.
+  표시 로케일이 명시된 곳(`displayLocale`, `en_US_POSIX` 포매터)은 안전. **7단계(UI)에서 `PlatformCompat` 로 지역 로케일·첫 요일을 윈도 값으로 돌려야 한다.**
+  **규칙:** 플랫폼 로케일 API 는 값이 "있다"가 아니라 "사용자 것인가"를 실측한다 — 윈도에서 `Locale`·`TimeZone` 을 새로 읽는 코드는 `language.detect`/`timezone.matchesWindows` 류로 OS API 값과 맞대어 본다.
+  **회귀 점검:** `UILanguagesTests`(ko/ja/en/zh→en/빈 목록→로케일명/첫 항목 미지원), `WinUILanguageTests`(주입 + 실제 API 가 비어 있지 않음 + 마이그레이션 한 번), 셀프테스트 `language.detect`, `check-language.ps1`(`--inject-ui-language ko-KR` 로 트레이 문자열·첫 실행 안내·마이그레이션).
+  러너엔 한국어 언어 팩이 없어 `GetUserPreferredUILanguages` 자체를 한국어로 바꿀 수 없다(HKCU `PreferredUILanguages` 를 써도 en-US) — 그 읽기만 사용자 PC 에서 확인한다.
+
+- **같은 뿌리의 두 번째 결함: 한국어 윈도에서 `TimeZone.current` 가 GMT 가 된다 — "오늘"이 UTC 로 계산된다.** swift-foundation `TimeZone_Cache.swift` 는 `TIME_ZONE_INFORMATION.StandardName` 을 ICU 의
+  `ucal_getTimeZoneIDForWindowsID` 에 넣는데, `StandardName` 은 **현지화된 이름**("대한민국 표준시")이고 ICU 는 영어 윈도 존 ID("Korea Standard Time")를 기대한다. 실패하면 GMT.
+  러너 실측: UTC 존의 `StandardName`("Coordinated Universal Time")이 ID("UTC")와 달라 `TimeZone.current=GMT` 였고(영어 OS 에서도 일치하지 않는 존은 같은 결과), `Asia/Seoul` 은 영어 이름이 ID 와 같아 통과했다.
+  한국어 PC 에서는 서울 시각 00:00~09:00 에 "오늘"이 어제로 나왔을 것이다(일일 합계·`day_timer`·`localDay`). **왜 못 걸렀나:** CI 가 영어 OS 라 존 이름이 우연히 ID 와 같았고, 서울 시간대 테스트도 영어 이름으로 통과했다.
+  **고침:** `WinTimeZone.publishSystemZone()` — 현지화되지 않는 `TimeZoneKeyName` 을 OS 의 `icu.dll` 로 IANA 이름으로 바꿔 프로세스 환경 `TZ` 에 올린다(Foundation 은 `TZ` 를 먼저 읽는다; C 런타임의 사본은 안 건드려 `localtime` 은 그대로). 사용자가 직접 둔 `TZ` 는 건드리지 않는다.
+  **첫 시도는 앱을 시작 직후 죽였다:** UTC 존의 ICU 이름 `Etc/UTC` 를 그대로 올리자 `DateFormatter(timeZone: .current)`(= `LocalUsageReader.localDayFormatter`, 기동 경로) 가 Foundation.dll 안에서 트랩했다
+  (`0xC000001D`). 단계별 사냥(`--tz-hunt`)으로 좁힌 결과 `GMT`·`GMT+0900`·`secondsFromGMT`·`Asia/Seoul`·`UTC` 는 통과하고 `Etc/UTC` 만 죽는다 — corelibs 가 `Etc/` 이름을 모른다. 윈도 존 UTC 와 "UTC-11"…"UTC+13" 이 그 이름으로 매핑된다.
+  그래서 `TimeZoneNames.foundationSafe` 가 `Etc/UTC`→`UTC`, `Etc/GMT+11`→`GMT-1100` 으로 바꾼다. **교훈:** "다른 OS 설정으로 한 번도 안 돌려본 경로"(CI 는 늘 UTC=GMT)는 값을 바꾸는 순간 처음 실행되는 코드다 — 설정을 바꾼 자식 프로세스로 기동 경로 전체를 돌려야 한다(`check-language.ps1` 의 `timezone.noTrap.*`).
+  시작 시, 그리고 `WM_TIMECHANGE` 에서 `resetSystemTimeZone()` 직전에 호출한다. **회귀 점검:** `WinTimeZoneTests`(ICU 는 영어 ID 만 알고 "대한민국 표준시" 는 모른다; 게시 후 `TimeZone.current` 일치; 사용자 `TZ` 우선), 셀프테스트 `timezone.matchesWindows`(Win32 오프셋과 대조), `check-language.ps1`(서울·UTC).
+
+- **트레이 풍선이 첫 실행에 사라졌다 — `NIIF_RESPECT_QUIET_TIME` 은 "조용한 시간" 풍선을 큐에 넣지 않고 버린다.** Microsoft 문서(NOTIFYICONDATAW): 새 사용자가 처음 로그인한 뒤 1시간과 OS 설치·업그레이드 뒤에는 이 플래그가 붙은 풍선이
+  "큐에 쌓이지 않고 표시 없이 버려진다". 새 PC 에 막 설치한 첫 실행 안내가 정확히 그 구간이다(사용자 PC: 방해 금지 꺼짐, 알림 센터 비어 있음). **확정이 아니라 가장 유력한 원인이다:** 러너에서는 이 플래그의 유무가
+  화면에도 `NIN_BALLOONSHOW` 에도 차이를 만들지 못했고(서버 SKU 에 토스트 UI 프로세스가 없어 알려진 정상 소스도 안 보인다), 사용자 PC 확인이 남았다. 두 번째 후보는 AUMID: 설치 프로그램은 바로가기에 `LikelionCampus.PokeTokenBar` 를 달았지만
+  프로세스는 한 번도 설정하지 않았다(러너에 윈도가 AUMID 없는 트레이 풍선용으로 `NotifyIconGeneratedAumid_*` 항목을 만든 것이 보인다). **왜 못 걸렀나:** 풍선 "표시됨" 주장이 전부 `Shell_NotifyIcon` 반환값(TRUE)에만 기댔다 —
+  API 는 쉘이 호출을 받았다는 뜻일 뿐 보였다는 뜻이 아니다. **고침:** 어떤 종류도 `NIIF_RESPECT_QUIET_TIME` 을 쓰지 않는다(`BalloonFlags.infoFlags`; 방해 금지/집중 지원은 윈도가 토스트를 알림 센터로 조용히 보내므로 플래그가 필요 없다),
+  프로세스가 `SetCurrentProcessExplicitAppUserModelID` 로 바로가기와 같은 ID 를 설정하고(스캔 테스트가 `.iss`·Swift 상수를 대조), `NIN_BALLOONSHOW` 를 처리·로그하며 10초 안에 쉘이 "표시됨"을 안 보내면 한 번 "not shown by Windows" 로 남긴다.
+  첫 실행 안내도 같은 큐를 탄다. **규칙:** OS 에 맡긴 표시는 반환값이 아니라 OS 의 통지(또는 화면)로만 "보였다"고 쓴다; 셀프테스트 `notify.state`/`notify.shown` 이 사용자 로그에 설정 상태와 통지를 남긴다.
+
+- **전체 테스트 실행에서만 `RedirectHeadersMacTests` 3개가 `-1009`(인터넷 없음)로 실패했다 — 플라자 렌더 테스트가 등록한 `NoNetwork` URLProtocol 이 해제되지 않았다.** `URLProtocol.registerClass` 는
+  프로세스 전역이고 `URLSession.shared` 는 그것을 따른다. `PlazaContentRig+Mac.swift` 의 `blockNetwork()` 가 `NoNetwork`(모든 요청을 `notConnectedToInternet` 으로 거절)를 등록만 하고
+  풀지 않아, 이후에 도는 스위트의 loopback 요청이 0.000 초에 거절됐다. 알파벳 순으로 `Plaza*` 가 `Redirect*` 보다 앞서 도는 전체 실행에서만 드러난다(`--filter 'PlazaContentPanelsMacTests|RedirectHeadersMacTests'` 로 재현).
+  **왜 못 걸렀나:** 각 스위트는 단독(필터) 실행에서 통과했고, 오염 쪽 테스트는 자기 렌더만 검증해 누수를 볼 수 없었으며, 피해 쪽은 등록이 없는 상태에서만 정상이라 순서 의존을 드러낼 기회가 전체 실행뿐이었다.
+  **고침:** `blockNetwork(for: self)` 가 `addTeardownBlock` 으로 해제를 건다(호출 4곳). **부류 스윕:** 나머지 `registerClass` 사용처(`ClaudeOAuthFileCredentialTests`, `SpriteAnimationRecoveryTests`,
+  `OneShotDataMacTests`, `CredentialSwitchCacheTests`)는 모두 같은 파일에서 `unregisterClass` 한다 — 오염원은 `NoNetwork` 하나였다.
+  **영구 캡처:** `NetworkProtocolScanTests` — `registerClass` 가 있는 테스트 파일에 `unregisterClass` 가 없으면 실패(해제를 지우는 주입으로 실패 확인). **규칙:** 프로세스 전역 상태(URLProtocol 등록·환경변수·공유 훅)는 설정하는 쪽이 같은 테스트 안에서 되돌린다.
+
+- **`WindowsPlazaClipboardTests.testABusyClipboardFailsHonestly` 가 러너에서 가끔 실패했다(0.0493 초 < 0.05 초) — 테스트의 하한이 타이머 눈금보다 촘촘했다.** `clipboard.cpp` 의 `openWithRetry` 는
+  `GetTickCount64` 로 제한 시간을 잰다. 이 카운터는 타이머 틱(최대 15.6 ms) 단위로만 올라가므로 60 ms 제한은 실제 시간 44.4~60 ms 뒤에 끝날 수 있다. 테스트는 "50 ms 이상 재시도했다"를 요구해 틱 경계에 따라 실패했다
+  (#207 이후 실행 43774484787). 제품 동작은 맞다 — 제한 시간은 "대략 이만큼"이고 사용자에게는 300 ms 한도의 16 ms 차이다. **왜 못 걸렀나:** 작업 브랜치의 몇 번 실행에서는 우연히 틱이 맞았다.
+  **고침:** 하한을 제한 시간에서 한 틱을 뺀 40 ms 로 둔다. **부류 스윕:** 윈도 테스트의 경과 시간 하한은 그 밖에 `WindowsHTTPFetchTests` 의 두 곳(10 초 중 8 초, 3 초 중 2.5 초)뿐이고 여유가 0.5 초 이상이다.
+  **규칙:** 윈도에서 `GetTickCount64`·`Sleep` 으로 잰 시간에 하한을 걸 때는 한 틱(16 ms)을 빼고 건다.
+- **IME 가 끝낸 한글 음절이 `?` 로 들어올 자리였다 — `WH_GETMESSAGE` 훅이 `WM_CHAR` 류만 유니코드로 다시 보내고 `WM_IME_CHAR` 는 CF 의 ANSI 펌프에 맡겼다.** (stage 6 Task 11, D13)
+  CF 의 펌프는 `PeekMessageA`/`DispatchMessageA` 라, 게시된 `WM_IME_CHAR`(IME 가 끝낸 음절을 앱이 직접 처리하지 않을 때 DefWindowProc 경로로 오는 메시지)의 U+D55C 가 코드 페이지 1252 에서
+  `?` 로 바뀐 채 유니코드 창에 도착한다. 러너 실측(ACP 1252, 같은 실행): 우리 창의 입력칸은 "한", 훅이 손대지 않는 창(= 고치기 전 경로)의 같은 EDIT 는 "?".
+  **왜 못 걸렀나:** Track B 의 문자 검사는 `SendInput(VK_PACKET)`·게시 `WM_CHAR` 로만 돌았고(러너에 쓸 수 있는 한국어 IME 가 없었다), 광장에는 글을 받는 창이 아직 없어
+  IME 메시지를 보낼 대상이 없었다 — `WM_IME_*` 는 "관찰만" 하는 범위(0x0281…0x0291)에 들어 있어 통과가 곧 미검증이었다. **고침:** 훅의 재전송 목록에 `WM_IME_CHAR`(0x0286) 한 줄.
+  **스윕:** 문자를 wParam 에 실어 *게시*되는 메시지는 `WM_CHAR`·`WM_SYSCHAR`·`WM_DEADCHAR`·`WM_SYSDEADCHAR`·`WM_IME_CHAR` 다섯이고 이제 모두 재전송한다. `WM_IME_COMPOSITION` 의 wParam
+  (마지막 변경 문자)도 ANSI 로 바뀌지만 EDIT 는 문자열을 입력 컨텍스트에서 `ImmGetCompositionStringW` 로 읽어 영향이 없다. `WM_MENUCHAR`·`WM_CHARTOITEM`·`EM_*` 는 *보내지는* 메시지라 펌프를 거치지 않는다.
+  메뉴 루프 안(`inMenuOrMoveLoop`)에서는 지금처럼 다시 보내지 않는다: 팝업 메뉴는 그 동안 스레드의 키보드 메시지를 모두 메뉴 입력으로 읽는다(셀프테스트 `plaza.chatMenu`: 메뉴가 열린 동안
+  게시한 문자는 메뉴가 가져가고 훅 재전송 +0).
+  **가드(기계):** 셀프테스트 `plaza.imeChar` — 같은 실행에서 우리 필드는 "한", 우리 창이 아닌 EDIT 는 "?" 여야 PASS(ACP 를 함께 남기고, 한글 코드 페이지에서는 결함이 드러날 수 없다고 적는다).
+  `plaza.chatTyping`(VK_PACKET 16 단위: 서로게이트·ZWJ 포함, 훅 재전송 16 = 필드 WM_CHAR 16, 중복 0).
+
+- **숨긴 채 닫은 광장을 다시 열면 입력줄 판이 그려지지 않았다 — 창보다 오래 사는 입력줄의 HUD 가 "그리지 않음"으로 남았다.** (stage 6 Task 11 리뷰)
+  광장을 최소화(또는 가림·다른 가상 데스크톱)한 채 트레이에서 닫고 다시 열어 Enter 를 누르면 판·테두리·😀·이모지 판 없이 맨 EDIT 만 보였고, 대화
+  기록이 올라가지 않았으며, 판 자리를 누르면 장면이 받아 줄이 닫혔다(다음 최소화·복원까지). **직접 원인:** `WinPlazaChatInput` 은 컨트롤러가 앱 수명
+  동안 쥐고 창보다 오래 산다. 입력줄 HUD 의 `isRendering` 은 창의 가시성 콜백만 바꾸는데, 새 창의 첫 표시는 보고되지 않는다(`WinPlazaVisibility`:
+  첫 표시는 "보이는 상태"가 기본). 컨트롤러는 자기 HUD 를 닫을 때 `true` 로 되돌리지만(`PlazaWindowController` close) 입력줄 HUD 는 아무도
+  되돌리지 않았다. **왜 못 걸렀나:** 셀프테스트의 입력줄 검사는 모두 보이는 창에서 열고 닫았고, 숨김→닫기→다시 열기를 밟는 `plaza.close`/
+  `plaza.reopen` 은 입력줄을 열지 않았다. XCTest 에는 창 가시성이 없어 `isRendering` 이 바뀌지 않는다 — 두 검사가 결함 경로의 서로 다른 반쪽만 밟았다.
+  **고침:** `attach` 가 HUD 를 그리는 상태로 되돌린다(새 창은 보이는 상태로 시작). **스윕:** 창보다 오래 살며 가시성에서 나온 상태를 쥔 것 — 컨트롤러의
+  `hud.isRendering`·`rosterModel.isAnimating`(닫을 때 되돌림), 렌더 루프·스테이지·장면(창마다 새로), 입력줄 HUD(이번에 고침) — 그 밖에 없다.
+  **가드(기계):** 셀프테스트 `plaza.chatReopenAfterHidden`(최소화→컨트롤러로 닫기→다시 열기→줄 열기: 판이 그려지고 대화 기록이 그 위, 판 클릭은 줄을 닫지
+  않음), XCTest `testTheBarDrawsInAWindowOpenedAfterAHiddenClose` 와 주입(`WinChatFaults.keepHiddenAcrossWindows` → 잡힘).
+  **규칙:** 창보다 오래 사는 객체가 창의 가시성에서 나온 상태를 쥐면, 창을 붙이거나 떼는 곳에서 그 상태를 되돌린다.
+
+- **글자 수 자르기가 한 글자의 UTF-16 두 반쪽 사이에서 돌았다 — 반쪽을 U+FFFD 로 읽어 다시 써 넣었다.** (stage 6 Task 11 리뷰)
+  꽉 찬 줄(60 자)의 가운데에 한 단위씩 오는 입력(VK_PACKET: 터치 키보드, 이모지 도구)으로 😀 를 넣으면, 높은 반쪽만 들어온 순간 줄이 "61 자"(반쪽 =
+  U+FFFD)로 읽혀 마지막 글자를 버리고 U+FFFD 를 `WM_SETTEXT` 로 써 넣었고, 낮은 반쪽이 같은 일을 되풀이했다("��", 끝 두 글자 손실). 59 자에서
+  끝에 👨‍👩‍👧 를 치면 👨 와 ZWJ 둘이 남았다. **왜 못 걸렀나:** 테스트는 글자를 통째로(문자열 단위) 넣었고, 실제 VK_PACKET 검사(`plaza.chatTyping`)는
+  한도에 닿지 않는 짧은 줄이었다. **고침:** 원시 UTF-16 에 짝 없는 높은 반쪽이 있으면 자르기를 미루고(다음 반쪽이 오면 다시), 짝 없는 반쪽이 있으면
+  복구된 디코딩을 절대 다시 써 넣지 않는다. **가드:** XCTest `testTheCutWaitsForTheSecondHalfOfACharacter`·
+  `testAJoinedEmojiTypedUnitByUnitAtTheLimitStaysWhole` 와 주입(`cutSplitsSurrogates` → 잡힘). **스윕:** 앱이 글을 다시 써 넣는 곳은 자르기와
+  `resetField`(빈 줄) 둘뿐이고, 붙여넣기는 반쪽에서 잘린 끝을 버린 뒤 디코딩한다.
+
+- **조합 중인 음절 위에 이모지를 넣으면 음절 앞에 들어갔다('🍜하') — 진짜 IME 는 조합을 끝낼 때 입력칸에 보이던 음절을 먼저 빼고, 확정 글자는 나중에 캐럿에 다시 친다.** (stage 6 Task 11 리뷰)
+  러너의 진짜 한국어 IME 로 `gk`(하 조합 중) 뒤 이모지 판의 🍜 를 누르면 "🍜하" 가 됐다(맥은 `unmarkText` 뒤 캐럿 자리에 넣어 "하🍜"). **직접 원인(러너
+  추적으로 확인):** `ImmNotifyIME(CPS_COMPLETE)` 안에서 `WM_IME_ENDCOMPOSITION` 이 먼저 와 EDIT 가 글 안의 음절을 지우고(글 ""), 이어 `GCS_RESULTSTR`·
+  `WM_IME_CHAR` 가 오지만 실제로 글자를 치는 `WM_CHAR` 는 **게시(post)** 돼 요청이 돌아온 뒤에 캐럿에 들어간다. 그 사이에 넣은 이모지가 앞자리를 차지했다.
+  **왜 못 걸렀나:** 스크립트 IME 는 "끝내기"에서 결과 글자를 그 자리에서 `WM_CHAR` 로 동기 전송해 다른 경로로 통과했다. 첫 두 번의 고침도 가설(늦은 END,
+  결과 보고 없는 END)로 만든 가짜 IME 에서만 통과하고 러너에서 다시 "🍜하" 였다 — 메시지 순서를 찍어 보기 전에 고쳤기 때문이다.
+  **고침:** 입력칸이 음절을 글 안에 보여 주던 경우, 조합 위의 편집(이모지·붙여넣기·단어 지우기)은 글이 확정된 음절을 다시 담을 때(결과를 받았거나 음절이
+  빠졌다가 돌아온 뒤, 조합 없음)까지 기다렸다가 음절 뒤에 한다. 0.3 s 안에 안 오면 그때 한다(편집은 잃지 않는다). 선택 테스트가 기다리는 동안 본 메시지를 찍는다.
+  **덤으로 생긴 결함(병합 전 XCTest 가 잡음):** 기다림 확인이 depth 0 의 모든 메시지 뒤에 돌며 글을 `WM_GETTEXT` 로 읽었는데, 그 메시지가 같은 서브클래스로
+  다시 들어와 확인을 또 불러 무한 재귀(테스트 프로세스 즉사, 앱 선택 테스트는 st.json 없이 멈춤). IME 출력·글 변경 메시지 뒤에만, 재진입 없이 돌린다.
+  **스윕:** 스스로 조합을 끝내는 곳 — Enter(끝내기만, 보내지 않음), Esc·닫기(`CPS_CANCEL` 뒤 빈 줄), 포커스 이동(끝낸 뒤 닫히거나 그대로), 이모지·붙여넣기·
+  단어 지우기(이번 고침), 글자 수 자르기(조합 중엔 안 함). 진짜 IME 로 Esc·지도 클릭·한도(59 + 한글 + Space)를 확인했다(셋 다 맞음). depth 0 에서 글을 읽는
+  곳은 둘 — 글자 수 자르기(`limitPending` 을 먼저 내림)와 이번 확인(필터 + `checkingPending`) — 둘 다 재진입하지 않는다.
+  **가드(기계):** `plaza.chatRealIME`(하 + 🍜 → "하🍜", 메시지 순서 출력), XCTest `testAnEmojiWaitsForASyllableTheEndTookOut`(러너의 순서)·
+  `testAnEmojiWaitsForALateResultReport`·`testAnEmojiIsNotLostWhenTheIMENeverReports`·`testAnEmojiOverAnInlineSyllableGoesAfterIt` 와 주입
+  (`insertOverComposition`·`editBeforeResult`(이전 동작) → 잡힘). **규칙:** 진짜 IME 결함은 메시지 순서를 먼저 찍고, 가짜 IME 는 그 순서를 그대로 흉내낸다;
+  서브클래스 메시지 처리기에서 글을 읽는 코드는 그 읽기가 같은 처리기로 돌아온다는 걸 전제로 재진입을 막는다.
+
+- **`PopoverTwinEquivalenceTests.testTheLimitRowFollowsTheMac` 가 바쁜 Mac 에서 가끔 실패했다 — 한쪽은 고정한 `now`, 다른 쪽은 살아 있는 `Date()` 를 읽고 그 차이에 18 ms 허용치를 뒀다.** 행 모델(`LimitsBuilder(now:)`)은 주입한 시각으로, Mac 의 원본 복사본(`MacPopoverOracle.paceFraction`)은 호출 순간의 `Date()` 로
+  페이스를 계산한다. 눈금 위치 비교의 `accuracy: 1e-6` 은 5시간 창에서 18 ms 다. 2.2 초짜리 스위트는 통과했고 11.6 초짜리(바쁜 기계)는 실패했다. **왜 못 걸렀나:** 허용치가 "보통 몇 µs 차이"를 가정했고, 빠른 기계의 단독 실행에서는 그 가정이 늘 맞았다.
+  **고침:** 기대값을 주입한 `now` 한 개로 계산해 행 모델과 정확히 비교하고(허용치 없음), Mac 복사본의 값은 "주입한 now 의 페이스와 호출 직후 페이스 사이"에 있다고만 단언한다(페이스는 시간에 단조 — 벽시계 허용치가 아니라 경계). `testThePaceFractionFollowsTheMac` 도 같은 방식.
+  **부류 스윕:** `PopoverTwinEquivalenceTests+Mac` 의 나머지 `Date()` 는 시각이 주입 인자인 쪽(`LimitsBuilder(now:)`, `resetClockSuffix(now:)`)과 복사본이 함께 읽는 경우뿐이며, `testTheResetClockFollowsTheMac` 는 6시간 경계에서 30 초 떨어진 오프셋만 써 수 ms 차이로 갈리지 않는다.
+  **규칙:** 주입한 시계와 살아 있는 시계를 한 테스트에서 비교할 때는 허용치가 아니라 두 시각 사이의 경계로 단언한다. (결함 주입 확인은 하지 않았다: 가드가 아니라 테스트의 단언 방식을 바꾼 것이다.)
+- **윈도에서 Claude 로그인 파일이 없으면 새로고침이 "잠시 후 다시 시도하세요"라고 한다 — 시도해도 소용없는 조언이다(P14, 7단계 Task 6).** Claude Code 에 로그인한 적 없는 PC 에서 팝오버의 새로고침(사용자 동작)을 누르면
+  `OAuthAccessTokenCache` 가 자격증명 파일을 못 찾고 Keychain 단계로 내려가는데, 윈도의 `readClaudeKeychain`(`Platform/OAuthKeychainUnavailable.swift`)이 `LimitsError.keychainAccessDisabled` 를 던졌다.
+  스토어의 `friendlyLimitError` 는 이 오류를 `limitRefreshGeneric`("Claude 한도 조회에 실패했어요. 잠시 후 다시 시도하세요.")로 바꾼다 — 사용자가 Keychain 접근을 끈 맥 사용자를 위한 문구다. 맥은 같은 상황에서
+  `keychainUnavailable(errSecItemNotFound)` 를 받아 "Claude 자격증명을 찾지 못했어요. Claude Code 에 로그인하면…"(`limitRefreshNoCredential`)을 보여 준다. 윈도에는 끌 Keychain 이 없으므로 "접근이 꺼졌다"는 사실이 아니다.
+  **왜 못 걸렀나:** 윈도 테스트(`testUserRefreshWithoutAFileReportsKeychainAccessDisabled`)가 던져진 **오류 종류**만 고정했다 — 사용자에게 보이는 **문구**까지 가는 경로(스토어의 `limitTokenRefreshError`)는 아무도 밟지 않았고,
+  종류와 문구의 대응(`friendlyLimitError`)은 맥 쪽 테스트가 다른 입력으로만 확인했다. 오류 종류를 고정하는 테스트는 그 종류가 맞는 말인지까지는 답하지 않는다.
+  **도달 가능성:** 있다 — 윈도 사용자가 Claude Code 없이(Codex 만 쓰거나 아직 로그인 전) 새로고침을 누르면 그대로 나온다. **고침:** 윈도의 Keychain 단계가 맥의 "항목 없음"과 같은 오류(`keychainUnavailable(errSecItemNotFound)`)를 던진다
+  (Core 는 건드리지 않고 fork 소유 Platform 파일 한 곳). **부류 스윕(이 오류를 가르는 `UsageStore`/체인의 모든 분기):** `friendlyLimitError`(→ 자격증명 없음 문구, 의도), `isKeychainPromptDeclined`(`errSecItemNotFound` 는 거절이 아니다 → 추가 계정의 프롬프트를
+  막지 않는다, 맥과 같다), `firstUsableCredential`(항목 없음은 다음 서비스 이름으로 넘어가 마지막에 같은 오류를 던진다 — 윈도는 서비스 이름이 여럿이어도 읽는 곳이 없어 결과가 같다), `updateAuthExpired`(401/403 만 본다, 무관),
+  `ClaudeOAuthLimitsProvider` 의 `keychainAccessDisabled` 재던지기(진짜 비활성만 거친다). Antigravity 의 `UnavailableAntigravityLimits` 는 일부러 `keychainAccessDisabled` 를 유지한다 — 한도 소스가 없다는 뜻이고 UI 는 그 섹션을 숨긴다.
+  **영구 캡처:** `ClaudeOAuthFileCredentialTests.testUserRefreshWithoutAFileReportsAMissingCredential`(오류 종류), `testUserRefreshWithoutAFileShowsTheCredentialMissingText`(스토어를 통해 **보이는 문구**를 8개 언어로, `limitRefreshGeneric` 이 아님도),
+  `SettingsModelTests.testAMissingCredentialIsWordedAsOneInEveryLanguage`(양쪽 OS 에서 대응 자체). **규칙:** 플랫폼이 없는 기능을 오류로 알릴 때는 "그 기능이 꺼졌다"가 아니라 사용자가 해야 할 일("로그인")을 말하는 오류를 고르고,
+  테스트는 오류 종류가 아니라 화면에 나가는 문구에서 끝낸다.
+
+- **윈도 셀프테스트 게이트가 네 번에 한 번꼴로 깨졌다 — 한 상태를 두 쓰는 쪽이 다투거나, 예산이 한 번 잰 값에서 나왔다.** 같은 부류의 여섯 건을 한 번에 근본원인까지 팠다(`windows-app` 43777825521, 43784126850, 43741036674, 43784581694, 43788143040, 43797111060).
+  (A) `plaza.hover`/`plaza.cover`/`plaza.dpiPanels`: 컨트롤러의 1초 포커스 틱(`refreshRoster`)이 자기 세션(비어 있음)에서 명단을 다시 만들어 selftest 의 명단 고정물을 덮었다. 40 ms "keeper" 가 되돌렸지만 그 사이에 읽으면 도구 0개·픽셀 0개였다 — 한 상태를 두 쓰는 쪽이 다툰다.
+  **고침:** 컨트롤러가 이미 가진 시험 이음매(`focusTickSleep`)에 `PlazaTickGate` 를 꽂아 패널 검사 동안 틱을 붙들고 selftest 가 유일한 쓰는 쪽이 된다(keeper 삭제). 같은 프로세스에서 옛 방식(틱+keeper) 30회: cover 29/30(실패 한 번은 "roster pixels 0"), 새 방식 50회: hover·cover·dpiPanels 50/50, 명단 변조 0. 결함 주입(명단 비움·카드 안 엶·DPI 변경 생략)은 3/3 모두 실패.
+  (B) `plaza.close` 핸들 +17: 제품 누수가 아니다. 50회 열고 닫기에서 49걸음 중 43걸음이 정확히 0, 나머지는 프로세스 배경 일이다 — 새 스레드(`CRYPT32` 스레드와 ucrtbase 풀 워커 2개, ntdll TP 워커)와 그 Event 14·WaitCompletionPacket 5·EtwRegistration 4(= TLS 스택이 처음 뜰 때), 풀 워커 하나당 +2. 검사가 "세 번 중 처음→마지막 ≤10" 이라 배경 일이 어느 사이클에 걸리느냐로 갈렸다.
+  **고침:** 8번 열고 닫으며 "매 걸음이 늘었을 때만" 누수로 본다(누수는 매번 새고 배경 일은 일부 사이클에만 걸린다). 종류별 핸들 차이(`WinHandleTable`)를 판정문에 남겨 실패가 스스로 설명된다.
+  (C) `modalPump.idle` 5 > 4: 한도 `max(3, 메뉴 전 + 3)` 가 창 안의 알려진 깨움을 무시했다. 메인 스레드를 깨우는 것: 30초 안전 flush(10초 창에 3분의 1 확률, 1 cs — 50창 중 13번 1~2 cs), 설정 쓰기 뒤 2초 debounce flush, 하루 타이머, 120초 스토어 갱신(~45 cs; 50창 중 4번). **5 cs 의 정확한 주인은 못 잡았다**(창 안에서 다시 보이지 않았다) — 그래서 한도를 `3 + 5×알려진 깨움 + 60×갱신` 으로 두고, 출처를 모르는 5는 여전히 실패시킨다.
+  (F) `ui.kit.idle`(한도 6): 같은 부류 — 갱신이 걸린 창에서 45 cs 로 실패. 같은 방식으로 예산한다. (E) 유휴 게이트 `plaza-visible-120s`: 러너에 GPU 가 없어 WARP 래스터라이저 풀(`ntdll.dll+0x845d0` 시작 스레드)이 프로세스 사이클의 83%·cs 의 84% 를 쓴다 → 프로세스 전체 값은 러너의 소프트웨어 렌더러를 잰다. 우리 스레드(풀 제외)를 예산하고 풀은 정보로 남기며, 프로세스 전체 한도는 폭주 탐지용으로만 느슨하게 둔다(근거 표본은 `windows-app.yml` 주석).
+  **왜 못 걸렀나:** 작업 브랜치의 몇 번 실행에서 우연히 통과했고(표본 1~3개), 예산은 한 번 잰 값에 여유를 조금 얹어 정했다. 측정이 "무엇이 그 숫자를 만드는가"(핸들 종류, 깨운 타이머)를 안 남겨 실패해도 원인을 알 수 없었다. 시나리오 중 2는 앞선 검사가 시간대를 밀어야만 드러났다.
+  **부류 스윕:** 시간·핸들·문맥전환 예산이 있는 모든 셀프테스트 검사를 표로 정리했다(`selftest-flakes-report.md`) — 여유 30% 미만: `plaza.frames`(틱/초 ≤70, 관측 60~64: 디스플레이 주사율에 묶임), `loop.runLoopTimer`(<250 ms, 관측 205), `modalPump.mainWork` 큐 ≥10(관측 14), `idle.window`(번들 프로세스 51/69).
+  **규칙:** (1) 한 상태에는 쓰는 쪽이 하나여야 한다 — 검사가 컨트롤러의 갱신과 경쟁하면 이음매로 컨트롤러를 멈춘다. (2) 예산은 측정된 분포에서 정하고 표본 크기를 예산 옆에 적는다. (3) 깨움·핸들 예산은 알려진 원인(타이머·갱신·새 스레드)을 각자의 카운터로 세어 예산에 넣고, 출처를 모르는 몫은 실패로 남긴다. (4) 누수 판정은 한 번의 총량이 아니라 "매 반복마다 일어나는가"로 한다. (5) 프로세스 전체 숫자는 러너의 소프트웨어 렌더러·배경 스레드를 섞으므로 앱 스레드와 분리해 예산한다. 반복 도구: `windows-app.yml -f flake_loop=N`(번들 selftest 한 프로세스에서 N회, 매 회 값 출력).
+
+- **윈도 셀프테스트 `popover.realClick` 이 세 브랜치에서 한 번씩 실패했다 — 제품은 맞았고, 검사가 두 번째 클릭이 닫는 순서를 하나로
+  가정했다.** (Home 43813599073, 대화 줄 43825854006 1차, 43842945406.) 세 번 모두 같은 끝: 넘침 플라이아웃 안의 아이콘을 실제로 두 번째
+  누르자 `NIN_SELECT=true closed and not reopened=true (closed by iconClick …, absorbed +0)` — 팝오버는 닫혔고 다시 열리지 않았다. 검사는
+  "플라이아웃이 먼저 활성화를 가져가고(비활성화) 토글 가드가 뒤따르는 선택을 흡수한다"(absorbed +1)만 통과로 쳤는데, 셸의 선택이 팝오버가
+  아직 활성일 때 먼저 오기도 한다 — 그러면 "열려 있을 때의 선택"으로 닫힌다. 두 순서 모두 올바른 토글이다. 첫 사각형 (790,720,822,768) 이
+  작업 표시줄 위인 것은 결함이 아니다: 아이콘이 닫힌 넘침 플라이아웃에 있으면 `Shell_NotifyIconGetRect` 는 `^` 버튼의 사각형을 준다
+  (30회 모두 그 자리는 `Shell_TrayWnd`, 누르면 선택 없이 `TopLevelWindowForOverflowXamlIsland` 가 열리고, 사각형은 두 번 읽어 같아질 때
+  플라이아웃 안의 (746,663,786,703) 로 옮겨 간다 — 늘 같다, 낡은 값이 아니다). **왜 못 걸렀나:** 검사를 만들 때(리뷰 M6) 러너 실행 몇 번에서
+  한 순서만 나왔고(표본 수 회), 판정이 결과(닫힘·다시 안 열림)가 아니라 경로(흡수 +1)였다. **제품 점검:** 제품은 선택을 받는 순간의
+  사각형으로 배치한다 — 플라이아웃에서 열면 그 안의 아이콘(30/30, 플라이아웃과 겹치지 않음), 플라이아웃이 닫혀 있을 때 열리면(키·메뉴·
+  두 번째 실행) `^` 버튼 위 — 숨은 아이콘이 사는 자리라 맞다. 토글 가드의 아이콘 영역은 클릭 지점 기준이라 같은 데이터로 맞다. 제품 수정
+  없음. **고침:** 검사는 아이콘을 먼저 찾고(셸 사각형 → 눌러서 선택이 없으면 플라이아웃이 자리 잡을 때까지 다시 읽기) 사용자가 받는 결과로
+  판정한다: 첫 실제 클릭 → 정확히 한 번 열림, 플라이아웃과 겹치지 않음; 두 번째 → 닫히고 다시 열리지 않음(어느 경로였는지는 기록만).
+  같은 프로세스 30회(`-f flake_loop=30`, 43849868002): 30/30, 아이콘 자리 넘침 30, 두 번째 클릭 "비활성화 뒤 흡수" 30 (그 프로세스에서는
+  다른 순서 0회; 단일 실행들에서는 약 3/45). 결함 주입: 클릭이 열지 않음 → FAIL(`open=false`), 두 번째 클릭이 두 경로 모두 다시 엶 →
+  FAIL(`reopened=true`). **규칙:** 실제 입력 검사는 사용자가 보는 결과로 판정하고, 시스템이 순서를 정하는 중간 경로는 기록만 한다. 경로를
+  지키는 가드는 순서를 고정한 합성 검사가 맡는다(`popover.toggle` (a)). **부류 스윕:** 다른 실제 입력 검사 — `popover.dismissInput`(바깥
+  클릭·Alt+Tab: 닫힘만), `popover.escape`(닫힘; `NIM_SETFOCUS` 는 시도만 셈), `popover.withPlaza`(포그라운드 복귀: 결과) — 경로를 요구하는
+  곳 없음.
+
+- **`PlazaWindowMacShellTests.testASavedFrameWinsOverCentring` 가 게이트에서 한 번 실패했다 — 모니터 배치에 따라 AppKit 이 저장된 창 프레임을 다른 곳으로 옮겨 되살린다.** 3대 디스플레이 맥의 전체 게이트(4761개)에서 `(4430, -87, 700, 532)` 가 나왔다(기대 `(120, 140, 700, 532)`). 테스트는 (120, 140) 에서 저장한 프레임이
+  그대로 돌아오길 기대했다. `saveFrame(usingName:)` 문자열(`"120 140 700 532 0 0 1728 1084"`)은 저장 창이 있던 **화면의 사각형**을 같이 담고, `setFrameUsingName`/`setFrameAutosaveName` 은 그 사각형과 지금 화면 배치를 견줘 프레임을 **되살리며 옮긴다**
+  (같은 문자열이 화면 사각형만 `0 0 1920 1080` 이면 (101, 141), `0 0 1440 900` 이면 (167, 210) 으로 돌아온다 — 맥 이 배치에서 실측). 어느 화면의 사각형이 "맞는" 것으로 치는지는 메뉴 막대·Dock·활성 화면에 달려 있어, 같은 코드가 같은 맥에서도 그때그때 다른 좌표를 낸다
+  (그 뒤 같은 배치에서 같은 테스트는 통과했다 — 게이트 시점의 정확한 화면 상태는 재현하지 못했다). 정확히 4430/-87 의 계산은 못 밝혔다. **제품 동작은 테스트 쪽 문제로 판단**: `open` 은 `center()` 뒤에 복원하고, 이 순서를 뒤집으면 테스트가 실패한다.
+  **왜 못 걸렀나:** 이전 게이트들은 같은 배치·같은 화면 상태에서 우연히 저장 좌표 = 복원 좌표였다 — 단일 배치에서 통과한 테스트는 "복원이 프레임을 보존한다"가 아니라 "이 배치에서 변환이 항등이다"를 확인했다.
+  **고침:** 기대값을 "저장한 프레임"이 아니라 "AppKit 이 그 이름으로 되살려 주는 프레임"(같은 방식으로 만든 두 번째 창의 `setFrameUsingName` 결과)으로 바꾸고, 그 값이 가운데 정렬 값과 다름을 고정물로 확인한다. `open` 에서 `center()`/복원 순서를 뒤집으면 실패함을 확인했다.
+  **부류 스윕:** 절대 창/화면 좌표를 단언하는 맥 테스트는 이것뿐이다(`testRosterCapacityUsesTheRestoredWindowHeight` 는 크기만, `PlazaWindowRig`/`PlazaLiveWindowTests` 는 화면이 닿는 화면 밖 좌표면 건너뛴다, `FloatingPetAgentTests` 는 `visibleFrame` 을 주입한다).
+  **열린 의문(제품):** 스크립트 실측에서 두 번째·세 번째 디스플레이에서 저장한 창은 다시 열면 주 디스플레이의 다른 위치로 돌아왔다(저장 사각형의 높이가 `visibleFrame` 과 달라 화면이 안 맞는 것으로 보인다). 앱 밖 스크립트라 메뉴 막대 상태가 달라 단정할 수 없다 — 실제 앱에서는 사람이 확인해야 한다.
+  **규칙:** `NSWindow` 프레임 저장·복원 테스트는 "저장한 값"이 아니라 "AppKit 이 그 이름으로 되살린 값"과 견주고, 크기·순서(가운데 정렬 뒤 복원)처럼 배치와 무관한 성질만 단언한다.
+
+- **윈도에서 파일 대화상자·작업 대화상자가 떠 있는 동안 메인 큐가 멈춰 보였다 — 원인은 셀프테스트가 클릭을 메인 큐 항목 안에서 보낸 것이었다 (7단계 Task 15).** 설정 페이지의 내보내기·불러오기가 연 공용 파일 대화상자와 TaskDialog 아래에서 `DispatchQueue.main.async` 블록이 0/10 만 돌았다(러너 실측). 셀프테스트가 `BM_CLICK` 을 `SendMessage` 로 Task(메인 큐 항목) 안에서 보내 모달 루프를 그 항목 안에서 열었기 때문이다 — 직렬 메인 큐는 실행 중인 항목 아래서 아무것도 못 돌린다(키트의 `ui.kit.menuKeys` 가 이미 보인 규칙). 클릭을 `PostMessage` 로 보내 창 메시지에서 열면 `WinModalPump` 의 `WM_TIMER` 틱이 이 대화상자들 아래서도 그대로 돈다(틱 +61, 블록 10/10). 한때 `WH_GETMESSAGE` 훅에서 틱을 더 거는 코드를 넣었으나, 훅 틱을 끈 결함 빌드(`fault/w7-t15-hook`)가 같은 검사를 모두 통과해(훅 틱 +0) 되돌렸다.
+  **왜 못 걸렀나:** 처음 실패 때 "대화상자 루프가 타이머를 안 준다"고 가정했고, 클릭 시작 방식이라는 다른 변수를 같이 바꿔 고친 뒤에도 어느 쪽이 효과였는지 가르지 않았다. 결함 빌드로 하나씩 끈 뒤에야 알았다.
+  **부류 스윕:** 모달 루프를 여는 곳은 `WinPopupMenu`, 키트의 에디트 메뉴·스크롤 막대 드래그, `WinFileDialog`/`WinTaskDialog` 뿐이다. 앞의 둘은 `modalPump.*`·`ui.kit.editMenu` 가 덮고, 뒤의 둘은 `settings.dialogKeepsPopover` 가 "열린 동안 메인 큐 블록 10/10" 과 소유 관계를 잰다.
+  **규칙:** 새 종류의 모달 창을 열 때는 그 창 종류로 "열린 동안 메인 큐가 도는가" 와 "종료 경로가 닫는가"(`settings.dialogExit`)를 러너에서 잰다. 테스트는 클릭을 창 메시지로 보낸다.
+<!-- Task 12 (활동 패널) begin -->
+- **그림 부품(`WinDrawnView`)을 호스트가 먼저 버리면 비트맵·DC 가 샌다 — 해제가 컨트롤의 `onDestroy` 에 약하게 걸려 있다.** `WinActivitySection.destroy()` 가 뷰 참조를 먼저 `nil` 로 만들고 그 뒤에 페이지가 컨트롤을 부수자,
+  `onDestroy` 의 `[weak self]` 가 이미 죽은 뷰를 가리켜 `releaseBitmap()` 이 한 번도 안 돌았다. 증상: 팝오버를 열고 닫을 때마다 GDI +2(DC 와 DIB 섹션) — `popover.openClose3`·`home.openClose3`·`home.activityOpenClose` 가 실패했다(러너 43839371953).
+  **왜 못 걸렀나:** 메모리 검사는 열고 닫기 3번 사이의 GDI 증가만 보는데, 그림 부품이 데이터 없이는 비트맵을 만들지 않는 Task 5 의 페이지(한도 막대는 페이지가 뷰를 직접 쥐고 있다)는 같은 경로를 밟지 않았다. **고침:** 섹션이 자기 뷰를 `destroy()` 한 뒤 참조를 놓는다(`destroy` 는 멱등).
+  **부류 스윕:** `WinDrawnView(` 를 만드는 곳은 `WinLimitsSection`(페이지가 `bars` 로 쥔다), `WinActivitySection`(고침), 셀프테스트 고정물뿐이다. **규칙:** 컨트롤을 `[weak self]` 로 해제하는 자원은 소유자가 컨트롤보다 먼저 사라지지 않게 하거나, 소유자가 직접 `destroy()` 한다.
+- **합성 `WM_MOUSEMOVE` 는 곧바로 취소된다 — 그 창에 진짜 커서가 없으면 `TrackMouseEvent(TME_LEAVE)` 가 즉시 `WM_MOUSELEAVE` 를 올린다.** 호버 검사가 `SendMessage(WM_MOUSEMOVE)` 로 선택을 만들었지만 같은 턴에 떠남 메시지가 선택을 지웠다(카드 "shown=false").
+  **고침:** 검사가 `SetCursorPos` 로 진짜 커서를 항목 위에 놓는다(`WindowsSelftestPopoverActivity.cursor(over:)`). 또한 `CGRect.intersects` 는 Windows 에서 모서리만 맞닿은 사각형도 겹친다고 센다(맥은 아니다) — 맞닿음을 단언하는 테스트는 가장자리 좌표를 직접 견준다.
+<!-- Task 12 end -->
+
+- **윈도에서 UNC 경로(`\\server\share\…`)를 사용자 지정 스캔 폴더·추가 Claude 폴더에 넣으면 찾지 못했다 — 경로 분해는 드라이브 문자만 루트로 알았고, Foundation 의 경로 정리는 UNC 를 깨뜨렸다(P19, 7단계 Task 14).** 세 군데가 따로 틀렸다. (1) `PlatformCompat.splitRoot` 의 윈도 분기가 `C:` 만 루트로 떼고 나머지는 루트 ""(현재 드라이브의 `/`)로 돌려줘, `CustomScanRoots.expand` 가 빈 조각을 버리며 `\\server\share\logs` 를 현재 드라이브의 `\server\share\logs` 로 찾았다(일치 0). (2) swift-foundation 의 `standardizedFileURL` 은 UNC URL 의 앞 `/` 하나를 지운다(`//localhost/C$/x` → `/localhost/C$/x`) — `ClaudeAccountRoots.roots(from:)` 가 이걸로 존재를 확인해 추가 Claude 폴더도 0. (3) `resolvingSymlinksInPath()` 는 `GetFinalPathNameByHandle` 의 `\\?\UNC\…` 에서 `\\?\` 만 떼어 `UNC/localhost/C$/x` 를 **현재 폴더 기준 상대 경로**로 만든다(러너: `D:/a/PokeTokenBar/PokeTokenBar/UNC/localhost/…`) — `LocalUsageReader.normalizedRoots` 를 거친 모든 스캔 루트와 Aside 의 `state.db` 경로가 엉뚱한 곳을 가리켰다. 셋 다 러너의 관리 공유(`\\localhost\C$\…`)로 실측했다(`WindowsScanRootPathTests.testWhatFoundationMakesOfAUNCPath` 의 `PATH-PROBE` 줄, 실행 43841452367). **왜 못 걸렀나:** Track B Task 4 가 입력이 설정 화면뿐이라 UNC·혼합 구분자를 7단계로 미뤘다(그때는 도달 불가가 맞았다). 기존 윈도 경로 테스트는 전부 드라이브 경로(`C:\…`)라 세 결함 중 어느 분기도 밟지 않았고, Task 1 인벤토리는 코드 읽기로 (1)만 찾았다 — (2)(3)은 Foundation 의 동작이라 읽어서는 보이지 않고 실제 공유 경로로 돌려야 드러났다. 이번에 설정에 그 입력란이 생겨 도달 가능해졌다. **고침:** (1) 순수 함수 `PlatformCompat.windowsSplitRoot` — 드라이브 또는 UNC 의 공유(`//server/share`)가 루트, `\\?\`·`\\.\` 접두어는 벗기고 `\\?\UNC\…` 는 UNC 로; `windowsListablePath` 는 공유 루트 끝에 `/` 를 붙인다. (2)(3) 새 이음매 `PlatformCompat.resolvedFileURL` / `standardizedDirectoryURL`(맥 분기는 예전 식 그대로, 윈도는 UNC 만 `windowsStandardizedUNC` 로 `.`·`..` 를 공유 아래에서 정리하고 공유의 링크는 풀지 않는다)를 Core 네 줄이 부른다: `LocalUsageReader.normalizedRoots`, `CustomScanRoots.normalizedPath`, `LocalAsideUsageReader.databases`, `ClaudeAccountRoots.roots(from:)`. **부류 스윕(공용 코드에서 경로를 나누거나 잇거나 `standardizedFileURL`·`resolvingSymlinksInPath` 로 정리하는 모든 곳):** 위 다섯 곳(고침); `isAbsolutePath`(`\` 로 시작하면 절대 — 이미 맞음), `expandingTilde`·`abbreviatingWithTilde`(표시·`~` 만, 무관), `WinPath.native`(UNC 그대로 `\\localhost\…` — 실측 맞음); 고치지 않은 것과 그 이유: `ClaudeAccountRoots.pathKey`·`keychainServices`(`standardizedFileURL` 경로의 해시 — 식별자일 뿐 찾아가지 않고 모든 호출이 같은 식을 거쳐 일관된다), `ClaudeAccountRoots.discovered`·`defaultRootPaths`·`PlatformCompat.windowsRoamingAppData`·`TeamSettings`·`CursorAuthentication`(홈·앱 폴더: 사용자가 입력하지 않는 로컬 경로), `WinPath.sameFile`(설치·로그 폴더 비교, 로컬). **영구 캡처:** `WindowsScanRootPathTests`(관리 공유로 실제 파일 시스템: 트리거 `testAUNCScanFolderIsFound` 는 수정 전 실행 43841452367 에서 6개 단언 실패, 접힌 루트가 실제로 있는 `//localhost/…` 인지까지; `testAdditionalClaudeFoldersTakeTheSameForms`; `testAProviderDatabaseOnAShareIsFound`), `PlatformPathFormsTests`(양 OS: 모든 형태의 루트, 수정 전 분해를 그대로 옮겨 결함 재현, 맥 이음매 고정), `WindowsSeamScanTests.testTheUserPathsGoThroughThePathSeams`(업스트림 병합이 네 줄을 되돌리면 실패), 셀프테스트 `settings.scanFolders`(설정 입력란에 UNC 포함 다섯 형태, 표시 수 = `survivingExtraCount`). **규칙:** 윈도 경로를 다루는 코드는 드라이브·UNC·장치 접두어 세 형태를 받고, 그 분해는 양 OS 에서 도는 순수 함수로 둔다. Foundation 의 경로 정리(`standardized`, 링크 풀기)는 윈도에서 UNC 를 깨뜨리므로 사용자 경로에는 `PlatformCompat` 이음매로만 쓴다. 경로를 받는 입력란이 생기면 그 형태로 입력 → 저장 → 스캔까지 실제 파일 시스템에서 시험한다.
+  **리뷰에서 다시 열림(같은 부류, 원인 3):** 첫 고침은 *사용자가 친 경로*가 UNC 일 때만 링크 풀기를 건너뛰었다. 그러나 `\\?\UNC\…` 는 입력이 아니라 **풀기의 결과**로도 온다 — `net use Z: \\nas\share` 로 매핑한 드라이브의 `Z:\logs`, 공유를 가리키는 링크·정션, subst, DFS. 그 경우 `resolvingSymlinksInPath()` 가 다시 `UNC/nas/share/logs`(현재 폴더 기준 상대 경로)를 만들어 스캔 루트가 없는 곳을 가리켰고, 설정은 여전히 "추가 폴더 1개"라고 셌다(`survivingExtraCount` 는 존재를 다시 보지 않는다). **왜 못 걸렀나:** 스윕이 "사용자가 무엇을 치는가"만 보고 "풀기가 무엇을 돌려주는가"는 보지 않았다; 공유 테스트가 전부 UNC 철자로만 쳤다. **고침(입력 특례 대신 결과를 고침):** 윈도 분기의 `resolvedFileURL` 이 `GetFinalPathNameByHandleW` 를 직접 불러(`WinPath.finalPath`) 그 결과를 순수 함수 `windowsPathFromDevicePath` 로 `\\?\UNC\s\sh\x` → `//s/sh/x`, `\\?\C:\x` → `C:/x` 로 바꾼다 — 매핑 드라이브·링크·정션·subst·DFS 가 한 경로로 맞고(같은 폴더를 드라이브와 공유로 두 번 써도 한 번), 공유 위의 링크도 풀린다; 공유에 떨어진 결과는 아래 원인 4 의 공유 순회가 읽는다(링크 경로 그대로 두면 Foundation 순회가 링크 너머 공유를 빈 목록으로 돌려준다 — 실행 43883084352). 열 수 없는(없는·권한 없는) 경로는 친 그대로 정리.
+  **같은 라운드의 원인 4 — 공유 아래는 URL 기반 목록이 비어 있었다(러너에서 측정).** swift-foundation 윈도는 `//server/share/…` 의 어떤 URL 철자(`//`, `\\`, `\\?\UNC\`, 디렉터리 힌트)로도 `enumerator(at:)`·`enumerator(atPath:)`·`contentsOfDirectory(at:)` 가 빈 목록을 돌려준다 — 같은 공유의 파일은 열리고(`fileExists`·수정 시각 OK), 문자열 기반 `contentsOfDirectory(atPath:)` 는 목록을 준다(와일드카드 확장이 그래서 통과했다). 즉 UNC 사용자 폴더는 접힌 루트가 존재하고 설정이 1개로 세도 **스캔은 아무 파일도 읽지 않았다.** **왜 못 걸렀나:** 첫 고침의 테스트는 루트가 *존재함*까지만 확인했고 그 아래 파일을 스캔이 찾는지는 보지 않았다 — 증상(로그가 안 읽힘) 대신 중간 값(루트 경로)을 검증했다. **고침:** Core 의 URL 기반 폴더 순회·목록 8곳(`LocalUsageCache.collect`, `LocalUsageReader` 의 `jsonlFiles`·`embeddedClaudeProjectRoots`·`codexRolloutFiles`, `LocalAdditionalUsageProvider` 의 Kiro·`files(in:)`·OpenCode, `LocalAsideUsageReader.databases`)을 `PlatformCompat.enumerator` / `contentsOfDirectory` 로 돌렸다(맥 분기 = 같은 호출, 맥 테스트가 같은 항목·순서·level 을 고정). 윈도는 공유 아래에서만 `WinShareEnumerator`(문자열 목록으로 깊이 우선, 점 이름 건너뜀, `skipDescendants`·`level` 지원)로 걷는다.
+  **같은 라운드의 원인 5 — 드라이브 루트(`C:\`)를 사용자 폴더로 넣으면 기본 루트를 품은 조상인데도 남았다.** 윈도에서 드라이브 루트 URL 의 `.path` 는 `C:/` 라 조상 검사(`k + "/"`)가 `c://` 가 되어 아무 것도 접두하지 않았다(맥은 `/` 를 따로 다룬다, #162-B). **고침:** `CustomScanRoots.normalizedPath` 를 `PlatformCompat.resolvedPath`(맥 = 예전 식)로 — 윈도는 비교용으로만 `C:/` → `C:`.
+  **영구 캡처:** `WindowsScanRootPathTests` — `testAMappedDriveFolderIsScanned`(러너에서 `net use` 로 실제 매핑 드라이브: 접힌 루트가 드라이브 철자로 존재하고 그 아래 `a.jsonl` 을 `jsonlFiles` 가 찾음, 추가 Claude 폴더·Aside 도), `testALinkToAShareIsFollowed`, `testAUNCScanFolderIsFound`(공유 루트로 `jsonlFiles` == `["a.jsonl"]`), `testAShareIsWalkedAsALocalFolderIs`(공유 순회 = 같은 폴더의 로컬 순회, `skipDescendants`, Codex·Aside 호출부), `testADriveRootNeverEvictsTheDefaults`; `WindowsSeamScanTests.testCoreListsFoldersThroughTheListingSeams`(Core 에 맨 `enumerator(at:)`/`contentsOfDirectory(at:)` 가 생기면 실패); CI 에서는 공유·매핑이 없으면 건너뛰지 않고 실패. 고치기 전 실패: 실행 43874884946(드라이브 루트 1≠0, 공유·매핑·링크 `jsonlFiles` 빈 목록), 43878279902(측정: 모든 URL 철자가 빈 목록).
+  **규칙 보강:** 경로 이음매를 고칠 때는 입력 형태뿐 아니라 OS·Foundation 이 그 경로를 *돌려주는* 형태(장치 경로, 정규화 결과)까지 스윕하고, 테스트는 중간 값(루트가 존재함)이 아니라 증상(그 아래 파일을 스캔이 읽음)까지 간다.
+
+- **응답하지 않는 공유가 설정된 PC(사무실 밖 노트북의 `\\nas\…`)에서는 파일 호출 하나가 SMB 시간 제한(약 20 초)만큼 막힌다 — 기록만, 7단계 Task 14 범위 밖.** (a) 고친 것: 설정의 두 일치 수 계산이 멈춘 공유 경로를 칠 때마다 막힌 협동 풀 스레드를 하나씩 남겼다(취소는 막힌 `fileExists` 를 깨우지 못한다) → 둘 다 직렬 큐 하나(`LatestOnlyWork`, 키마다 가장 새 요청만)로 옮겨 막힌 스레드는 많아야 하나. `LatestOnlyWorkTests` 가 막힌 요청 동안 아무 것도 같이 돌지 않고, 밀린 요청은 가장 새 것만 돎을 고정(동시 큐·취소 없음 주입 시 실패). (b) **고치지 않음, 이유와 함께:** 모든 새로고침이 `CustomScanRoots.expand` 의 `fileExists`(`CustomScanRoots.swift:54`)에서 공유마다 시간 제한만큼 기다리고 그동안 모든 프로바이더가 기다린다(매 폴링); 추가 계정 키 저장은 `UsageStore.saveAccountSessionKey` 가 메인 액터에서 그 폴더의 `.claude.json` 을 읽어(`ClaudeAccountRoots.savedOrganizationID`, `UsageStore.swift:1708`) 서버가 없는 UNC 계정 폴더면 그 시간만큼 UI 가 멈춘다. 둘 다 업스트림 공용 경로(Core)의 구조라 이 작업의 이음매로 고칠 일이 아니다 — 사용자 PC 확인 목록에 넣었다. **규칙:** 사용자가 공유 경로를 넣을 수 있는 곳의 파일 호출은 "몇 초 막힐 수 있다"를 전제로, 메인 스레드 밖에서 하나씩 돌린다.
+
+- **윈도에서 세션 키 파일의 0600 은 아무 것도 막지 않았다 — 평문 키가 `%LOCALAPPDATA%` 의 권한만 물려받았다(7단계 Task 1 발견, Task 14 고침).** `SessionKeyStore.save` 는 맥에서 소유자 전용(0600) 파일을 만들고 쓰지만, swift-foundation 은 윈도에서 `.posixPermissions` 를 읽기 전용 속성에만 대응시킨다(쓰기 비트가 있으면 아무 일도 안 한다). 그래서 윈도의 키는 평문 JSON 그대로, 파일의 ACL 은 상위 폴더 것이었다. **왜 못 걸렀나:** `SessionKeyLimitsTests.testStoreRoundTripsCredentialWithOwnerOnlyPermissions` 가 윈도에서도 돌았지만, 같은 Foundation 이 돌려주는 `.posixPermissions` 값(0600)을 읽어 비교했다 — 보호가 걸렸는지가 아니라 Foundation 이 그 값을 기억하는지를 쟀다. **고침(규칙 5, D14):** 두 줄 업스트림 이음매 `PlatformCompat.writeSecret` / `readSecret`(맥 분기는 예전 호출 그대로) — 윈도는 DPAPI(현재 사용자, 앱 엔트로피, UI 없음)로 암호화해 `WinAtomicWrite` 로 쓰고, 복호화 안 되는 파일은 "키 없음" + 로그 한 줄, 예전 빌드의 평문 파일은 첫 읽기에 같은 자리에서 한 번의 이름 바꾸기로 암호화한다. **부류 스윕:** 공용 코드의 `.posixPermissions`·`0o600` 사용은 이 파일뿐이다(팀 코드는 설정 plist 로 맥에서도 소유자 전용 파일이 아니다 — 다른 부류). **영구 캡처:** `WindowsPopoverSecretTests`(디스크에 키 바이트 없음, 변조·다른 엔트로피·다른 앱의 블롭은 nil, 평문 이전과 이름 바꾸기 중 파일이 사라지지 않음, 로그 한 줄), `WindowsSeamScanTests.testTheSessionKeyFileGoesThroughTheSecretSeams`(업스트림 병합이 두 줄을 되돌리면 실패), 셀프테스트 `settings.sessionKeySave`(UI 로 저장한 파일이 암호화돼 있음). **규칙:** 파일 권한으로 비밀을 지키는 코드는 윈도에서 그 권한이 실제로 걸리는지 OS 의 값(ACL·암호화)으로 확인한다 — Foundation 이 돌려주는 같은 속성으로 확인하지 않는다.
+
+- **종료 경로에 마감 없는 기다림이 하나 있었다 — 팀 소켓 스레드를 `WaitForSingleObject(h, INFINITE)` 와 100 ms 슬라이스 무한 반복으로 기다렸다.** 설치 프로그램은 앱이 닫히길 30초만 기다린 뒤 아무것도 건드리지 않고 거절한다(exit 1, 앱을 죽이지도 되살리지도 않음). 그러니 소켓 스레드가 막힌 호출에서 안 돌아오면 앱이 종료에서 멈추고(트레이 아이콘 유령, 단일 인스턴스 뮤텍스 보유, 업데이트 거절) 사용자는 작업 관리자에서 죽여야 한다.
+  **근본원인:** `WinSocketLoop.shutdown()` 이 "스레드는 반드시 돌아온다" 를 가정했다 — 루프가 직접 거는 소켓은 전부 비차단이고 TLS 핸드셰이크도 `WANT_READ/WRITE` 로 단계 진행이라 *지금은* 사실이지만, 그 가정을 지키는 장치(마감)가 없었다. 한 번 지불한 결함(깨움 유실로 귀 먼 루프)의 수리가 "깨움을 다시 보낸다" 였고 그 재전송 루프도 마감이 없었다.
+  **왜 못 걸렀나:** 28개 계약 시나리오·소켓 루프 테스트는 모두 *돌아오는* 스레드로만 `shutdown` 을 불렀다. 돌아오지 않는 스레드를 만드는 이음매가 없어, 마감이 있든 없든 같은 경로로 통과했다(트리거 브랜치 = "마감이 터지는 쪽" 이 한 번도 안 밟힘).
+  **부류 스윕:** 종료 경로(`WindowsApp.exit`, `WM_CLOSE`/`WM_ENDSESSION`/트레이·홈 종료/업데이트 `onLaunched`)의 모든 기다림 — `exit-deadline-report.md` 표. 마감 없던 것은 소켓 루프의 두 곳(`finished.wait` 반복, `WaitForSingleObject INFINITE`)뿐. DNS-SD 골바이는 이미 0.5초, 나머지(`Shell_NotifyIcon`, 설정 flush)는 OS 호출이라 우리 쪽 기다림이 아니다.
+  **고침:** 종료 한 번에 예산 5초(`WindowsApp.exitBudget`). 데이터(팝오버 커밋·설정 flush·백업)를 먼저 쓰고 자르지 않는다 → 트레이 아이콘 제거 → 팀 골바이(최대 0.5초) → 소켓 스레드 대기(예산 잔액, 하한 0.25초). 넘기면 `exit: abandoned <단계> after <ms> ms` 한 줄을 남기고 기존 `exit` 로 프로세스를 끝낸다(`TerminateThread` 없음). 스레드를 둔 채 끝내도 안전한 이유: 스레드가 가진 것은 소켓·`SSL*`·`SSL_CTX` 뿐이고 전부 프로세스 안의 것이라 프로세스가 끝나면 OS 가 거둔다 — 디스크 상태는 이미 위에서 저장했다. 포기한 뒤에는 그 스레드 밑에서 `WSACleanup` 을 부르지 않는다.
+  **회귀 테스트:** `WindowsSocketLoopTests.testShutdownAbandonsAThreadThatDoesNotComeBack`(루프 스레드를 `injectStall` 로 막음 → 0.5초 안에 돌아오고 abandon 한 줄), 앱 수준 `exit.stuckSocketThread`(자식 프로세스: 팀 켬 + 답 없는 피어 + 소켓 스레드 막힘 → `WM_CLOSE` → 예산 안에 종료, 트레이 아이콘이 기다림 전에 제거, 뮤텍스 없음). 결함 주입(마감 제거)으로 두 검사 모두 실패함을 확인했다.
+  **규칙:** 종료 경로의 모든 기다림에는 마감과 주인(예산을 쓰는 단계 이름)이 있다. "스레드는 돌아온다" 는 가정은 마감 + 돌아오지 않는 스레드를 만드는 시험 이음매 없이는 가정이 아니라 희망이다. 새 기다림(`INFINITE`, `.wait()`, 무기한 `join`)을 종료 경로에 넣으면 같은 PR 에서 `exitBudget` 의 한 몫으로 넣는다.
+
+- **실제 IME 참여 게이트(`chat.realIMEEngaged`)가 라이트 실행에서 제품과 무관하게 깨졌다 — 러너의 TSF 가 두 프로세스 모두에서, 대조 EDIT 까지 참여하지 않았다.** (stage 6 Task 11, 실행 43842945406)
+  **직접 원인:** 워크플로 게이트가 "실행마다 적어도 한 프로세스는 참여"를 요구했는데, 라이트 실행은 셀프테스트 프로세스가 둘뿐이고 러너 TSF 의 참여는
+  프로세스마다 흔들린다(이전 실행들에서 20 개 중 6 개 불참: 활성화 뒤 TSF 가 한국어/텍스트 서비스라고 보고하면서도 글자를 그냥 통과시킴 4, 활성화 자체가
+  안 먹음 2 — 실행 단위로 몰려 나옴). **왜 못 걸렀나:** 게이트를 만든 실행(풀 레벨, 프로세스 넷)에서는 늘 한 곳 이상 참여해, 프로세스 둘에서의 실패
+  확률을 재지 않았다. **조사:** 검사가 치기 전에 `g` 로 참여를 확인하고(최대 네 번, 매번 평이한 배열에서 한국어 프로필을 다시 활성화), 시도마다
+  TSF 상태·한글 모드·프로세스에 올라온 IMEKR 모듈과 ctfmon/TextInputHost 실행 여부를 찍게 했다. 두 실행(43849832901, 43855461582)에서 5/5 프로세스가
+  첫 시도에 참여(TSF 0412/1, 변환 0x1 open=1, imkrtip.dll+imkrapi.dll 적재, ctfmon 실행, TextInputHost 없음) — 불참 경우를 다시 못 봐서 재시도가
+  그것을 살리는지는 아직 모른다. **고침:** 검사 안의 규칙은 그대로(대조가 참여하는데 입력칸이 안 하면 FAIL, 둘 다 안 하면 하네스). 게이트는 풀 레벨
+  (windows-port 푸시·킷 빌드·릴리스, 프로세스 넷)에서만 필수, 라이트에서는 프로세스별 줄을 단 `::warning::`. **규칙:** 러너 환경에 기대는 게이트는
+  그 게이트가 도는 레벨의 프로세스 수로 실패 확률을 먼저 잰다; 불참이 다시 나오면 시도별 기록(IMEKR 모듈 적재 여부)으로 원인을 가린다.
+<!-- stage 7 Task 9: the companion header (begin) -->
+- **연출 시계가 같은 시각을 다음 마감으로 다시 내놓아 영원히 돌았다 — `Date` 덧셈의 반올림으로 구간 시작 "직전"에 깬 틱.** 윈도 팝오버의 동반자 헤더(stage 7 Task 9)
+  `CompanionCelebrationDriver.nextDue(after:)` 는 연출이 움직이는 구간(`[1.3, 1.7]` 같은 닫힌 범위) 밖이면 "다음 구간의 시작"을 마감으로 돌려준다. 시계가 그 시각에 깨면
+  `now.timeIntervalSince(start)` 가 `1.3` 이 아니라 `1.2999999…`(시작 시각 + 1.3 을 `Date` 로 더했다 읽은 값)로 나와 다시 "구간 밖, 다음 시작은 1.3" → **같은 마감**을 돌려줬다.
+  공용 테스트가 시뮬레이션 루프에서 100% CPU 로 멈춘 것으로 발견했다(사탕 "+XP" 의 1.3 초 지점, `sample` 로 스택 확인). 앱에서는 과거 시각에 한 번짜리 타이머를 다시 무장 → 즉시 발화 → 같은 마감 → 바쁜 루프가 된다.
+  **왜 못 걸렀나:** 처음 쓴 시간 계산 테스트는 `t0` 에서 몇 시점을 골라 `effects(at:)` 값만 봤다 — 마감을 따라 걸어가는(시계가 실제로 하는) 경로는 루프 테스트가 처음이었고, 반올림은 시작 시각이 기준일에서 멀 때만 생긴다.
+  **고침:** 구간 판정에 1 µs 여유(`timeSlack`)를 두어 구간 시작에 깬 틱은 구간 안으로 치고, 다음 마감은 항상 `now` 보다 뒤가 된다. 흔들림(0.35 초 자세)도 같은 여유로 단계를 센다.
+  윈도 쪽 `WinCompanionSection.tickEffects` 는 방어로 `max(마감, now + 1 ms)` 로만 무장한다.
+  **부류 스윕:** 다음 마감을 날짜 덧셈으로 만드는 곳 — Task 8 `PopoverSpriteModel.tick` 은 이미 0.5 ms 여유(`slack`)와 "뒤처지면 now 기준" 규칙이 있다, Task 5 `RelativeTimeText.nextChange` 는
+  보이는 글자가 바뀌는 다음 후보를 고르므로 같은 시각을 돌려주지 않는다(`PopoverClock` 은 `max(next, now)` 로 무장).
+  **영구 캡처:** `CompanionHeaderModelTests.testTheEffectClockAlwaysMovesOnWhateverTheRounding`(기준일에서 먼 시작 시각 다섯 개 × 연출 네 종 + 사탕·민트, 흔들림 50 자세: 모든 마감이 앞 마감보다 뒤, 끝에서 멈춤),
+  테스트의 `sample` 헬퍼는 반복 상한과 "마감은 now 뒤" 단언으로 멈추는 대신 실패한다. 결함 주입(`timeSlack` 제거)으로 실패 확인.
+  **규칙:** 한 번짜리 시계의 "다음 마감" 함수는 (1) 반환값이 항상 인자 `now` 보다 뒤임을 테스트로 고정하고, (2) 구간·경계 비교에 반올림 여유를 둔다. 시각 몇 개를 찍어 보는 테스트가 아니라
+  마감을 따라 걷는 테스트가 시계의 실제 경로다.
+- **맥이 `.interpolation(.none)` 을 요청하니 스프라이트가 또렷할 거라 읽고 윈도 팝오버를 최근접(nearest)으로 늘렸다 — 맥 화면은 실제로 부드럽다.** 윈도 팝오버의
+  동반자 헤더(stage 7 Task 9). 사용자가 맥·윈도 나란히 시트에서 "맥은 부드럽고 윈도는 각졌다"고 지적했다. `SpriteView.fitted` 는 `Image(nsImage:).resizable().interpolation(.none)`
+  인데, 맥의 실제 레티나 스크린샷(`assets/screenshot-collection-pokedex.png`, sRGB 변환)에서 스프라이트 픽셀의 43 % 만 원본 색이었고(최근접이면 100 %, 쌍선형 45 %), 맥의
+  `SpriteView` 오프스크린 렌더는 쌍선형과 채널 평균 1.4, 최근접과 6.0 차이였다.
+  **왜 못 걸렀나:** 수식어(코드가 요청하는 것)를 읽고 결과 픽셀을 재지 않았다. 나란히 시트는 양쪽을 LANCZOS 로 다시 늘려 붙여서 차이를 흐렸고, 쌍둥이·핀은 코드 본문만 비교한다.
+  **고침:** 팝오버 스프라이트 경로(`WinSpriteAnimator`)를 `PopoverSpriteScale.scaledBGRA`(늘릴 때 쌍선형, 줄일 때 모든 원본 픽셀을 세는 텐트 필터)로, 회전도 쌍선형으로. 광장은 자기 픽셀아트 스케일 유지.
+  **부류 스윕:** 팝오버에서 최근접을 쓰는 곳 — `PopoverComposite.compose` 의 이미지 늘리기는 파트 그림이 이미 픽셀 크기라 스프라이트가 지나지 않는다(주석의 "crisp" 설명만 남음);
+  리캡 카드 등 다른 페이지의 `SpriteSlot` 은 같은 애니메이터라 함께 부드러워진다. 광장(Direct2D nearest)은 맥 SpriteKit `.nearest` 와 같아 대상 아님.
+  **영구 캡처:** `CompanionHeaderRendersMacTests.testTheMacShowsItsSpritesSmoothedAsTheWindowsScalerDoes` — 맥 `SpriteView` 를 오프스크린으로 그려 윈도 스케일러 결과와
+  최근접 결과에 대 본다(맥이 언젠가 또렷해지면 실패). 결함 주입(스케일러를 최근접으로)으로 실패 확인.
+  **규칙:** 맥 쪽 그림을 옮길 때는 수식어가 아니라 맥이 실제로 그린 픽셀(오프스크린 렌더·실제 스크린샷)을 기준으로 삼는다. 비교 시트는 양쪽을 같은 배율로, 다시 늘린다면 최근접으로 붙인다.
+- **알 흔들림을 "분당 깨어남 343 번"으로 예산 안이라 셌는데, 유휴 게이트에서 프로세스 컨텍스트 스위치 9441/분(예산 6000)이 나왔다.** 윈도 팝오버 헤더(stage 7 Task 9),
+  `popover-companion-wiggle-120s`(run 43889052204, 메인 2176.5/분). **직접 원인:** 흔들림 자세마다 `renderEffectFrame` 이 배경판(회전된 둥근 사각)과 성장 막대 레이어를
+  Direct2D 로 새로 그렸다 — 소프트웨어 렌더러의 스레드풀 일꾼 6개가 각각 수천 번씩 깨어났고, 메인도 자세당 여러 번 기다렸다.
+  **왜 못 걸렀나:** 비용을 "타이머가 깨는 횟수"로만 셌다. 같은 시간에 잰 bob 은 렌더 없이 애니메이터만 칠해서 깨어남 1 번 = 스위치 1 번(216.5/분)이었고, 그 숫자로 흔들림도 같을 거라 봤다.
+  **고침:** `CompanionHeaderPart` 가 배경판을 (배율, 크기, 각도)별로, 막대 레이어를 모양별로 보관한다 — 흔들림 세 자세는 한 번씩만 그려진다.
+  **부류 스윕:** 타이머로 렌더를 다시 부르는 곳 — 축하 연출(일시적, 2.6 초 안), 막대 호버(0.48 초), 진화 줄 셰브론 이동(0.25 초)은 끝이 있는 프레임이라 그대로; 상시로 도는 것은 흔들림뿐.
+  **영구 캡처:** `CompanionHeaderPartTests.testAnEffectFrameScalesAndTurnsTheSlotAndOnlyItsBoxIsDirty` 가 같은 자세의 그림 재사용을 확인(캐시를 끄면 실패, 주입 확인), 유휴 게이트의 `wiggle` 창.
+  **규칙:** 상시 애니메이션의 비용은 깨어남 수가 아니라 측정한 컨텍스트 스위치로 말한다. 한 프레임이 그리기 엔진을 부르면 그 엔진의 일꾼 스레드까지 센다.
+- **진화 줄 셰브론을 누르면 "바로 움직였다"가 런마다 달랐다 (`companion.evoLineScroll`, full 43916181737 통과 → light 43941936835 실패, 사이 머지는 무관).** 누름 직후
+  `tickLine()` 이 같은 자리에서 `advance(to: now())` 를 불러, `press` 가 시계를 읽은 뒤 흐른 수 µs 만큼 easeInOut 을 적용했다 — 약 1e-7 DIP, `Date()` 가 그 사이 바뀌었는지에 달렸다.
+  **왜 못 걸렀나:** 검사가 "정확히 같은 값"을 봤고, 공용 테스트는 `now` 를 고정해 같은 시각만 밟았다. **고침:** 누름은 시계만 무장하고 첫 프레임은 시계가 그린다(`armLine`).
+  **규칙:** 시간 곡선은 시작 시각에서 그리지 않는다 — 시작에서의 값은 반올림 잡음만 만든다. 이벤트가 연출을 시작하면 다음 프레임을 무장만 한다.
+<!-- stage 7 Task 9: the companion header (end) -->
+
+<!-- plaza window icon (begin) -->
+- **윈도 광장 창의 제목 표시줄·작업 표시줄에 앱 아이콘이 아니라 기본 응용 프로그램 아이콘이 떴다 (사용자 PC, 2026-11-17).** 증상: 광장 창 헤더가 "허접"하다는 리포트의 첫째 원인.
+  **직접 원인:** exe 의 아이콘 리소스(`PokeTokenBar.rc` 의 `1 ICON`)는 탐색기·설치 프로그램·바로가기에서만 쓰인다. 창은 `WinSinkWindow` 가 `RegisterClassExW` 로 만든 클래스(`hIcon` 없음)이고
+  아무도 `WM_SETICON` 을 보내지 않아, 캡션이 있는 최상위 창은 기본 아이콘을 띄운다. 광장 창과 업데이트 진행 창이 같은 경로였다.
+  **왜 못 걸렀나:** 아이콘 검사가 exe 파일 쪽(리소스가 들어갔나, 설치 바로가기 아이콘)에만 있었고 "열린 창이 아이콘을 가졌나"를 보는 검사가 없었다. 러너의 selftest 캡처는 클라이언트 영역만 찍어 제목 표시줄이 사진에 없다.
+  CI 창 검사는 클래스·스타일·제목만 읽었다. 리소스가 있다는 사실이 창에 아이콘이 있다는 증거로 읽혔다.
+  **고침:** `WinAppIcon` 이 exe 리소스를 창의 DPI 에 맞는 크기(`GetSystemMetricsForDpi` 의 SM_CXICON/SM_CXSMICON)로 읽어 큰 아이콘·작은 아이콘을 `WM_SETICON` 으로 건다. `WinSinkWindow` 가 캡션이 있는 모든 창에
+  만들 때 적용하고 `WM_DPICHANGED` 마다 다시 적용한다 — 새 최상위 창은 따로 챙길 것이 없다. AppUserModelID 는 프로세스 전체라 이미 모든 창이 같은 값으로 작업 표시줄에 묶인다(팝오버는 도구 창이라 캡션·작업 표시줄 버튼이 없다).
+  **부류 스윕:** `RegisterClassExW`/`CreateWindowExW` 전수 — 캡션 있는 최상위 창은 `WinSinkWindow` 경유 광장·업데이트 진행 창뿐(나머지는 selftest 창, 팝오버 팝업·자식 컨트롤, 숨은 sink). 네이티브 `#32770` 대화상자(`TaskDialog`, 파일 대화상자)는 소유 창의 아이콘을 시스템이 쓴다.
+  **영구 캡처:** selftest `plaza.windowIcon`, `update.windowIcon` — `WM_GETICON` 큰/작은 아이콘의 비트맵 폭이 창 DPI 의 시스템 지표와 같고 AppUserModelID 가 설치 바로가기와 같은지 본다. 적용 줄을 빼면 실패함을 임시 브랜치에서 확인.
+  **규칙:** 창 속성(아이콘·제목·스타일)은 파일이 아니라 열린 HWND 에서 읽는 검사로 고정한다. 새 최상위 창은 `WinSinkWindow` 로 만들면 아이콘이 따라온다.
+<!-- plaza window icon (end) -->
+
+## 테스트 하네스 (사용자 화면·포커스)
+
+- **오래된 렌더/히트테스트 시험 13개가 `orderFront`/`makeKeyAndOrderFront` 로 창을 창 서버에 올렸다 — 사용자가 일하는 Mac 에서 `swift test` 마다.** (fx-wintests)
+  **직접 원인:** `NSHostingView` 가 레이아웃·렌더되도록 창을 올리는 한 줄을 파일마다 따로 복사했다(좌표 -10000 으로 화면 밖이지만, 두 파일은 `makeKeyAndOrderFront` 라 key 를 가져가려 했다). **왜 못 걸렀나:** 플라자 시험에만 `PlazaNoWindowsOrderedInScanTests` 가 있었고 나머지 시험 파일은 스캔 대상이 아니었다 — 규칙이 한 디렉터리 접두사(`Plaza`)에만 걸려 있어 "모든 시험" 규칙이 아니었다.
+  **고침:** 모든 호출을 `window.orderInForTest()`(`LiveWindowTestSupport.swift`, 포크 소유)로 바꿨다. `PTB_LIVE_WINDOW_TESTS` 가 없으면 아무것도 하지 않는다(창 서버에 안 올림); 있으면 화면 밖·일반 레벨 아래·non-key 로 올린다. `NoWindowsOrderedInScanTests` 가 허용 목록 밖 모든 시험 파일의 `orderFront(`/`makeKeyAndOrderFront(`/`NSApp.activate(` 등을 막는다.
+  **규칙:** 시험에서 창을 직접 올리지 않는다 — `orderInForTest()` 만 쓴다. 새 시험 파일이 서버 올림을 필요로 하면 이 헬퍼로. 허용 목록에 예외를 더할 땐 이유를 적는다.
+
+- **"오늘 21시"로 장면 시각을 만든 사진 시험이 특정 날짜에만 실패했다 (`PlazaPhotoTests.testPhotoCarriesTheFireAndItsNightLight`, 2026-11-17 전체 게이트 1 실패, 전날까지 통과).**
+  **직접 원인:** 광장 아이템은 유닉스 시각을 20분으로 나눈 칸 번호만으로 때·자리·종류가 정해진다(`PlazaItems.spawn(slot:)`). 시험이 `Date()` 의 날짜에 21:00 을 얹어 `scene.now` 로 넣어서, 그 칸의 아이템이 0분에 떨어지는 날에는 땅에 사탕이 놓여 `items.isEmpty` 가 깨졌다. **왜 못 걸렀나:** 시험을 쓴 날과 그 뒤 며칠은 그 칸의 아이템이 아직 안 떨어진 시각이라 통과했다 — 벽시계 날짜가 입력인 줄 모르고 "밤"만 고정했다고 여겼다.
+  **부류 스윕:** `Tests/` 의 `bySettingHour … of: Date()` 전수 — `PlazaCampfireSceneTests.at(hour:)` 도 같은 꼴이라 함께 고정했다. `LocalUsageReaderTests:1057` 은 장면이 아니라 로그 날짜 창이라 무관, 나머지는 이미 고정 날짜다.
+  **고침:** 두 파일 모두 고정된 날(2026-05-10)의 시각을 쓴다. **규칙:** 장면 시험의 `now` 는 날짜까지 고정한다 — 광장에는 날짜·칸 번호로 정해지는 것(아이템, 계절, 눈 오는 날)이 있다.
+
+## 윈도 팝오버 가독성 (2026-11-17)
+
+- **흰 팝오버에서 3차 텍스트가 흰색처럼 보였다 — 컴패니언 캡션("다음 진화까지 …"), "이번 주/이번 달", 사용량 없음 안내, "갱신 0초", 진화 줄 화살표 (실제 Windows 11 PC 스크린샷 제보).**
+  **직접 원인:** 윈도 키트가 Mac 이 잰 라벨 불투명도(`PopoverLabelOpacity`: 2차 0.498, 3차 0.2588)를 검정에 그대로 얹었다. 흰 배경 위 26 % 검정은 대비 약 1.9:1 이고, Windows 의 가는 글리프 렌더링에서는 거의 안 보인다.
+  **왜 못 걸렀나:** 캡처를 CI 스크린샷으로 Mac 디스플레이에서 봤고(Mac 글자 렌더링은 같은 값에서도 더 굵다), 색 대비를 재는 검사가 하나도 없었다 — "Mac 값과 같다"를 정확도로 봤지 "읽힌다"를 확인하지 않았다.
+  **부류 스윕:** 윈도 팝오버·공용 그리기 부품의 하드코딩 알파/회색 전수. 텍스트·글리프는 모두 두 정의(`PopoverLabelOpacity`, `PopoverColorRole.displayValue`)를 거치게 했고, 라벨 색의 일부 알파로 칠하는 도형(막대·트랙·점·틴트)은 Mac 비율 그대로 `plazaShapeColor` 로 분리했다. 비활성 컨트롤은 `COLOR_GRAYTEXT` 라 그대로 둔다(흐린 게 비활성의 뜻).
+  **고침:** 윈도 라이트에서 3차 0.55(#737373, 4.7:1), 2차 0.68(#525252, 7.6:1). Mac 값·골든은 기준으로 그대로. 플랫폼 선택은 `PopoverPlatform.isWindows` 한 곳이고 값은 순수 함수라 Mac 에서 시험한다.
+  **영구 캡처:** `PopoverLabelContrastTests` — WCAG 대비(3차 ≥ 4.5, 2차 ≥ 7), 순서, Mac 값 불변을 고정한다.
+  **규칙:** 텍스트 색은 값이 아니라 대비로 검증한다. 다른 플랫폼에서 측정한 불투명도는 그 플랫폼의 글리프 렌더링에서도 읽히는지 따로 확인한다.
+
+## 윈도 팝오버 상점·가방 (2026-11-17)
+
+- **상점·가방 카드가 그린 그림 뷰(`WinDrawnView`)를 컨트롤만 돌려주고 끝냈다 — 아이콘·알·배지가 칠해지지 않았고 닫을 때마다 GDI 개체가 남았다 (`popover.tabs` 열고 닫기: warm-up gdi=120 → 136 → 138).**
+  **직접 원인:** `WinDrawnView` 는 자기 컨트롤의 `onDestroy` 와 창 핸들러에 `[weak self]` 로만 잡힌다. 다른 페이지는 뷰를 프로퍼티에 들고 있는데(`cardView`, `bars`, …) 새 카드 도우미는 `view.control` 만 반환해 뷰가 곧바로 해제됐다 —
+  비트맵과 메모리 DC 는 반환되지 않고, `WM_PAINT` 핸들러는 `self` 없이 아무것도 그리지 않았다.
+  **왜 못 걸렀나:** 컴파일은 통과하고 Mac 에서는 이 코드가 돌지 않는다. 구조 검사(`popover.tabs` 의 제목·선택·고정)는 뷰가 그려지는지 보지 않았고, 걸린 것은 우연히 같은 검사 안에 있던 열고-닫기 GDI 수였다 —
+  "다 그려졌다"가 아니라 "자원이 돌아왔다"가 결함을 드러냈다.
+  **부류 스윕:** `WinDrawnView(` 생성 11곳 전수 — 다른 곳은 모두 프로퍼티·배열에 보관한다(`cardView`, `bars`, `sv/pv`, `noteMade`, `WinSnapshotLead.sprite`, 셀프테스트의 `view/drawn/growing`).
+  **고침:** 컨트롤이 파괴될 때까지 뷰를 소유하는 클로저를 건다(`WinCardKit.own`; 컨트롤 파괴가 클로저를 놓으므로 순환은 거기서 끝난다).
+  **영구 캡처:** `popover.shop` 이 상점 페이지를 네 번 열고 닫아 GDI·USER·핸들을 `PopoverResourceRule` 로 판정하고(소유자를 빼면 첫 닫기에서 실패), 같은 검사가 아이콘 그림 유무를 본다.
+  **규칙:** 그림 뷰를 만드는 코드는 그 뷰를 누가 소유하는지 한 줄로 말한다 — 컨트롤만 반환하는 도우미는 `own(view)` 를 부른다.
+
+<!-- merged-head full run (fix/merged-head-full-run) begin -->
+## 윈도 CI 전체 실행 (머지된 헤드, run 43967277783)
+
+- **`popover.realClick` 이 설치본 셀프테스트 두 시도 모두 실패했다 — 러너의 "조용한 시간"(방해 금지)이 부팅 약 1시간 뒤 꺼지자, 우리가 막 올린 풍선이 화면에 뜨는 상태에서 플라이아웃 안 아이콘을 눌렀다.**
+  **증거:** `tray-desktop.png`(23:02)에는 시계 오른쪽에 방해 금지 종(zZ)이 있고 00:23 의 `update-tray-menu.png` 에는 없다. 종이 빠지면 알림 영역 전체가 24 px 오른쪽으로 간다 —
+  셸 사각형이 첫 시도 안에서 `tray.anchorRect`(85번째 체크, (790,720,822,768))와 `popover.open`(142번째, (814,720,846,768)) 사이에 바뀌었고, 두 번째 시도는 처음부터 (814,…)였다.
+  같은 때부터 풍선이 실제로 머문다: 'already-running' 풍선의 표시→시간 초과가 앞쪽은 같은 초, 두 번째 시도는 7 초. 통과한 전체 실행 둘(43916181737, 43922230973)은 설치본 셀프테스트가
+  작업 시작 43–46 분 뒤에 이 체크를 지나 조용한 시간 안이었고, 실패 런은 57 분·69 분 뒤였다(작업 시작 22:09:37; 종은 23:02 에 있었고 23:05–23:06 사이에 빠졌다). 실패 모양: 플라이아웃 안 아이콘 사각형 (770,663,810,703) 의 중심을 두 번 눌러
+  두 번 다 `NIN_SELECT` 없음, 플라이아웃은 그대로 열려 있음. **원인(재현으로 확인):** 10 초 전 `popover.noSelfOpen`·`popover.refusedForeground` 가 올린 풍선 세 개가
+  7 초씩 줄 선 토스트로 오른쪽 아래(플라이아웃 모서리)를 덮었다 — 두 시도 모두 클릭 시각이 둘째·셋째 토스트 구간에 든다. 그 런에는 스크린샷이 없었고 풍선 이벤트 로그는 프로세스당 20 줄 상한에 닿아 있었다 — 설치본 셀프테스트를 조용한 시간 뒤로 늦춘 진단 런(44003693742)에서 새 기다림이 덮개를 `Windows.UI.Core.CoreWindow 'New notification'`(다른 프로세스)으로 5.6·5.7 초 기록한 뒤 클릭이 통과했다(알림 상태 5).
+  **왜 못 걸렀나:** 체크가 "아이콘 사각형 = 클릭이 닿는 곳"이라 가정하고 그 지점의 창을 보지 않았다. 지금까지의 모든 런이 이 체크를 조용한 시간 안에서 지나(주석: "every run so far: (790,…)"),
+  풍선이 실제 토스트가 되는 상태를 한 번도 밟지 않았다. 위 알림 항목의 "서버 SKU 에는 토스트 UI 가 없다"는 관찰도 첫 1 시간 안(번들 셀프테스트)에서 찍은 캡처였다.
+  **고침:** 플라이아웃 안을 누르기 전에 그 지점의 최상위 창이 셸(explorer) 프로세스 것인지 보고, 아니면 20 초까지 기다리며 무엇이 덮었는지 기록한다(`waitUncovered`). 클릭이 아무것도 못 고르면
+  그 지점의 창 클래스와 전체 화면(`realclick-flyout-<pid>.png`, 로그 폴더 → collected)을 남기고, 셸 알림 상태(`SHQueryUserNotificationState`: 6 조용한 시간, 5 알림 받음)를 결과에 붙인다.
+  **부류 스윕:** 실제 입력(SendInput)으로 화면 오른쪽 아래를 누르는 체크 중 풍선 직후(20 초 안)에 도는 것은 `popover.realClick` 하나다 — 그 사이 체크(menuAfter/menuSettings/secondLaunch/autostartQuiet)는 게시 메시지·키·자식 프로세스다.
+  팝오버 안을 실제로 누르는 홈·설정 체크는 마지막 풍선보다 1 분 넘게 뒤라 토스트 수명(7 초 × 줄) 밖이다.
+  같은 부류의 두 번째 구성원은 런으로 찾았다: 조용한 시간이 끝난 뒤에 설치본 셀프테스트가 오도록 늦춘 진단 런(44003693742, `flake_loop=40`)에서 `popover.realClick` 은
+  "covered by Windows.UI.Core.CoreWindow 'New notification' … for 5.6 s" 뒤 통과했고(알림 상태 5), 대신 `ui.kit.idle` 이 두 시도 모두 메인 cs 12·23(예산 11, 조용한 시간엔 0)으로 실패했다 —
+  **원인 미확정(열린 항목):** 우리 풍선 큐가 남아 쉘 보고로 깬다고 보고 큐가 빌 때까지 기다리게 했으나, 다시 늦춘 진단 런(44017021393, 상태 5)에서 큐는 이미 비어 있었고 체크는 cs 2 로 통과했다 — 처음 실패 런의 둘째 시도(상태 5)도 cs 0 이었다. 도달을 보이지 못한 가드라 뺐고, 대신 창 동안의 트레이 콜백 수(`WinTray.callbackCount`)와 알림 상태를 결과에 적어 다음 실패가 쉘의 풍선 보고 때문인지 말하게 했다. 세 번째로 늦춘 런(44026117982, 상태 5)에서 cs 5·루프 반복 7(조용한 시간엔 1)인데 트레이 콜백은 0 — 깨움은 풍선 보고가 아니다(토스트가 뜨고 질 때 최상위 창에 오는 다른 브로드캐스트로 보이나 미확인). 예산 안이라 통과했고 항목은 열려 있다.
+  **영구 캡처:** `popover.realClickCovered` — 우리 최상위 창(토스트 대역)이 프로브 중심을 1.5 초 덮는 동안 기다렸다가 프로브가 다시 그 지점의 창이 되는지 본다. 결함 주입(기다림 제거, light 43996842694)으로 "waited 0.0 s … still covered" 실패 확인.
+  **규칙:** 실제 입력 체크는 누르기 전에 그 지점의 창이 대상인지 확인한다 — 러너의 화면은 시간에 따라 바뀐다(첫 1 시간의 조용한 시간, 그 뒤의 토스트).
+
+- **`companion.celebrate` 가 이로치 부화로 실패했다(3.10 s > 2.6 s) — "일반 부화" 픽스처가 시스템 난수로 1/64 이로치를 굴렸다.** 3.10 s 는 결함이 아니라 이로치 연출의 설계 길이다
+  (`burstHold` 2.6 + `burstFade` 0.5, 맥과 같음; `CompanionHeaderModelTests` 가 3.11 s 에 버스트가 끝남을 고정). 체크 예산 2.6 s 는 일반 부화(섬광과 팝)의 것이다.
+  **왜 못 걸렀나:** 결과 문구에 "(Bulbasaur, plain)" 을 하드코딩해 고정된 줄 알았다 — 같은 흐름의 표본 상점(`CompanionHeaderSamples.store`)은 `SplitMix(state: 9)` 를 넘기지만 셀프테스트 픽스처
+  (`fixtureCompanion`)는 `rng` 를 안 넘겨 `SystemRandomNumberGenerator` 였다. 셀프테스트 3–4 프로세스 × 1/64 → 런당 약 6 %.
+  **고침:** `CompanionHeaderSamples.PlainRolls`(SplitMix 의 수를 홀수로: 이로치는 roll % 64(부적 48) == 0 이라 몇 번째 수로 부화하든 일반), 체크가 `kind == .hatch(shiny: false)` 를 단언하고 실제 종류를 적는다.
+  **부류 스윕:** 윈도 셀프테스트의 `CompanionStore(` 생성 — 부화·진화를 일으키는 것은 이 파일의 세 체크(celebrate/consumedOnce/liveUpdate)뿐이고 모두 이 픽스처를 쓴다. `HomeStores`·언어 체크는 부화하지 않는다.
+  다른 `SystemRandomNumberGenerator`(Advanced/Team/Settings)는 무작위 코드·키 문자열이라 판정에 들어가지 않는다.
+  **영구 캡처:** `CompanionHeaderModelTests.testThePlainHatchFixtureNeverRollsAShiny` — 10,000 수 중 이로치 0, 셀프테스트와 같은 구성의 부화가 일반. 결함 주입(`| 1` 제거)으로 308 개 이로치 → 실패 확인.
+  **규칙:** 셀프테스트 픽스처가 결과("plain")를 이름에 달면 그 결과를 정하는 난수를 고정하고, 체크가 그 결과를 단언한다.
+
+- **유휴 게이트 `popover-home-still-120s` 가 자정(UTC)을 걸쳐 측정됐다 — 하루 경계의 정상 새로고침이 "가만히" 창에 들어갔다.** 창 23:58:03 + 120 s, 앱 로그 00:00:00 `phase1 done total=0 … refresh done []`
+  (`WindowsSystemEvents` 의 자정 타이머 → `UsageStore` 새로고침, 맥의 `NSCalendarDayChanged` 와 같은 한 번짜리). 새 스레드 14 개(user-initiated 4 개가 각 3.4–4.0 천만 사이클 = 파서), 메인 cs 53.
+  통과 런의 같은 창: 메인 cs 4, 프로세스 113.5–132 /분, 18–20 만 사이클/s, 새 스레드 0. **제품 결함 아님.** **왜 못 걸렀나:** 창의 벽시계 시각은 런 시작 시각에 달렸고 러너는 UTC 라
+  KST 오전 9 시 전후에 도는 런만 자정을 밟는다. **고침(워크플로, `ci/windows-app-split` 쪽):** 창 [시작, 시작+기동+길이+여유] 가 러너의 다음 자정을 품으면 자정+15 s 까지 기다렸다 시작한다.
+  **부류 스윕:** 120 s 창 전부(closed/open/kit/home*/activity*/recap/companion*/sprite)가 같은 노출이고, 300 s normal 창은 새로고침 예산이 있어 견딘다.
+  **규칙:** 유휴 창은 벽시계 경계(자정)를 걸치지 않게 놓는다 — 앱은 자정에 일을 한다.
+
+- **`failCopy.secondUpdate.reasonLogged` 가 빈 내용으로 실패했다 — 피드 서버의 포트 파일을 "있다"만 보고 읽어 포트 0 을 얻었다.** 앱 로그 "the feed is the CI loopback http://127.0.0.1:0/releases/latest",
+  `failCopySecond-requests.log` 0 줄, 포트 파일 내용은 54674. `Set-Content` 는 파일을 만든 뒤 쓴다 — 250 ms 폴링이 그 틈에 빈 파일을 읽었고 `[int]$null` 이 0 이 됐다. 앱은 60 s 동안 아무것도 받지 못했다.
+  통과 런들은 12 개 피드 모두 실제 포트였다. **왜 못 걸렀나:** 틈이 µs–ms 라 거의 늘 통과했고, 실패 줄이 비어 원인이 안 보였다.
+  **고침:** `Read-Port` — 내용이 양의 정수일 때만 포트로 읽는다. **부류 스윕:** `scripts/`·워크플로에서 다른 프로세스가 쓰는 파일을 존재만 보고 읽는 곳은 이 하나(`Wait-Until { Test-Path … }` 1 곳); 다른 `Set-Content` 는 같은 프로세스가 쓰고 읽는다.
+  **영구 캡처:** 스크립트 시작의 `harness.emptyPortFileWaits` — 빈 포트 파일은 기다리고(옛 읽기는 0 을 냈다). **규칙:** 프로세스 사이 파일 전달은 존재가 아니라 내용으로 준비를 판정한다.
+<!-- merged-head full run (fix/merged-head-full-run) end -->
+
+## 윈도 플로팅 펫 (stage 7 Task 22)
+<!-- stage 7 Task 22 (begin) -->
+- **`pet.idle` 의 'hidden' 창이 펫을 끈 뒤에도 메인 cs 56·29·20(예산 6)을 셌다 — 펫이 아니라 픽스처가 깨웠다.** 두 원인이 겹쳤다. ① 펫을 끈 쓰기
+  (`floatingPetEnabled = false`)의 디바운스 동기화가 창 안에 떨어졌다(debounce 1, safety 1). ② 표본 상점 `.hatched` 는 알에서 막 부화시키는데, **번들 앱에서**
+  부화는 `ensureEggPrefetch` → `SpriteStore.shared.data` 3 개와 폼 이름(`PokemonNameClient.shared`)을 네트워크로 예열한다 — 러너의 번들 셀프테스트에서 그 완료가
+  메인 스레드를 깨웠다. 같은 순서의 'still'(알, 부화 없음)은 메인 cs 0–1. 설치본 유휴 게이트(30 s 정착 뒤 120 s, run 44039613803)의 같은 창은 메인 cs 4 = manual-refresh 5.
+  **왜 못 걸렀나:** 셀프테스트의 유휴 창은 `ui.kit.idle` 처럼 알려진 깨움(새로고침·동기화)만 예산에 더했고, 픽스처가 만드는 네트워크 일은 몰랐다. 맥 테스트는 번들 앱이 아니라 예열이 없다.
+  **고침:** 창마다 앱 설정 동기화가 3 s 조용해질 때까지 기다리고(`waitStable { !WinDefaultsSync.isSyncPending }`), 새로고침이 걸린 창은 한 번 더 잰다. 유휴 창(셀프테스트·게이트
+  프로브)은 막 부화한 표본 대신 키우는 중인 표본(`.midLevel`: 부화·예열 없음)을 쓴다.
+  **부류 스윕:** 다른 유휴 프로브 — `--popover-companion-idle-probe` 는 `CompanionHeaderInput` 고정 입력이라 상점 부화가 없고, `--popover-sprite-idle-probe` 는 상점이 없다. `.hatched` 를
+  쓰는 나머지(`companion.capture`·펫 캡처·클릭 체크)는 비용을 재지 않는다.
+  **규칙:** 비용을 재는 창의 픽스처는 측정 전에 할 일을 다 끝낸 상태여야 한다 — 번들 앱의 부화는 네트워크 예열을 부른다.
+- **`pet.hide`·`pet.resources` 가 재생 해제(`playback.release()`)를 빼도 통과했다 — 창이 사라지면 시계가 다음 틱에 스스로 서기 때문이다.** 결함 주입 런 44034871723 에서 15 개 중
+  13 개 체크가 각자의 결함으로 실패했고 이 둘만 초록이었다. **왜 못 걸렀나:** "숨긴 뒤 시계가 무장돼 있지 않다"를 0.3 s 기다린 뒤 봤다 — 0.4 s 주기의 다음 틱이 `shouldTick`(창 없음)에서
+  스스로 꺼진 뒤였다. 해제가 빠져도 프레임·디코드 캐시는 창 객체가 죽을 때까지 남는다. **고침:** 창이 사라지는 그 순간 재생이 `released` 이고 시계가 없고 프레임 집합이 0 인지 본다.
+  **부류 스윕:** 팝오버의 `companion.clockStops` 는 닫은 뒤 시계만이 아니라 `playback.released`·프레임 집합 0·모델 0 을 본다(이 구멍 없음). 다른 펫 체크는 시계 정지를 보지 않는다. **영구 캡처:** 바뀐 두 체크 +
+  결함 주입 런(release 제거) — 보고서에 run 번호. **규칙:** "멈췄다"는 기다린 뒤가 아니라 그 일을 하는 코드가 끝난 즉시 본다 — 스스로 서는 시계는 해제 누락을 가린다.
+- **(리뷰 I1) 펫의 유휴 비용을 게이트 예산으로 재는 곳이 없었다 — `--pet-idle-probe` 는 어떤 워크플로도 부르지 않는 죽은 코드였고, `pet.idle` 은 조용해지지 않은 'hidden' 을
+  통과시켰다.** 게이트 창은 스크래치 런에서만 재고 리드에게 "배선해 달라"고 넘겼는데 배선 전에 손을 뗐다(`$IdleShardOf` 16 개, 워크플로가 개수를 단언). 셀프테스트 쪽은 8 s 창에
+  메인 cs 6(= 분당 45, 닫힌 앱 예산의 7.5 배)·메인만·최대 3 창 중 최선이라, 주기 8 s 이상이거나 0.75 Hz 미만인 깨움은 구조적으로 못 본다(run 44068394132 'hidden' [11, 4] 통과).
+  **왜 못 걸렀나:** 잡음(동기화·러너) 때문에 판정을 계속 느슨하게 했고, 느슨해진 만큼을 게이트가 메운다고 가정했지만 게이트에 창이 없었다. **고침:** 게이트에 `pet-still/hidden-120s`
+  (닫힌 앱 예산)·`pet-animated-120s`(측정 근거 예산, "Balanced" 의 프레임 깨움보다 낮게)를 샤드마다 하나씩 넣고, 프로브 로그 줄로 무엇을 쟀는지 확인한다. `pet.idle` 은 한 하네스를
+  디스플레이 상태로 보이고 숨겨(설정 쓰기 없음) 'hidden' 을 같은 프로세스의 'still' 에 대해 한 창으로 판정(메인·프로세스 cs·사이클)하고, 펫 클래스 창·재생·시계가 남지 않았는지 본다.
+  **부류 스윕:** 다른 `--*-idle-probe` 는 모두 `idle-gate.ps1` 에 있다(kit·sprite·popover·home·activity·recap·companion). **영구 캡처:** 샤드 표 + 워크플로의 개수 단언(19) + 결함 주입 런
+  (1 Hz 타이머·숨은 창의 10 s `SetTimer`, 보고서에 run 번호). **규칙:** 측정 프로브를 만들면 같은 PR 에서 게이트에 건다 — 배선 안 된 프로브는 아무것도 지키지 않는다.
+- **(리뷰 I2) `WM_DPICHANGED` 가 제안 사각형을 버리고 왼쪽 아래를 고정한 채 크기만 바꿨다, 드래그 중에도.** 200 % 노트북과 100 % 모니터 경계에서 커지면 창 대부분이 다른 모니터로 넘어가
+  다시 작아지는 진동이 끝없이 가능하고, 드래그 중에는 다음 `WM_MOUSEMOVE` 가 `originAtDown` 기준으로 놓아 잡은 점이 펫 밖으로 튄다. **왜 못 걸렀나:** `pet.dpi` 는 lParam 0 으로 보냈고
+  눌린 포인터가 없었다 — 단일 모니터 러너에서 트리거(혼합 DPI 경계, 드래그 중 변경)가 없다. **고침:** 공유 규칙 `FloatingPetDPIChange`(맥 테스트: 경계 진동 재현, 드래그 중 보류)
+  — 드래그 중엔 크기 유지·놓을 때 적용, 그 외엔 lParam 사각형, 창 자신의 `UpdateLayeredWindow` 안에서 온 변경은 무시. `pet.dpi` 가 실제 사각형과 눌린 포인터로 보낸다.
+  **부류 스윕:** 광장 창은 제안 사각형을 쓴다(`WinPlazaWindow`), 팝오버는 트레이 기준으로 다시 놓여 드래그가 없다. **사용자 PC:** 혼합 DPI 두 모니터에서 확인.
+- **(리뷰 I3) 펫의 우클릭 메뉴가 전경을 숨은 싱크로 가져가고 돌려주지 않았다.** Escape·뒤로 보기·끄기 뒤 사용자의 앱이 비활성인 채 타이핑이 사라진다. **왜 못 걸렀나:** `pet.menu` 는
+  항목과 동작만 봤고, `pet.noActivate` 는 클릭·드래그만 봤다(메뉴는 `SetForegroundWindow(owner)` 를 부른다). **고침:** 메뉴 전 전경 창을 기억하고, 열기(팝오버가 가져감)가 아니면
+  싱크가 아직 전경일 때 되돌린다(팝오버 자신에게는 안 돌려준다 — 맥의 transient 팝오버는 바깥 클릭에 닫힌다). `pet.menu` 가 Escape·뒤로 보기·끄기 뒤 프로브의 전경·포커스를 본다.
+  **부류 스윕:** `WinPopupMenu.run` 호출부 — 트레이(아이콘 클릭이 이미 작업 표시줄에 전경을 줬다), 팝오버 안 메뉴(팝오버가 전경)는 같은 구멍이 없다.
+- **(리뷰 I4) 잠금 화면에서 만든 펫 창이 잠금 뒤에서 움직였다.** `locked` 가 false 로 시작하고 창마다 등록한 `WM_WTSSESSION_CHANGE` 로만 바뀐다 — Win+L → 화면 꺼짐 → 잠금 화면에서
+  마우스 → `onScreensWake` → 새 창 → 시계. **왜 못 걸렀나:** 잠금 체크는 이미 있는 창에 메시지를 보냈다. **고침:** 창을 만들 때 `WTSQuerySessionInformationW(WTSSessionInfoEx)` 의
+  `SessionFlags` 로 잠금을 읽는다(`ptb_session_state`), `pet.animation` 이 잠긴 채 만든 창(FIXTURE 상태)과 러너의 실제 읽기를 본다. **부류 스윕:** 같은 패턴 `WinPlazaVisibility`·
+  `WinPopover` 는 사용자 동작으로만 창이 생겨 잠금 화면에서 만들어질 수 없다. 사용자 동작 없이 창을 만드는 곳은 펫뿐.
+- **(리뷰 I5) 셀프테스트 스크립트의 한도(1200 s)가 단계의 `timeout-minutes: 20` 과 같아 Actions 가 1 초 먼저 단계를 죽여 "checks so far" 덤프가 안 나온다; 설치본 단계 25 분은 13.5 분짜리
+  재시도를 담지 못한다.** **왜 못 걸렀나:** 스크립트 한도를 올리며 호출 단계를 같이 보지 않았다. **고침:** 번들 단계 25 분(플레이크 루프 55 > 3000 s), 설치본 45 분(두 번 + 여유)·잡 70 분,
+  낡은 "about 6 min" 주석 교체, `pet.idle` 은 최악 ~5 분 → ~45 s. **규칙:** 스크립트 한도를 바꾸면 그 스크립트를 부르는 모든 단계의 한도를 같이 본다(스크립트 주석에 적었다).
+- **(리뷰 M7·M8·M9·M11) 작은 것들.** M7: 지연 닫힘 중 팝오버는 `HWND_NOTOPMOST` 인데 펫을 그 뒤에 넣어 최상위 띠에서 빠질 수 있었다 → 팝오버가 `WS_EX_TOPMOST` 일 때만 그 뒤.
+  M8: 축척 프레임 캐시가 48 MB 를 넘으면 통째로 비우고 다시 채워 384 DIP·200 % 긴 GIF 는 매 프레임 다시 축척했다 → 차면 앞 프레임들을 유지하고 나머지만 그때그때(공유
+  `FloatingPetScaledFrames`, 맥 테스트). 부류 스윕: `WinSpriteAnimator` 의 프레임 캐시는 예산 없이 슬롯 크기(≤ 96 DIP)로 묶여 비우기·재채움이 없다. M9: 새 창이 스프라이트가 오기 전에
+  🥚 를 DirectWrite 로 그렸다(아무도 못 보는 그림) → 첫 로드나 `revealDelay` 까지 그리지 않는다. M11: 디스플레이 변경의 `place()` 가 저장 위치를 덮어써 홈 모니터가 잠시 빠지면
+  기본 모서리가 저장돼 돌아오지 않았다 → 사용자 드래그와 첫 기본 배치만 저장(맥은 대체 모서리를 저장한다: 인벤토리 F1 의 차이). `pet.clamp` 가 모니터 제거·복귀(실제
+  `WM_SETTINGCHANGE(SPI_SETWORKAREA)`)로 집에 돌아오는지 본다. M10: 체크가 하네스 클로저를 바꾼 뒤 시드 메서드를 불렀다 → 실제 `WM_SETTINGCHANGE`·`WM_POWERBROADCAST` 를 보낸다.
+- **펫 메뉴 뒤 전경 되돌리기(I3)가 활성화 허용 지점 밖(`WinFloatingPet.swift`)에서 `SetForegroundWindow` 를 불러 `WindowsSeamScanTests.testOnlyTheAllowedSitesActivateWindowsOfOurs`
+  가 랜딩 브랜치에서 실패했다.** **왜 못 걸렀나:** 맥 확인을 `FloatingPet|PopoverPet|PopoverParity|…` 필터로만 돌려 `ScanTests` 가 빠졌다 — 윈도 코드의 규칙 스캔은
+  이름에 기능명이 없다. **고침:** 되돌리기를 메뉴 실행기 `WinPopupMenu.run`(이미 허용된 지점)의 선택형 단계(`giveBack`)로 옮겼다 — 목록을 넓히지 않았다. 새 스캔 테스트가 그 함수의 활성화가
+  "메뉴 주인"과 "메뉴 전에 전경이던 창(`previous`)" 둘뿐이고 그 가드가 있음을 고정한다(잘못된 대상·가드 제거 주입으로 실패 확인). **규칙:** 윈도 코드를 바꾼 맥 확인은
+  `ScanTests|Popover|Pet|Settings|TrayMenu|AppWiring|HomeModel` 전체 세트로 돌린다.
+- **(테스트 공백) 앞선 체크의 실제 클릭이 포인터를 다음 비용 창의 창 자리에 남겼다.** `pet.noActivate`·`pet.clickActions` 의 실제 클릭 자리가 `pet.idle` 펫 자리와 같아, 펫을 숨기면 포인터
+  아래가 러너의 터미널 창(`CASCADIA_HOSTING_WINDOW_CLASS`)으로 바뀌며 번들 셀프테스트에서만 메인 스레드가 8 s 에 ~10 번 깼다(런 44049375908·44068394132·44093544046 실패, 설치본은 0).
+  포인터를 우리 창이 없는 곳(데스크톱)에 둔 뒤엔 2 번, 꺼낸 메시지 없음(런 44107060600). **규칙:** 창을 보이고 숨기며 비용을 재는 체크는 먼저 포인터를 치운다(CI 에서만).
+- **펫을 눌렀을 때 열린 팝오버를 누르는 순간 닫았더니 알 기도 클릭이 사라졌다(사용자 결정 2026-11-18 구현, 런 44129424988 `pet.clickActions`: prayed=false).** 활성 팝오버를 닫으면
+  윈도가 전경을 다른 창(러너의 터미널)으로 넘기고, 버튼이 눌린 채 전경 스레드가 바뀌면 펫의 마우스 캡처가 끝나 놓기(`WM_LBUTTONUP`)가 펫에 오지 않는다 — 클릭도 드래그도 잃는다.
+  **왜 못 걸렀나:** 맥 테스트는 "누름 → 닫힘 → 클릭"을 순서만으로 모델링했다(맥의 transient 닫힘은 이벤트 추적을 끊지 않는다). 윈도 체크가 실제 입력으로 잡았다(드래그는 이동량을 안 봐서 놓쳤다).
+  **고침:** 누름에서 닫을지만 정하고 실제 닫기는 누름이 끝날 때(`buttonUp`·`captureLost`), 클릭이 행동하기 전에. `pet.clickActions` 의 드래그는 끝까지 움직였는지도 본다.
+  **부류 스윕:** 버튼이 눌린 채 창을 닫거나 활성화를 바꾸는 다른 곳 — 펫 메뉴는 `WM_CONTEXTMENU`(놓은 뒤), 팝오버·광장의 자체 클릭은 자기 창 안이라 해당 없음.
+  **규칙:** 캡처 중(버튼 눌림)에는 전경을 옮기는 일(활성 창 닫기·활성화)을 하지 않는다 — 놓을 때로 미룬다.
+- **(테스트 공백) `pet.idle` 의 'hidden' 이 still·animated 를 귀속 판정으로 바꾼 뒤에도 같은 프로세스 cs 비교로 남아 windows-port 에서 실패했다(push 런 44200348337, 번들 셀프테스트:
+  still 메인 cs 0, hidden 7 > 0+3, 남은 것 없음·재생 해제).** 직접원인: 셀프테스트 프로세스의 배경 깨움(펫과 무관). **왜 못 걸렀나:** still·animated 를 고칠 때(리드 결정 2026-11-18)
+  같은 함수의 세 번째 창 'hidden' 은 "still 과 같은 방법으로 같은 프로세스에서 쟀으니 배경이 상쇄된다"고 보고 남겼다 — 두 창의 배경 깨움은 서로 독립이라 상쇄되지 않는다. 그 브랜치의
+  실행들에선 배경이 조용해 통과했다. **고침:** hidden 도 남은 것(펫 클래스 창 0, 우리 창 수 그대로, 재생 해제·시계 없음)과 잰 창 안의 펫 일(틱·그림·펫 클래스 메시지 0, 이후 무장 없음)로
+  판정하고 cs·사이클은 보고만 한다. **부류 스윕:** `pet.*` 와 펫 확장 체크(`pet.bubble`…`pet.extrasIdle`)에서 프로세스 cs·사이클로 판정하는 곳 전수 — 남은 것 없음(가게 로드 대기의
+  2 s cs 는 판정이 아니라 기다림). 비용 판정은 게이트 창(`pet-still/hidden/animated-120s`, 펫 확장의 `pet-bubble-120s`·`pet-working-120s`)만 한다. **규칙:** 셀프테스트 프로세스 안의
+  비용 체크는 귀속(그 기능 자신의 타이머·틱·그림·메시지)으로 판정하고 문맥 전환·사이클은 보고만 한다 — 같은 프로세스의 두 창을 서로 비교하는 것도 판정이 아니다.
+- **(사용자 PC, kit 10) 부화한 플로팅 펫이 움직이지 않았다 — 첫 GIF 받기가 실패하면 그 세션 내내 정지 그림이었다.** 공유 `PopoverSpriteModel.show`(펫·팝오버 스프라이트)는
+  `fetcher.animated` 를 한 번만 묻고, 비면 정지 PNG 로 떨어진 뒤 같은 대상인 동안 다시 묻지 않았다. 맥의 `SpriteLoader.recoveringAnimationFrames` 는 정지 그림을 보이고 2 s 부터
+  두 배씩 30 s 까지, 횟수 제한 없이 GIF 를 다시 받는다. 새 설치(GIF 파일 없음, 트레이·팝오버가 PNG 는 받아 둠)에서 로그인 직후 네트워크가 아직이거나 한 번 실패하면 재현된다.
+  **왜 못 걸렀나:** ① 쌍둥이 핀(`SpriteView.body` → `PopoverSpriteModel.show`)은 맥 본문만 해시했고, 본문이 부르는 `recoveringAnimationFrames` 의 재시도 의미는 어느 행도
+  지키지 않았다 — 쌍둥이를 다시 지을 때 호출한 함수의 동작이 빠졌다. ② 펫·팝오버 체크는 전부 FIXTURE 폴더(GIF 가 이미 있음)나 픽스처 페처를 써서 내려받기 실패 경로를 한 번도 밟지
+  않았다. ③ 펫이 왜 정지인지 로그에 아무것도 남지 않아 사용자 로그로 원인을 볼 수 없었다. **고침:** 공유 모델에 맥의 재시도 고리(정지 그림 한 번, 2→30 s, #1-649 만, 대상이 바뀌거나
+  해제되면 끝)를 옮기고, `recoveringAnimationFrames` 핀 행을 더했다. 펫은 움직임/정지 상태와 그 입력(프레임 수, GIF 요청 횟수, 절전 플래그·AC, 시계, 표시·잠금·연결)을 바뀔 때만 한 줄
+  로그로 남긴다. **회귀 테스트:** 공유 `PopoverSpriteModelTests`(첫 요청 실패 → 2 s·4 s 뒤 프레임, 30 s 상한, #700 은 묻지 않음, 대상 변경이 끝냄, 늦게 온 GIF 가 시계를 켬)와
+  맥 `PopoverSpriteRetryTwinTests+Mac`(맥 함수와 대기 순서가 같음); 단일 시도로 되돌리는 결함 주입에 다섯이 실패함을 확인. 윈도 `pet.lateGIF` 는 실제 저장소 기반 페처
+  (`PlazaStoreSpriteFetcher`) 위에서 첫 GIF 읽기를 실패시켜, 정지 → 2 s 뒤 움직임과 로그 두 줄을 본다. **부류 스윕:** 맥이 재시도하는데 쌍둥이가 한 번만 하는 곳 — 같은 모델을 쓰는
+  팝오버 스프라이트(동반자 헤더·도감 상세·빈 상태·가방)가 이 고침으로 함께 고쳐졌다. 뒷모습 GIF 의 일시 실패는 맥은 뒷모습을 다시 묻고 윈도는 앞모습으로 대신한다(기존 차이, 이번 범위 밖).
+  **규칙:** 맥 본문을 핀으로 묶을 때, 본문이 부르는 앱 함수의 재시도·타이머·폴백 의미도 같은 행이나 별도 핀 행으로 묶는다.
+  같은 고침에서: 재시도의 대기와 요청은 메인 스레드 밖에서 돈다(대기 하나씩, 실패한 요청마다 메인 스레드를 깨우지 않고 GIF 가 왔을 때 한 번만) — 정지 펫 게이트 창의 메인 예산
+  (6/분)이 30 s 재시도로 넘치지 않게. 그리고 펫을 만들 때의 잠금 판정을 SessionFlags 하나에 맡기지 않는다: LOCK(0) 이면서 입력 데스크톱이 사용자의 것이 아닐 때만 잠김(실제 잠금
+  화면은 둘 다 잠김이라 그 뒤에서 움직이지 않는다), 원값은 새 로그 줄에 남긴다. **테스트 공백(사용자 PC):** CI 의 어떤 셀프테스트·게이트 창도 펫·팝오버 스프라이트를 앱 자신의
+  `SpriteStore`(실제 내려받기 → 디스크 → 디코드)로 돌리지 않는다 — 전부 픽스처 페처나 FIXTURE 폴더다. 그 경로는 진단 브랜치의 실제 네트워크 프로브로만 확인했다.
+  **(이어서, 사용자 셀프테스트 kit 10)** 그 PC 에서 시계·세션·"애니메이션 표시"·FIXTURE GIF 재생은 모두 정상이었다. 실제 실행 경로(`PlatformPlaza.spriteFetcher()` → 같은
+  `SpriteStore` → `PlazaStoreSpriteFetcher.loadFrames` → 공유 모델)를 줄 단위로 읽고 광장(같은 저장소·같은 페처 종류·같은 디코더)과 비교했지만 디스크에 `132-a.gif` 가 있을 때 정지
+  그림이 되는 단계를 코드에서 증명하지 못했다. 그래서 다음 키트의 로그가 결정한다: 로더는 그림·답마다 한 번(프로세스당) 시도한 변형별 파일 이름·바이트·디코드 프레임 수를, 팝오버
+  슬롯은 상태가 바뀔 때 프레임 수·로딩·요청한 animated·재생·GIF 요청 횟수·"애니메이션 표시"·active·보임·디스플레이 꺼짐·시계를, 틱이 시계를 멈출 때는 그 이유(보임·디스플레이)를
+  남긴다(펫은 위의 상태 줄). **규칙:** 실제 경로가 CI 에서 한 번도 돌지 않는 입력(앱의 저장소·전원·디스플레이 상태)은 그 값과 결과를 상태가 바뀔 때 로그에 남긴다.
+- **(사용자 PC, kit 10) 사용자가 돌린 셀프테스트가 점검용 설정 키 네 개(`ptb.selftest.debounce/exit/close/endsession.*`)를 남겼다(`defaults.cleanup` 실패).** TEAM.md 는 "점검용
+  설정은 끝나면 지운다"고 약속한다. 키는 자식 프로세스가 셀프테스트 설정 묶음 파일에 썼고, 부모는 `removeObject` + 동기화로 지웠다. corelibs CoreFoundation 의 설정 도메인은 메모리
+  사본에 없는 키의 삭제를 아무 일도 아닌 것으로 무시하고(`writeXMLValue`: "the key is not present AND value is NULL, do nothing"), 파일은 동기화 때만 다시 읽는다 — 부모가 마지막으로
+  동기화한 뒤 자식이 쓴 키는 삭제가 닿지 않는다. **왜 못 걸렀나:** CI 에서는 그 사이에 동기화(30 s 안전망 등)가 끼어 사본이 새로 읽혀 통과했다 — 체크가 트리거(동기화 없이 바로
+  삭제)를 만들지 않고 타이밍에 기댔다. 또 CI 는 실행마다 새 상태 폴더(새 설정 묶음)라 남은 키가 다음 실행에 보이지 않는다; 사용자 PC 는 `PTB_STATE_DIR` 이 없어 고정 묶음
+  `ptb.team.default.settings` 를 계속 쓴다. **고침:** `WindowsSelftest.removeChildKeys` — 먼저 동기화(자식이 쓴 것을 읽어 옴), 지우고, 다시 동기화. **부류 스윕:** 부모가 자식이 쓴
+  키를 지우는 곳 전수 — 기본값 묶음(`defaults.*`·`exit.*`), `modalPump.exitInMenu`(`ptb.selftest.menuexit.*`), `settings.dialogExitProcess`(`ptb.selftest.dialogexit.*`) 셋 다
+  고쳤다; 나머지 삭제는 같은 프로세스가 쓴 키라 해당 없음. **회귀 테스트:** `defaults.cleanupStale` — 부모가 동기화한 뒤 자식이 쓴 키를 평범한 삭제로 지우면 남는지(트리거 도달,
+  동기화가 끼면 판정 안 함)와, 같은 조건의 다음 키를 `removeChildKeys` 가 지우는지 본다. **규칙:** 다른 프로세스가 쓴 설정 키는 지우기 전에 이 프로세스가 동기화해 읽어 온다.
+<!-- stage 7 Task 22 (end) -->
+
+## 윈도 셀프테스트의 시스템 설정 변경 (2026-11-17)
+
+- **셀프테스트는 실제 시스템 설정을 바꾸지 않는다 — 특히 설정이 일으키는 연쇄(테마)를.** `ui.highContrast.system` 이
+  러너의 `SPI_SETHIGHCONTRAST` 를 켰다가 껐는데, 윈도는 고대비를 켜면 테마를 적용하고 끌 때 다른 개인화 값
+  (앱 라이트/다크 모드 등)을 원래대로 돌려놓지 않는다. 그 뒤 만들어진 키트 창은 레지스트리를 읽어 어두운 모습으로
+  열렸다가 늦게 도착한 `WM_SETTINGCHANGE` 로 밝게 다시 만들어졌고, 스프라이트 페이지의 애니메이터는 옛 객체가 되어
+  `companion.clockStops` / `companion.spriteFrames` 가 실패했다(시계 미작동, 두 캡처가 336×220 px 전체로 다름).
+  - 직접원인: 검사가 되돌린 것은 고대비 플래그뿐이고, 그 부작용으로 바뀐 다른 시스템 값은 되돌리지 않았다.
+  - **왜 못 걸렀나:** 그 브랜치의 CI 실행은 모두 `PTB_SELFTEST_APPEARANCE`(어두움·고대비 시뮬레이션)를 켠 캡처 실행이었다.
+    그 환경변수는 레지스트리 읽기를 우회하므로, 레지스트리가 바뀌어도 아무 창에도 영향이 없었다. 기본(밝음) 환경 실행이
+    한 번도 없었고, 하필 그 경로에서만 터지는 결함이었다. 검사 자신의 `restored=true` 는 고대비 플래그만 본 값이었다.
+  - 부류 스윕: 셀프테스트의 `SystemParametersInfo`(SPI_SET…) / 레지스트리 쓰기를 전수 grep — 이 검사 외에는 없다
+    (이 검사는 제거). 시스템 값을 바꿔야 하는 검사를 만들면 바꾼 값 *전부*(연쇄 포함)를 저장·복원하거나, 주입으로 대체한다.
+  - 영구 캡처: 실제 플립 검사를 없애고 `ui.highContrast`(컨텍스트에 주입)만 남겼다. 환경 의존 경로(시뮬레이션 변수)를
+    쓴 실행만으로 머지하지 않는다 — 기본 환경의 `windows-app` 실행 한 번이 필요하다.
+
+- **윈도 앱이 파일 대화상자 근처에서 죽었다 — 메시지 훅이 `wParam` 을 `Int(_:)` 로 바꿨다 (#270 이후 `windows-port`, 셀프테스트 exit 0xC000041D, `settings.difficultyKeys` 직후).**
+  **직접 원인:** 유휴 게이트의 깨움 추적(#270)이 펌프가 꺼내는 *모든* 메시지에 대해 `WakeTrace.message(message, wParam: Int(m.pointee.wParam))` 를 불렀다. `WPARAM` 은 부호 없는 64비트라 셸의 파일 대화상자가 보내는 2^63 이상 값에서 `Int(_:)` 가 트랩한다("Not enough bits to represent the passed value"). 변환은 호출 지점에서 일어나므로 `PTB_WAKE_TRACE` 가 꺼져 있어도(모든 사용자 PC) 실행됐다 — 창 프로시저 안의 Swift 트랩은 0xC000041D(사용자 콜백 안 치명 예외)로 보인다.
+  **왜 못 걸렀나:** #270 브랜치의 full 런은 통과했다(그 런의 대화상자 점검에서는 그런 메시지가 오지 않았거나 순서가 달랐다 — 확인 못 함). `windows-port` 와 합친 트리는 `windows.yml`(컴파일·단위 시험)만 돌리고 머지했는데, 그 워크플로는 셀프테스트를 돌리지 않는다. 메시지 경로를 건드리는 변경인데 "CI 변경"으로 분류해 앱 런을 생략했다(리드의 판단 실수).
+  **부류 스윕:** `Platform/Windows/**` 의 `Int(wParam)`/`Int(m.pointee.wParam)` 전수 — `WinPopover`(세션 변경 코드), `WinControls`(가상 키)는 메시지별 작은 값이라 안전. `LPARAM` 은 부호 있는 64비트라 `Int(lParam)` 은 트랩하지 않는다.
+  **후속(방어):** `WakeTrace.message(_:wParam:target:)` 가 `wParam` 을 `UInt` 로 받는다 — 호출부에 변환이 없다. 트리거 값(`UInt.max`, 2^63)은 `WakeTraceTests.testMessageAcceptsAnyWParamBits`.
+  **고침:** `Int(truncatingIfNeeded:)`, 그리고 추적이 꺼져 있으면 호출 자체를 하지 않는다. **규칙:** 메시지 파라미터를 정수로 바꿀 땐 `truncatingIfNeeded`/`bitPattern` 만 쓴다. 메시지 펌프·훅·창 프로시저를 건드리는 변경은 이름이 무엇이든 *합친 트리*에서 앱 런(셀프테스트)을 돌린 뒤에만 머지한다.
+
+<!-- idle blow-up (fix/windows-idle-blowup) begin -->
+## 윈도 HTTP 이음매: 클라이언트 인증서 요청과 스레드 핸들 (run 44143290510, 2026-11-17)
+
+- **윈도에서는 부화 base 인덱스를 GraphQL 로 한 번도 받지 못했다. 그 대신 돈 REST 649 회가 유휴 게이트 창 셋을 채웠고, 페치마다 스레드 핸들이 하나씩 남았다.**
+  **증상:** `windows-port` 2e1397c3 의 full run 44143290510 에서 유휴 게이트 shard 3 이 세 창 연달아 실패했다. `popover-home-still-120s` 는 67.4 M 사이클/s(예산 450 k),
+  10,673 cs/분(예산 250), 핸들 669→1173(+504, 예산 +10). bars 는 52.6 M·+358, heatmap 은 44.0 M·+142. 주 스레드는 조용했고(cs 4) 일한 것은
+  `com.apple.root.user-initiated-qos` 넷과 스레드 풀(`ntdll.dll+0x845d0`)이었다. 바로 다음 창 recap 은 정상(227 k·117 cs/분). 같은 시각 다른 브랜치의 run 44144033804 는
+  shard 1·2 가 같은 모양으로 실패했다.
+  **무엇이 돌았나(앱 로그):** 기동할 때마다 `base index (GraphQL) failed, no cache — REST build triggered … WinHttpSendRequest failed: WinHTTP error 12044` 뒤에
+  `base index: building via REST` 가 찍혔다(`PokeAPIClient.buildBaseIndexViaREST`: pokemon-species 1–649 를 6 개씩, 페치마다 새 WinHTTP 세션·TLS·자기 스레드, 그리고 응답 JSON 디코드).
+  끝나야만 `base-index.json` 을 쓰므로, 창이 닫히면 다음 기동이 1 번부터 다시 했다. 워밍업(60 s)·home·bars(각 150 s)는 모두 끝내지 못했고, heatmap 기동 48 s 째(창 18 s 째)에
+  끝났다. recap 부터는 디스크에서 읽어 페치가 0 이었다. 초록 run 44112168764 도 같은 12044 를 맞았지만 같은 빌드가 10 s 만에(15:45:51→15:46:01) 워밍업 안에서 끝났다.
+  실패한 run 의 shard 1·2 도 18:19 에 10 s 였다. 다른 것은 shard 3 러너에서 PokeAPI REST 가 5–15 배 느렸다는 것 하나다(150 s 에 약 640 페치, 대 10 s 에 649).
+  코드·빌드(swift-crypto 3.15.1, 앱 2.5.634, 러너 이미지 20261103.298.1 동일)·게이트는 바뀌지 않았다.
+  **원인 ①(12044):** graphql.pokeapi.co(Cloudflare)는 모든 클라이언트에 선택적 클라이언트 인증서를 요청한다(TLS CertificateRequest. `openssl s_client` 에
+  "Acceptable client certificate CA names: … Cloudflare … Managed CA" 가 나온다). curl 과 맥 URLSession 은 인증서 없이 계속 진행해 200 을 받는다(curl 0.8 s).
+  WinHTTP 는 거기서 `ERROR_WINHTTP_CLIENT_AUTH_CERT_NEEDED` 로 멈춘다. 문서에 나온 처리(`WINHTTP_OPTION_CLIENT_CERT_CONTEXT` = `WINHTTP_NO_CLIENT_CERT_CONTEXT` 를 걸고 다시 보내기)를
+  이음매가 하지 않아 그대로 오류가 됐다. 그래서 `base-index.json` 이 없는 윈도 설치본은 늘 649 페치 REST 폴백을 탔다. 2026-11-15 100cc1de 에서 PokeAPI 가 이음매로 옮겨진 뒤의
+  모든 키트(pc-5…pc-9)가 그렇다.
+  **원인 ②(핸들):** 이음매는 페치마다 `Foundation.Thread` 를 시작했다. 윈도의 corelibs `Thread` 는 `_beginthreadex` 핸들을 `_thread` 에 담아 두고 닫지 않는다
+  (swift-corelibs-foundation `Thread.swift`, swift-6.3.2-RELEASE·main 모두 `CloseHandle` 도 `deinit` 도 없다). 그래서 페치 하나마다 핸들 하나와 끝난 스레드의 커널 객체 하나가
+  프로세스가 끝날 때까지 남았다. heatmap 창은 빌드가 끝난 뒤에도 핸들이 1080 에 머물렀다(정상은 약 430). 평소의 갱신 페치(상태 확인·한도 등)도 페치 수만큼 핸들을 쌓았다.
+  **왜 못 걸렀나:** ① 이음매 테스트는 모두 루프백 HTTP 서버를 썼다. TLS 핸드셰이크를 거치는 서버가 없었고, CertificateRequest 를 보내는 서버는 더더욱 없었다. 넷버스트의
+  'PokeAPI REST·GraphQL' 요청 모양도 루프백에서만 쟀다. 실제 호스트의 12044 는 매 run 의 앱 로그에 찍혀 있었지만, 실패 줄이 아니라 폴백 안내였기에 아무 검사도 보지 않았다.
+  ② 유휴 게이트는 첫 실행의 네트워크 일을 60 s 워밍업이 흡수한다고 가정했다. 그 일의 양(649 페치)과 걸리는 시간은 외부 서버 속도에 달렸는데, 끝났는지 확인하지 않았다.
+  빠른 러너에서는 그 일이 늘 숨었다. ③ 핸들 예산(+10)은 창 안에서 페치가 없으면 잡을 것이 없다. 정상 창에서는 기동 후 30 s 안에 페치가 끝나 그 핸들이 시작값에 들어갔다.
+  스레드 하나가 핸들 하나를 남기는지 세는 테스트도 없었다.
+  **고침:** `WinHTTPFetch.send` 는 송신이나 수신이 12044 로 멈추면 그 요청에 `WINHTTP_NO_CLIENT_CERT_CONTEXT` 를 걸고 한 번 다시 보낸다. 사용자의 인증서는 어떤 경우에도
+  내지 않으며, 인증서를 반드시 요구하는 서버에서는 그대로 실패한다. 페치의 작업 스레드는 `WinDetachedThread` 로 만든다(`CreateThread` 직후 `CloseHandle`. 스레드는 계속 돈다).
+  스레드를 만들지 못하면 호출자에게 바로 답하고 슬롯을 돌려준다(전에는 `Thread.start` 의 실패를 알 길이 없었다). 유휴 게이트 워밍업은
+  `%LOCALAPPDATA%\PokeTokenBar\base-index.json` 이 생길 때까지(최대 +240 s) 앱을 열어 두고, 걸린 시간을 요약의 `warmup` 에 남긴다. `PTB_WAKE_TRACE=1` 에는 작업 스레드 쪽 귀속
+  `fetch trace start/exit: started= ended= hosts= failures=` 를 더했고, 게이트는 창마다 그 차이를 `FETCHES <label>:` 줄과 `fetches` 항목으로 낸다.
+  **가드(기계):** ① 셀프테스트 `net.clientCertificateOptional`: 실제 graphql.pokeapi.co 에 작은 POST 를 두 번 보낸다. 고친 경로는 HTTP 응답을 받아야 하고, 대조군
+  (`clientCertificateAsBefore`)은 12044 로 멈춰야 '서버가 아직 요청한다' 는 것이 증명된다. 셀프테스트는 사용자 PC 와 릴리스 게이트에서도 돌므로 판정은
+  `WindowsSelftest.classify`(순수 함수, `WindowsClientCertificateCheckTests`)가 한다: 실패는 '우리 답이 틀림'(인증서 요청에서 멈춤 -1206, 또는 대조군에 없던 실패)뿐이고,
+  닿지 못함·시간 초과·호스트가 두 요청을 같은 식으로 실패함(PokéAPI 장애)·호스트가 더는 요청하지 않음은 `unverified (이유)` 로 통과한다. HTTP 상태는 5xx 라도
+  핸드셰이크를 지났다는 뜻이라 검증으로 친다. 요청마다 타임아웃 10 s·전체 마감 15 s(세션의 `timeoutIntervalForResource`, `WinHTTPFetch` 가 그 시각에 호출자에게 답한다),
+  두 요청을 동시에 보내므로 호스트가 무엇을 하든 약 15 s 안에 답이 나고 셀프테스트를 멈추지 않는다. ②
+  `WindowsHTTPFetchTests.testTheFetchWorkersKeepNoHandleWhereFoundationThreadsKeepOneEach`: 한 세션에서 루프백 페치 100 회(세션 열기·닫기만 빼고 게이트·작업 스레드·
+  타이머·연결·요청까지 전 경로) 뒤 핸들이 +20 미만이어야 하고, 대조군 `Thread` 100 개는 +90 이상, `WinDetachedThread` 100 개는 +10 미만이어야 한다. 실측(run 44166157252):
+  한 세션 100 페치 +7, `Thread` +100, `WinDetachedThread` +0. 대조군이 실패하면 corelibs 가 고친 것이니 `WinDetachedThread` 를 걷어도 된다. ③ 게이트의 워밍업 대기와 `FETCHES` 줄.
+  (정보: 페치마다 세션을 따로 열면(앱의 방식) 닫힌 세션 하나가 핸들 약 2 개를 45–60 s 동안 더 쥐고 있다가 WinHTTP 가 놓는다. 100 페치 기준(run 44168716060)으로
+  시스템 프록시 경로는 45 s 까지 +200 이었다가 60 s 에 +47, 직접 경로는 60 s 에 +89·75 s 에 +74 였다. 누수가 아니라 늦은 해제이고, 스레드 몫과는 따로다.
+  실패한 heatmap 창이 빌드가 끝난 뒤에도 페치당 약 1 개(스레드)만 남긴 것과 맞는다.)
+  **스윕:** ① 같은 API 오용(윈도 Foundation 이 커널 핸들을 쥐고 닫지 않음): 출하 코드에서 `Thread` 를 시작하는 곳은 이음매(고침), `WinSocketLoop`(프로세스당 한 번이고 앱 종료 때만
+  다시 만든다. 핸들 하나라 그대로 둔다), `WinUIDump`·`WindowsSelftest*`(셀프테스트 전용이라 그대로 둔다)다. corelibs `Process` 는 스레드 핸들을 바로 닫고, 프로세스 핸들은 `deinit` 에서
+  닫는다(확인함). ② 같은 TLS 차이(서버의 CertificateRequest): 앱이 부르는 호스트 18 곳을 `openssl s_client` 로 확인했다. CertificateRequest 를 보내는 곳은 graphql.pokeapi.co 하나다.
+  ③ 같은 모양의 첫 실행 일(끝나야 저장하고 기동마다 처음부터 다시 함): `buildBaseIndexViaREST` 하나뿐이다. 업스트림 소유인 `Core/` 라 바꾸지 않았다. 이제 GraphQL 이 윈도에서도 되므로
+  REST 빌드는 GraphQL 장애 때만 돈다(맥과 같다). **알려진 한계(업스트림 소유 코드, 맥과 같음):** GraphQL 이 정말로 죽어 있으면(오프라인, PokéAPI 장애) 캐시가 없는 한
+  부화가 있는 기동마다 REST 빌드가 1 번부터 다시 649 페치를 하고, 한 기동이 끝까지 가야 저장된다(오프라인이면 DNS 실패 649 회, 5xx 면 TLS 649 회와 닫힌 세션마다 1 분쯤
+  남는 핸들 2 개). 그동안 부화는 막히지 않는다 — `chooseBaseViaREST` 가 무작위 id 를 최대 16 번 물어 base 를 고르고(가중치 없음), REST 도 안 되면 알을 유지하고 다음 틱에
+  다시 한다. 기동을 넘어 잇거나 실패 라운드에서 멈추는 안(`feat/base-index-rest-resume`)은 맥 동작을 바꾸므로 사용자 결정을 기다린다. 이 한계 때문에 유휴 게이트는 PokéAPI 가
+  느리면서 GraphQL 까지 죽은 드문 경우에는 여전히 측정 창에 REST 빌드가 들어갈 수 있다(워밍업은 최대 300 s 를 기다린 뒤 요약에 적고 계속한다. 셀프테스트는 #274 가
+  `base-index.json` 을 미리 심는다).
+  **사용자 PC:** 키트 pc-5…pc-9(모두 100cc1de 이후)는 두 결함을 다 가진다. ① `base-index.json` 이 없는 실행(첫 실행, 또는 빌드가 끝나기 전에 끈 다음 실행)마다 649 페치 REST
+  빌드가 돈다. CPU 는 수 초를 쓰고, 핸들 약 650 개가 앱 종료까지 남는다. 끝나면 30 일 캐시로 남고, 그 뒤로는 오래된 캐시를 계속 쓴다. ② 모든 페치가 핸들을 하나씩 남긴다
+  (120 s 마다 상태 확인·한도 몇 개 → 켜 둔 하루에 천 단위). 프로세스 한도(약 1,600 만)와는 거리가 멀지만, 작업 관리자의 핸들 수가 선형으로 자란다.
+  **규칙:** 네트워크 이음매는 루프백만이 아니라 앱이 실제로 부르는 호스트와의 TLS 핸드셰이크로도 확인한다(셀프테스트에서, '실패' 와 '닿지 못함' 을 구분해서).
+  윈도에서 작업마다 스레드를 만들 때는 `WinDetachedThread` 를 쓴다. 유휴 게이트의 워밍업은 첫 실행 일이 끝났다는 신호(파일)를 기다린다. 시간으로 끝났다고 가정하지 않는다.
+
+- 이 브랜치의 full run 44157998092 에서 번들·설치 셀프테스트가 파일 대화상자 검사 중 같은 훅 트랩으로 죽었다(`PokeTokenBar.exe+0x7AA80F`, exe 의 DWARF 로
+  `WinMessageHook.swift:56` "Not enough bits to represent the passed value"). 고침은 위 #272 항목(메시지 훅의 `Int(_:)`)의 것을 쓴다. 이 브랜치는 그 고침에 트리거 가드를 더한다: 셀프테스트
+  `loop.highWParam` 이 wParam `UInt.max` 와 `1 << 63` 을 실제 펌프로 보낸다(고치기 전 코드에서는 이 검사에서 프로세스가 죽어 보고서가 남지 않는다. run 44166164011 에서 통과).
+<!-- idle blow-up (fix/windows-idle-blowup) end -->
+
+<!-- process shim kill (fix/windows-process-shim-kill) begin -->
+## 윈도 프로세스 트리 종료: 재사용된 프로세스 id (windows.yml 44207854338, 2026-11-18)
+
+- **`.cmd` shim 의 자식을 함께 끝내는 `PlatformCompat.terminate` 가 shim 과 무관한 프로세스까지 죽였다 — 테스트 프로세스 자신을 포함해서.**
+  **증상:** `feat/windows-pet-extras` 의 `windows.yml` 44207854338 shard 4 의 마지막 청크가 `WindowsProcessTests.testTerminatingACmdShimEndsItsChild` 안에서 끝났다
+  (1001 개 중 751 개 실행, 실패 0, 요약 줄 없이 `swift test` 종료 코드 1). 출력은 테스트 시작(00:55:31.021)에서 끊겼고, 그 뒤의 줄은 전부 00:56:03.6 에 한꺼번에 나왔다.
+  **근거:** shim(cmd.exe)과 그 자식 PowerShell 은 corelibs `Process` 의 `bInheritHandles: true` 로 xctest 의 stdout 파이프를 물려받는다. 그래서 `swift test` 는 PowerShell 이
+  나갈 때에야 EOF 를 봤고, 끊긴 뒤 32 s 는 PowerShell 의 기동과 `Start-Sleep 30` 을 그대로 다 쓴 시간이다. 즉 PowerShell 은 끝나지 않았고, xctest 는 그 전에 죽었다.
+  **원인:** `terminate` 는 Toolhelp 스냅숏의 `th32ParentProcessID` 만으로 트리를 만들고, 찾은 것을 깊은 쪽부터 id 로 `TerminateProcess(…, 1)` 했다(3f8ddff6).
+  윈도는 프로세스 id 를 재사용하고, `th32ParentProcessID` 는 *만들 때의* 부모 id 일 뿐이다. 그래서 만든 프로세스가 이미 끝나 그 id 가 shim(또는 그 자식)에게 다시 배정되면,
+  훨씬 오래된 무관한 프로세스가 shim 의 '자식' 으로 보이고 함께 죽는다. 같은 규칙으로 옛 코드는 가짜 스냅숏에서 [현재 프로세스, 무관한 두 프로세스, 진짜 자식] 을 골랐다
+  (`ProcessTreeSelectionTests` 결함 주입). PC 에서 대표적인 그런 프로세스는 explorer.exe 다(만든 userinit.exe 가 로그온 뒤 끝난다). 출하 코드에서는 `ProcessRunner` 가 Codex 한도
+  갱신 때마다 codex(npm `.cmd` shim)를 이렇게 끝낸다.
+  **러너 실측(임시 진단, windows.yml 44230921044·44228430972):** 테스트 프로세스의 조상(swift-test ← swift ← bash ×3 ← Runner.Worker ← Runner.Listener ← …)은 모두 살아
+  있지만, 러너에는 만든 프로세스가 끝난 프로세스가 10 개 있었다 — wininit.exe·csrss.exe(만든 smss 인스턴스가 끝남), explorer.exe·winlogon.exe 등, 그리고 지금 단계의 파이프라인
+  `tee.exe` 둘(포크한 bash 가 끝남). 옛 규칙으로 shim 이 그 끝난 id 하나를 받으면: wininit 의 것(712)이면 **132 개**를 끝내려 한다(svchost ×78, Runner·bash·swift-test 를 지나
+  이 테스트 프로세스까지 — 깊은 쪽부터 끝내는 순서에서 **10 번째**, PowerShell 보다 앞). 이것이 44207854338 과 정확히 같은 모양이다(테스트 프로세스가 먼저 죽고 PowerShell 은
+  30 s 를 다 잤다). explorer 의 것(5816)이면 explorer·dwm·winlogon·csrss 등 8 개, tee 의 것이면 그 단계의 로그 파이프. 새 규칙은 모든 경우 0 개다. 새 shim 이 방금 끝난 id 를
+  받는 일은 실제로 일어난다 — 430 개 중 3 개가 우리가 막 끝낸 cmd 24 개의 id 를 받았다. PC 에서는 explorer 아래가 사용자가 띄운 앱 전부다(PokeTokenBar 자신 포함).
+  **같은 함수의 둘째 결함:** 트리를 다 끝낸 뒤 corelibs `Process.terminate()` 를 불렀다. 그것은 `processHandle` 로 `TerminateProcess` 하는데, 그 핸들은 프로세스가 끝나면 corelibs 의
+  관리 스레드가 닫는다(`Process.swift` `closeHandler`, 값은 그대로 남는다). 자식을 먼저 죽이면 shim 이 곧 끝나므로, 닫힌 핸들(다른 객체에 재배정되었을 수 있는 값)로 부를 수 있었다.
+  이번 사고는 아니다(그랬다면 PowerShell 이 먼저 죽었다).
+  **왜 못 걸렀나:** 테스트는 '자식이 끝났나' 만 봤고 '다른 것은 살아 있나' 는 보지 않았다. 재사용된 id 가 shim 에 걸리는 일은 러너의 프로세스 생성 순서에 달린 드문 경우라
+  여러 번의 통과가 아무것도 증명하지 못했다. 테스트의 정리(`defer { forceKill(pid: child) }`)도 같은 부류였다 — 이미 끝난 자식의 id 를 다시 죽였다.
+  **고침:** 고르는 규칙을 공용 순수 함수 `ProcessTreeSelection.descendants` 로 떼었다(`GetProcessTimes` 의 생성 시각). 루트는 스냅숏에서 현재 프로세스의 자식이고 우리보다
+  오래되지 않아야 하며, 아니면 아무것도 고르지 않는다. 자식은 *자기가 적은 부모*보다 먼저 만들어지지 않았고(루트와 비교하지 않는다) 스냅숏 시각보다 뒤가 아닐 때만 자식이다.
+  현재 프로세스는 시각을 묻기 전에 규칙으로 거른다(그래서 그 핸들을 열지도 않는다). 걸러진 프로세스 아래는 보지 않는다. `WinProcessTree.terminate(process)` 는 끝낼 모든 프로세스를,
+  판단에 쓰는 스냅숏 *전에* 연 핸들로 붙잡는다(열린 핸들은 프로세스 객체를 붙잡아 두므로 그동안 id 가 다른 프로세스로 넘어갈 수 없고, 스냅숏의 그 id 줄은 그 프로세스의 것이다):
+  (1) 어느 스냅숏보다 먼저 루트를 붙잡는다 — corelibs `processHandle` 을 `DuplicateHandle` 하고, 그 뒤에도 `process.isRunning` 이고 `GetProcessId(사본) == pid` 일 때만 쓴다.
+  swift-corelibs-foundation 6.3.2 는 `isRunning = false` 를 쓴 *뒤에* 그 핸들을 닫으므로(`terminateRunLoop`), 복사 뒤에도 실행 중이면 복사한 값은 아직 그 핸들이었다.
+  붙잡지 못하면(이미 끝났거나 corelibs 가 닫았다) 아무것도 끝내지 않는다. (2) 첫 스냅숏을 걸으며 후보를 연다. (3) 모두 연 뒤 둘째 스냅숏을 찍어, 이미 연 핸들의 생성 시각으로만
+  같은 규칙을 다시 돌리고 그 결과만 그 핸들로 끝낸다. (4) 다 고르고 붙잡은 뒤 루트를 먼저, 붙잡은 핸들로만 끝낸다(corelibs 와 같은 코드 0xC000000F — 자식이 먼저 끝나면
+  shim 이 제 코드로 먼저 나가는 일이 잦았다). 그다음 자손을 깊은 쪽부터. 반환값은 루트의 `TerminateProcess` 결과다.
+  corelibs `terminate()` 는 윈도에서 부르지 않는다. `ProcessRunner` 가 시간 초과 때 2 s 뒤 id 로 하던 `forceKill` 은 `PlatformCompat.forceKillIfStillRunning` 으로 옮겨 윈도에서는
+  하지 않는다(`TerminateProcess` 는 무시할 수 없고, 2 s 뒤의 id 는 다른 프로세스의 것일 수 있다). 맥은 둘 다 그대로다(`process.terminate()`, 2 s 뒤 실행 중이면 `SIGKILL`).
+  테스트는 자식 핸들을 붙잡아 두고 그 핸들로 정리하며, PowerShell 기동을 60 s 까지 기다린다(15 s 를 넘긴 적이 있다, run 44168716060).
+  **첫 고침(22b3474b)의 남은 틈(리뷰):** 스냅숏과 `OpenProcess` 사이에 끝나 재사용된 id 를 받아들였다 — 신원 확인이 스냅숏 *뒤에* 읽은 시각 상한(`time <= snapshotTime`)뿐이라,
+  그 사이에 만들어진 프로세스가 통과했다. 루트에서는 흔하다: `ProcessRunner` 가 자식의 stdin 을 닫은 직후 terminate 하므로 shim 이 걷는 도중 끝나는 일이 잦고, 방금 끝난 id 는 곧
+  다시 배정된다(위 실측: 430 개 중 3 개). 그래서 루트를 corelibs 핸들로 먼저 붙잡고, 둘째 스냅숏으로 다시 고른다. 상한은 남겼다 — 이제 할 일은 시계를 뒤로 돌린 경우를 좁히는 것이다.
+  **받아들인 한계(코드 주석에도):** 생성 시각은 벽시계다. 시계를 뒤로 돌리면 대개 진짜 자식이 부모보다 오래되어 보여 놓친다(그 호출의 CLI 자식이 남는다). 드물게는 잘못 받아들인다:
+  어떤 프로세스의 id 를 그 전 주인이 쓸 때 만든 무관한 프로세스가, 돌린 시계 때문에 새 주인보다 새것으로 보일 때(스냅숏 시각 상한이 그 창을 좁히지만 닫지는 못한다).
+  같은 생성 시각(클록 틱 단위)은 순서와 관계없이 부모·자식으로 본다. 옛 코드와 새 코드가 모두 놓치는 것: 중간 프로세스가 끝나 사슬이 끊긴 자식, 걷는 도중(첫 스냅숏 뒤)
+  만들어진 자식. 새 코드만 놓치는 것: 루트가 둘째 스냅숏 전에 끝난 경우(끝났지만 핸들로 붙잡힌 프로세스가 Toolhelp 스냅숏에 나오는지는 확인하지 않았다 — 나오지 않으면 그 아래를
+  놓친다). 놓침은 잘못 끝내기보다 가벼운 실패로 본다.
+  **후속(지금 하지 않음):** `process.run()` 직후 루트를 Job Object 에 넣으면 추측 없이 트리를 끝낼 수 있다. 단 corelibs 는 일시정지 상태로 만들지 않으므로 run 과 넣기 사이에 생긴
+  자식은 빠지고, 루트가 이미 다른 job 안에 있을 때의 동작 등 따로 확인할 것이 있다.
+  **가드(기계):** `ProcessTreeSelectionTests`(9, 맥·윈도 공용): 진짜 자식·손자는 깊은 쪽부터, 재사용된 id 를 부모로 적은 더 오래된 프로세스와 그 아래는 제외, 루트보다 새것이지만
+  자기가 적은 부모보다 오래된 프로세스는 제외(950←200: 505 < 510), 열 수 없거나 스냅숏 뒤 시각인 것과 그 아래는 제외, 같은 틱의 자식은 포함, 현재 프로세스는 같은 틱이어도
+  받지도 묻지도 않음, 루트가 스냅숏에 없거나·부모가 우리가 아니거나·우리보다 오래되면 아무것도 고르지 않음. 결함 주입 10 개가 각각 해당 테스트에서 실패한다: 부모 대신 루트의 시각과
+  비교하면 950 테스트만 실패한다(첫 고침의 4 테스트는 모두 통과했다 — 리뷰 지적), 현재 프로세스 규칙을 빼면 [50, 200], 시각을 물은 뒤 거르면 물은 목록 [200, 50], 생성 시각
+  규칙을 빼면 트리거 테스트가 [901, 900, 200]. `seen` 집합은 뺐다: 스냅숏은 프로세스당 한 줄이라 부모가 하나이고, 루트의 부모는 현재 프로세스이며 현재 프로세스는 받지 않으므로
+  어떤 프로세스도 두 번 닿지 않는다 — 그것이 막는 입력이 없어 지키는 테스트를 만들 수 없었다. `WindowsProcessTests`: 실행 중인 shim 은 true 를 돌려주며 자식과 함께 끝나고,
+  끝난 뒤에는 붙잡을 수 없어 false 다(아무것도 끝내지 않는다).
+  **스윕:** id 로 프로세스를 끝내는 출하 코드는 `PlatformCompat.forceKill(pid:)` 하나였고, 윈도에서의 유일한 호출(`ProcessRunner` 시간 초과 2 s 뒤)은 없앴다(윈도 분기는 남았고
+  호출부가 없다. 맥은 그대로). 셀프테스트 `WindowsSelftest.Helper.start` 는 `process.run()` 직후 id 로 `OpenProcess` 해 그 핸들로 나중에 끝낸다 — 같은 부류지만, corelibs 가 핸들을
+  쥐고 있는 동안은 id 가 재사용될 수 없어 틈은 자식이 run 직후 그 몇 μs 안에 끝나고 corelibs 가 닫는 경우뿐이다. 셀프테스트 전용이라 고치지 않았다. Toolhelp 부모 id 를 걷는 곳은
+  이 함수뿐(셀프테스트 둘은 이름으로 세기만 한다). corelibs `terminate()` 를 직접 부르는 `BinaryLocator`(`$SHELL`)·`UpdateChecker`(brew) 는 윈도에서 실행되지 않는다.
+  **규칙:** 윈도에서 프로세스를 id 로 찾아 끝내지 않는다. 끝낼 프로세스는 판단에 쓰는 스냅숏 전에 연 핸들로 붙잡고 그 핸들로 끝내며, 부모 id 는 그 핸들에서 읽은 생성 시각으로
+  확인한다. corelibs `Process` 의 프로세스는 `processHandle` 의 사본을 `isRunning` 으로 다시 확인한 뒤에만 쓴다.
+<!-- process shim kill (fix/windows-process-shim-kill) end -->
+
+## 셀프테스트가 살아 있는 파트에 다른 폭을 먹였다 (2026-11-18)
+
+- **`home.activityHover` 가 날짜에 따라 실패했다 — 점검의 `point(of:)` 가 막대를 창 콘텐츠 폭(332)으로 찾으면서 살아 있는 파트의 폭(311)을 바꿨다.**
+  `TrendBarsPart.size(width:)` 는 파트가 마지막으로 잰 폭을 저장하고 `date(at:)` 도 그 폭으로 배치한다. 점검은 332 로 "가장 높은 막대의 첫 픽셀"을 찾아 호버했고(첫 호버는 332 배치 위에서 맞았다),
+  그 뒤 렌더가 호스트 폭 311 로 다시 재면서 같은 점이 이웃 열/틈이 됐다. 같은 열 +1 px 이동이 `selected=-` 로 선택을 잃어 다시 그렸다("re-rendered=true").
+  **제품 결함 아님** — 카드 창은 `WS_EX_TRANSPARENT`(마우스 투과)이고 진단 줄의 `under=Button` 은 패널 항목 자신이다.
+  - **왜 날짜에 따랐나:** 가장 높은 막대 = 오늘 − 6 일의 열. 열 위치가 날짜로 움직이고, 332 폭의 첫 픽셀이 311 폭의 같은 열 안(통과)인지 밖(실패)인지가 열마다 다르다. 11-11 은 안, 11-12 는 밖이었다.
+  - **왜 못 걸렀나:** 통과하는 날이 대부분이었고 실패 줄이 "같은 열에서 다시 그렸다"뿐이라 위치 정보가 없었다. 첫 호버 `selected==target` 은 332 배치에서 맞아 폭 불일치를 가렸다.
+  - **고침:** 점검이 파트 자신의 폭(`TrendBarsPart.width`, 읽기 전용으로 공개)으로 찾는다. 실패 줄에는 포인터·카드·항목 사각형과 선택·뷰 통계를 남긴다.
+  - **부류 스윕:** 셀프테스트의 `size(width:)` 호출은 이 하나뿐(나머지는 호스트 경로). "오늘"을 시계에서 받는 픽스처(`ActivityFixtures`, Recap `series`, Home 의 `now`)는 날짜별 열 위치에만 의존하며 이 부류는 이 점검이 유일하다.
+  - **영구 캡처:** `PopoverActivityTests.testAPointFoundAtThePartsOwnWidthStaysOnItsColumn` — 7월 1–14 일 모두에서 자기 폭의 점은 +1 px 에서 열을 지키고, 다른 폭의 점은 일부 날에 지키지 못한다(함정을 고정). **규칙:** 살아 있는 파트를 재는 점검은 파트의 현재 폭을 쓰고, `size(width:)` 로 폭을 바꾸지 않는다.
+
+<!-- popover sprite shown (fix/windows-popover-sprite-shown) begin -->
+- **(사용자 PC, kit 11 로그) 팝오버의 스프라이트(홈 헤더·도감 상세)가 하나도 움직이지 않았다 — 디코드는 됐고(`583-a.gif: 41885 bytes, 73 frames`) 첫 틱에서 시계가 멈췄다
+  (`shown=false`, 45 초에 16 번, `shown=true` 는 한 줄도 없음).** 직접원인: `WinSpriteAnimator.isShown` 이 `GetParent` 로 올라갔다. `GetParent` 는 최상위 팝업에서 **owner** 를
+  돌려주고, 팝오버의 owner 는 앱의 숨은 싱크(클라이언트 0x0)라 교차가 비어 모든 스프라이트가 "안 보임"이었다. 칠할 때마다 시계가 다시 켜지고 다음 틱에 꺼져, 그림은 첫 프레임에 멈췄다.
+  **왜 못 걸렀나:** ① 스프라이트 시계 체크(`companion.spriteFrames`·`clockStops`)는 owner 없는 KitWindow 에서 돌았다 — 실제 팝오버의 창 구성(owner 있는 팝업)과 달랐다. ② 실제 팝오버를
+  여는 체크들은 스프라이트 시계를 보지 않았고, 러너의 "애니메이션 표시"가 꺼져 있어 실제 팝오버에서는 시계가 켜질 일 자체가 없었다(정지 그림이 정상). ③ 칠할 때 다시 켜지는 동작이
+  캡처를 정상으로 보이게 했다. **고침:** 부모 체인만(`WS_CHILD` 인 동안 `GetAncestor(GA_PARENT)`) 올라 최상위 창에서 멈춘다. 그리고 멈춘 시계가 칠하기 없이도 돌아오는 유일한 경우를
+  더했다: 디스플레이가 깰 때(그때 윈도는 다시 칠하지 않는다), 꺼져 있는 동안 타이머 없이. 화면에 다시 나오는 뷰는 늘 칠해진다(창이 함께 다시 보임·스크롤 백·가림 해제; 팝오버를
+  다시 열거나 페이지를 바꾸면 새 뷰를 만든다) — 그래서 그 경우는 칠하기가 시계를 다시 켠다. **부류 스윕:** `GetParent` 로 오르는 곳 — `WinScrollArea.reveal`
+  (스크롤 영역을 찾을 뿐이라 owner 까지 가도 해 없음), `isShown`(고침). `isShown` 을 쓰는 동반자 헤더의 효과 시계·진화 라인 이동도 같은 고침으로 실제 팝오버에서 처음 돈다.
+  **회귀 테스트:** `popover.spriteShown` — 앱 싱크가 owner 인 실제 `WinPopover` 를 트레이 위치에 열고(고정 GIF, 애니메이션 켬) 홈 헤더와 도감 상세가 보임·시계·틱·프레임 이동을 갖는지,
+  홈 헤더를 짧게 만든 뷰포트에서 스크롤 아웃/백, 도감 상세가 든 창 숨김/다시 보임(뷰에는 `WM_SHOWWINDOW` 가 오지 않고 칠하기만 온다), 디스플레이 꺼짐/켜짐에서 멈췄다 스스로 돌아오는지 본다. 고치기 전 걷기(`GetParent`)를 옆에 찍어 트리거(여기서 false)를 보인다.
+  (첫 판의 체크는 도감 상세를 스크롤해 판정했다가 실패했다 — 상세의 그려진 뷰가 탭 내용 전체라 80 px 뷰포트에도 늘 일부가 남는다. `isShown` 은 뷰 단위라 그런 뷰는 스프라이트 칸이
+  스크롤로 나가도 시계가 돈다; 고치기 전과 같은 성질이고 이번 범위 밖.)
+  **규칙:** 창 체인을 오를 때 `GetParent` 는 최상위 팝업의 owner 를 돌려준다 — 부모만 오를 땐 `WS_CHILD` 동안 `GetAncestor(GA_PARENT)`. 화면 상태 체크는 실제 창과 같은 소유 관계에서 돈다.
+- **(같은 로그) 플로팅 펫은 kit 11 에서 움직였다(`41 frames at the 0.1 s floor`, `89 clock fires, 89 ticks` / 10 s).** kit 10(windows-port #280+#281)과 사이의 펫 경로 차이는 잠금 판정
+  (SessionFlags 하나 → SessionFlags·입력 데스크톱), GIF 재시도, #283 확장(그리기 합성), 로그다. 이번 실행의 값으로 보면 kit 10 의 판정도 같았다(SessionFlags=0x1 이면 kit 10 도 잠기지
+  않음, 첫 GIF 요청이 성공해 재시도가 일하지 않음, 절전 꺼짐, #283 은 시계·프레임 선택을 건드리지 않음). 그래서 이 실행에서 움직인 것을 그 코드 변경이 설명하지 못한다. kit 10 세션에는
+  펫 로그가 없어(#285 에서 생김) 그때의 원인은 **증명되지 않았다** — kit 10 의 보고와 맞는 남은 설명은 그 세션들의 첫 GIF 요청 실패(kit 10 은 다시 묻지 않음)다.
+<!-- popover sprite shown (fix/windows-popover-sprite-shown) end -->
+
+<!-- agent link cold start (feat/windows-pet-link) begin -->
+- **(CI, 라이트 런 44255743956) `link.coldStart`: 앱이 없을 때의 정상 링크가 0 으로 58 ms 에 끝나고 깨끗한 시작이 하나도 없었다.** 직접원인: GitHub 의 Windows 러너는 관리자·UAC 꺼짐으로
+  돌아 토큰이 승격돼 있고(이 체크의 새 메모 `this runner's token elevated=` 가 보인다), 링크 시작은 설계대로 승격 분기(아무것도 켜지 않음)로 갔다. **왜 못 걸렀나:** ① 체크가 러너의
+  토큰을 확인하지 않고 승격되지 않은 여는 쪽을 가정했다 — 결정 표의 단위 테스트는 두 분기를 다 덮었지만 셀프테스트는 러너에서 도달할 수 없는 분기를 기대했다. ② 깨끗한 시작은
+  결과를 어디에도 남기지 않아(링크 시작은 아무것도 쓰지 않는다는 설계) 실패한 CreateProcessW·승격 포기·성공을 로그로 구별할 수 없었다. ③ 그 브랜치의 첫 라이트 런이 릴리스
+  빌드 오류로 셀프테스트까지 가지 못해 한 번 늦게 드러났다. **고침:** 결정에 `droppedElevated` 를 따로 두고, 깨끗한 시작의 세 결과(pid·CreateProcessW 오류·승격 포기)를 각각 한 줄로
+  남긴다(드문 시작이고 사람이 그 결과를 본다). 체크는 러너의 승격에 따라 기대를 고르고(승격: 포기 줄과 시작 없음, 아님: 로그의 pid 로 정확히 그 프로세스를 멈춘다), 깨끗한 시작
+  자체(`startClean(suspended: true)`: 같은 CreateProcessW·새 환경·job 이탈·폴더)를 직접 만들어 한 줄도 돌기 전에 멈춘다. **부류 스윕:** 셀프테스트에서 승격 여부에 따라 갈리는 앱
+  경로는 이 하나(`isElevated` 를 쓰는 곳은 링크뿐). **규칙:** 러너에서 도는 체크가 토큰·무결성·job 에 따라 갈리는 경로를 기대할 때는 그 값을 먼저 읽어 메모에 남기고 기대를 고른다.
+<!-- agent link cold start (feat/windows-pet-link) end -->
+
+<!-- gate robustness (ci/windows-gate-robustness) begin -->
+## 윈도 유휴 게이트·셀프테스트의 경계 실패 네 건과 귀속 공백 (2523d9dc, 2026-11-18)
+
+- **판정(14 회 full run 비교: windows-port 푸시 9 회 + kit/pc-10…14; 머지 #285·#287·#288·#289 전후에 앱이 한 일은 같다):**
+  ① `idle.mainThreadCsPerMin 823.5 <= 800`(44295198366 shard 3, `popover-companion-animated-120s`) — **잡음.** 14 회 모두 루프 2394–2398·메시지 2393–2397·
+  `animationClock` 1196–1198 로 같은 일을 했고, 주 스레드 전환만 662–824/분으로 흔들렸다(같은 SHA 의 kit14 692.5, #285 이전 kit11 799.0). 예산 800 은 621–726 을 보고 잡은 값이었다.
+  ② `modalPump.idle` after=12(kit14 번들 재실행) — **잡음, 오늘 머지보다 오래됐다.** 안전 타이머 한 번은 약 45 회 중 거의 모두 1 회 전환이다(2523d9dc 포함). 같은 `[~5s+12]` 가
+  #285 이전 트리(35a3a2b6, run 44225879845 설치 셀프테스트)에도 있었다. #285 의 새 로그·10 s 시계 점검 타이머는 상태가 바뀔 때만, `writeAndFlush` 는 종료·에이전트 링크에서만,
+  #289 는 디스플레이 깨움·틱마다 `GetWindowLongW` 몇 번이라 안전 깨움 경로에 일을 더하지 않는다. 한 루프 반복에 12 회는 다른 프로세스가 모든 최상위 창에 보내는 메시지(브로드캐스트)의
+  모양에 맞지만 그 창 안에 무엇이 왔는지 기록이 없었다.
+  ③ `plaza.walk`(kit14 번들 첫 시도) — **입력·타이밍 플레이크.** "written=0" 은 통과한 모든 실행에도 있다. 같은 출발점(23,6)·같은 탭인데 세로 "down" 탭이 움직이지 않아 "up" 을 고르고,
+  Shift+up 0.5 s 도 움직이지 않았다(y=6 그대로). 잠시 뒤 (28,6) 에서 up 은 3 칸 움직였다. Shift+up 자체는 오늘 13 회 통과했다. 두 키 동작이 1–2 s 안에 연달아 효과가 없었는데
+  `loop.mainThreadStalls` 는 기동 때만 재서 키가 사라졌는지 펌프가 늦었는지 가를 수 없었다.
+  ④ `plaza-closed-120s` 주 27.5/분(kit12 ff860ca6 첫 시도) — **모름(한 번).** 다른 13 회와 재실행은 2–3/분. 주 스레드 55 회, 디스패치 overcommit 스레드 232 회(통과 run 123).
+  창의 귀속이 비어 있어 무엇이 깨웠는지 알 수 없다(아래).
+- **귀속 공백(실제 결함): 32 창 중 17 창이 14 회 모두 깨움 귀속이 없었다.** IME 창의 클래스 이름 "MSCTFIME UI" 에 공백이 있어 `wake trace` 줄의 `messages=(\S*)` 가 맞지 않았고,
+  `Get-WakeDelta` 는 null 을 돌려줬다 — 광장 창 넷, popover open/closed/kit/sprite, 페이지 창 아홉. 그래서 페이지 창의 "시계 없음" 규칙(#270 이후)은 볼 것 없이 통과해 왔다(cs·사이클
+  예산은 적용됐다). **왜 못 걸렀나:** 귀속이 없으면 규칙이 조용히 건너뛰었고(`if ($w)`), 파서 테스트가 없었으며, 귀속을 가진 창(애니메이션·펫)만 봐서 빈 칸이 보이지 않았다.
+- **고침(게이트·셀프테스트, 앱 동작은 그대로):** (4) `idle-rules.ps1` 이 줄을 키 이름으로 나눈다(공백 있는 클래스 이름 허용). 추적을 켠 창의 귀속이 없으면 그 창은 **실패**한다.
+  (1) 애니메이션 두 창(`popover-companion-animated`·`popover-sprite-open`)은 한 일로 판정한다(`Test-AnimatedWork`): 시계 발화가 GIF 자신의 속도(프로브가 `gif rate=N/s` 로 적는다)의
+  80–100 %(+10 s, +5), 메시지는 발화당 2 개 + 10 까지, 주 스레드 전환은 폭주 잡기(1000/분)로만. (2) `modalPump.idle` 은 창 안에 주 스레드로 온 것을 기록하고(`WinMessageArrivals`:
+  다른 스레드·프로세스가 보낸 것 WH_CALLWNDPROC, 펌프가 꺼낸 게시 메시지 WH_GETMESSAGE) 예산을 넘으면 `IdleBurstAttribution` 이 **한 번의** 묶음만, 그것이 밖에서 온 브로드캐스트일
+  때만 봐준다(같은 메시지가 우리 최상위 창 둘 이상에, 또는 알려진 시스템 브로드캐스트). 나머지는 여전히 예산 안이어야 하고, 귀속 없는 묶음·게시 메시지·한 창에만 보낸 것·두 번째 묶음은
+  실패하며 판정에 이름이 남는다. (3) `plaza.walk` 의 `openDirection` 은 대체 방향도 시험하고, 둘 다 안 움직이면 한 번 더, 두 번째는 실패. 움직이지 않은 탭 쌍과 Shift 누름도 한 번 다시.
+  펌프 지연(게시 메시지 왕복)을 걷기 전후와 다시 할 때마다 적는다. `plaza.walkRetry` 가 매 실행에서 증명한다(탭 둘을 일부러 보내지 않으면 다시에서 찾고, 넷이면 못 찾는다).
+- **이빨 확인:** `idle-rules.tests.ps1`(CI `idle-rules.yml`, 50 검사): kit14 의 실제 줄 — 옛 패턴은 못 읽고 새 것은 읽는다; 14 회 28 창 모두 통과; 프레임마다 타이머 하나 더·
+  컨트롤 하나 더 다시 그리기·두 배 속도 시계·멈춘 시계·1200/분 주 스레드·귀속 없음·속도 없음은 모두 실패. `IdleBurstAttributionTests`(7, 공용): 브로드캐스트·게시·나머지 규칙을 깨면 셋이 실패.
+  **후속(같은 브랜치):** 움직이는 펫 두 창도 한 일로 판정한다(`Test-TimerWork`). `pet-working` 의 사이클이 같은 일(주 145/분)로 9 회 1.50–3.09 M/s 를 오갔고 예산 2.6 M 은 한 번의
+  측정에서 잡은 값이었다(44315731795 첫 시도 실패, 재실행 통과). 귀속된 발화(GIF 시계 180–400, 일하는 에이전트의 흔들기 `petBob` — Foundation 타이머라 메시지가 아니어서 스스로 센다 —
+  192–265)와 발화당 주 스레드 1.5 회 + 60 이하, 메시지 발화당 2 + 10 이하. 주 스레드·사이클은 폭주 잡기(400/분, 5 M/s)로만. 테스트: 측정한 모양은 통과, 두 번째 타이머·두 배 속도·
+  멈춘 시계·다시 그리기 폭주·귀속 없음은 실패.
+  **규칙:** 게이트 규칙이 읽을 값이 없으면 통과가 아니라 실패다. 로그 줄을 정규식으로 읽을 때는 값 안의 공백·구분자를 실제 줄로 시험한다. 측정 예산은 런너가 흔드는 양(전환 수)보다
+  앱이 한 일(발화·메시지)에 건다.
+<!-- gate robustness (ci/windows-gate-robustness) end -->
+
+<!-- msvc toolset pin (ci/windows-msvc-toolset-pin) begin -->
+## 러너 이미지가 바꾼 고정 안 된 빌드 입력: MSVC 툴셋 (2026-11-18, 이미지 20261116.315.1)
+- **증상:** 새 `windows-latest` 이미지에 걸린 모든 빌드(windows.yml, windows-app, 릴리스 게이트)가 C++ 타깃(CPlazaD2D 등)에서
+  `_EMIT_STL_ERROR(STL1000, "Unexpected compiler version, expected Clang 22 or newer.")` 로 컴파일 실패. 같은 코드가 이전 이미지(20261103.298.1)에서는 통과.
+- **직접 원인:** 이미지가 VS 툴셋을 14.29/14.44/14.51 에서 14.29/14.44/14.52 로 바꿨다. clang 은 `VCToolsInstallDir` 가 없으면 가장 새 툴셋(14.52, STL 이 clang 22 요구)을
+  고르는데 Swift 6.3.2 의 clang 은 20 이다.
+- **왜 못 걸렀나:** 툴체인은 고정했지만(`swift-6.3.2-release`) 그 컴파일러가 맞물리는 STL 은 이미지가 정하는데 빌드 신원(시드 메타·릴리스 매니페스트)에 툴셋이 없었고,
+  이미지 버전은 기록돼도 "이 툴셋이면 된다"를 확인하는 검사가 없었다. 이미지 롤아웃은 점진적이라 같은 날 이미지가 섞여 한쪽만 실패했다.
+- **고침:** `scripts/windows/select-msvc-toolset.ps1` 이 설치된 툴셋의 `yvals_core.h` 가 요구하는 clang 버전을 읽어, 우리 clang 이 받아들이는 가장 새 14.4x+ 툴셋을
+  `VCToolsInstallDir` 로 고정(없으면 실패). `windows-swift` 액션에서 실행하므로 windows.yml·windows-app·cache lab 이 모두 받는다. 새 이미지에서 14.44.35207, 이전 이미지에서
+  14.51.36231 을 골랐고 둘 다 windows.yml 전체(4 조각 + render)가 통과. 시드는 툴셋이 다르면 쓰지 않고(`seed-meta.json` msvc), `windows-release.json` 에 `msvcToolset` 을 남긴다.
+- **다른 고정 안 된 입력 점검(고정됨 / 안 됨):**
+  고정됨 — Swift 툴체인(6.3.2, 작업 이름·버전 고정), MSVC 툴셋(이제 선택·기록), 시드의 Swift·이미지·툴셋·Package.swift 메타, 릴리스의 이미지 버전 기록.
+  고정 안 됨 — runs-on `windows-latest`(이미지 롤링), Windows SDK(clang 이 가장 새 `10.0.x`; 두 이미지 모두 10.0.26100.0 이라 아직 같음), Inno Setup(이미지 것, 없으면 choco 최신),
+  PowerShell 7(이미지), WARP/GPU 렌더러(OS 와 함께 바뀜: 유휴 예산과 광장 렌더 비교가 영향받음), vcpkg OpenSSL(`windows/vcpkg.json` 에 baseline 없음 → 항상 최신 3.x),
+  swift-crypto(`from: "3.0.0"` 부동), `compnerd/gha-setup-swift@main`(브랜치 참조), 액션 `@v4/@v5` 태그.
+  **후속 제안(사용자 결정):** 액션을 SHA 로, vcpkg baseline 을 고정, SDK 버전도 선택·기록.
+- **규칙:** 컴파일러를 고정하면 그것과 맞물리는 헤더·툴셋도 고르고 기록한다. 러너 이미지가 정하는 입력은 빌드 신원에 남기고, 다르면 캐시를 쓰지 않는다.
+<!-- msvc toolset pin end -->
+
+<!-- pet frames on screen (fix/windows-pet-and-detail-animation) begin -->
+- **(사용자 PC, kit 10–15) 플로팅 펫이 움직이지 않았다 — 로그는 "moving", 시계는 10 초에 92 번 돌았는데 화면의 그림은 그대로였다.** 사용자가 본 것: 펫 크기를 바꾸면 곧바로 커진다,
+  "뒷모습"을 켜도 변화 없음, 쓰다듬어도 하트가 안 보이는데 포인터를 움직일 때마다 GIF 의 다른 프레임이 보인다. 직접원인: `WinPetWindow.render()` 가 같은 자리의 새 프레임을
+  `UpdateLayeredWindow(hwnd, nil, nil, nil, …)`(자리·크기 NULL = "바뀌지 않음")로 올렸다. 그 호출은 성공하고 창의 비트도 바뀌지만, 그 PC(Windows 11 25H2, Intel UHD 620)에서는
+  다른 일(포인터 위 툴팁·말풍선 창, 새 크기)이 그 자리를 다시 합성할 때까지 화면에 나오지 않았다. 크기 변경은 자리·크기를 넘기는 호출이라 보였다. **왜 못 걸렀나:** 펫 체크는
+  전부 모델(프레임 번호·틱)과 `renders`(호출의 성공)를 셌고 화면의 픽셀을 본 적이 없다. kit 10 의 같은 보고는 내려받기·잠금 판정 쪽에서 원인을 찾았고("증명되지 않음"),
+  kit 11 로그의 "moving" 을 화면이 움직인다는 증거로 읽었다. **고침:** 모든 갱신에 자리와 크기를 넘긴다(다른 레이어드 창 — 호버 카드·콜아웃 — 은 이미 그랬다). **부류 스윕:**
+  `UpdateLayeredWindow` 호출 전수 — 펫 하나만 NULL 을 넘겼다. **회귀 테스트:** `pet.pixelsMove` — 실제 GIF·0.1 s 하한의 펫 상자를 화면에서 0.25 s 간격으로 열두 번 캡처해 프레임·그린
+  그림·화면이 각각 바뀌는지 본다. 앱은 시계 점검 뒤 같은 다섯 번의 눈(프레임·그린 그림·화면·펫 창 수)을 로그에 남긴다. **규칙:** 움직임 체크는 모델이 아니라 화면 픽셀로 판정한다
+  — 호출 성공·틱 수는 화면에 닿았다는 증거가 아니다. kit 10 의 앞선 결론("첫 GIF 요청 실패")은 이 원인으로 대체된다.
+<!-- pet frames on screen (fix/windows-pet-and-detail-animation) end -->
+
+## 어두운 모드에서 팝업 메뉴가 밝았다 (2026-11-19, 다크 메뉴)
+- **증상:** 팝업은 어두운데 트레이·펫·드롭다운·입력 칸 우클릭 메뉴는 Windows 가 밝게 그려 어두운 화면에서 눈에 띄게 튀었다.
+- **직접 원인:** Win32 팝업 메뉴는 프로세스가 앱 모드를 켜기 전에는 항상 밝다. 문서화된 방법은 항목 오너 드로우뿐인데 그러면 항목의 접근성 이름이 사라지고 메뉴 테두리는 밝게 남는다.
+- **왜 못 걸렀나:** 어두운 모드 검사(Task 16)는 우리가 그리는 면과 공용 컨트롤의 시각 스타일만 봤고, 열린 메뉴의 픽셀을 본 검사가 없었다.
+- **고침:** `WinMenuTheme` — `uxtheme` 서수 135/104/136 을 서수로 찾아(이름 가져오기 아님) 빌드별 형태(17763 미만 안 함, 17763-18361 불리언, 18362+ 열거형)로 호출하고, 실패·누락은 로그 한 줄 + 밝은 메뉴로 물러난다. 고대비는 기본 모드, 킬 스위치 `PTB_LIGHT_MENUS=1`.
+- **부류 스윕:** 모든 메뉴는 `WinPopupMenu.run` 한 곳을 지난다(트레이·펫·드롭다운·대표 포켓몬). 입력 칸의 기본 우클릭 메뉴는 `WinControl` 서브클래스의 `WM_CONTEXTMENU` 에서 같은 `ensure()` 를 부른다.
+- **영구 캡처:** `popover.darkMenu`(트레이·팝업·입력 칸 메뉴의 실제 픽셀, 강제 어둡게/밝게), `popover.darkMenu.fault`(킬 스위치면 밝게 남음), `popover.darkMenu.highContrast`(실제 High Contrast White 에서 어두워지지 않음).
+
+## 컬렉션 쪽 넘김 화살표가 보이지 않았다 (kit 16, 2026-11-19, fix/windows-dex-pager-glyphs)
+- **증상:** 사용자 PC 다크 모드에서 컬렉션 4×4 목록 아래 ‹ › 화살표가 배경에 묻혀 보이지 않았다("1 / 8" 글자는 보임). 라이트에서도 같았다.
+- **직접 원인:** 그림(`DexBodyPart`)에는 화살표가 있었다 — 같은 부품을 오프스크린으로 그리면 13.8:1, 그림 비트맵의 화살표 칸에 잉크 픽셀 74·46 개. 그러나 그 위를 덮은 prev/next **항목 창**(오너 드로우 버튼)이 빈 배경만 칠했다.
+  항목 창의 `paintItem` 은 `GdiAlphaBlend` 로 그림에서 자기 칸을 복사하는데, 쪽 넘김 버튼은 28 pt(Mac 의 `DexPageButton.hitSize`)이고 하단 바는 18 pt 라 항목 창이 그림 아래로 약 5 pt 삐져나온다.
+  `GdiAlphaBlend` 는 **원본 사각형이 비트맵 밖으로 나가면 아무것도 그리지 않고 실패**한다 → `FillRect` 로 칠한 배경만 남았다. (글꼴 글리프 → 선으로 바꾼 것은 이 원인이 아니었다. 글리프 래스터도 따로 믿을 수 없어 선으로 바꾼 것은 유지.)
+- **왜 못 걸렀나:** 글리프 대비 검사(`popover.glyphContrast`)는 부품을 **오프스크린**에서 그려 재거나 컨트롤의 색 쌍만 계산했고, 실제 창의 픽셀을 본 적이 없었다. 컬렉션 캡처는 사람이 보는 PNG 였을 뿐 화살표 칸을 재지 않았다.
+  Mac 쪽 테스트는 같은 그림 경로라 같은 이유로 통과했다. 항목 창이 그림 위에 덮이는 경로(`paintItem`)는 어떤 테스트도 밟지 않았다.
+- **고침:** `WinDrawnView.blit` 이 원본 사각형을 비트맵 안으로 잘라 복사한다(`blitOverlays` 는 이미 그랬다). 그림보다 큰 항목 창은 모두 같은 이유로 비었을 것이다.
+- **부류 스윕:** `GdiAlphaBlend`·`BitBlt` 의 원본 사각형을 외부 값(항목 창 크기·위치)에서 받는 곳 — `WinDrawnView` 의 `blit`·`blitOverlays` 둘뿐이다. 그림보다 큰 항목: 쪽 넘김 버튼 둘(하단 바 18 pt 에 28 pt 버튼)뿐이다.
+- **영구 캡처:** `collection.paging` 이 **실제 창의 픽셀**로 활성 화살표(1쪽의 다음, 8쪽의 이전)를 잰다 — 3:1 미만이면 실패(고치기 전 1.00:1, 고친 뒤 11.7:1). 항목 창이 덮는 칸·항목만 그린 값·항목을 숨긴 값을 한 줄에 남긴다.
+  `popover.glyphContrast` 에 쪽 넘김(1·4·8쪽)과 결함쌍 `popover.glyphContrast.pagerFault`, Mac 쪽 `DexPagerInkTests`(1.5:1/3:1 하한, 화살표를 지우면 실패 확인), 스캔 테스트(리터럴 흑백 잉크·글리프 화살표 금지).
+- **규칙:** 화면에 보여야 하는 것은 부품 모델이나 오프스크린 그림이 아니라 **창에서 캡처한 픽셀**로 잰다 — 그림이 맞아도 그 위의 창이 덮을 수 있다.

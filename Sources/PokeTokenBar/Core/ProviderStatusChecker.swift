@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// 프로바이더 상태 페이지(statuspage.io)의 인시던트 지표.
 /// 목적: Claude/OpenAI API 장애 시 stale·0·에러 표시를 "앱 고장"으로 오인하지 않도록 **표시 전용** 신호.
@@ -81,7 +84,7 @@ struct StatuspageStatusProvider: ProviderStatusProviding {
     private static func fetchOne(_ url: URL, componentName: String) async -> ProviderStatus? {
         var request = URLRequest(url: url, timeoutInterval: 10)
         request.setValue("PokeTokenBar", forHTTPHeaderField: "User-Agent")
-        guard let (data, response) = try? await URLSession.shared.data(for: request),
+        guard let (data, response) = try? await PlatformCompat.oneShotData(for: request),
               (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
         return parseComponent(data, named: componentName)
     }

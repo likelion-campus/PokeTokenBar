@@ -31,7 +31,7 @@ final class DexCompletionStoreTests: XCTestCase {
         return CompanionStore(provider: OfflineProvider(), fileURL: url)
     }
 
-    func testEmptyStoreHasNoCompletionsAndIsSeeded() throws {
+    func testEmptyStoreHasNoCompletionsAndIsSeeded() async throws {
         let url = tempURL()
         try JSONEncoder().encode(CompanionState()).write(to: url)
         let s = CompanionStore(provider: OfflineProvider(), fileURL: url)
@@ -41,7 +41,7 @@ final class DexCompletionStoreTests: XCTestCase {
         XCTAssertTrue(s.state.notifiedDexCompletions.isEmpty)
     }
 
-    func testCompleteRegionIsReportedComplete() throws {
+    func testCompleteRegionIsReportedComplete() async throws {
         let s = try store(withOwnedRange: PokedexRegion.kanto.dexRange)
         let kanto = s.dexCompletions.first { $0.region == .kanto }
         XCTAssertEqual(kanto?.owned, 151)
@@ -51,7 +51,7 @@ final class DexCompletionStoreTests: XCTestCase {
 
     /// A save that was already complete before the feature shipped must not fire a notification burst:
     /// seeding records the earned badges as already-notified on first load.
-    func testExistingCompletionsAreSeededAsNotifiedWithoutFiring() throws {
+    func testExistingCompletionsAreSeededAsNotifiedWithoutFiring() async throws {
         let s = try store(withOwnedRange: PokedexRegion.kanto.dexRange)
         XCTAssertTrue(s.state.dexCompletionsSeeded)
         XCTAssertTrue(s.state.notifiedDexCompletions.contains(DexBadge.region(.kanto).notificationKey))
@@ -61,7 +61,7 @@ final class DexCompletionStoreTests: XCTestCase {
         XCTAssertEqual(s.state.notifiedDexCompletions, before)
     }
 
-    func testRegionFilterReturnsOnlySpeciesInThatGeneration() throws {
+    func testRegionFilterReturnsOnlySpeciesInThatGeneration() async throws {
         let s = try store(withOwnedRange: 1...200)   // all of Kanto + Johto 152–200
         let johto = s.filteredDexSpecies(region: .johto)
         XCTAssertEqual(johto.count, 49)
@@ -70,14 +70,14 @@ final class DexCompletionStoreTests: XCTestCase {
         XCTAssertEqual(s.filteredDexSpecies(region: nil).count, 200)
     }
 
-    func testNationalProgressCountsAcrossAllRegions() throws {
+    func testNationalProgressCountsAcrossAllRegions() async throws {
         let s = try store(withOwnedRange: PokedexRegion.nationalRange)
         XCTAssertEqual(s.nationalDexProgress.owned, PokedexRegion.nationalTotal)
         XCTAssertTrue(s.earnedDexBadges.contains(.national))
         XCTAssertTrue(PokedexRegion.allCases.allSatisfy { s.earnedDexBadges.contains(.region($0)) })
     }
 
-    func testCurrentFormsCountUnownLettersWithoutInflatingRegionalSpecies() throws {
+    func testCurrentFormsCountUnownLettersWithoutInflatingRegionalSpecies() async throws {
         var state = CompanionState()
         let letters = PokemonForm.forms(speciesID: PokemonForm.unownSpeciesID)
         state.dex = letters.dropLast().map { form in

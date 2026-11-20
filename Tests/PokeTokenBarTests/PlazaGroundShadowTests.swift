@@ -1,4 +1,3 @@
-import CoreGraphics
 import XCTest
 @testable import PokeTokenBar
 
@@ -14,11 +13,8 @@ final class PlazaGroundShadowTests: XCTestCase {
         let image = PlazaGroundShadow.image(width: 40, height: 12)
         XCTAssertEqual(image.width, 40)
         XCTAssertEqual(image.height, 12)
-        var data = [UInt8](repeating: 0, count: 40 * 12 * 4)
-        let context = CGContext(data: &data, width: 40, height: 12, bitsPerComponent: 8, bytesPerRow: 40 * 4,
-                                space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-        context.draw(image, in: CGRect(x: 0, y: 0, width: 40, height: 12))
+        // premultiplied sRGB, row 0 at the top: what drawing it into such a context gave before
+        let data = image.pixels.bytes
         func alpha(_ x: Int, _ y: Int) -> Int { Int(data[(y * 40 + x) * 4 + 3]) }
         XCTAssertEqual(Double(alpha(20, 6)), 0.30 * 255, accuracy: 3)
         for (x, y) in [(0, 0), (39, 0), (0, 11), (39, 11)] { XCTAssertEqual(alpha(x, y), 0) }

@@ -122,7 +122,7 @@ final class ZeroUsageHomeRenderingTests: XCTestCase {
         window.isReleasedWhenClosed = false
         window.appearance = NSAppearance(named: .darkAqua)
         window.contentView = host
-        window.orderFront(nil)
+        window.orderInForTest()
         defer { window.close() }
         try await Task.sleep(for: .milliseconds(500))
         host.layoutSubtreeIfNeeded()

@@ -1,6 +1,5 @@
 import Foundation
 import Observation
-import UserNotifications
 
 /// 게임 상태의 출처. 설치 이후 토큰 사용량으로 포켓몬을 진화시키고, 최종체 + 추가 임계 도달 시
 /// 도감(라인 전체)에 보존 + 새 알. 진화 트리/희귀도/이름은 PokeProviding 으로 런타임 주입.
@@ -1573,15 +1572,10 @@ final class CompanionStore {
             eventSeq += 1
             latestEvent = CompanionEvent(seq: eventSeq, text: body, at: clock())
         }
-        guard AppEnv.isBundledApp else { return }
+        guard Platform.current.notifications.isAvailable else { return }
         guard UserDefaults.standard.object(forKey: "companionNotifications") as? Bool ?? true else { return }
         notifSeq += 1
-        let content = UNMutableNotificationContent()
-        content.title = title
-        content.body = body
-        content.sound = .default
-        UNUserNotificationCenter.current().add(
-            UNNotificationRequest(identifier: "companion-event-\(notifSeq)", content: content, trigger: nil))
+        Platform.current.notifications.post(id: "companion-event-\(notifSeq)", title: title, body: body, sound: true)
     }
 
     // MARK: 부화
@@ -2343,6 +2337,6 @@ final class CompanionStore {
         refreshRepresentativeSubject()
         checkDexCompletions()   // 보유 성장분이 영속되는 매 지점에서 세대 완성 알림을 한 번만 띄운다
         guard let data = try? JSONEncoder().encode(state) else { return }
-        try? data.write(to: fileURL, options: .atomic)   // 부분 쓰기 손상 방지(펫 상태)
+        try? PlatformCompat.atomicWrite(data, to: fileURL)   // 부분 쓰기 손상 방지(펫 상태)
     }
 }

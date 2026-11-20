@@ -1,9 +1,7 @@
 import XCTest
-import SwiftUI
-import AppKit
 @testable import PokeTokenBar
 
-/// Today's plaza activity: the counters, the day it belongs to, what a teammate may send, and the roster hover that shows it.
+/// Today's plaza activity: the counters, the day it belongs to, what a teammate may send, and the member card section that shows it.
 @MainActor
 final class PlazaActivityTests: XCTestCase {
     private static let calendar: Calendar = {
@@ -18,14 +16,14 @@ final class PlazaActivityTests: XCTestCase {
 
     // MARK: - The pure counters
 
-    func testDayKeyIsTheLocalDateAndRollsAtLocalMidnight() {
+    func testDayKeyIsTheLocalDateAndRollsAtLocalMidnight() async {
         XCTAssertEqual(PlazaActivity.dayKey(date(13, 0, 0, 0), calendar: Self.calendar), "2026-11-13")
         XCTAssertEqual(PlazaActivity.dayKey(date(13, 23, 59, 59), calendar: Self.calendar), "2026-11-13")
         XCTAssertEqual(PlazaActivity.dayKey(date(14, 0, 0, 0), calendar: Self.calendar), "2026-11-14")
         XCTAssertEqual(PlazaActivity.dayKey(date(5, 9), calendar: Self.calendar), "2026-11-05", "padded, so it compares as text")
     }
 
-    func testEachKindCountsItsOwnNumber() {
+    func testEachKindCountsItsOwnNumber() async {
         var a = PlazaActivity(day: "2026-11-13")
         for kind in [PlazaActivity.Kind.iceBreak, .firework, .tackle, .snowballHit, .greeting, .pickup] { a.record(kind) }
         a.record(.tackle)
@@ -35,7 +33,7 @@ final class PlazaActivityTests: XCTestCase {
         XCTAssertEqual(a.seconds, 0)
     }
 
-    func testCountsAndTimeStopAtTheirCeilings() {
+    func testCountsAndTimeStopAtTheirCeilings() async {
         var a = PlazaActivity(day: "d")
         a.iceBreaks = PlazaActivity.maxCount
         a.record(.iceBreak)
@@ -47,7 +45,7 @@ final class PlazaActivityTests: XCTestCase {
         XCTAssertEqual(a.seconds, PlazaActivity.maxSeconds, "time only grows")
     }
 
-    func testANewDayStartsFromZeroAndTheSameDayKeepsEverything() {
+    func testANewDayStartsFromZeroAndTheSameDayKeepsEverything() async {
         var a = PlazaActivity(day: "2026-11-13")
         a.record(.firework)
         a.addSeconds(90)
@@ -58,7 +56,7 @@ final class PlazaActivityTests: XCTestCase {
         XCTAssertEqual(next.seconds, 0)
     }
 
-    func testReceivedValuesAreClamped() {
+    func testReceivedValuesAreClamped() async {
         var a = PlazaActivity(day: "d")
         a.seconds = .max
         a.iceBreaks = .min
@@ -76,7 +74,7 @@ final class PlazaActivityTests: XCTestCase {
         XCTAssertEqual(b.day, "d")
     }
 
-    func testOnlyTodaysNumbersAreShown() {
+    func testOnlyTodaysNumbersAreShown() async {
         var a = PlazaActivity(day: "2026-11-13")
         a.record(.greeting)
         XCTAssertEqual(a.shown(on: "2026-11-13"), a)
@@ -84,7 +82,7 @@ final class PlazaActivityTests: XCTestCase {
         XCTAssertNil(a.shown(on: "2026-11-12"), "a sender whose clock is a day behind is no record either")
     }
 
-    func testCountsMatchIgnoresTimeOnly() {
+    func testCountsMatchIgnoresTimeOnly() async {
         var a = PlazaActivity(day: "d")
         var b = a
         b.addSeconds(60)
@@ -98,7 +96,7 @@ final class PlazaActivityTests: XCTestCase {
 
     // MARK: - Rows
 
-    func testRowsListTheSevenItemsInOrderWithReadableValues() {
+    func testRowsListTheSevenItemsInOrderWithReadableValues() async {
         var a = PlazaActivity(day: "d")
         a.seconds = 3_600 + 23 * 60 + 59
         a.iceBreaks = 4; a.fireworks = 12; a.tackles = 0; a.snowballHits = 7; a.greetings = 30; a.pickups = 2
@@ -113,7 +111,7 @@ final class PlazaActivityTests: XCTestCase {
         ])
     }
 
-    func testTimeUnderAnHourShowsMinutesOnly() {
+    func testTimeUnderAnHourShowsMinutesOnly() async {
         func time(_ seconds: Int) -> String {
             var a = PlazaActivity(day: "d")
             a.seconds = seconds
@@ -126,18 +124,18 @@ final class PlazaActivityTests: XCTestCase {
         XCTAssertEqual(time(PlazaActivity.maxSeconds), "24시간 0분")
     }
 
-    func testNoActivityHasNoRows() {
+    func testNoActivityHasNoRows() async {
         XCTAssertTrue(PlazaActivity.rows(nil).isEmpty)
     }
 
     // MARK: - The roster slot
 
-    private func entry(_ id: String, activity: PlazaActivity? = nil, me: Bool = false) -> PlazaRosterEntry {
+    func entry(_ id: String, activity: PlazaActivity? = nil, me: Bool = false) -> PlazaRosterEntry {
         PlazaRosterEntry(id: id, nickname: id, speciesID: 25, speciesName: "피카츄", gender: nil, isShiny: false,
                          presence: .online, isMe: me, activity: activity)
     }
 
-    func testEntriesShowTodaysActivityAndNoRecordForOtherDaysAndOldVersions() {
+    func testEntriesShowTodaysActivityAndNoRecordForOtherDaysAndOldVersions() async {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         let today = PlazaActivity.dayKey(now)
         var fresh = PlazaActivity(day: today); fresh.record(.greeting)
@@ -161,14 +159,14 @@ final class PlazaActivityTests: XCTestCase {
 
     // MARK: - The member card's 오늘 광장 section
 
-    private func member(_ id: String, _ a: PlazaActivity?) -> TeamMemberState {
+    func member(_ id: String, _ a: PlazaActivity?) -> TeamMemberState {
         var m = TeamMemberState(memberID: id, nickname: id, character: TeamMonSummary(speciesID: 25, isShiny: false, form: nil, speciesName: "P", gender: nil),
                                 inPlaza: true, tile: nil, facing: nil, isWalking: false)
         m.activity = a
         return m
     }
 
-    func testCardShowsTheSevenValuesOfATeammateWithTodaysActivity() {
+    func testCardShowsTheSevenValuesOfATeammateWithTodaysActivity() async {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         var a = PlazaActivity(day: PlazaActivity.dayKey(now))
         a.seconds = 3_660; a.record(.iceBreak); a.record(.firework); a.record(.tackle); a.record(.snowballHit); a.record(.greeting); a.record(.pickup)
@@ -179,29 +177,10 @@ final class PlazaActivityTests: XCTestCase {
         XCTAssertEqual(PlazaActivity.rows(state.todayActivity(now: now)).first?.value, "1시간 1분")
     }
 
-    func testCardSaysNoRecordWithoutActivityOrFromAnotherDay() {
+    func testCardSaysNoRecordWithoutActivityOrFromAnotherDay() async {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         XCTAssertNil(PlazaCardState.failed(member("민수", nil)).todayActivity(now: now), "an older version")
         XCTAssertNil(PlazaCardState.failed(member("서연", PlazaActivity(day: "1999-01-01"))).todayActivity(now: now), "another day")
         XCTAssertEqual(L(.ko).plazaActivityNone, "기록 없음")
-    }
-
-    /// The card is an overlay with a fixed panel: the section's height must not depend on how many rows it has.
-    @MainActor func testCardHeightDoesNotDependOnTheActivity() {
-        let now = Date()
-        var a = PlazaActivity(day: PlazaActivity.dayKey(now)); a.record(.pickup)
-        func height(_ a: PlazaActivity?) -> CGFloat {
-            NSHostingView(rootView: PlazaCardView(state: .failed(member("지아", a)))).fittingSize.height
-        }
-        XCTAssertEqual(height(a), height(nil), accuracy: 0.5)
-    }
-
-    /// The fixed 380x460 card keeps its header and a usable dex window (two rows of cells) next to the activity section.
-    func testProfileCardContentFitsTheFixedPanel() {
-        let m = PlazaCardMetrics.self
-        let inner = m.panelSize.height - 2 * m.panelInset
-        let used = m.spriteSide + m.stackSpacing + m.activityHeight + m.stackSpacing
-        XCTAssertGreaterThanOrEqual(inner - used, 2 * m.cellSize.height + m.spacing, "two dex rows stay visible")
-        XCTAssertLessThanOrEqual(m.columns * Int(m.cellSize.width) + (m.columns - 1) * Int(m.spacing), Int(m.panelSize.width - 2 * m.panelInset))
     }
 }

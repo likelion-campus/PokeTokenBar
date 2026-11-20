@@ -1,5 +1,5 @@
 import Foundation
-import CoreGraphics
+import Observation
 
 /// Ties the companion and the team settings to the `TeamSession`: forwards companion events, keeps the
 /// session's settings and character current, ticks it, and holds an App Nap activity while teammates are online.
@@ -13,7 +13,7 @@ final class TeamRuntime {
 
     let feed: TeamFeedStore
     let session: TeamSession
-    weak var plaza: PlazaWindowController?
+    weak var plaza: (any PlazaPresenting)?
     /// Set by the app only for a bundled build; nil means no notifications (tests, dev runs).
     var notifier: TeamNotifier?
 
@@ -25,18 +25,19 @@ final class TeamRuntime {
     private var wasReady: Bool
     private var lastCode: TeamCode?
     private var tickTask: Task<Void, Never>?
-    private var activity: NSObjectProtocol?
+    private var activity: AnyObject?
 
     var isHoldingActivity: Bool { activity != nil }
     var isTicking: Bool { tickTask != nil }
 
-    init(settings: TeamSettings, companion: CompanionStore, transport: TeamTransporting = BonjourTeamTransport(),
+    init(settings: TeamSettings, companion: CompanionStore, transport: TeamTransporting,
          feed: TeamFeedStore? = nil, closePlaza: (() -> Void)? = nil,
-         secondsSinceInput: @escaping () -> TimeInterval = TeamRuntime.systemSecondsSinceInput) {
+         idle: IdleClock = Platform.current.idle,
+         secondsSinceInput: (() -> TimeInterval)? = nil) {
         self.settings = settings
         self.companion = companion
         self.closePlazaOverride = closePlaza
-        self.secondsSinceInput = secondsSinceInput
+        self.secondsSinceInput = secondsSinceInput ?? { idle.secondsSinceLastInput() }
         let feed = feed ?? TeamFeedStore(myMemberID: settings.memberID)
         self.feed = feed
         wasReady = settings.isReady
@@ -193,8 +194,7 @@ final class TeamRuntime {
     /// App Nap would delay the heartbeat until teammates see me disappear. Idle system sleep stays allowed.
     private func beginActivityIfNeeded() {
         guard activity == nil else { return }
-        activity = ProcessInfo.processInfo.beginActivity(
-            options: .userInitiatedAllowingIdleSystemSleep, reason: "PokeTokenBar team presence")
+        activity = PlatformCompat.beginActivity(reason: "PokeTokenBar team presence")
     }
 
     /// Runs only while the team is on, so a feature-off app has no periodic wake-ups.
@@ -216,13 +216,6 @@ final class TeamRuntime {
         notifier?.flush()
     }
 
-    /// 마지막 입력 뒤 지난 시간. 권한 없이 읽을 수 있고 어떤 앱을 쓰는지는 알 수 없다.
-    nonisolated static func systemSecondsSinceInput() -> TimeInterval {
-        let kinds: [CGEventType] = [.keyDown, .flagsChanged, .mouseMoved, .leftMouseDown, .rightMouseDown, .scrollWheel,
-                                    .leftMouseDragged, .otherMouseDown]
-        return kinds.map { CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: $0) }.min() ?? 0
-    }
-
     private func stopTicking() {
         tickTask?.cancel()
         tickTask = nil
@@ -230,7 +223,7 @@ final class TeamRuntime {
 
     private func endActivity() {
         guard let activity else { return }
-        ProcessInfo.processInfo.endActivity(activity)
+        PlatformCompat.endActivity(activity)
         self.activity = nil
     }
 

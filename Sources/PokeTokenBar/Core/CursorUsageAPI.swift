@@ -1,5 +1,12 @@
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// Cursor dashboard usage API (unofficial personal-account endpoints).
 /// Auth comes from the local Cursor login (`cursorAuth/accessToken`) or
@@ -422,7 +429,7 @@ enum CursorUsageAPI {
 
     private static func perform(_ request: URLRequest) async -> (Data, Int)? {
         do {
-            let (data, response) = try await session.data(for: request)
+            let (data, response) = try await PlatformCompat.oneShotData(for: request, session: session)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             return (data, status)
         } catch {
