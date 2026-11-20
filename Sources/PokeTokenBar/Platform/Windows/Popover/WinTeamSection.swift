@@ -56,6 +56,7 @@ import WinSDK
     private let coreEndRow: WinRow
     private let seasonRow: WinRow
     private let captionRow: WinRow
+    private let reportRow: WinRow
     private let incompatibleRow: WinRow
     /// The `start` the end combo's items were made for.
     private var endItemsStart = -1
@@ -118,9 +119,11 @@ import WinSDK
                               selected: PlazaSeasonChoice.allCases.firstIndex(of: rows.season) ?? 0, in: p, ctx: c)
         }
         captionRow = section.addRow(nil, hint: rows.scheduleCaption) { _, _ in nil }
+        reportRow = section.addRow(nil, hint: SettingsModel.usageReportCaption(lastSent: host.usageReporter?.lastSentAt)) { _, _ in nil }
         incompatibleRow = section.addRow(nil, hint: l.teamIncompatiblePeer) { _, _ in nil }
         for row in [joinErrorRow, nicknameErrorRow, incompatibleRow] { row.hint?.role = .error }
         captionRow.hint?.role = .secondary
+        reportRow.hint?.role = .secondary
         wire()
         apply()
     }
@@ -220,6 +223,7 @@ import WinSDK
         nicknameErrorRow.isVisible = on && rows.nicknameInvalid
         notificationsRow.isVisible = on
         for row in [coreStartRow, coreEndRow, seasonRow, captionRow] { row.isVisible = on && rows.showsSchedule }
+        reportRow.isVisible = on && team.isReady
         incompatibleRow.isVisible = on && rows.incompatiblePeer
 
         set(codeRow.label, rows.maskedCode ?? " ")
@@ -242,6 +246,7 @@ import WinSDK
         let seasonIndex = PlazaSeasonChoice.allCases.firstIndex(of: rows.season) ?? 0
         if let season = seasonRow.control, season.selection != seasonIndex { season.selection = seasonIndex }
         set(captionRow.hint, rows.scheduleCaption)
+        set(reportRow.hint, SettingsModel.usageReportCaption(lastSent: host.usageReporter?.lastSentAt))
         if team.savedTeams.map(\.code) != savedKeys { rebuild() }
         return textChanged
     }

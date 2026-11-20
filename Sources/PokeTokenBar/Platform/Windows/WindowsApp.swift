@@ -193,6 +193,7 @@ private func crtExit(_ code: Int32) -> Never {
     /// The team link and the plaza feed (`PokeTokenBarApp`'s `teamRuntime`). The transport opens nothing until the
     /// user has a team: `TeamSession` starts it only when `teamSettings.isReady`.
     private(set) var teamRuntime: TeamRuntime!
+    private(set) var usageReporter: UsageReporter?
     private(set) var teamTransport: WindowsTeamTransport!
     /// The plaza (`PokeTokenBarApp`'s `plaza`): built at launch with the Mac's arguments, its window only on the user's action.
     private(set) var plaza: PlazaWindowController!
@@ -277,6 +278,7 @@ private func crtExit(_ code: Int32) -> Never {
         WindowsNotifications.install(presenter: balloons, tray: tray.tray)  // Task 8
         WinPlazaLive.install(defaults: defaults, events: Platform.current.events as? WindowsSystemEvents)  // stage 6: before the plaza
         startTeam(balloons: balloons, tray: tray)  // 11b (Task 19); the plaza (stage 6 Task 5)
+        startUsageReporter()
         tray.start(showFirstRunHint: !arguments.contains("--selftest"))
         WinDefaultsSync.flushNow()  // 12: a fresh team.memberID survives an early crash
         WinDefaultsSync.start()
@@ -471,10 +473,21 @@ private func crtExit(_ code: Int32) -> Never {
         tray?.refresh()
     }
 
+    /// The usage reporter (the Mac's `usageReporter` after `teamRuntime.start()`), on the team settings' own store.
+    private func startUsageReporter() {
+        let reporter = UsageReporter(
+            settings: teamSettings, defaults: teamSettingsDefaults,
+            appVersion: WindowsInstall.version ?? "0", platform: "windows",
+            inputs: { [unowned self] in UsageReportInputs.from(self.store) })
+        reporter.start()
+        usageReporter = reporter
+    }
+
     private func storeRefreshed() {
         refreshCount += 1
         noteCompanionInputs()
         AppWiring.storeRefreshed(companion, store)
+        usageReporter?.storeRefreshed()
     }
 
     private func noteCompanionInputs() {
@@ -492,6 +505,7 @@ extension WindowsAppDelegate {
                                   session: teamRuntime.session, feed: teamRuntime.feed, tray: tray, loginItem: tray.loginItem,
                                   openPlaza: { [weak self] in self?.openPlaza() })
         host.owner = sink.hwnd
+        host.usageReporter = usageReporter
         let made = WinPopover(host: host)
         // --- stage 7 Task 6: Settings (begin) ---
         made.makePage = WinSettingsPage.routed

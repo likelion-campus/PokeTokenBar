@@ -84,6 +84,11 @@ enum SettingsModel {
         }
         return l.teamScheduleChangedCaption(name: name, when: l.teamScheduleDate(s.changedAt))
     }
+
+    /// The usage-report line under the team schedule (both systems): when the last send went out, or that none has yet.
+    @MainActor static func usageReportCaption(lastSent: Date?, l: L = L(.ko)) -> String {
+        l.teamUsageReportCaption(lastSent: lastSent)
+    }
 }
 
 // --- stage 7 Task 14: the Advanced group and the tracked account (begin) ---

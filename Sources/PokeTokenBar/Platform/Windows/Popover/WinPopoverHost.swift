@@ -18,6 +18,8 @@ import WinSDK
     let openPlaza: @MainActor () -> Void
     /// The window that owns the popover (the app's hidden sink): no taskbar button, and it goes with the app.
     var owner: HWND?
+    /// The usage reporter whose last send the team settings show. Set by the app after construction (the selftest hosts leave it nil).
+    var usageReporter: UsageReporter?
 
     init(store: UsageStore, companion: CompanionStore, updater: UpdateChecker?, team: TeamSettings, session: TeamSession?,
          feed: TeamFeedStore?, tray: WinTrayHost?, loginItem: WindowsLoginItem, openPlaza: @escaping @MainActor () -> Void) {
