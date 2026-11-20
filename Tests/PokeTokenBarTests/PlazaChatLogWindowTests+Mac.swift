@@ -184,7 +184,7 @@ import XCTest
         await rig.flush()
         let panel = try XCTUnwrap(rig.panel(.chatLog, as: PlazaChatLogPanel.self))
         XCTAssertTrue(panel.scrollIndicator.isTimerRunning, "opening scrolled to the end: the scroller is showing")
-        try await Task.sleep(for: .seconds(1.6))
+        try await rig.wait { !panel.scrollIndicator.isTimerRunning }
         XCTAssertFalse(panel.scrollIndicator.isTimerRunning, "hold and fade are over: no timer")
         let idle = rig.hud.renderCounts[.chatLog] ?? 0
         try await Task.sleep(for: .seconds(1))
@@ -192,7 +192,7 @@ import XCTest
         // Hidden: a scroll renders nothing (the HUD is not rendering); no timer outlives the fade.
         rig.hud.isRendering = false
         _ = try rig.panelTakesScroll(.chatLog, at: CGPoint(x: 100, y: 80), dy: 40)
-        try await Task.sleep(for: .seconds(1.6))
+        try await rig.wait { !panel.scrollIndicator.isTimerRunning }
         XCTAssertEqual(rig.hud.renderCounts[.chatLog] ?? 0, idle, "hidden: nothing renders")
         XCTAssertFalse(panel.scrollIndicator.isTimerRunning)
         rig.hud.isRendering = true

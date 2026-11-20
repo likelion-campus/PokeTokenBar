@@ -115,7 +115,13 @@ final class LimitProgressRenderingTests: XCTestCase {
         host.view.layoutSubtreeIfNeeded()
         window.displayIfNeeded()
 
-        let rep = try XCTUnwrap(host.view.bitmapImageRepForCachingDisplay(in: host.view.bounds))
+        // The marker is 2.5pt wide: 5px at 2x, which is what the thresholds below were set for. At the window's own backing
+        // scale (1x on a hosted runner with no display) its rounded ends are partial pixels and measure shorter, so draw at 2x.
+        let rep = try XCTUnwrap(NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: Int(width * 2), pixelsHigh: Int(height * 2),
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+        rep.size = host.view.bounds.size
         host.view.cacheDisplay(in: host.view.bounds, to: rep)
 
         /// 투명은 흰색으로 친다 — 트랙/눈금만 배경보다 어둡다.
@@ -135,7 +141,6 @@ final class LimitProgressRenderingTests: XCTestCase {
         let trackHeight = Double(paintedRows(column: trackOnlyColumn, darkerThan: 0.98)) / scale
         let markerHeight = Double(paintedRows(column: markerColumn, darkerThan: 0.6)) / scale
 
-        print("PROBE-LIMIT scale \(scale) px \(rep.pixelsWide)x\(rep.pixelsHigh) marker col \(markerColumn): " + (0..<rep.pixelsHigh).map { String(format: "%.2f", brightness(x: markerColumn, y: $0)) }.joined(separator: " ") + " | track col: " + (0..<rep.pixelsHigh).map { String(format: "%.2f", brightness(x: trackOnlyColumn, y: $0)) }.joined(separator: " "))
         XCTAssertGreaterThan(trackHeight, 0, "트랙이 칠해져야 아래 비교가 뜻을 가진다")
         XCTAssertEqual(markerHeight, trackHeight + 4, accuracy: 1,
                        "눈금은 트랙 위아래로 2pt 씩만 물려야 한다 (트랙 \(trackHeight)pt, 눈금 \(markerHeight)pt)")

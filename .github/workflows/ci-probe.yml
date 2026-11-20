@@ -12,24 +12,12 @@ jobs:
           newest=$(ls -d /Applications/Xcode_*.app | grep -v -i beta | sort -V | tail -1)
           sudo xcode-select -s "$newest/Contents/Developer"
       - name: Build tests
-        run: swift build --build-tests
-      - name: Goldens write
-        continue-on-error: true
-        env:
-          PTB_PLAZA_GOLDENS_WRITE: "1"
-        run: swift test --skip-build --filter 'PlazaParityGoldensMacTests/testWriteParityGoldens'
-      - name: HUD images
-        continue-on-error: true
-        env:
-          PTB_LIVE_WINDOW_TESTS: "1"
-          PTB_PLAZA_HUD_OUT: ${{ runner.temp }}/hud
-        run: swift test --skip-build --filter 'PlazaBoardPanelRenderTests/testWriteBoardImages|PlazaCardPanelRenderTests/testWriteCardImages'
-      - name: Targeted tests
-        continue-on-error: true
+        run: sw_vers && swift build --build-tests
+      - name: The twelve
         env:
           PTB_LIVE_WINDOW_TESTS: "1"
           PTB_ZERO_USAGE_SCREENSHOT_DIR: ${{ runner.temp }}/zero
-        run: swift test --skip-build --filter 'LimitProgressRenderingTests|ZeroUsageHomeRenderingTests|TeamRuntimeTests/test(ChangingTeam|TurningTheTeamOff)|SecretSeamTests|PlazaChatBarPanelMacTests|PlazaBoardWindowTests/testOpeningAndClosing|PlazaChatLogWindowTests/testItRenders' 2>&1 | tee ${{ runner.temp }}/targeted.log
+        run: swift test --skip-build --filter 'PlazaBoardPanelRenderTests/testPanelLooksLike|PlazaCardPanelRenderTests/testPanelLooksLike|PlazaParityGoldensMacTests/testParityGoldensStillHold|PlazaBoardWindowTests/testOpeningAndClosing|PlazaChatLogWindowTests/testItRenders|PlazaChatBarPanelMacTests|LimitProgressRenderingTests|ZeroUsageHomeRenderingTests|TeamRuntimeTests/test(ChangingTeam|TurningTheTeamOff)|SecretSeamTests' 2>&1 | tee ${{ runner.temp }}/targeted.log
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         if: always()
         with:
