@@ -115,7 +115,13 @@ final class LimitProgressRenderingTests: XCTestCase {
         host.view.layoutSubtreeIfNeeded()
         window.displayIfNeeded()
 
-        let rep = try XCTUnwrap(host.view.bitmapImageRepForCachingDisplay(in: host.view.bounds))
+        // The marker is 2.5pt wide: 5px at 2x, which is what the thresholds below were set for. At the window's own backing
+        // scale (1x on a hosted runner with no display) its rounded ends are partial pixels and measure shorter, so draw at 2x.
+        let rep = try XCTUnwrap(NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: Int(width * 2), pixelsHigh: Int(height * 2),
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+        rep.size = host.view.bounds.size
         host.view.cacheDisplay(in: host.view.bounds, to: rep)
 
         /// 투명은 흰색으로 친다 — 트랙/눈금만 배경보다 어둡다.
