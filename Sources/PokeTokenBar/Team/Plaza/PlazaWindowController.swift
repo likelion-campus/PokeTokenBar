@@ -129,7 +129,7 @@ import Observation
     private let minimap = PlazaMinimapModel()
     /// The panels drawn through the canvas over the scene, bottom first: the countdown/banner/hint pills (above the
     /// overlay) and the clock on the minimap. `setRendering` switches their rendering with the scene's.
-    private(set) lazy var hud = PlazaHUD(panels: [rosterPanel] + [boardPanel].compactMap { $0 } + [cardPanel, photoFramePanel, menuPanel, pillsPanel, chatLogPanel, minimapPanel, clockPanel, shortcutsPanel, togglePanel, pickerPanel])
+    private(set) lazy var hud = PlazaHUD(panels: [rosterPanel] + [boardPanel].compactMap { $0 } + [cardPanel, photoFramePanel, menuPanel, gameTitlePanel, gameCardPanel, pillsPanel, chatLogPanel, minimapPanel, clockPanel, shortcutsPanel, togglePanel, pickerPanel])
     /// The pictures the roster and the card show (the platform's loaders; a test hands in its own).
     private let iconSource: any PlazaIconSource
     private lazy var rosterPanel = PlazaRosterPanel(model: rosterModel, icons: iconSource)
@@ -143,6 +143,9 @@ import Observation
     private lazy var pillsPanel = PlazaPillsPanel(model: overlayModel)
     private lazy var chatLogPanel = PlazaChatLogPanel(log: chatLog)
     private lazy var menuPanel = PlazaMenuPanel(model: overlayModel, pills: pillsPanel)
+    private let gameModel = PlazaGameModel()
+    private lazy var gameCardPanel = PlazaGameCardPanel(game: gameModel, overlay: overlayModel, pills: pillsPanel)
+    private lazy var gameTitlePanel = PlazaGameTitlePanel(game: gameModel)
     private lazy var minimapPanel = PlazaMinimapPanel(model: minimap, background: backgroundModel, worldSize: map.pixelSize,
                                                       mapImage: { [unowned self] in minimapImage(for: .summer) })
     private lazy var clockPanel = PlazaClockPanel(worldSize: map.pixelSize)
@@ -431,6 +434,7 @@ import Observation
         }
         s.onSnowballKey = { [weak self] in self?.handleSnowballKey() }
         s.onGroupPhotoKey = { [weak self] in self?.handleGroupPhotoKey() }
+        s.onGameKey = { [weak self] in self?.handleGameKey($0) }
         s.onFireworkKey = { [weak self] in self?.handleFireworkKey() }
         s.onDanceRound = { [weak self] in
             self?.session?.sendEmote(.dance, target: nil, danceStyle: $0, danceSince: self?.scene?.danceStartedAt)
@@ -482,6 +486,8 @@ import Observation
         showReceivedDitto(smallestReceivedDitto())
         session?.updateDitto(ready: true, state: nil)
         startDittoLoop()
+        startGameLoop()
+        advanceGame()
     }
 
     /// 내 말풍선은 바로 띄운다. ♥, ㅋㅋ, 🎉는 바라보거나 바로 옆에 있는 팀원을 표적으로 보내고, !, ?는 표적 없이 보낸다.
@@ -535,6 +541,7 @@ import Observation
             switch overlayModel.content {
             case .memberMenu(let menu): if menu.actions.indices.contains(i) { chooseMenu(menu.actions[i], memberID: menu.memberID) }
             case .campfireMenu: chooseCampfire(index: i)
+            case .gameMenu: chooseGame(index: i)
             default: break
             }
         case (.menu, "cancel"): closeOverlay()   // a click outside the menu (the old tap-outside area)
@@ -544,6 +551,7 @@ import Observation
         case (.roster, "next"): turnRosterPage(by: 1)
         case (.board, "react"):   // the other board clicks ("board": the plate, my own reaction) are taken and do nothing
             if let r = boardPanel?.reaction(forHit: hit) { session?.react(to: r.eventID, kind: r.kind) }
+        case (.gameCard, _): gameAction(hit.action)   // the plate's own clicks ("card") are taken and do nothing
         case (.chatLog, "toggle"): toggleChatLog()   // the log's own clicks ("log") are taken and do nothing
         case (.shortcuts, "toggle"): toggleShortcuts()
         case (.backgroundToggle, "toggle"): toggleBackground()
@@ -641,6 +649,8 @@ import Observation
             scene.plunge(d)
             session?.sendEmote(.jump, target: nil)
         case .dive:
+            // 미니게임 중에는 잠수로 숨을 수 없다(잠수한 팀원은 맞지 않는다).
+            if game.isPlaying { showBanner(L(.ko).plazaGameNoDive); break }
             scene.setDiving(true)
             session?.updateDiving(true)
         case .surface:
@@ -1052,7 +1062,200 @@ import Observation
             case .escape:
                 closeOverlay()
             }
+        case .gameMenu(var menu):
+            switch key {
+            case .up, .down:
+                menu.move(by: key == .up ? -1 : 1)
+                overlayModel.content = .gameMenu(menu)
+            case .space, .enter:
+                chooseGame(index: menu.selection)
+            case .escape:
+                closeOverlay()
+            }
         }
+    }
+
+    // MARK: - 미니게임
+
+    /// 이 Mac의 미니게임 엔진. 팀원 소식에서 배우고, 내가 할 수 있는 수(열기, 대답, 넘겨받기, 터지기)를 둔다.
+    private lazy var game = PlazaGameEngine(me: memberID())
+    /// 지금 그리는 미니게임 모습. `advanceGame`이 틱마다 다시 만든다.
+    private(set) var gameView = PlazaGameView()
+    /// 가운데 큰 글씨로 차례로 보여 줄 것(탈락, 승리)과 보이는 동안.
+    private var gameFlashes: [(title: PlazaGameView.Title, from: Date, until: Date)] = []
+    private var gameLoop: Task<Void, Never>?
+    static let gameOutFlash: TimeInterval = 2, gameWinFlash: TimeInterval = 4
+    /// 테스트용 읽기 전용 값.
+    var gameState: PlazaGameState? { game.state }
+    var gameJoined: String? { game.joined }
+    var gameCard: PlazaGameView.Card? { gameModel.card }
+    var gameTitle: PlazaGameView.Title? { gameModel.title }
+
+    /// 판이 살아 있는 동안은 0.2초마다, 없으면 1초마다 본다(팀원 소식이 올 때도 `observeMembers`가 부른다).
+    private func startGameLoop() {
+        gameLoop?.cancel()
+        gameLoop = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let delay = self?.gameLoopDelay else { return }
+                try? await Task.sleep(for: delay)
+                guard !Task.isCancelled, let self else { return }
+                self.advanceGame()
+            }
+        }
+    }
+
+    private var gameLoopDelay: Duration { game.state == nil ? .seconds(1) : .milliseconds(200) }
+
+    /// 광장에 있는 팀원(나 빼고).
+    private var gamePresent: Set<String> { Set(members.values.filter(\.inPlaza).map(\.memberID)) }
+
+    /// 미니게임 한 걸음: 팀원이 아는 것을 듣고, 내 수를 두고, 알리고, 다시 그린다.
+    func advanceGame() { stepGame { _, _ in } }
+
+    private func stepGame(_ move: (inout PlazaGameEngine, Date) -> Void) {
+        guard scene != nil else { return }
+        let now = clock()
+        let before = game.state
+        move(&game, now)
+        for m in members.values { game.learn(m.game, now: now) }
+        let present = gamePresent
+        let id = game.state?.id
+        game.tick(now: now, present: present, joins: Set(members.values.filter { $0.inPlaza && id != nil && $0.gameJoin == id }.map(\.memberID)))
+        session?.updateGame(game.state, join: game.joined)
+        if game.state != before { gameChanged(from: before, now: now) }
+        refreshGame(now: now)
+    }
+
+    /// 판이 바뀌었다: 시작, 폭탄 넘기기, 폭발, 끝을 그리고 알린다. 참가자에게는 가운데 큰 글씨로, 구경하는 사람에게는 위쪽 배너로.
+    private func gameChanged(from old: PlazaGameState?, now: Date) {
+        guard let scene, let s = game.state else { return }
+        let l = L(.ko), me = memberID()
+        let same = old?.id == s.id
+        let iPlay = s.players.contains(me)
+        let gameName = PlazaGameKind(rawValue: s.kind).map(l.plazaGameName) ?? l.plazaGameUnknownName
+        func name(_ id: String) -> String { (id == me ? nickname() : members[id]?.nickname) ?? l.plazaGroupPhotoSomeone }
+        func flash(_ title: PlazaGameView.Title, for seconds: TimeInterval) {
+            let from = max(now, gameFlashes.last?.until ?? now)
+            gameFlashes.append((title, from, from.addingTimeInterval(seconds)))
+        }
+        if !same { gameFlashes = [] }
+        if s.startsAt != nil, !(same && old?.startsAt != nil), s.endedAt == nil {
+            if iPlay {
+                if scene.isDiving { scene.setDiving(false); session?.updateDiving(false) }   // 잠수한 채로는 시작하지 않는다
+            } else {
+                showBanner(l.plazaGameStartedBanner(game: gameName, players: s.players.count))
+            }
+        }
+        // 새로 빠진 사람 가운데 첫 사람이 터진 사람이다(나머지는 광장을 떠나 함께 빠졌다).
+        let oldOut = Set(same ? old?.bomb?.out ?? [] : [])
+        if let blown = s.bomb?.out.first(where: { !oldOut.contains($0) }) {
+            scene.playBlast(memberID: blown == me ? nil : blown)
+            if iPlay {
+                flash(.init(text: l.plazaGameOut(nickname: blown == me ? nil : name(blown)), tone: .out), for: Self.gameOutFlash)
+            } else {
+                showBanner(l.plazaGameOutBanner(nickname: name(blown)))
+            }
+        }
+        if s.endedAt != nil, !(same && old?.endedAt != nil) {
+            if let winner = s.winner {
+                scene.showEmote(memberID: winner == me ? nil : winner, kind: .party)
+                if iPlay {
+                    flash(.init(text: l.plazaGameWin(nickname: winner == me ? nil : name(winner)), tone: .win), for: Self.gameWinFlash)
+                } else {
+                    showBanner(l.plazaGameWinBanner(nickname: name(winner), game: gameName))
+                }
+            } else if s.startsAt == nil {
+                if game.declined != s.id { showBanner(l.plazaGameCancelledBanner(game: gameName)) }
+            } else {
+                showBanner(l.plazaGameOverBanner(game: gameName))
+            }
+        } else if same, let holder = s.bomb?.holder, holder != old?.bomb?.holder, s.bomb?.round == old?.bomb?.round {
+            scene.showEmote(memberID: holder == me ? nil : holder, kind: .exclaim)   // 폭탄이 넘어갔다
+        }
+    }
+
+    /// 초대 카드, 큰 글씨, 안내 줄, 머리 위 폭탄을 지금 판에 맞춘다.
+    private func refreshGame(now: Date) {
+        gameFlashes.removeAll { $0.until <= now }
+        let me = memberID()
+        var joined = 0
+        if let s = game.state {
+            joined = 1 + members.values.filter { $0.inPlaza && $0.gameJoin == s.id && $0.memberID != s.host }.count
+                + (game.joined == s.id && s.host != me ? 1 : 0)
+        }
+        let view = PlazaGameView.make(engine: game, now: now, joinedCount: joined, canPlay: subject().speciesID != nil,
+                                      flash: gameFlashes.first(where: { $0.from <= now })?.title,
+                                      name: { [members, nickname] in $0 == me ? nickname() : members[$0]?.nickname })
+        let hintChanged = view.hint != gameView.hint
+        gameView = view
+        if gameModel.card != view.card { gameModel.card = view.card }
+        if gameModel.title != view.title { gameModel.title = view.title }
+        scene?.setBomb(holder: view.holder, isMe: view.holder == me, urgent: view.urgent)
+        if hintChanged { refreshHint() }
+    }
+
+    /// M: 내가 연 판이 모집 중이면 바로 시작, 아니면 미니게임 메뉴. Y: 참가. N: 안 함(내가 연 판이면 취소).
+    private func handleGameKey(_ key: PlazaGameKey) {
+        switch key {
+        case .menu:
+            if game.isHost, game.phase(now: clock()) == .recruiting { gameAction("start") } else { openGameMenu() }
+        case .yes: gameAction("join")
+        case .no: gameAction("decline")
+        }
+    }
+
+    /// 초대 카드의 단추와 Y·N·M 키가 하는 일. 모집 중이 아니면 아무 일도 없다. 알은 걸을 수 없어 참가하지 못한다.
+    func gameAction(_ action: String) {
+        guard game.phase(now: clock()) == .recruiting else { return }
+        let present = gamePresent
+        let canPlay = subject().speciesID != nil
+        stepGame { game, now in
+            switch action {
+            case "join": if canPlay { game.answer(join: true, now: now) }
+            case "decline": if game.isHost { game.leave(now: now, present: present) } else { game.answer(join: false, now: now) }
+            case "start": game.requestStart()
+            default: break
+            }
+        }
+        shell.focusScene()
+    }
+
+    /// 미니게임 메뉴를 연다. 판을 열 수 없으면(알, 이미 열린 판) 고를 줄 대신 까닭을 보여 준다.
+    private func openGameMenu() {
+        guard scene != nil, overlayModel.content == .none, !isPhotoMode else { return }
+        var menu = PlazaGameMenu()
+        if subject().speciesID == nil {
+            menu.blocked = L(.ko).plazaGameMenuEgg
+        } else if !game.canOpen(now: clock()) {
+            menu.blocked = L(.ko).plazaGameMenuBusy
+        }
+        _ = openOverlay(.gameMenu(menu))
+    }
+
+    /// 메뉴에서 고른 미니게임을 연다. 키로 고르든 눌러 고르든 여기로 온다.
+    func chooseGame(index: Int) {
+        guard case .gameMenu(let menu) = overlayModel.content else { return closeOverlay() }
+        closeOverlay()
+        guard menu.blocked == nil, menu.kinds.indices.contains(index), subject().speciesID != nil else { return }
+        let kind = menu.kinds[index]
+        stepGame { game, now in game.open(kind, now: now) }
+    }
+
+    /// 살아 있는 폭탄 돌리기에서 폭탄을 든 팀원의 공격이 내게 닿았다: 폭탄이 내게 넘어온다. 밀리는지와는 상관없다.
+    private func takeBomb(from sender: String) {
+        stepGame { game, now in _ = game.hit(by: sender, now: now) }
+    }
+
+    /// 광장을 닫는다: 모집 중인 내 판은 취소되고, 뛰던 판에서는 빠진다(폭탄을 들고 있었으면 터진다). 팀원에게 알린 뒤 그림을 지운다.
+    private func leaveGame() {
+        gameLoop?.cancel()
+        gameLoop = nil
+        game.leave(now: clock(), present: gamePresent)
+        session?.updateGame(game.state, join: game.joined)
+        gameFlashes = []
+        gameView = PlazaGameView()
+        gameModel.card = nil
+        gameModel.title = nil
     }
 
     /// 모닥불 메뉴에서 고른 시간으로 앉거나, 마지막 줄이면 불을 켜거나 끈다. 키로 고르든 눌러 고르든 여기로 온다.
@@ -1196,6 +1399,7 @@ import Observation
         if isDitto { return dittoFormTackled(by: sender) }
         // 집중 중이거나 모닥불 메뉴를 연 내 Mac은 밀지 않는다(옛 버전이 보낸 몸통박치기도 같다). 충격 그림만 보인다.
         guard isMe, touching else { return }
+        takeBomb(from: sender)
         // A disguised me is found instead of pushed.
         if myMimic != nil { return revealMe(by: sender) }
         if canBePushed { shove(by: sender) { scene.pushMe(direction, tiles: tiles) } }
@@ -1212,6 +1416,7 @@ import Observation
         let touching = PlazaBody(foot: from, size: scene.body(of: sender)?.size ?? 1).touches(targetBody)
         let direction = touching ? PlazaTargeting.turn(from: from, to: to, facing: senderFacing) : senderFacing
         scene.playTackle(by: sender, on: isMe ? nil : target, direction: direction)
+        if isMe, touching { takeBomb(from: sender) }
         if isMe, myMimic != nil, touching { revealMe(by: sender) }
     }
 
@@ -1301,6 +1506,7 @@ import Observation
             // 닿을 때 겨눈 칸에 더는 없으면 빗나간 것이다(걸어서 피했다).
             if isMe {
                 guard self.scene?.myBody.covers(shot.endTile) == true else { return }
+                self.takeBomb(from: sender)
                 if self.myMimic != nil { self.revealMe(by: sender) }
                 else if self.canBePushed { self.shove(by: sender) { self.scene?.pushMe(direction, tiles: pushed) ?? false } }
             } else if isDitto, self.shownDitto?.isDecoy == false, self.scene?.body(of: PlazaDitto.sceneKey)?.covers(shot.endTile) == true {
@@ -1466,6 +1672,8 @@ import Observation
         var text: String?
         if isPhotoMode {
             text = nil
+        } else if let hint = gameView.hint, overlayModel.content == .none, !chatInput.isOpen {
+            text = hint   // 미니게임 중에는 누가 폭탄을 들었는지가 다른 안내보다 먼저다
         } else if let until = prayedHintUntil, clock() < until, overlayModel.content == .none, !chatInput.isOpen {
             text = L(.ko).plazaPrayedHint(prayers: prayerCount())
         } else if let focus, overlayModel.content == .none, !chatInput.isOpen {
@@ -2050,6 +2258,7 @@ import Observation
         refreshCampfire()
         // 팀원 소식(들어옴·나감·위치·메타몽)이 올 때마다 메타몽도 따라간다. 루프가 돌기 전(광장을 여는 중)에는 건드리지 않는다.
         if dittoLoop != nil { advanceDitto(now: clock()) }
+        if gameLoop != nil { advanceGame() }
     }
 
     /// A disguise runs out on its own, with no news from the teammate. The 1 s tick calls this: redraw when who is
@@ -2294,6 +2503,7 @@ import Observation
         soak = PlazaSoak()
         dittoLoop?.cancel()
         dittoLoop = nil
+        leaveGame()
         dittoBrain = nil
         foundDittoSince = nil
         foundMimics = [:]
@@ -2351,6 +2561,7 @@ import Observation
             scene.onTackleKey = nil
             scene.onSnowballKey = nil
             scene.onGroupPhotoKey = nil
+            scene.onGameKey = nil
             scene.onFireworkKey = nil
             scene.onPrayKey = nil
             scene.onDanceRound = nil

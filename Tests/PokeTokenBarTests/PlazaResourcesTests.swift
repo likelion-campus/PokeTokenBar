@@ -93,6 +93,24 @@ final class PlazaResourcesTests: XCTestCase {
         XCTAssertEqual(try opaque(PlazaPixelRect(x: 192, y: 0, width: 32, height: 32)), 0, "the seventh cell is empty")
     }
 
+    func testBombSheetHasFourFramesWithABomb() throws {
+        let sheet = try XCTUnwrap(BundledArt.image(PlazaResources.bombSheetName))
+        XCTAssertEqual([sheet.width, sheet.height], [64, 16])
+        XCTAssertEqual(PlazaResources.bombFrames.count, 4)
+        for f in PlazaResources.bombFrames {
+            let crop = try XCTUnwrap(sheet.cropping(to: f)).pixels.bytes
+            XCTAssertGreaterThan(stride(from: 3, to: crop.count, by: 4).filter { crop[$0] != 0 }.count, 80)
+        }
+    }
+
+    func testCreditsNameTheBombArtist() throws {
+        let credits = try text("CREDITS", "md")
+        for needle in ["victordelima", "16-bit animated bomb", "https://opengameart.org/content/16-bit-animated-bomb", "plaza-bomb.png", "CC0",
+                       "80843a315cd25afef02ed7388443be3edeedd84f4fe7a83538c02dbd2c3a5f41"] {
+            XCTAssertTrue(credits.contains(needle), needle)
+        }
+    }
+
     func testCreditsNameTheSteamArtist() throws {
         let credits = try text("CREDITS", "md")
         for needle in ["Aidan_Walker", "Smoke Puff", "https://opengameart.org/content/smoke-puff", "plaza-steam.png", "CC0"] {

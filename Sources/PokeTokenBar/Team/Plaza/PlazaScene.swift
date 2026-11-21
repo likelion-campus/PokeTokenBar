@@ -86,6 +86,8 @@ struct PlazaSceneMember: Equatable, Sendable {
     var onSnowballKey: (() -> Void)?
     /// G(단체 사진). 판이 닫혀 있을 때만 온다. keyCode로만 판정한다.
     var onGroupPhotoKey: (() -> Void)?
+    /// 미니게임 키: M(메뉴·바로 시작), Y(참가), N(안 함).
+    var onGameKey: ((PlazaGameKey) -> Void)?
     /// F(불꽃놀이). 판이 닫혀 있을 때만 온다. keyCode로만 판정한다.
     var onFireworkKey: (() -> Void)?
     /// A(기도). 판이 닫혀 있을 때만 온다. keyCode로만 판정한다. 알인지는 컨트롤러가 가른다.
@@ -871,6 +873,10 @@ struct PlazaSceneMember: Equatable, Sendable {
             if plain { action?() }
             return .swallowed
         }
+        if let key = [PlazaKeyCode.m: PlazaGameKey.menu, PlazaKeyCode.y: .yes, PlazaKeyCode.n: .no][keyCode] {
+            if plain { onGameKey?(key) }
+            return .swallowed
+        }
         // Cmd/Ctrl/Opt 조합은 말풍선이 아니다(아래로 내려가 처리하지 않은 키처럼 삼킨다). 눌러 둔 자동 반복도 보내지 않는다.
         if let kind = Self.emoteKind(keyCode), modifiers.isDisjoint(with: Self.emoteBlockingModifiers) {
             if !isRepeat { onEmoteKey?(kind) }
@@ -1496,6 +1502,49 @@ struct PlazaSceneMember: Equatable, Sendable {
                                     owner: memberID)
     }
 
+    /// 미니게임 폭탄을 든 캐릭터 머리 위에 폭탄을 띄운다. `isMe`면 나, 아니면 `holder`(nil이면 아무도 없다).
+    func setBomb(holder: String?, isMe: Bool, urgent: Bool) {
+        me.setBomb(isMe, urgent: urgent)
+        for (id, r) in remotes { r.actor.setBomb(!isMe && id == holder, urgent: urgent) }
+    }
+
+    /// 폭탄이 터졌다: 그 캐릭터 몸에서 불꽃이 터지고, 캐릭터가 빙글 돌며 솟았다 떨어져 그을리고, 화면이 잠깐 흔들린다.
+    /// `memberID`가 nil이면 나. 창이 가려져 멈춘 장면에서는 그을리기만 한다.
+    func playBlast(memberID: String?) {
+        guard let actor = actor(memberID) else { return }
+        actor.blast()
+        guard !isPaused else { return }
+        let foot = memberID.flatMap { remotes[$0]?.motion.footPoint } ?? walker.footPoint
+        let center = CGPoint(x: foot.x, y: worldSize.height - foot.y + actor.characterSize.height / 2)
+        fireworkLayer.launch(PlazaFireworks.blast, at: center, rise: 0, owner: PlazaScene.blastOwner, immediate: true)
+        blastShake = 0
+    }
+
+    /// 테스트용: 머리 위에 폭탄이 뜬 캐릭터들(나는 nil), 그리고 폭발에 날아가는 중인지.
+    var bombHolders: [String?] { (me.hasBomb ? [nil] : []) + remotes.filter { $0.value.actor.hasBomb }.keys.sorted().map { Optional($0) } }
+    func isBlasting(memberID: String?) -> Bool { actor(memberID)?.isBlasting ?? false }
+
+    /// 폭발 불꽃의 주인 이름. 내 불꽃(주인 nil)의 간격 제한을 쓰지 않게 한다.
+    static let blastOwner = "\u{0}blast"
+    /// 폭발로 화면이 흔들리는 시간과 세기(장면 픽셀).
+    static let blastShakeDuration: TimeInterval = 0.4, blastShakeAmount: CGFloat = 5
+    private var blastShake: TimeInterval?
+
+    private func advanceBlastShake(by dt: TimeInterval) {
+        guard let elapsed = blastShake else { return }
+        let t = elapsed + dt
+        guard t < Self.blastShakeDuration else {
+            blastShake = nil
+            if treeKick == nil { cameraKickOffset = .zero }
+            return
+        }
+        blastShake = t
+        // 0.05초마다 반대쪽으로, 갈수록 작게 턴다.
+        let step = Int(t / 0.05)
+        let amount = (Self.blastShakeAmount * (1 - t / Self.blastShakeDuration)).rounded()
+        cameraKickOffset = CGPoint(x: step % 2 == 0 ? amount : -amount, y: step % 4 < 2 ? amount / 2 : -amount / 2)
+    }
+
     /// 그 자리(장면 좌표)에 지금 닿은 모닥불빛(0~1). 꺼져 있으면 0이다.
     private func firelight(at point: CGPoint) -> Double {
         guard isCampfireLightShown, let center = PlazaCampfireLight.center(campfireTiles: map.campfireTiles) else { return 0 }
@@ -2024,6 +2073,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         applyDaylight()
         advanceCampfire(by: dt)
         advanceTreeKick(by: dt)
+        advanceBlastShake(by: dt)
         layout()
         advanceWeather(by: dt)
         advanceSteam(by: dt)

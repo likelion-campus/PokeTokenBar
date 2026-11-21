@@ -221,7 +221,25 @@ final class TeamRuntime {
         session.updateIdle(secondsSinceInput() >= Self.idleAfter)
         session.tick()
         plaza?.endFocusIfDue()
+        noticeGameInvite()
         notifier?.flush()
+    }
+
+    /// The last minigame an invitation was posted for.
+    private var noticedGameID: String?
+
+    /// A teammate's own presence says they opened a minigame that is still recruiting: tell me once per game. The notifier
+    /// stays quiet when the plaza is in front (it shows the invitation itself) and during a focus.
+    private func noticeGameInvite() {
+        let now = Date()
+        let open = session.members.values.compactMap { m -> (TeamMemberState, PlazaGameState)? in
+            guard let g = m.game, g.host == m.memberID, PlazaGame.phase(g, now: now) == .recruiting else { return nil }
+            return (m, g)
+        }
+        guard let (host, game) = open.max(by: { $0.1.opensAt < $1.1.opensAt }), game.id != noticedGameID else { return }
+        noticedGameID = game.id
+        let name = PlazaGameKind(rawValue: game.kind).map(L(.ko).plazaGameName) ?? L(.ko).plazaGameUnknownName
+        notifier?.gameInvite(from: host, game: name)
     }
 
     private func stopTicking() {

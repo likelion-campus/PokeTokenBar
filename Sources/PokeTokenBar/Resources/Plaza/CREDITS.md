@@ -65,3 +65,10 @@
 - Source: https://opengameart.org/content/smoke-puff
 - SHA-256: 246e0f333142c5d388dab36d50caf19fe508e8274ad4ecf7c7b96c0b92b0b8f8
 - The plaza hot spring's steam: the first six of its seven 32×32 cells (the seventh is empty), cut at runtime and drawn as they are with a changing transparency.
+
+## Bomb (plaza-bomb.png)
+- "16-bit animated bomb" (`16_bit_bomb.gif`) by victordelima
+- License: CC0 (public domain)
+- Source: https://opengameart.org/content/16-bit-animated-bomb
+- SHA-256: 80843a315cd25afef02ed7388443be3edeedd84f4fe7a83538c02dbd2c3a5f41
+- The plaza minigame's bomb: the GIF's four 16×16 frames laid side by side in one 64×16 sheet, pixels unchanged, cut at runtime.

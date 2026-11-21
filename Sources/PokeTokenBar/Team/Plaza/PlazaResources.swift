@@ -47,6 +47,9 @@ enum PlazaResources {
     static let steamSheetName = "plaza-steam"           // png, 224×32, "Smoke Puff" (smoke_5.png) 받은 그대로. 온천 김
     /// 김 시트의 앞 여섯 칸(32×32). 일곱째 칸은 비어 있다.
     static let steamFrames: [PlazaPixelRect] = (0..<6).map { PlazaPixelRect(x: 32 * $0, y: 0, width: 32, height: 32) }
+    static let bombSheetName = "plaza-bomb"             // png, 64×16, "16-bit animated bomb" 의 네 프레임을 옆으로 이어 붙인 것. 미니게임 폭탄
+    /// The bomb's four 16×16 frames, the fuse spark flickering.
+    static let bombFrames: [PlazaPixelRect] = (0..<4).map { PlazaPixelRect(x: 16 * $0, y: 0, width: 16, height: 16) }
 
     /// 큰 나무: `plaza-tallgrass.png` 안의 RedVoxel 소나무. 새 파일 없이 실행 중에 잘라 쓴다.
     static let treeCrop = PlazaPixelRect(x: 83, y: 48, width: 42, height: 48)

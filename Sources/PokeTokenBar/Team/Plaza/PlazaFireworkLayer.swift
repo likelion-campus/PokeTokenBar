@@ -68,11 +68,13 @@ import Foundation
     /// 대신 `canLaunchOwn`(0.5초 간격)으로 속도가 묶여, 하늘에 내 불꽃은 (riseDuration + 가장 긴 종류의 duration) / 0.5발쯤을 넘지 않는다.
     @discardableResult
     func launch(_ style: PlazaFireworkStyle, at burst: CGPoint, rise: CGFloat = PlazaFireworks.riseRange.upperBound,
-                owner: String? = nil) -> Bool {
+                owner: String? = nil, immediate: Bool = false) -> Bool {
         let inAir = bursts.reduce(0) { $0 + $1.style.pieces.count }
         guard owner == nil || inAir + style.pieces.count <= Self.maxPieces else { return false }
-        bursts.append(Burst(style: style, center: burst, rise: rise, owner: owner, launchedAt: clock))
-        if owner == nil { lastOwnLaunch = clock }
+        // `immediate`(폭탄)는 오르는 포탄 없이 그 자리에서 바로 터지고, 내 불꽃 간격도 쓰지 않는다.
+        bursts.append(Burst(style: style, center: burst, rise: rise, owner: owner,
+                            launchedAt: immediate ? clock - PlazaFireworks.riseDuration : clock))
+        if owner == nil, !immediate { lastOwnLaunch = clock }
         drawnBeat = -1
         return true
     }
