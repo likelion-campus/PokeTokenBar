@@ -170,6 +170,8 @@ struct PlazaSceneMember: Equatable, Sendable {
     private let cameraNode = PlazaCameraNode()
     /// 계절 날씨 입자. 캐릭터(z 1~2) 위, 낮밤 곱하기(5)와 이름표(10) 아래.
     let weatherLayer = PlazaWeatherLayer()
+    /// 온천 위의 김. 연못 그림을 쓰는 장면(`pondVisuals`)에 온천 칸과 김 그림이 있을 때만 있다. 만든 뒤 노드가 늘지 않는다.
+    private(set) var steamLayer: PlazaSteamLayer?
     /// 불꽃. 빛이라 낮밤 곱하기(5)와 모닥불빛(6) 위, 이름표(10) 아래.
     let fireworkLayer = PlazaFireworkLayer()
     /// 지금 지도에서 아이템이 놓일 수 있는 칸. 지도가 바뀌지 않으니 한 번만 센다.
@@ -473,6 +475,13 @@ struct PlazaSceneMember: Equatable, Sendable {
             root.addChild(layer.root)
             pondLayer = layer
         }
+        let springTiles = PlazaHotSpring.tiles(in: map)
+        if pondVisuals, !springTiles.isEmpty, Self.steamFrames.count == PlazaSteam.frameCount {
+            // 날씨(3) 아래, 캐릭터와 물보라 위. 낮밤 곱하기(5)가 김에도 색을 입힌다.
+            let layer = PlazaSteamLayer(springTiles: springTiles, worldHeight: map.pixelSize.height, frames: Self.steamFrames)
+            root.addChild(layer.root)
+            steamLayer = layer
+        }
         if let iceArt {
             let layer = PlazaIceLayer(ponds: icePonds, art: iceArt, mapImage: mapImage, worldHeight: map.pixelSize.height)
             root.addChild(layer.root)
@@ -567,6 +576,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         backgroundColor = hidden ? .clear : Self.forestColor
         applyDaylight()
         advanceWeather(by: 0)
+        advanceSteam(by: 0)
         applyCampfire()
     }
 
@@ -1357,7 +1367,9 @@ struct PlazaSceneMember: Equatable, Sendable {
         }
         let tint = daylightTint
         return PlazaPhotoInput(mapImage: mapImage, visibleRect: rect, pixelsPerWorld: zoom * 2, actors: actors.compactMap { $0 },
-                               tint: tint, weather: weatherLayer.photoParticles(worldHeight: worldSize.height),
+                               tint: tint,
+                               weather: weatherLayer.photoParticles(worldHeight: worldSize.height)
+                                   + (steamLayer?.photoParticles(worldHeight: worldSize.height) ?? []),
                                items: itemPhotoParticles,
                                ice: iceLayer?.photoParticles() ?? [],
                                bands: tallGrassLayer?.photoBands(in: rect) ?? [],
@@ -1953,6 +1965,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         advanceCampfire(by: dt)
         layout()
         advanceWeather(by: dt)
+        advanceSteam(by: dt)
         refreshSnowDay()
         advanceItem()
         reportLocalPosition()
@@ -2028,6 +2041,20 @@ struct PlazaSceneMember: Equatable, Sendable {
                             step: PlazaPixelSnap.step(backing: backing, zoom: zoom))
     }
 
+    /// 김을 움직인다. 보이는 영역(월드 좌표, y 아래로)을 그대로 넘기고, 온천이 안 보이면 층이 알아서 아무것도 하지 않는다.
+    /// 멈춘 장면은 프레임이 오지 않아 여기 오지 않는다(`setBackgroundHidden` 의 `dt` 0 호출만 온다).
+    private func advanceSteam(by dt: TimeInterval) {
+        let backing = backingOverride ?? stage.backingScale ?? 2
+        steamLayer?.update(dt: dt, visible: visibleRect, isHidden: isBackgroundHidden, step: PlazaPixelSnap.step(backing: backing, zoom: zoom))
+    }
+
+    /// 김의 여섯 칸. 프로세스당 한 번 읽는다. 파일이 없으면 비어 있어 김 층을 만들지 않는다.
+    static let steamFrames: [PlazaImage] = {
+        guard let sheet = PlatformPlaza.graphics.assetURL(PlazaResources.steamSheetName, ext: "png").flatMap({ PlatformPlaza.graphics.decodeImage(at: $0) })
+        else { return [] }
+        return PlazaResources.steamFrames.compactMap { sheet.cropping(to: $0) }
+    }()
+
     /// 그 계절의 지도와 풀숲 그림. 컨트롤러가 넣고, 원본 그대로인 계절(여름)이거나 그림을 못 만들면 nil이라 원본을 쓴다.
     var seasonLook: (PlazaSeason) -> PlazaSnowLook? = { _ in nil }
     /// 보이는 계절이 바뀌었다.
@@ -2077,6 +2104,10 @@ struct PlazaSceneMember: Equatable, Sendable {
     var weatherKind: PlazaWeather.Kind { weatherLayer.kind }
     var weatherParticleCount: Int { weatherLayer.particleCount }
     var weatherParticlePositions: [CGPoint] { weatherLayer.particlePositions }
+    var isSteamShown: Bool { steamLayer?.isShown ?? false }
+    var steamNodeCount: Int { steamLayer?.nodeCount ?? 0 }
+    var steamWisps: [PlazaSteamWisp] { steamLayer?.wisps ?? [] }
+    var steamSpriteStates: [PlazaSteamLayer.SpriteState] { steamLayer?.spriteStates ?? [] }
 
     private func reportLocalPosition() {
         // 달리기는 칸을 출발할 때나 멈출 때만 바뀌므로 칸·걷기 변화와 함께 보내진다.

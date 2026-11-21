@@ -104,3 +104,67 @@ enum PlazaHotSpring {
         return PlazaImage(bitmap: bitmap)
     }
 }
+
+/// 온천의 김. 조정용 상수는 여기 있다.
+enum PlazaSteam {
+    static let maxWisps = 8                       // 조정용 상수 (명세 13, 설계자 판단·미확인)
+    static let life: TimeInterval = 3             // 명세 8.3
+    static let rise: CGFloat = 24                 // 수명 동안 오르는 월드 픽셀 (명세 8.3)
+    static let peakAlpha: CGFloat = 0.6           // 명세 8.3
+    static let peakAt: TimeInterval = 0.75        // 구현자 재량: 투명도가 0 에서 0.6 까지 여기서 오르고 `life` 에서 0
+    static let spawnInterval: TimeInterval = 0.5  // life / spawnInterval = 동시에 여섯 개쯤
+    static let frameCount = 6                     // smoke_5.png 의 앞 여섯 32×32 칸. 칸 = min(5, ⌊나이 / life × 6⌋), 0.5초씩
+    static let scale: CGFloat = 2                 // 시트 픽셀 하나가 월드 픽셀 둘 (3.2 의 타일 밀도): 한 칸은 64×64
+    static let z: CGFloat = 2.9                   // 캐릭터(1...2)·물보라(2.5) 위, 날씨(3)·낮밤(5) 아래
+    static let cullMargin = CGFloat(PlazaMap.tileSize)   // 명세 8.3 "여유 한 칸"
+}
+
+/// 김 한 줄기. 태어난 자리(월드 픽셀, y 아래로)와 나이.
+struct PlazaSteamWisp: Equatable {
+    let x: CGFloat, y: CGFloat
+    var age: TimeInterval
+}
+
+/// 김의 움직임. 노드 없이 값만 다뤄, 같은 씨앗과 같은 `dt` 열이면 같은 결과다.
+struct PlazaSteamField {
+    private(set) var wisps: [PlazaSteamWisp] = []
+    private var rng: PlazaSplitMix64
+    private let tiles: [TilePoint]
+    private var sinceSpawn: TimeInterval = PlazaSteam.spawnInterval
+
+    /// 씨앗은 고정이라(`fnv1a("plaza-steam")`) 두 시스템의 렌더가 같다. 처음에 `life` 만큼 0.05초씩 미리 돌려 김이 이미 올라 있다.
+    init(tiles: [TilePoint], seed: UInt64 = UInt64(PlazaNameColor.fnv1a("plaza-steam"))) {
+        self.tiles = tiles
+        rng = PlazaSplitMix64(seed: seed)
+        for _ in 0..<Int((PlazaSteam.life / 0.05).rounded()) { advance(by: 0.05) }
+    }
+
+    /// 나이를 먹이고 수명이 다한 것을 버리고, `spawnInterval` 마다 한 줄기를 온천 칸 위에 새로 띄운다(`maxWisps` 까지).
+    mutating func advance(by dt: TimeInterval) {
+        for i in wisps.indices { wisps[i].age += dt }
+        wisps.removeAll { $0.age >= PlazaSteam.life }
+        sinceSpawn += dt
+        while sinceSpawn >= PlazaSteam.spawnInterval, wisps.count < PlazaSteam.maxWisps, !tiles.isEmpty {
+            sinceSpawn -= PlazaSteam.spawnInterval
+            let t = tiles[Int(rng.next() % UInt64(tiles.count))]
+            let size = CGFloat(PlazaMap.tileSize)
+            wisps.append(PlazaSteamWisp(x: (CGFloat(t.x) + CGFloat(rng.unit())) * size, y: (CGFloat(t.y) + CGFloat(rng.unit())) * size, age: 0))
+        }
+        sinceSpawn = min(sinceSpawn, PlazaSteam.spawnInterval)
+    }
+
+    /// 시트의 칸 번호(0..<6).
+    static func frame(age: TimeInterval) -> Int {
+        min(PlazaSteam.frameCount - 1, max(0, Int(age * Double(PlazaSteam.frameCount) / PlazaSteam.life)))
+    }
+
+    /// 0 에서 `peakAt` 까지 `peakAlpha` 로 오르고 `life` 까지 0 으로 내린다.
+    static func alpha(age: TimeInterval) -> CGFloat {
+        guard age > 0, age < PlazaSteam.life else { return 0 }
+        let k = age < PlazaSteam.peakAt ? age / PlazaSteam.peakAt : (PlazaSteam.life - age) / (PlazaSteam.life - PlazaSteam.peakAt)
+        return PlazaSteam.peakAlpha * CGFloat(k)
+    }
+
+    /// 수명 동안 `rise` 만큼 곧게 오른다(월드 픽셀).
+    static func lift(age: TimeInterval) -> CGFloat { PlazaSteam.rise * CGFloat(age / PlazaSteam.life) }
+}

@@ -71,4 +71,19 @@ extension PlazaWeatherTests {
         XCTAssertGreaterThan(plateOnTop, 20, "the name plate shows through an all-white blanket, so it is drawn after it")
         XCTAssertGreaterThan(whites, 1000, "while the map and character are under it")
     }
+
+    /// A particle with an alpha is drawn at that alpha (the steam's wisps fade; weather particles are 1).
+    func testAParticleIsDrawnAtItsAlpha() async throws {
+        var black = PlazaBitmap(width: 4, height: 4)
+        for y in 0..<4 { for x in 0..<4 { black[x, y] = PlazaRGBA(r: 0, g: 0, b: 0, a: 255) } }
+        var whiteBitmap = PlazaBitmap(width: 2, height: 2)
+        for y in 0..<2 { for x in 0..<2 { whiteBitmap[x, y] = PlazaRGBA(r: 255, g: 255, b: 255, a: 255) } }
+        var input = PlazaPhotoInput(mapImage: PlazaImage(bitmap: black), visibleRect: CGRect(x: 0, y: 0, width: 4, height: 4),
+                                    pixelsPerWorld: 1, actors: [])
+        input.weather = [PlazaPhotoParticle(image: PlazaImage(bitmap: whiteBitmap), origin: CGPoint(x: 1, y: 1),
+                                            size: CGSize(width: 2, height: 2), alpha: 0.5)]
+        let out = try XCTUnwrap(PlazaPhotoRenderer.renderBitmap(input))
+        XCTAssertEqual(Double(pixel(out, 1, 1).r), 128, accuracy: 1)
+        XCTAssertEqual(pixel(out, 0, 0).r, 0)
+    }
 }

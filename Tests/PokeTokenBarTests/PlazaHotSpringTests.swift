@@ -86,6 +86,22 @@ final class PlazaHotSpringTests: XCTestCase {
         XCTAssertFalse(PlazaHotSpring.usesSpringWater(p(8, 14), in: map))
     }
 
+    /// All or nothing: a map with the spring where one stone's tiles do not fit gets no stones at all.
+    func testAStoneThatDoesNotFitDropsEveryStone() throws {
+        func rows(_ x: Int, _ y: Int, _ c: Character) -> PlazaMap {
+            var r = PlazaMapData.rows
+            var row = Array(r[y]); row[x] = c; r[y] = String(row)
+            return try! PlazaMap(rows: r)
+        }
+        XCTAssertEqual(PlazaHotSpring.props(in: map).count, 6)
+        XCTAssertEqual(PlazaHotSpring.props(in: rows(39, 16, "b")), [], "a bank stone on a bush")
+        XCTAssertEqual(PlazaHotSpring.props(in: rows(40, 17, "w")), [], "a bank stone on water")
+        XCTAssertEqual(PlazaHotSpring.props(in: rows(32, 16, "w")), [], "a water stone on a plain pond tile")
+        XCTAssertEqual(PlazaHotSpring.props(in: rows(38, 20, ".")).count, 0, "a water stone on land (the spring still has tiles)")
+        let bad = rows(39, 16, "b")
+        XCTAssertEqual(PlazaHotSpring.artBounds(in: bad)?.maxX, 39, "no stones, so the ring alone: x 31...39")
+    }
+
     private func sheet() throws -> PlazaImage { try XCTUnwrap(PlatformPlaza.tileSheet()) }
 
     func testTheSpringSheetSwapsOnlyTheWaterColours() throws {

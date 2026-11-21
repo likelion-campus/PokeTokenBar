@@ -248,9 +248,11 @@ enum PlazaPhotoRenderer {
         drawProps(upTo: nil)
 
         for p in input.weather {
+            context.setAlpha(p.alpha)
             draw(p.image, x: px(p.origin.x, origin: rect.minX), top: px(p.origin.y, origin: rect.minY),
                  w: Int((p.size.width * ppw).rounded()), h: Int((p.size.height * ppw).rounded()))
         }
+        context.setAlpha(1)
 
         if input.tint != .none {
             let t = input.tint
