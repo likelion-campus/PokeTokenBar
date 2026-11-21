@@ -62,4 +62,13 @@ final class IdleBurstAttributionTests: XCTestCase {
         XCTAssertFalse(v.ok)
         XCTAssertTrue(v.note.contains("the rest 10 is still over the budget 8"), v.note)
     }
+
+    /// A refresh still running at the window's end is budgeted although the app has not counted it yet (the release run's
+    /// `ui.kit.idle`: refresh 0, 39 switches, budget 11); finished ones count as before, and a quiet window budgets none.
+    func testARefreshStillRunningAtTheWindowsEndIsBudgeted() {
+        XCTAssertEqual(IdleBurstAttribution.refreshesInWindow(countBefore: 4, countAfter: 4, runningAtEnd: true), 1)
+        XCTAssertEqual(IdleBurstAttribution.refreshesInWindow(countBefore: 4, countAfter: 5, runningAtEnd: false), 1)
+        XCTAssertEqual(IdleBurstAttribution.refreshesInWindow(countBefore: 4, countAfter: 5, runningAtEnd: true), 2, "one finished, the next running")
+        XCTAssertEqual(IdleBurstAttribution.refreshesInWindow(countBefore: 4, countAfter: 4, runningAtEnd: false), 0)
+    }
 }

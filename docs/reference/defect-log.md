@@ -3396,3 +3396,12 @@ read_when:
 - **고침:** `PlazaWindowRig.wait` 가 조건이 참이 된 뒤 `flush()`(20 번 yield)로 미뤄 둔 렌더를 끝내고 돌아온다. 카드 테스트의 1.6 s sleep 을 `rig.wait { !isTimerRunning }` 로 바꿨다.
 - **영구 캡처:** `PlazaBoardWindowTests.testTheRigsWaitReturnsAfterAScheduledRenderLands` — `setNeedsRender` 직후 `wait { true }` 가 렌더 수 +1 을 보여야 한다. `flush()` 를 빼면 매번 실패한다(결정적).
 - **규칙:** 광장 HUD 의 렌더 수를 읽기 전에는 `rig.flush()` 나 `rig.wait` 를 거친다. 시계·타이머 상태가 바뀐 직후라도 렌더는 아직 예약만 된 상태일 수 있다.
+
+## 창 끝에 걸친 저장소 갱신이 유휴 예산에서 빠졌다 (v2.5.636 네 번째 릴리스 실행, windows-app 44868486165, 2026-11-21)
+- **증상:** 번들 셀프테스트("Selftest with a stripped Path")의 `ui.kit.idle` 이 `main_thread_cs=39 (budget 11 … refresh:0)` 으로 실패해 릴리스가 5단계에서 멈췄다. 같은 셀프테스트의 앞선 실행 넷(44748321973·44758347740·44764713785·44864690889)은 37–40 회로 **같은 일**(주 스레드 약 40, `com.apple.root.user-initiated-qos` 일꾼 셋)을 했고, 그때마다 `refresh:1` 이라 예산이 71 이었다.
+- **직접 원인:** 앱은 갱신을 **끝날 때만** 센다(`UsageStore.refresh` 끝의 `onRefresh` → `refreshCount += 1`). 이번에는 갱신이 10 s 창 안에서 시작해 창이 끝난 뒤 끝났다 — 일(파싱 스레드, 주 스레드 전환)은 창 안에, 셈은 창 밖에 떨어져 예산에 60 이 빠졌다.
+- **왜 못 걸렀나:** 갱신(120 s 마다)이 창 안에서 끝나는 경우와 창 밖에 있는 경우만 겪었다. 걸친 경우는 위상이 맞아야 나와 처음이었다. `team.idle` 은 같은 구멍을 이미 막았지만(`refreshStarted` 관찰) 그 방법이 공용 셈으로 올라가지 않아 다른 유휴 검사 넷은 옛 셈(끝난 수의 차이)을 그대로 썼다.
+- **부류 스윕:** 갱신을 예산에 넣는 유휴 검사 다섯 — `ui.kit.idle`(`WindowsSelftestPopover`), `modalPump.idle`(`WindowsSelftestModal`), `pet.idle` 의 창(`WindowsSelftestPopoverPet`, 갱신이 든 창은 한 번 더 잰다 — 걸친 갱신은 그 재측정도 못 불렀다), `idle.window`(`WindowsSelftest`), `team.idle`(이미 막음). `popover.idleAttribution` 은 예산 없이 적기만 해서 해당 없다.
+- **고침(셀프테스트만, 앱 동작은 그대로):** `IdleBurstAttribution.refreshesInWindow(countBefore:countAfter:runningAtEnd:)` — 창 안에서 끝난 수 + 창 끝에 아직 도는 갱신 하나. `onRefresh` 는 `isRefreshing` 이 내려가기 전에 불리므로 "끝에 도는 중" 이면 아직 안 센 갱신이다. `KnownWakes` 가 `refreshing` 을 담고 `refreshesInWindow(since:)` 로 네 검사가 같은 셈을 쓴다. 기록 줄은 `refresh:0+running` 처럼 보인다.
+- **영구 캡처:** `IdleBurstAttributionTests.testARefreshStillRunningAtTheWindowsEndIsBudgeted`(도는 중만·끝난 것만·둘 다·없음).
+- **규칙:** 유휴 창에서 앱의 일을 셀 때는 "끝난 수의 차이" 만 쓰지 않는다 — 창 끝에 진행 중인 일도 센다. 같은 셈이 둘 이상의 검사에 있으면 공용 함수 하나로 모은다.
