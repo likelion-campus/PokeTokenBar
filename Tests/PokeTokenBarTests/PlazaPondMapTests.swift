@@ -92,7 +92,7 @@ final class PlazaPondMapTests: XCTestCase {
         return out
     }
 
-    private var water: Set<TilePoint> { points(PlazaMapData.rows) { $0 == "w" } }
+    private var water: Set<TilePoint> { points(PlazaMapData.rows) { $0 == "w" || $0 == "h" } }
 
     private var shoreLand: Set<TilePoint> {
         var out = Set<TilePoint>()
@@ -170,7 +170,7 @@ final class PlazaPondMapTests: XCTestCase {
         XCTAssertEqual(old.count, new.count)
         for (y, (o, n)) in zip(old, new).enumerated() {
             for (x, (a, b)) in zip(o, n).enumerated() where a != b {
-                XCTAssertEqual(b, "w", "changed to non-water at (\(x),\(y))")
+                XCTAssertTrue(b == "w" || b == "h", "changed to non-water at (\(x),\(y))")
                 XCTAssertTrue(a == "." || a == "f", "water replaced \(a) at (\(x),\(y))")
             }
         }

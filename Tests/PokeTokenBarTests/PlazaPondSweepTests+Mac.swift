@@ -6,9 +6,10 @@ import XCTest
 final class PlazaPondSweepTests: XCTestCase {
     /// (file relative to `Sources/PokeTokenBar/Team/Plaza`, trimmed line). Water rules ask `isWater`; only the lines below name the pond tile.
     static let allowed: Set<String> = [
-        "PlazaMap.swift|case .tree, .bush, .board, .campfire, .pond: false",
-        "PlazaMap.swift|func isWater(_ p: TilePoint) -> Bool { tile(at: p) == .pond }",
-        "PlazaSnow.swift|case .tallGrass, .tree, .bush, .board, .campfire, .pond: false",
+        "PlazaIce.swift|let isPond = { (q: TilePoint) in map.tile(at: q) == .pond }   // 온천(.hotSpring)은 연못이 아니다",
+        "PlazaMap.swift|case .tree, .bush, .board, .campfire, .pond, .hotSpring: false",
+        "PlazaMap.swift|func isWater(_ p: TilePoint) -> Bool { tile(at: p) == .pond || tile(at: p) == .hotSpring }",
+        "PlazaSnow.swift|case .tallGrass, .tree, .bush, .board, .campfire, .pond, .hotSpring: false",
     ]
 
     func testEveryDirectPondCheckIsClassified() throws {

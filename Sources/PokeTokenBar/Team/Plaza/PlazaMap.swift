@@ -12,11 +12,13 @@ enum PlazaTile: Character, Sendable {
     case grass = ".", flowers = "f", shelter = "S", tallGrass = "g"
     // 지나갈 수 없음
     case tree = "T", bush = "b", board = "N", campfire = "F", pond = "w"
+    /// 온천: 물이지만 얼지 않고 연잎이 없다.
+    case hotSpring = "h"
 
     var isWalkable: Bool {
         switch self {
         case .grass, .flowers, .shelter, .tallGrass: true
-        case .tree, .bush, .board, .campfire, .pond: false
+        case .tree, .bush, .board, .campfire, .pond, .hotSpring: false
         }
     }
 }
@@ -97,8 +99,11 @@ struct PlazaMap: Sendable {
 
     func isWalkable(_ p: TilePoint) -> Bool { tile(at: p).isWalkable }
 
-    /// 연못 칸인가. 지도 밖은 false.
-    func isWater(_ p: TilePoint) -> Bool { tile(at: p) == .pond }
+    /// 물 칸인가(연못 또는 온천). 지도 밖은 false.
+    func isWater(_ p: TilePoint) -> Bool { tile(at: p) == .pond || tile(at: p) == .hotSpring }
+
+    /// 온천 칸인가. 지도 밖은 false.
+    func isHotSpring(_ p: TilePoint) -> Bool { tile(at: p) == .hotSpring }
 
     /// 월드 픽셀 크기.
     var pixelSize: CGSize {

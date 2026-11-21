@@ -236,7 +236,7 @@ final class PlazaArtParityPixelArtTests: XCTestCase {
                                                     tallGrass: LegacyPlazaTallGrassArt(sheet: LegacyPlazaSnowSheet.tallGrass(grassCG)))
         let newMap = PlazaImage(cgImage: legacyMap)
         let ponds = PlazaIce.ponds(in: PlazaMapData.map)
-        XCTAssertEqual(ponds.count, 3)
+        XCTAssertEqual(ponds.count, 2)   // the hot spring does not freeze
         for pond in ponds {
             PlazaArtParity.assertIdentical(LegacyPlazaIceArt.overlay(mapImage: legacyMap, pond: pond, gloss: legacyGloss),
                                            PlazaIceArt.overlay(mapImage: newMap, pond: pond, gloss: newGloss), "overlay \(pond.anchor)")

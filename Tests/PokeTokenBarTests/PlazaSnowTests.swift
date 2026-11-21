@@ -33,4 +33,11 @@ final class PlazaSnowTests: XCTestCase {
         }
         XCTAssertNil(PlazaSnow.footprintAlpha(age: 9))
     }
+
+    func testTheHotSpringIsNoSnowGroundAndTakesNoPrints() {
+        let map = PlazaMapData.map
+        XCTAssertFalse(PlazaSnow.isSnowGround(TilePoint(x: 34, y: 17), in: map))
+        XCTAssertEqual(PlazaSnow.footprints(from: TilePoint(x: 31, y: 17), to: TilePoint(x: 32, y: 17), map: map), [])
+        XCTAssertEqual(PlazaSnow.footprints(from: TilePoint(x: 32, y: 17), to: TilePoint(x: 31, y: 17), map: map), [])
+    }
 }

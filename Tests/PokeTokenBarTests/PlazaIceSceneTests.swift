@@ -1,7 +1,7 @@
 import XCTest
 @testable import PokeTokenBar
 
-/// The ice rules in the scene, on the real map. Ponds: L (5,13) 10x3, R (32,14) 7x7, B (20,24) 3x3.
+/// The ice rules in the scene, on the real map. Ponds that freeze: L (5,13) 10x3 and B (20,24) 3x3. (32,14) is the hot spring: water all year.
 /// (4,14) is shore west of L, (6,12) land north of it, (15,14) shore east of it.
 @MainActor
 final class PlazaIceSceneTests: XCTestCase {
@@ -11,7 +11,7 @@ final class PlazaIceSceneTests: XCTestCase {
     private var t: TimeInterval = 0
     private func p(_ x: Int, _ y: Int) -> TilePoint { TilePoint(x: x, y: y) }
     private var L: TilePoint { p(5, 13) }
-    private var R: TilePoint { p(32, 14) }
+    private var R: TilePoint { p(32, 14) }   // the hot spring: not a pond that freezes
     private var B: TilePoint { p(20, 24) }
     private func brk(_ pond: TilePoint, ago: Double = 0) -> PlazaIceBreak { PlazaIceBreak(at: nowSeconds - ago, pond: pond) }
 
@@ -114,6 +114,22 @@ final class PlazaIceSceneTests: XCTestCase {
         XCTAssertEqual(landed, 0)
     }
 
+    func testTheHotSpringStaysWaterAllWinter() async {
+        let s = scene(start: p(31, 17))
+        s.seasonChoice = .winter
+        s.update(0)
+        XCTAssertFalse(s.isIce(p(34, 17)))
+        XCTAssertTrue(s.isWaterNow(p(34, 17)))
+        let before = s.iceBreak
+        s.setIceBreak(brk(R))
+        XCTAssertEqual(s.iceBreak, before, "a break of the spring is ignored")
+        XCTAssertNil(s.breakingPondAnchor)
+        XCTAssertTrue(s.isWaterNow(p(34, 17)))
+        nowSeconds += 600
+        run(s, 0.1)
+        XCTAssertTrue(s.isWaterNow(p(34, 17)))
+    }
+
     func testAFreshSceneFreezesTheFirstPond() async {
         let s = scene(start: p(4, 14))
         XCTAssertEqual(s.frozenPondAnchor, L)
@@ -168,7 +184,7 @@ final class PlazaIceSceneTests: XCTestCase {
         XCTAssertEqual(s.pondAction(canMove: true), .jump, "breaking ice")
         run(s, 0.50)
         XCTAssertFalse(s.isMeInWater)
-        XCTAssertTrue(s.isWaterNow(p(34, 17)), "no other pond is frozen during the break")
+        XCTAssertTrue(s.isWaterNow(p(21, 25)), "no other pond is frozen during the break")
         XCTAssertEqual(s.pondLayer!.dropletCount, 0, "no splash before the 0.6 s sink")
         XCTAssertNotEqual(s.isWet(memberID: "c"), true)
         run(s, 0.12)
@@ -177,7 +193,7 @@ final class PlazaIceSceneTests: XCTestCase {
         XCTAssertEqual(s.pondLayer!.dropletCount, 2 * PlazaPondLayer.bigDroplets)
         XCTAssertEqual(s.isWet(memberID: "c"), true)
         XCTAssertNil(s.frozenPondAnchor, "nothing is frozen for a minute after the break")
-        XCTAssertTrue(s.isWaterNow(p(34, 17)))
+        XCTAssertTrue(s.isWaterNow(p(21, 25)))
     }
 
     /// Runs with the wall clock moving along with the scene.
@@ -201,7 +217,7 @@ final class PlazaIceSceneTests: XCTestCase {
         func advance(to seconds: Double) { runClock(s, at + seconds - nowSeconds) }
         advance(to: 59.9)
         XCTAssertNil(s.frozenPondAnchor)
-        XCTAssertTrue(s.isWaterNow(p(34, 17)))
+        XCTAssertTrue(s.isWaterNow(p(21, 25)))
         advance(to: 60.05)
         XCTAssertEqual(s.frozenPondAnchor, B)
         XCTAssertTrue(s.isWalkableNow(p(21, 25)))
@@ -239,7 +255,7 @@ final class PlazaIceSceneTests: XCTestCase {
         XCTAssertNil(s.frozenPondAnchor)
         nowSeconds += 0.2
         s.update(2)
-        XCTAssertEqual(s.frozenPondAnchor, R)
+        XCTAssertEqual(s.frozenPondAnchor, B)
     }
 
     func testStepsDuringTheBreakDecideWhoSinks() async {
@@ -288,7 +304,7 @@ final class PlazaIceSceneTests: XCTestCase {
         s.update(0)
         var changes = 0
         s.onIceChange = { changes += 1 }
-        s.setIceBreak(brk(R))
+        s.setIceBreak(brk(B))
         XCTAssertNil(s.breakingPondAnchor)
         XCTAssertTrue(s.isMeInWater)
         XCTAssertEqual(changes, 1)
@@ -347,15 +363,15 @@ final class PlazaIceSceneTests: XCTestCase {
         s.onIceLanding = { [unowned s] in s.setIceBreak($0, hit: $1) }
         let before = s.children.count
         for i in 0..<50 {
-            s.queueIceLanding(brk(i.isMultiple(of: 2) ? L : R, ago: Double(i)), jumper: nil)
+            s.queueIceLanding(brk(i.isMultiple(of: 2) ? L : B, ago: Double(i)), jumper: nil)
             s.setIceBreak(brk(i.isMultiple(of: 2) ? B : L, ago: Double(i)))
         }
         XCTAssertEqual(s.children.count, before)
     }
 
     func testFreezingUnderASwimmerAndADiverStandsThemOnTheIce() async {
-        let s = scene(start: p(34, 17))
-        add(s, "s", p(35, 17), diving: true)
+        let s = scene(start: p(21, 25))
+        add(s, "s", p(22, 25), diving: true)
         s.update(0)
         s.setIceBreak(brk(L, ago: 1))
         XCTAssertTrue(s.isMeInWater)

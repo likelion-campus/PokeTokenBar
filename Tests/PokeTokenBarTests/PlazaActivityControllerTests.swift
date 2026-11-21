@@ -78,7 +78,7 @@ final class PlazaActivityControllerTests: XCTestCase {
     private func makePrefs(start: TilePoint, iceBroken: Bool) -> PlazaPreferences {
         let prefs = PlazaPreferences(defaults: TestDefaults.make(suite: "plaza.activity.prefs.\(UUID())"))
         prefs.saveLastTile(start)
-        // The left pond broken (the next one is the far right pond), unless a test breaks ice itself.
+        // The left pond broken (the next one is the bottom pond), unless a test breaks ice itself.
         if iceBroken { prefs.iceBreak = PlazaIceBreak(at: now.timeIntervalSince1970, pond: TilePoint(x: 5, y: 13)) }
         return prefs
     }

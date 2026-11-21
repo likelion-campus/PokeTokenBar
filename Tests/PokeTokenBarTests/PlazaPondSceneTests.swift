@@ -675,4 +675,9 @@ final class PlazaPondSceneTests: XCTestCase {
         s.canWalk = false
         XCTAssertEqual(s.walker.tile, p(33, 18))
     }
+
+    /// The water these tests use is the hot spring (32...38 x 14...20): moving it must not quietly turn them into pond tests.
+    func testThisSuiteSwimsInTheHotSpring() {
+        for tile in [p(32, 18), p(33, 17), p(33, 18), p(34, 18), p(34, 19), p(34, 20), p(35, 16), p(35, 18)] { XCTAssertTrue(PlazaMapData.map.isHotSpring(tile), "\(tile)") }
+    }
 }

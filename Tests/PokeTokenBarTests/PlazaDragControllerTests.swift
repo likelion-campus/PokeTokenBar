@@ -69,7 +69,7 @@ final class PlazaDragControllerTests: XCTestCase {
     private func controller(_ me: Node, start: TilePoint, speciesID: Int?, stage: Int) -> PlazaWindowController {
         let prefs = PlazaPreferences(defaults: TestDefaults.make(suite: "plaza.drag.prefs.\(UUID())"))
         prefs.saveLastTile(start)
-        // The left pond is broken (the next one is the far right pond): this class swims in the left one.
+        // The left pond is broken (the next one is the bottom pond): this class swims in the left one.
         prefs.iceBreak = PlazaIceBreak(at: now.timeIntervalSince1970, pond: TilePoint(x: 5, y: 13))
         return PlazaWindowController(preferences: prefs, loader: PlazaCharacterLoader(fetcher: EmptyFetcher()),
                                      nickname: { "나" }, memberID: { me.settings.memberID },

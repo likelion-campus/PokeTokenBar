@@ -1,7 +1,8 @@
 import XCTest
 @testable import PokeTokenBar
 
-/// The ice layer's drawing, alone and driven by the scene. Ponds: L (5,13) 10x3, R (32,14) 7x7, B (20,24) 3x3.
+/// The ice layer's drawing, alone and driven by the scene. It is built on the v2.5.635 ponds (L 10x3, R 7x7, B 3x3):
+/// the layer draws whatever ponds it is given, and these tests need the 7x7 geometry.
 @MainActor
 final class PlazaIceLayerTests: XCTestCase {
     /// Art with the real shape (12 crack cells, 3 shard frames) and no artist pixels: the bundled files are read by the Mac loader.
@@ -11,6 +12,7 @@ final class PlazaIceLayerTests: XCTestCase {
         shards: (0..<3).map { _ in PlazaImage(bitmap: PlazaBitmap(width: 64, height: 64, fill: PlazaRGBA(r: 216, g: 234, b: 248, a: 255))) })
 
     let map = PlazaMapData.map
+    var oldMap: PlazaMap { try! PlazaMap(rows: PlazaMapData.rows.map { $0.replacingOccurrences(of: "h", with: "w") }) }
     var nowSeconds = 1_800_000_000.0
     var t: TimeInterval = 0
     func p(_ x: Int, _ y: Int) -> TilePoint { TilePoint(x: x, y: y) }
@@ -20,7 +22,7 @@ final class PlazaIceLayerTests: XCTestCase {
     func brk(_ pond: TilePoint, ago: Double = 0) -> PlazaIceBreak { PlazaIceBreak(at: nowSeconds - ago, pond: pond) }
 
     func layer(art: PlazaIceArt = PlazaIceLayerTests.fixtureArt, image: PlazaImage? = nil) -> PlazaIceLayer {
-        PlazaIceLayer(ponds: PlazaIce.ponds(in: map), art: art, mapImage: image ?? PlazaTileArt.plainGrassImage(map),
+        PlazaIceLayer(ponds: PlazaIce.ponds(in: oldMap), art: art, mapImage: image ?? PlazaTileArt.plainGrassImage(map),
                       worldHeight: map.pixelSize.height)
     }
 

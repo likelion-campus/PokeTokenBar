@@ -60,8 +60,6 @@ extension PlazaIceArtTests {
         let gloss = PlatformPlaza.iceArt().gloss
         XCTAssertNotNil(gloss)
         let expected: [TilePoint: (w: Int, h: Int, c: [UInt32: Int], clear: Int)] = [
-            TilePoint(x: 32, y: 14): (288, 288, [0xADCDEC: 51797, 0xB5D3EF: 2038, 0x94B9DF: 1040, 0xC0DBF3: 900,
-                                                0xC8DEF4: 420, 0xD0E5F8: 297], 26452),
             TilePoint(x: 5, y: 13): (384, 160, [0xADCDEC: 33180, 0xB5D3EF: 1213, 0x94B9DF: 1460, 0xC0DBF3: 531,
                                                0xC8DEF4: 408, 0xD0E5F8: 172], 24476),
             TilePoint(x: 20, y: 24): (160, 160, [0xADCDEC: 11012, 0xB5D3EF: 223, 0x94B9DF: 480, 0xC0DBF3: 89,
@@ -85,9 +83,9 @@ extension PlazaIceArtTests {
         XCTAssertNil(none.gloss)
         XCTAssertEqual(none.cracks.count, 0)
         XCTAssertEqual(none.shards.count, 0)
-        let pond = try XCTUnwrap(PlazaIce.ponds(in: PlazaMapData.map).first { $0.anchor == TilePoint(x: 32, y: 14) })
+        let pond = try XCTUnwrap(PlazaIce.ponds(in: PlazaMapData.map).first { $0.anchor == TilePoint(x: 5, y: 13) })
         let c = counts(PlazaIceArt.overlay(mapImage: try snowMap(), pond: pond, gloss: nil))
         for color in PlazaIceArt.glossColors { XCTAssertNil(c[color]) }
-        XCTAssertEqual(c[0xADCDEC], 51797 + 3235)
+        XCTAssertEqual(c[0xADCDEC], 35096)   // left pond (30 tiles); pinned from the first run
     }
 }

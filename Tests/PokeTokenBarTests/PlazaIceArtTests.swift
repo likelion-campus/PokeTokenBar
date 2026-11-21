@@ -65,10 +65,8 @@ final class PlazaIceArtTests: XCTestCase {
 
     func testGlossPatchesAreFixedPerPond() {
         typealias P = PlazaIceArt.GlossPatch
-        XCTAssertEqual(PlazaIceArt.glossPatches.count, 3)
-        XCTAssertEqual(PlazaIceArt.glossPatches[TilePoint(x: 32, y: 14)],
-                       [P(i: 1, j: 1, n: 2, rx: 30, ry: 22), P(i: 4, j: 3, n: 2, rx: 31, ry: 23),
-                        P(i: 1, j: 5, n: 1, rx: 15, ry: 12), P(i: 5, j: 0, n: 1, rx: 15, ry: 12)])
+        XCTAssertEqual(PlazaIceArt.glossPatches.count, 2, "the hot spring (32,14) does not freeze and has no gloss")
+        XCTAssertNil(PlazaIceArt.glossPatches[TilePoint(x: 32, y: 14)])
         XCTAssertEqual(PlazaIceArt.glossPatches[TilePoint(x: 5, y: 13)],
                        [P(i: 1, j: 0, n: 2, rx: 30, ry: 22), P(i: 5, j: 1, n: 1, rx: 15, ry: 12),
                         P(i: 8, j: 0, n: 1, rx: 15, ry: 12)])
