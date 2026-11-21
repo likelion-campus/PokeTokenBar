@@ -15,16 +15,16 @@ enum PlazaTargeting {
         memberAhead(me: me, facing: facing, members: members) ?? memberAround(me: me, facing: facing, members: members)
     }
 
-    /// 1. 바라보는 칸을 덮는 몸 2. 내 발 칸을 덮는 몸. 한 칸을 여럿이 덮으면 ID가 작은 쪽.
+    /// 1. 바라보는 칸을 덮는 몸 2. 발이 내 칸에 있는 몸. 소식판과 모닥불은 이 둘 다음에 보므로, 내 칸을 몸으로만 덮은 팀원이
+    /// 옆 소식판·모닥불보다 먼저 잡히지 않는다(몸이 내 칸을 덮는 경우는 `memberAround` 의 첫 단계).
     static func memberAhead(me: PlazaBody, facing: PlazaDirection, members: [String: PlazaBody]) -> String? {
-        for tile in [facingTile(from: me.foot, facing: facing), me.foot] {
-            if let id = covering(tile, members: members) { return id }
-        }
-        return nil
+        if let id = covering(facingTile(from: me.foot, facing: facing), members: members) { return id }
+        return members.filter { $0.value.foot == me.foot }.keys.min()
     }
 
-    /// 3. 옆 칸(`otherSides` 순서)을 덮는 몸 4. 그 밖에 내 몸에 닿는 몸: 발 맨해튼 거리가 가까운 쪽, 같으면 ID가 작은 쪽.
+    /// 3. 내 칸을 덮는 몸 4. 옆 칸(`otherSides` 순서)을 덮는 몸 5. 그 밖에 내 몸에 닿는 몸: 발 맨해튼 거리가 가까운 쪽, 같으면 ID가 작은 쪽.
     static func memberAround(me: PlazaBody, facing: PlazaDirection, members: [String: PlazaBody]) -> String? {
+        if let id = covering(me.foot, members: members) { return id }
         for d in otherSides(facing) {
             if let id = covering(PlazaWalker.offset(me.foot, d), members: members) { return id }
         }
@@ -36,7 +36,8 @@ enum PlazaTargeting {
             }?.key
     }
 
-    private static func covering(_ tile: TilePoint, members: [String: PlazaBody]) -> String? {
+    /// 한 칸을 덮는 몸이 여럿이면 ID가 작은 쪽.
+    static func covering(_ tile: TilePoint, members: [String: PlazaBody]) -> String? {
         members.filter { $0.value.covers(tile) }.keys.min()
     }
 
