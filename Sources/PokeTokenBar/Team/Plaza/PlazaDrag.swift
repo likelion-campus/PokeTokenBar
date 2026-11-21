@@ -79,12 +79,24 @@ struct PlazaShove: Sendable {
     /// 1초 이상 지났거나(`now − t >= receiveCooldown`) 시계가 되감긴(`now < t`) 기록을 버린다.
     /// `sender`의 기록이 남아 있으면 거절하고 아무것도 적지 않는다(거절이 1초를 다시 시작하지 않는다). 없으면 `now`를 적고 받는다.
     mutating func admit(_ sender: String, now: Date) -> Bool {
+        guard allows(sender, now: now) else { return false }
+        record(sender, now: now)
+        return true
+    }
+
+    /// `sender`의 1초가 아직 안 끝났는지만 본다(아무것도 적지 않는다). 받은 값을 적용하기 전에 묻는다.
+    func allows(_ sender: String, now: Date) -> Bool {
+        guard let t = lastMoved[sender] else { return true }
+        let dt = now.timeIntervalSince(t)
+        return !(dt >= 0 && dt < Self.receiveCooldown)
+    }
+
+    /// 내가 실제로 움직였을 때 `sender`의 1초를 시작한다. 지난 기록(1초 이상, 또는 시계가 되감긴 것)도 이때 버린다.
+    mutating func record(_ sender: String, now: Date) {
         lastMoved = lastMoved.filter { _, t in
             let dt = now.timeIntervalSince(t)
             return dt >= 0 && dt < Self.receiveCooldown
         }
-        if lastMoved[sender] != nil { return false }
         lastMoved[sender] = now
-        return true
     }
 }

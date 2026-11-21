@@ -1164,7 +1164,7 @@ import Observation
         guard isMe, touching else { return }
         // A disguised me is found instead of pushed.
         if myMimic != nil { return revealMe(by: sender) }
-        if canBePushed, shoves.admit(sender, now: clock()) { scene.pushMe(direction, tiles: tiles) }
+        if canBePushed { shove(by: sender) { scene.pushMe(direction, tiles: tiles) } }
     }
 
     /// 런타임이 부른다. 메타몽 팀원의 몸통박치기. 아무도 밀리지 않고 충격 그림만 보이며, 맞은 게 변장한 나이고 옆에 있으면 들킨다.
@@ -1268,7 +1268,7 @@ import Observation
             if isMe {
                 guard self.scene?.myBody.covers(shot.endTile) == true else { return }
                 if self.myMimic != nil { self.revealMe(by: sender) }
-                else if self.canBePushed, self.shoves.admit(sender, now: self.clock()) { self.scene?.pushMe(direction, tiles: pushed) }
+                else if self.canBePushed { self.shove(by: sender) { self.scene?.pushMe(direction, tiles: pushed) ?? false } }
             } else if isDitto, self.shownDitto?.isDecoy == false, self.scene?.body(of: PlazaDitto.sceneKey)?.covers(shot.endTile) == true {
                 self.dittoFormTackled(by: sender)
             }
@@ -1278,6 +1278,13 @@ import Observation
     /// 나를 움직이는 이모트(몸통박치기·끌어당기기·물귀신·눈덩이)를 보낸 팀원마다 1초에 한 번만 움직인다. 별과 당기는 그림은 늘 보인다.
     /// 모든 길에서 마지막 관문이다(변장 들킴 뒤, 움직이기 직전). 메타몽 복사본의 장난(`playDecoyTackle`)은 제 60초 규칙을 쓴다.
     private var shoves = PlazaShove()
+
+    /// `sender`의 1초가 비어 있으면 `move`(나를 움직이는 일)를 하고, 실제로 움직였을 때만 그 1초를 시작한다.
+    /// 벽이나 사람에 막혀 0칸이면 1초를 쓰지 않는다(그 직후의 진짜 이동까지 막지 않게).
+    private func shove(by sender: String, _ move: () -> Bool) {
+        guard shoves.allows(sender, now: clock()) else { return }
+        if move() { shoves.record(sender, now: clock()) }
+    }
 
     /// 집중 중이거나 모닥불 메뉴를 연 나는 밀리지 않는다.
     private var canBePushed: Bool { !isFocusing && !isCampfireMenuOpen }
@@ -1312,10 +1319,12 @@ import Observation
     func showPull(from sender: String, on target: String?) {
         guard let scene, target == memberID(), !isPhotoMode, let from = scene.memberTiles[sender],
               let drag = PlazaPullUnder.drag(victim: scene.walker.tile, puller: from, isWater: { scene.isWaterNow($0) },
-                                             isWalkable: { scene.isWalkableNow($0) }),
-              shoves.admit(sender, now: clock()) else { return }
+                                             isWalkable: { scene.isWalkableNow($0) }) else { return }
         // 끄는 팀원은 물러나는 중이라 그 칸이 비었는지 따지지 않는다
-        if drag.tiles == 1 { scene.plunge(drag.direction) } else { scene.pushMe(drag.direction, tiles: drag.tiles, pulledBy: sender) }
+        shove(by: sender) {
+            if drag.tiles == 1 { scene.plunge(drag.direction); return true }
+            return scene.pushMe(drag.direction, tiles: drag.tiles, pulledBy: sender)
+        }
     }
 
     /// 런타임이 부른다. 팀원이 뒤로 물러나며 `target`을 끌어당긴다. 그림(뛰어들기와 먼지)은 늘 보인다. 끌려가는 것은 나일 때만이고,
@@ -1335,8 +1344,8 @@ import Observation
         let occupied = scene.occupiedTiles(except: sender)   // 끄는 쪽의 칸은 길을 막지 않는다(pushMe의 pulledBy와 같다)
         let n = PlazaDrag.slide(victim: scene.myBody, puller: PlazaBody(foot: from, size: scene.body(of: sender)?.size ?? 1), pushTiles: tiles,
                                 isOpen: { scene.isWalkableNow($0) && !occupied.contains($0) })
-        guard n > 0, shoves.admit(sender, now: clock()) else { return }
-        scene.pushMe(b, tiles: n, pulledBy: sender)
+        guard n > 0 else { return }
+        shove(by: sender) { scene.pushMe(b, tiles: n, pulledBy: sender) }
     }
 
     /// 하트나 폭죽을 나와 그 팀원 머리 위에 함께 띄우고 팀원들에게 보낸다. 말풍선 키와 같은 연타 제한을 쓴다.

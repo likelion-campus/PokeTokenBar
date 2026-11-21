@@ -1717,8 +1717,10 @@ struct PlazaSceneMember: Equatable, Sendable {
     /// 몸통박치기에 맞아 `tiles`칸 밀린다. 막힌 칸을 만나면 그 앞에 서고, 땅에서 물로 떨어지면 그 첫 물 칸에서 끝난다(큰 물보라).
     /// 헤엄치는 중에도 밀리고 물 칸을 지나 땅까지 밀려 나올 수 있지만, 잠수 중에는 밀리지 않는다. 알도 밀린다.
     /// 창이 가려져 장면이 멈춰 있으면(`isPaused`) 다음 화면이 오지 않으므로 그 자리에서 다 밀리고 팀원에게 바로 알린다.
-    func pushMe(_ d: PlazaDirection, tiles: Int = 1, pulledBy puller: String? = nil) {
-        guard !isDiving else { return }
+    /// 실제로 한 칸이라도 움직이게 했으면 true(벽이나 사람에 막혀 0칸이면 false). 받는 쪽 1초 규칙이 이것으로 시작된다.
+    @discardableResult
+    func pushMe(_ d: PlazaDirection, tiles: Int = 1, pulledBy puller: String? = nil) -> Bool {
+        guard !isDiving else { return false }
         pullerID = puller
         let occupied = occupiedTiles()
         let canEnter = canPushTile(occupied: occupied)
@@ -1732,14 +1734,15 @@ struct PlazaSceneMember: Equatable, Sendable {
             at = next
             if fell { break }
         }
-        guard reach > 0 else { return }
+        guard reach > 0 else { return false }
         stopDance(memberID: nil)
         walker.push(d, tiles: reach)
-        guard isPaused else { return }
+        guard isPaused else { return true }
         walker.advance(by: PlazaPond.plungeStepDuration * Double(reach), canEnterFrom: canEnterTile(occupied: occupied),
                        canPushInto: canEnter, stepDuration: pondStepDuration)
         reportLocalPosition()   // 먼저 빠진 칸을 알려 팀원이 첨벙을 본 뒤 올라오는 것을 본다
         climbOutNowIfPaused()
+        return true
     }
 
     /// 장면이 멈춰 있는데(`isPaused`) 알이 물에 있으면 `update`가 오지 않으므로 그 자리에서 가장 가까운 물가까지 올라와 팀원에게 알린다.

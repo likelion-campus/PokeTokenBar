@@ -611,4 +611,47 @@ final class PlazaDragControllerTests: XCTestCase {
         XCTAssertEqual(moved, [0, 100])
         XCTAssertEqual(w.scene.walker.tile, p(10, 12))
     }
+
+    // MARK: - A move that went nowhere
+
+    /// A move that went nowhere (a wall, someone in the way) never started the second: a drag from the same teammate at once still moves me.
+    func testATackleIntoAWallDoesNotUseUpTheSecond() async {
+        let w = await world(me: p(44, 12), b: p(43, 12))   // the tree at (45,12)
+        let t0 = now
+        w.c.showTackle(from: w.b.id, on: w.me.id, tiles: 1)
+        run(w.scene, 1)
+        XCTAssertEqual(w.scene.walker.tile, p(44, 12), "test precondition: the wall stopped it")
+        now = t0.addingTimeInterval(0.1)
+        pull(w, from: w.b)
+        run(w.scene, 1)
+        XCTAssertEqual(w.scene.walker.tile, p(43, 12))
+    }
+
+    func testASnowballIntoAWallDoesNotUseUpTheSecond() async {
+        let w = await world(me: p(44, 12), b: p(40, 12))
+        let t0 = now
+        w.c.showSnowball(from: w.b.id, on: w.me.id, tiles: 1, direction: .right)
+        run(w.scene, 1.2)
+        XCTAssertEqual(w.scene.walker.tile, p(44, 12), "test precondition: the wall stopped it")
+        await place(w.b, p(43, 12), in: w)
+        now = t0.addingTimeInterval(0.1)
+        pull(w, from: w.b)
+        run(w.scene, 1)
+        XCTAssertEqual(w.scene.walker.tile, p(43, 12))
+    }
+
+    func testABlockedUnderwaterPullDoesNotUseUpTheSecond() async {
+        let w = await world(me: p(16, 14), b: p(14, 14))   // b in the pond
+        let c = await join(w, "다", at: p(15, 14))        // in the way
+        let t0 = now
+        w.c.showPull(from: w.b.id, on: w.me.id)
+        run(w.scene, 1)
+        XCTAssertEqual(w.scene.walker.tile, p(16, 14), "test precondition: c blocked it")
+        await place(c, p(18, 14), in: w)
+        await place(w.b, p(15, 14), in: w)
+        now = t0.addingTimeInterval(0.1)
+        pull(w, from: w.b)
+        run(w.scene, 1)
+        XCTAssertEqual(w.scene.walker.tile, p(15, 14))
+    }
 }

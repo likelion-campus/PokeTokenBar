@@ -176,4 +176,15 @@ final class PlazaDragTests: XCTestCase {
         XCTAssertTrue(s.admit("a", now: t0.addingTimeInterval(-3600)))
         XCTAssertFalse(s.admit("a", now: t0.addingTimeInterval(-3599.5)))
     }
+
+    func testAskingNeverStartsTheSecondOnlyRecordingDoes() {
+        var s = PlazaShove()
+        XCTAssertTrue(s.allows("a", now: t0))
+        XCTAssertTrue(s.allows("a", now: t0), "asking records nothing")
+        XCTAssertTrue(s.lastMoved.isEmpty)
+        s.record("a", now: t0)
+        XCTAssertFalse(s.allows("a", now: t0.addingTimeInterval(0.99)))
+        XCTAssertTrue(s.allows("a", now: t0.addingTimeInterval(1)))
+        XCTAssertTrue(s.allows("a", now: t0.addingTimeInterval(-1)), "a clock that went back")
+    }
 }
