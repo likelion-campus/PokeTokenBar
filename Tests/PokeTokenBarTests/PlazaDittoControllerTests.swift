@@ -135,12 +135,12 @@ final class PlazaDittoControllerTests: XCTestCase {
     private func beside() -> TilePoint { meStart.beside }
 
     private func place(_ n: Node, at tile: TilePoint, ready: Bool = true) {
-        n.session.updatePlazaPosition(inPlaza: true, tile: tile, facing: .down, isWalking: false)
+        n.session.updatePlazaPosition(inPlaza: true, tile: tile, facing: .down, isWalking: false, isFlushed: false)
         n.session.updateDitto(ready: ready, state: nil)
     }
 
     private func host(_ n: Node, _ state: PlazaDittoState) {
-        n.session.updatePlazaPosition(inPlaza: true, tile: ground(8, 8), facing: .down, isWalking: false)
+        n.session.updatePlazaPosition(inPlaza: true, tile: ground(8, 8), facing: .down, isWalking: false, isFlushed: false)
         n.session.updateDitto(ready: true, state: state)
     }
 
@@ -172,7 +172,7 @@ final class PlazaDittoControllerTests: XCTestCase {
         let me = node("나"), other = node("민수")
         await connect(me, other)
         _ = controller(me)
-        me.session.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false)
+        me.session.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false, isFlushed: false)
         await settle()
         XCTAssertNotNil(other.session.members[me.id], "my presence did reach the other side")
         XCTAssertEqual(other.session.members[me.id]?.dittoReady, false)
@@ -348,7 +348,7 @@ final class PlazaDittoControllerTests: XCTestCase {
         c.advanceDitto(now: now)
         let before = try? XCTUnwrap(c.shownDitto)
         XCTAssertEqual(before?.decoyOf, m.id)
-        a.session.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false)
+        a.session.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false, isFlushed: false)
         a.session.updateDitto(ready: false, state: nil)
         await settle()
         c.advanceDitto(now: now.addingTimeInterval(0.05))
@@ -531,7 +531,7 @@ final class PlazaDittoControllerTests: XCTestCase {
         let (c, a, m) = await copyScene()
         XCTAssertEqual(c.shownDitto?.decoyOf, m.id, "test precondition")
         let before = c.shownDitto
-        m.session.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false)
+        m.session.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false, isFlushed: false)
         await settle()
         let now = Date().addingTimeInterval(1)
         host(a, dittoForm(ground(6, 3), now: now).copying(m.id, now: now))
@@ -818,7 +818,7 @@ final class PlazaDittoControllerTests: XCTestCase {
         let t = await together(aAt: TilePoint(x: beside().x + 1, y: beside().y))
         t.d()
         XCTAssertEqual(t.scene.danceStyle(memberID: nil), .bounce, "test precondition: nobody to follow yet")
-        t.a.session.updatePlazaPosition(inPlaza: true, tile: beside(), facing: .left, isWalking: true)
+        t.a.session.updatePlazaPosition(inPlaza: true, tile: beside(), facing: .left, isWalking: true, isFlushed: false)
         await settle()
         t.now += PlazaDance.round
         t.c.showDance(memberID: t.a.id, style: "spin", since: t.now.addingTimeInterval(-PlazaDance.round - 1))
@@ -843,7 +843,7 @@ final class PlazaDittoControllerTests: XCTestCase {
         host(a, dittoForm(ditto, now: now).turnedBack(now: now))
         await settle()
         c.advanceDitto(now: now)
-        a.session.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false)
+        a.session.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false, isFlushed: false)
         a.session.updateDitto(ready: false, state: nil)
         await settle()
         now += 0.05
@@ -880,7 +880,7 @@ final class PlazaDittoControllerTests: XCTestCase {
     /// and the Ditto follows at once rather than a round later.
     func testADancerFinishingAStepIsFollowedAtOnce() async {
         let t = await dancing(ditto: ground(4, 0), dancer: ground(5, 1))
-        t.m.session.updatePlazaPosition(inPlaza: true, tile: ground(5, 0), facing: .up, isWalking: true)   // a step, both tiles in range
+        t.m.session.updatePlazaPosition(inPlaza: true, tile: ground(5, 0), facing: .up, isWalking: true, isFlushed: false)   // a step, both tiles in range
         await settle()
         t.c.showDance(memberID: t.m.id, style: "spin")
         XCTAssertFalse(t.scene.isDancing(memberID: t.m.id), "test precondition: the dancer's own dance waits for the step")
@@ -1068,7 +1068,7 @@ final class PlazaDittoControllerTests: XCTestCase {
         host(a, dittoForm(beside(), now: now).copying(m.id, now: now))
         await settle()
         c.advanceDitto(now: now)
-        a.session.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false)
+        a.session.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false, isFlushed: false)
         a.session.updateDitto(ready: false, state: nil)
         await settle()
         c.advanceDitto(now: now.addingTimeInterval(0.05))
@@ -1297,7 +1297,7 @@ final class PlazaDittoControllerTests: XCTestCase {
         await settle()
         c.advanceDitto(now: now)
         // a leaves; I carry the resting Ditto form on.
-        a.session.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false)
+        a.session.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false, isFlushed: false)
         a.session.updateDitto(ready: false, state: nil)
         await settle()
         c.advanceDitto(now: now.addingTimeInterval(0.05))
@@ -1604,7 +1604,7 @@ final class PlazaDittoControllerTests: XCTestCase {
         host(a, dittoForm(beside(), now: now).copying(m.id, now: now))
         await settle()
         c.advanceDitto(now: now)
-        a.session.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false)
+        a.session.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false, isFlushed: false)
         a.session.updateDitto(ready: false, state: nil)
         await settle()
         let log = emotes(from: m)
@@ -1671,7 +1671,7 @@ final class PlazaDittoControllerTests: XCTestCase {
         c.prepareScene()
         let now = Date()
         for (n, tile) in [(a, ground(6, 0)), (b, ground(5, 3))] {
-            n.session.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false)
+            n.session.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false, isFlushed: false)
             n.session.updateDitto(ready: true, state: dittoForm(tile, now: now))
         }
         await settle()
@@ -1791,7 +1791,7 @@ extension PlazaDittoControllerTests {
         host(a, dittoForm(row(14), now: now).copying(m.id, now: now))
         await settle()
         c.advanceDitto(now: now)
-        a.session.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false)
+        a.session.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false, isFlushed: false)
         a.session.updateDitto(ready: false, state: nil)
         await settle()
         let log = emotes(from: v)

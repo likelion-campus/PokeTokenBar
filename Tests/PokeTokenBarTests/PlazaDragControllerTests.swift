@@ -114,7 +114,7 @@ final class PlazaDragControllerTests: XCTestCase {
     }
 
     func place(_ n: Node, _ tile: TilePoint, in w: World) async {
-        n.session.updatePlazaPosition(inPlaza: true, tile: tile, facing: .down, isWalking: false)
+        n.session.updatePlazaPosition(inPlaza: true, tile: tile, facing: .down, isWalking: false, isFlushed: false)
         for _ in 0..<200 where w.scene.memberTiles[n.id] != tile { await Task.yield(); t += 0.05; w.scene.update(t) }
         XCTAssertEqual(w.scene.memberTiles[n.id], tile, "test precondition")
     }

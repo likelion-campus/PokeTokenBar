@@ -118,7 +118,7 @@ final class PlazaCardTests: XCTestCase {
         let link = hub.connect(me.transport, to: other.transport)
         await waitUntil { me.session.members[other.settings.memberID] != nil }   // a presence before the hello is dropped
         let ahead = PlazaTargeting.facingTile(from: map.spawn, facing: .down)
-        other.session.updatePlazaPosition(inPlaza: true, tile: ahead, facing: .down, isWalking: false)
+        other.session.updatePlazaPosition(inPlaza: true, tile: ahead, facing: .down, isWalking: false, isFlushed: false)
         await waitUntil { me.session.members[other.settings.memberID]?.tile == ahead && c.scene?.memberTiles[other.settings.memberID] == ahead }
         if severed { hub.sever(link, silentlyOn: other.transport) }   // after the position arrived, so it never answers
         return (c, c.scene!, other, other.settings.memberID)
@@ -181,7 +181,7 @@ final class PlazaCardTests: XCTestCase {
         c.prepareScene()
         hub.connect(me.transport, to: other.transport)
         await waitUntil { me.session.members[other.settings.memberID] != nil }
-        other.session.updatePlazaPosition(inPlaza: true, tile: beside, facing: .down, isWalking: false)
+        other.session.updatePlazaPosition(inPlaza: true, tile: beside, facing: .down, isWalking: false, isFlushed: false)
         let id = other.settings.memberID
         await waitUntil { me.session.members[id]?.tile == beside && c.scene?.memberTiles[id] == beside }
         let scene = c.scene!
@@ -202,7 +202,7 @@ final class PlazaCardTests: XCTestCase {
         c.prepareScene()
         hub.connect(me.transport, to: other.transport)
         await waitUntil { me.session.members[other.settings.memberID] != nil }
-        other.session.updatePlazaPosition(inPlaza: true, tile: beside, facing: .down, isWalking: false)
+        other.session.updatePlazaPosition(inPlaza: true, tile: beside, facing: .down, isWalking: false, isFlushed: false)
         let id = other.settings.memberID
         await waitUntil { me.session.members[id]?.tile == beside && c.scene?.memberTiles[id] == beside }
         let scene = c.scene!
@@ -337,8 +337,8 @@ final class PlazaCardTests: XCTestCase {
         await waitUntil { me.session.members.count == 2 }
         let ahead = PlazaTargeting.facingTile(from: map.spawn, facing: .down)
         let far = TilePoint(x: 10, y: 10)
-        slow.session.updatePlazaPosition(inPlaza: true, tile: ahead, facing: .down, isWalking: false)
-        fast.session.updatePlazaPosition(inPlaza: true, tile: far, facing: .down, isWalking: false)
+        slow.session.updatePlazaPosition(inPlaza: true, tile: ahead, facing: .down, isWalking: false, isFlushed: false)
+        fast.session.updatePlazaPosition(inPlaza: true, tile: far, facing: .down, isWalking: false, isFlushed: false)
         let scene = c.scene!
         // Both positions must have arrived (an away member rests in the shelter, which could be `ahead`) before the link goes quiet.
         await waitUntil {
@@ -349,7 +349,7 @@ final class PlazaCardTests: XCTestCase {
         viewCard(scene)                                                 // slow member: never answers
         XCTAssertEqual(c.overlayContent.cardMemberID, slow.settings.memberID)
         space(scene)                                                    // close
-        fast.session.updatePlazaPosition(inPlaza: true, tile: ahead, facing: .down, isWalking: false)
+        fast.session.updatePlazaPosition(inPlaza: true, tile: ahead, facing: .down, isWalking: false, isFlushed: false)
         // (`ahead` is a shelter tile, so the scene tile alone can match before the update lands; wait on the received position)
         await waitUntil { me.session.members[fast.settings.memberID]?.tile == ahead && scene.memberTiles[fast.settings.memberID] == ahead }
         viewCard(scene)                                                 // fast member answers at once
@@ -415,7 +415,7 @@ final class PlazaCardTests: XCTestCase {
         hub.connect(me.transport, to: other.transport)
         await waitUntil { me.session.members[other.settings.memberID] != nil }
         let ahead = PlazaTargeting.facingTile(from: map.spawn, facing: .down), id = other.settings.memberID
-        other.session.updatePlazaPosition(inPlaza: true, tile: ahead, facing: .down, isWalking: false)
+        other.session.updatePlazaPosition(inPlaza: true, tile: ahead, facing: .down, isWalking: false, isFlushed: false)
         await waitUntil { c.scene?.memberTiles[id] == ahead }
         var received: [(String, TeamEmote)] = []
         other.session.onEmote = { received.append(($0, $1)) }
@@ -444,7 +444,7 @@ final class PlazaCardTests: XCTestCase {
         await waitUntil { me.session.members[other.settings.memberID] != nil }
         let scene = c.scene!, id = other.settings.memberID
         let ahead = PlazaTargeting.facingTile(from: map.spawn, facing: .down)
-        other.session.updatePlazaPosition(inPlaza: true, tile: ahead, facing: .down, isWalking: false)
+        other.session.updatePlazaPosition(inPlaza: true, tile: ahead, facing: .down, isWalking: false, isFlushed: false)
         await waitUntil { scene.memberTiles[id] == ahead }
         scene.handleKeyDown(keyCode: heartKey, characters: "1", isRepeat: false)
         c.showEmote(memberID: id, kind: .party)
@@ -466,7 +466,7 @@ final class PlazaCardTests: XCTestCase {
         hub.connect(me.transport, to: other.transport)
         await waitUntil { me.session.members[other.settings.memberID] != nil }
         let ahead = PlazaTargeting.facingTile(from: map.spawn, facing: .down), id = other.settings.memberID
-        other.session.updatePlazaPosition(inPlaza: true, tile: ahead, facing: .down, isWalking: false)
+        other.session.updatePlazaPosition(inPlaza: true, tile: ahead, facing: .down, isWalking: false, isFlushed: false)
         await waitUntil { c.scene?.memberTiles[id] == ahead }
         var received: [(String, TeamEmote)] = []
         other.session.onEmote = { received.append(($0, $1)) }
@@ -495,7 +495,7 @@ final class PlazaCardTests: XCTestCase {
             hub.connect(me.transport, to: other.transport)
             await waitUntil { me.session.members[other.settings.memberID] != nil }
             let ahead = PlazaTargeting.facingTile(from: map.spawn, facing: .down), id = other.settings.memberID
-            other.session.updatePlazaPosition(inPlaza: true, tile: ahead, facing: .down, isWalking: false)
+            other.session.updatePlazaPosition(inPlaza: true, tile: ahead, facing: .down, isWalking: false, isFlushed: false)
             await waitUntil { c.scene?.memberTiles[id] == ahead }
             var received: [TeamEmote] = []
             other.session.onEmote = { received.append($1) }
@@ -514,7 +514,7 @@ final class PlazaCardTests: XCTestCase {
         hub.connect(me.transport, to: other.transport)
         await waitUntil { me.session.members[other.settings.memberID] != nil }
         let ahead = PlazaTargeting.facingTile(from: map.spawn, facing: .down), id = other.settings.memberID
-        other.session.updatePlazaPosition(inPlaza: true, tile: ahead, facing: .down, isWalking: false)
+        other.session.updatePlazaPosition(inPlaza: true, tile: ahead, facing: .down, isWalking: false, isFlushed: false)
         await waitUntil { c.scene?.memberTiles[id] == ahead }
         var received: [(String, TeamEmote)] = []
         other.session.onEmote = { received.append(($0, $1)) }
@@ -535,7 +535,7 @@ final class PlazaCardTests: XCTestCase {
         hub.connect(me.transport, to: other.transport)
         await waitUntil { me.session.members[other.settings.memberID] != nil }
         let left = TilePoint(x: map.spawn.x - 1, y: map.spawn.y), id = other.settings.memberID
-        other.session.updatePlazaPosition(inPlaza: true, tile: left, facing: .right, isWalking: false)
+        other.session.updatePlazaPosition(inPlaza: true, tile: left, facing: .right, isWalking: false, isFlushed: false)
         await waitUntil { c.scene?.memberTiles[id] == left }
         var received: [(String, TeamEmote)] = []
         other.session.onEmote = { received.append(($0, $1)) }
@@ -569,7 +569,7 @@ final class PlazaCardTests: XCTestCase {
         let ahead = PlazaTargeting.facingTile(from: map.spawn, facing: .down)
         let away = TilePoint(x: ahead.x, y: ahead.y + 3)
         XCTAssertTrue((0...3).allSatisfy { map.isWalkable(TilePoint(x: ahead.x, y: ahead.y + $0)) }, "test precondition")
-        other.session.updatePlazaPosition(inPlaza: true, tile: away, facing: .down, isWalking: false)
+        other.session.updatePlazaPosition(inPlaza: true, tile: away, facing: .down, isWalking: false, isFlushed: false)
         // Their steps and mine are walked frame by frame; keep the scene running while waiting.
         var t: TimeInterval = 0
         for _ in 0..<300 where scene.memberTiles[id] != away || scene.walker.isWalking
@@ -603,10 +603,10 @@ final class PlazaCardTests: XCTestCase {
         await waitUntil { other.session.members[myID]?.isRunning == true }
         XCTAssertEqual(other.session.members[myID]?.isRunning, true)
         let spot = TilePoint(x: map.spawn.x - 3, y: map.spawn.y + 2)
-        other.session.updatePlazaPosition(inPlaza: true, tile: spot, facing: .down, isWalking: true, isRunning: true)
+        other.session.updatePlazaPosition(inPlaza: true, tile: spot, facing: .down, isWalking: true, isRunning: true, isFlushed: false)
         await waitUntil { scene.memberIsRunning(id) == true }
         XCTAssertEqual(scene.memberIsRunning(id), true)
-        other.session.updatePlazaPosition(inPlaza: true, tile: spot, facing: .down, isWalking: false, isRunning: false)
+        other.session.updatePlazaPosition(inPlaza: true, tile: spot, facing: .down, isWalking: false, isRunning: false, isFlushed: false)
         await waitUntil { scene.memberIsRunning(id) == false }
         XCTAssertEqual(scene.memberIsRunning(id), false, "stopping clears it")
     }
@@ -621,7 +621,7 @@ final class PlazaCardTests: XCTestCase {
         let ahead = PlazaTargeting.facingTile(from: map.spawn, facing: .down)
         let away = TilePoint(x: ahead.x, y: ahead.y + 3)
         XCTAssertTrue((0...3).allSatisfy { map.isWalkable(TilePoint(x: ahead.x, y: ahead.y + $0)) }, "test precondition")
-        other.session.updatePlazaPosition(inPlaza: true, tile: away, facing: .down, isWalking: true, isRunning: false)
+        other.session.updatePlazaPosition(inPlaza: true, tile: away, facing: .down, isWalking: true, isRunning: false, isFlushed: false)
         var t: TimeInterval = 0, ran = false, walked = false
         for _ in 0..<300 where !walked {
             await Task.yield(); t += 1.0 / 60; scene.update(t)
@@ -631,7 +631,7 @@ final class PlazaCardTests: XCTestCase {
         XCTAssertFalse(ran, "they walk, so I walk")
         let further = TilePoint(x: away.x, y: away.y + 2)
         XCTAssertTrue(map.isWalkable(TilePoint(x: away.x, y: away.y + 1)) && map.isWalkable(further), "test precondition")
-        other.session.updatePlazaPosition(inPlaza: true, tile: further, facing: .down, isWalking: true, isRunning: true)
+        other.session.updatePlazaPosition(inPlaza: true, tile: further, facing: .down, isWalking: true, isRunning: true, isFlushed: false)
         for _ in 0..<300 where !ran { await Task.yield(); t += 1.0 / 60; scene.update(t); ran = scene.walker.isRunning }
         XCTAssertTrue(ran, "I ran after them without Shift")
     }
@@ -644,7 +644,7 @@ final class PlazaCardTests: XCTestCase {
         scene.currentModifiers = { .shift }
         let ahead = PlazaTargeting.facingTile(from: map.spawn, facing: .down)
         let away = TilePoint(x: ahead.x, y: ahead.y + 3)
-        other.session.updatePlazaPosition(inPlaza: true, tile: away, facing: .down, isWalking: true)
+        other.session.updatePlazaPosition(inPlaza: true, tile: away, facing: .down, isWalking: true, isFlushed: false)
         var t: TimeInterval = 0, walked = false, ran = false
         for _ in 0..<300 where !walked || scene.walker.isWalking {
             await Task.yield(); t += 1.0 / 60; scene.update(t)
@@ -681,7 +681,7 @@ final class PlazaCardTests: XCTestCase {
         let link = hub.connect(me.transport, to: other.transport)
         await waitUntil { me.session.members[other.settings.memberID] != nil }
         let ahead = PlazaTargeting.facingTile(from: map.spawn, facing: .down), id = other.settings.memberID
-        other.session.updatePlazaPosition(inPlaza: true, tile: ahead, facing: .down, isWalking: false)
+        other.session.updatePlazaPosition(inPlaza: true, tile: ahead, facing: .down, isWalking: false, isFlushed: false)
         await waitUntil { c.scene?.memberTiles[id] == ahead }
         let scene = c.scene!
         follow(scene)
@@ -770,7 +770,7 @@ final class PlazaCardTests: XCTestCase {
         let link = hub.connect(me.transport, to: other.transport)
         await waitUntil { me.session.members[other.settings.memberID] != nil }
         let ahead = PlazaTargeting.facingTile(from: map.spawn, facing: .down), id = other.settings.memberID
-        other.session.updatePlazaPosition(inPlaza: true, tile: ahead, facing: .down, isWalking: false)
+        other.session.updatePlazaPosition(inPlaza: true, tile: ahead, facing: .down, isWalking: false, isFlushed: false)
         await waitUntil { c.scene?.memberTiles[id] == ahead }
         let scene = c.scene!
         space(scene)

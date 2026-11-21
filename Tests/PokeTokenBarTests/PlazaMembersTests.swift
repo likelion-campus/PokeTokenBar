@@ -175,7 +175,7 @@ final class PlazaMembersTests: XCTestCase {
         c.prepareScene()
         await connect(me, other)
         let target = walkableTile(5)
-        other.session.updatePlazaPosition(inPlaza: true, tile: target, facing: .down, isWalking: false)
+        other.session.updatePlazaPosition(inPlaza: true, tile: target, facing: .down, isWalking: false, isFlushed: false)
         await settle()
         let scene = c.scene!
         c.walkToMember(other.settings.memberID)
@@ -191,13 +191,13 @@ final class PlazaMembersTests: XCTestCase {
         let c = controller(me)
         c.prepareScene()
         await connect(me, other)
-        other.session.updatePlazaPosition(inPlaza: true, tile: walkableTile(6), facing: .down, isWalking: false)
+        other.session.updatePlazaPosition(inPlaza: true, tile: walkableTile(6), facing: .down, isWalking: false, isFlushed: false)
         await settle()
         let scene = c.scene!
         c.walkToMember(other.settings.memberID)
         step(scene, seconds: 0.3)
         let moved = TilePoint(x: map.spawn.x, y: map.spawn.y + 4)
-        other.session.updatePlazaPosition(inPlaza: true, tile: moved, facing: .down, isWalking: false)
+        other.session.updatePlazaPosition(inPlaza: true, tile: moved, facing: .down, isWalking: false, isFlushed: false)
         await settle()
         // Re-routing at once takes about five steps. Finishing the old route first would take twice as long.
         step(scene, seconds: 1.5, from: 0.3)
@@ -211,7 +211,7 @@ final class PlazaMembersTests: XCTestCase {
         await connect(me, other)
         let scene = c.scene!
         let left = TilePoint(x: scene.walker.tile.x - 1, y: scene.walker.tile.y)
-        other.session.updatePlazaPosition(inPlaza: true, tile: left, facing: .down, isWalking: false)
+        other.session.updatePlazaPosition(inPlaza: true, tile: left, facing: .down, isWalking: false, isFlushed: false)
         await settle()
         XCTAssertEqual(scene.walker.facing, .down)
         c.walkToMember(other.settings.memberID)
@@ -225,7 +225,7 @@ final class PlazaMembersTests: XCTestCase {
         let c = controller(me)
         c.prepareScene()
         await connect(me, other)
-        other.session.updatePlazaPosition(inPlaza: true, tile: walkableTile(6), facing: .down, isWalking: false)
+        other.session.updatePlazaPosition(inPlaza: true, tile: walkableTile(6), facing: .down, isWalking: false, isFlushed: false)
         await settle()
         let scene = c.scene!
         c.walkToMember(other.settings.memberID)
@@ -363,7 +363,7 @@ final class PlazaMembersTests: XCTestCase {
         let c = controller(me)
         c.prepareScene()
         await connect(me, other)
-        other.session.updatePlazaPosition(inPlaza: true, tile: walkableTile(3), facing: .down, isWalking: false)
+        other.session.updatePlazaPosition(inPlaza: true, tile: walkableTile(3), facing: .down, isWalking: false, isFlushed: false)
         await settle()
         let dots = c.minimapDots
         XCTAssertEqual(dots.first { $0.isMe }?.tile, c.scene?.walker.tile)
@@ -372,7 +372,7 @@ final class PlazaMembersTests: XCTestCase {
         XCTAssertEqual(mate?.isAway, false)
         XCTAssertEqual(mate?.color, c.scene?.memberNameColor(other.settings.memberID))
         XCTAssertEqual(c.minimapView, c.scene?.visibleWorldRect)
-        other.session.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false)
+        other.session.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false, isFlushed: false)
         await settle()
         XCTAssertEqual(c.minimapDots.first { $0.id == other.settings.memberID }?.isAway, false, "closing the plaza is not idle")
         other.session.updateIdle(true)
@@ -395,9 +395,9 @@ final class PlazaMembersTests: XCTestCase {
         let afterOpen = builds
         XCTAssertGreaterThan(afterOpen, 0)
         await connect(me, other)
-        other.session.updatePlazaPosition(inPlaza: true, tile: walkableTile(1), facing: .down, isWalking: false)
+        other.session.updatePlazaPosition(inPlaza: true, tile: walkableTile(1), facing: .down, isWalking: false, isFlushed: false)
         await settle()
-        other.session.updatePlazaPosition(inPlaza: true, tile: walkableTile(2), facing: .down, isWalking: true)
+        other.session.updatePlazaPosition(inPlaza: true, tile: walkableTile(2), facing: .down, isWalking: true, isFlushed: false)
         await settle()
         XCTAssertEqual(builds, afterOpen, "member frames reuse the cached entry")
         c.refreshMyEntry()
@@ -410,7 +410,7 @@ final class PlazaMembersTests: XCTestCase {
         c.prepareScene()
         await connect(me, other)
         let tile = walkableTile(2)
-        other.session.updatePlazaPosition(inPlaza: true, tile: tile, facing: .left, isWalking: false)
+        other.session.updatePlazaPosition(inPlaza: true, tile: tile, facing: .left, isWalking: false, isFlushed: false)
         await settle()
         guard let scene = c.scene else { return XCTFail("no scene") }
         XCTAssertEqual(scene.memberTiles[other.settings.memberID], tile)
@@ -425,9 +425,9 @@ final class PlazaMembersTests: XCTestCase {
         await connect(me, other)
         let id = other.settings.memberID
         let a = walkableTile(), b = walkableTile(1)
-        other.session.updatePlazaPosition(inPlaza: true, tile: a, facing: .down, isWalking: false)
+        other.session.updatePlazaPosition(inPlaza: true, tile: a, facing: .down, isWalking: false, isFlushed: false)
         await settle()
-        other.session.updatePlazaPosition(inPlaza: true, tile: b, facing: .right, isWalking: true)
+        other.session.updatePlazaPosition(inPlaza: true, tile: b, facing: .right, isWalking: true, isFlushed: false)
         await settle()
         guard let scene = c.scene else { return XCTFail("no scene") }
         step(scene, seconds: 0.05)
@@ -460,11 +460,11 @@ final class PlazaMembersTests: XCTestCase {
         let far = TilePoint(x: map.spawn.x + 8, y: map.spawn.y)
         guard let tile = (0..<map.height).map({ TilePoint(x: far.x, y: $0) }).first(where: { map.isWalkable($0) && abs($0.y - far.y) > 4 })
         else { return XCTFail("no far tile") }
-        other.session.updatePlazaPosition(inPlaza: true, tile: tile, facing: .down, isWalking: false)
+        other.session.updatePlazaPosition(inPlaza: true, tile: tile, facing: .down, isWalking: false, isFlushed: false)
         await settle()
         XCTAssertEqual(footTile(scene, id), tile, "no walking across the map from the shelter")
         XCTAssertEqual(scene.memberName(id), "민수")
-        other.session.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false)
+        other.session.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false, isFlushed: false)
         await settle()
         XCTAssertTrue(map.shelterTiles.contains(footTile(scene, id)!), "back to the shelter at once")
     }
@@ -475,7 +475,7 @@ final class PlazaMembersTests: XCTestCase {
         c.prepareScene()
         let connection = hub.connect(me.transport, to: other.transport)
         await settle()
-        other.session.updatePlazaPosition(inPlaza: true, tile: walkableTile(), facing: .down, isWalking: false)
+        other.session.updatePlazaPosition(inPlaza: true, tile: walkableTile(), facing: .down, isWalking: false, isFlushed: false)
         await settle()
         let id = other.settings.memberID
         XCTAssertNotNil(c.scene?.memberFoot(id))
@@ -495,11 +495,11 @@ final class PlazaMembersTests: XCTestCase {
         let id = other.settings.memberID
         guard let scene = c.scene else { return XCTFail("no scene") }
         for bad in [treeTile(), TilePoint(x: 9999, y: -5)] {
-            other.session.updatePlazaPosition(inPlaza: true, tile: bad, facing: .down, isWalking: false)
+            other.session.updatePlazaPosition(inPlaza: true, tile: bad, facing: .down, isWalking: false, isFlushed: false)
             await settle()
             XCTAssertTrue(map.shelterTiles.contains(scene.memberTiles[id]!), "\(bad) should fall back to the shelter")
         }
-        other.session.updatePlazaPosition(inPlaza: true, tile: nil, facing: nil, isWalking: false)
+        other.session.updatePlazaPosition(inPlaza: true, tile: nil, facing: nil, isWalking: false, isFlushed: false)
         await settle()
         XCTAssertTrue(map.shelterTiles.contains(scene.memberTiles[id]!), "a missing tile also falls back")
     }
@@ -511,8 +511,8 @@ final class PlazaMembersTests: XCTestCase {
         await connect(me, upper); await connect(me, lower)
         let top = walkableTile(), bottom = TilePoint(x: top.x, y: top.y + 4)
         XCTAssertTrue(map.isWalkable(bottom))
-        upper.session.updatePlazaPosition(inPlaza: true, tile: top, facing: .down, isWalking: false)
-        lower.session.updatePlazaPosition(inPlaza: true, tile: bottom, facing: .down, isWalking: false)
+        upper.session.updatePlazaPosition(inPlaza: true, tile: top, facing: .down, isWalking: false, isFlushed: false)
+        lower.session.updatePlazaPosition(inPlaza: true, tile: bottom, facing: .down, isWalking: false, isFlushed: false)
         await settle()
         guard let scene = c.scene else { return XCTFail("no scene") }
         step(scene, seconds: 0.1)
@@ -529,7 +529,7 @@ final class PlazaMembersTests: XCTestCase {
         let start = scene.walker.tile
         let ahead = TilePoint(x: start.x + 1, y: start.y)
         XCTAssertTrue(map.isWalkable(ahead))
-        other.session.updatePlazaPosition(inPlaza: true, tile: ahead, facing: .down, isWalking: false)
+        other.session.updatePlazaPosition(inPlaza: true, tile: ahead, facing: .down, isWalking: false, isFlushed: false)
         await settle()
         XCTAssertEqual(scene.memberTiles[other.settings.memberID], ahead)
         scene.handleKeyDown(keyCode: 124, characters: nil, isRepeat: false)
@@ -603,7 +603,7 @@ final class PlazaMembersTests: XCTestCase {
         await settle()
         XCTAssertGreaterThan(fetcher.calls.count(4), 0, "the changed member is fetched again")
         XCTAssertEqual(fetcher.calls.count(133), eeveeBefore, "the other member is left alone")
-        a.session.updatePlazaPosition(inPlaza: true, tile: walkableTile(), facing: .down, isWalking: false)
+        a.session.updatePlazaPosition(inPlaza: true, tile: walkableTile(), facing: .down, isWalking: false, isFlushed: false)
         await settle()
         XCTAssertEqual(fetcher.calls.count(133), eeveeBefore, "moving does not reload anything")
     }
@@ -753,7 +753,7 @@ final class PlazaMembersTests: XCTestCase {
         c.prepareScene()
         c.handleClose()
         await connect(me, other)
-        other.session.updatePlazaPosition(inPlaza: true, tile: walkableTile(), facing: .down, isWalking: true)
+        other.session.updatePlazaPosition(inPlaza: true, tile: walkableTile(), facing: .down, isWalking: true, isFlushed: false)
         other.session.updateCharacter(Self.eevee)
         await settle()
         XCTAssertTrue(fetcher.calls.all.isEmpty, "a closed plaza fetches nothing")
@@ -766,7 +766,7 @@ final class PlazaMembersTests: XCTestCase {
         c.prepareScene()
         c.handleClose()
         await connect(me, other)
-        other.session.updatePlazaPosition(inPlaza: true, tile: walkableTile(3), facing: .down, isWalking: false)
+        other.session.updatePlazaPosition(inPlaza: true, tile: walkableTile(3), facing: .down, isWalking: false, isFlushed: false)
         await settle()
         c.prepareScene()
         XCTAssertEqual(c.scene?.memberTiles[other.settings.memberID], walkableTile(3))

@@ -119,7 +119,7 @@ final class PlazaFocusTests: XCTestCase {
 
     /// 팀원이 그 칸에 서 있고 내 장면이 그걸 본다.
     func place(_ other: Node, at tile: TilePoint, focusEnds: Date? = nil, in c: PlazaWindowController) async {
-        other.session.updatePlazaPosition(inPlaza: true, tile: tile, facing: .down, isWalking: false)
+        other.session.updatePlazaPosition(inPlaza: true, tile: tile, facing: .down, isWalking: false, isFlushed: false)
         other.session.updateFocus(endsAt: focusEnds)
         await waitUntil { c.scene?.memberTiles[other.settings.memberID] == tile }
         for _ in 0..<20 { await Task.yield() }

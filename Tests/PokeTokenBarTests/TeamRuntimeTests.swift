@@ -134,7 +134,7 @@ final class TeamRuntimeTests: XCTestCase {
         var now = Date()
         scene.now = { now }
         let spot = TilePoint(x: tile.x + 1, y: tile.y)
-        a.runtime.session.updatePlazaPosition(inPlaza: true, tile: spot, facing: .down, isWalking: false)
+        a.runtime.session.updatePlazaPosition(inPlaza: true, tile: spot, facing: .down, isWalking: false, isFlushed: false)
         // Wait for the spot itself: before this news lands the scene already draws `a` on a random shelter tile, so "has a tile"
         // is true at once, and a dance sent from there is out of `togetherRange` and is not followed.
         await settle { scene.memberTiles[a.settings.memberID] == spot }
@@ -338,7 +338,7 @@ final class TeamRuntimeTests: XCTestCase {
         let sender = a.settings.memberID
         a.runtime.session.updateCharacter(TeamMonSummary(speciesID: nil, isShiny: false, form: nil, speciesName: nil, gender: nil))
         let tile = TilePoint(x: 30, y: 20)
-        a.runtime.session.updatePlazaPosition(inPlaza: true, tile: tile, facing: .down, isWalking: false)
+        a.runtime.session.updatePlazaPosition(inPlaza: true, tile: tile, facing: .down, isWalking: false, isFlushed: false)
         // The session learns first and the controller follows a beat later; once the scene has the tile, the controller has it too.
         await settle {
             let member = b.runtime.session.members[sender]
@@ -370,13 +370,13 @@ final class TeamRuntimeTests: XCTestCase {
         a.runtime.session.updateCharacter(TeamMonSummary(speciesID: 25, isShiny: false, form: nil, speciesName: "Pikachu", gender: nil))
         await settle { b.runtime.session.members[sender]?.character.speciesID == 25 }
         await settle { scene.memberTiles[sender] != nil }
-        a.runtime.session.updatePlazaPosition(inPlaza: true, tile: TilePoint(x: start.x - 2, y: start.y), facing: .right, isWalking: false)
+        a.runtime.session.updatePlazaPosition(inPlaza: true, tile: TilePoint(x: start.x - 2, y: start.y), facing: .right, isWalking: false, isFlushed: false)
         await settle { scene.memberTiles[sender] == TilePoint(x: start.x - 2, y: start.y) }
         a.runtime.session.sendEmote(.tackle, target: b.settings.memberID)
         await settle { scene.impactsShown == 1 }
         scene.update(0); scene.update(1)
         XCTAssertEqual(scene.walker.tile, start, "two tiles away: no push")
-        a.runtime.session.updatePlazaPosition(inPlaza: true, tile: left, facing: .right, isWalking: false)
+        a.runtime.session.updatePlazaPosition(inPlaza: true, tile: left, facing: .right, isWalking: false, isFlushed: false)
         // A received step is walked over the next frames, so keep the scene running while waiting.
         var t: TimeInterval = 1
         for _ in 0..<200 where scene.memberTiles[sender] != left { await Task.yield(); t += 0.05; scene.update(t) }
@@ -404,7 +404,7 @@ final class TeamRuntimeTests: XCTestCase {
             XCTAssertTrue((1...3).allSatisfy { map.isWalkable(TilePoint(x: start.x + $0, y: start.y)) }, "test precondition")
             let sender = a.settings.memberID
             await settle { scene.memberTiles[sender] != nil }
-            a.runtime.session.updatePlazaPosition(inPlaza: true, tile: left, facing: .right, isWalking: false)
+            a.runtime.session.updatePlazaPosition(inPlaza: true, tile: left, facing: .right, isWalking: false, isFlushed: false)
             var t: TimeInterval = 0
             for _ in 0..<200 where scene.memberTiles[sender] != left { await Task.yield(); t += 0.05; scene.update(t) }
             XCTAssertEqual(scene.memberTiles[sender], left)
@@ -442,7 +442,7 @@ final class TeamRuntimeTests: XCTestCase {
         a.runtime.session.updateCharacter(TeamMonSummary(speciesID: 25, isShiny: false, form: nil, speciesName: "Pikachu", gender: nil))
         await settle { b.runtime.session.members[sender]?.character.speciesID == 25 }
         await settle { scene.memberTiles[sender] != nil }
-        a.runtime.session.updatePlazaPosition(inPlaza: true, tile: left, facing: .right, isWalking: false)
+        a.runtime.session.updatePlazaPosition(inPlaza: true, tile: left, facing: .right, isWalking: false, isFlushed: false)
         var t: TimeInterval = 0
         for _ in 0..<200 where scene.memberTiles[sender] != left { await Task.yield(); t += 0.05; scene.update(t) }
         XCTAssertEqual(scene.memberTiles[sender], left)
@@ -469,7 +469,7 @@ final class TeamRuntimeTests: XCTestCase {
         XCTAssertTrue((1...4).allSatisfy { map.isWalkable(TilePoint(x: start.x - $0, y: start.y)) }, "test precondition")
         let sender = a.settings.memberID
         await settle { scene.memberTiles[sender] != nil }
-        a.runtime.session.updatePlazaPosition(inPlaza: true, tile: left, facing: .right, isWalking: false)
+        a.runtime.session.updatePlazaPosition(inPlaza: true, tile: left, facing: .right, isWalking: false, isFlushed: false)
         var t: TimeInterval = 0
         for _ in 0..<200 where scene.memberTiles[sender] != left { await Task.yield(); t += 0.05; scene.update(t) }
         XCTAssertEqual(scene.memberTiles[sender], left)
@@ -498,7 +498,7 @@ final class TeamRuntimeTests: XCTestCase {
         a.runtime.session.updateCharacter(TeamMonSummary(speciesID: 25, isShiny: false, form: nil, speciesName: "Pikachu", gender: nil))
         await settle { b.runtime.session.members[sender]?.character.speciesID == 25 }
         await settle { scene.memberTiles[sender] != nil }
-        a.runtime.session.updatePlazaPosition(inPlaza: true, tile: left, facing: .right, isWalking: false)
+        a.runtime.session.updatePlazaPosition(inPlaza: true, tile: left, facing: .right, isWalking: false, isFlushed: false)
         await settle { scene.memberTiles[sender] == left }
         plaza.setRendering(visible: false)
         XCTAssertTrue(scene.isPaused)
@@ -797,7 +797,7 @@ final class TeamRuntimeTests: XCTestCase {
         a.runtime.session.updateCharacter(TeamMonSummary(speciesID: 25, isShiny: false, form: nil, speciesName: "Pikachu", gender: nil))
         await settle { b.runtime.session.members[sender]?.character.speciesID == 25 }
         await settle { scene.memberTiles[sender] != nil }
-        a.runtime.session.updatePlazaPosition(inPlaza: true, tile: left, facing: .right, isWalking: false)
+        a.runtime.session.updatePlazaPosition(inPlaza: true, tile: left, facing: .right, isWalking: false, isFlushed: false)
         var t: TimeInterval = 0
         // An away member is drawn on a shelter tile that can be `left` by chance, so the tile alone is not enough: a Ditto
         // tackle needs the controller's own copy to read "in the plaza", which the scene shows as no longer away.
@@ -921,7 +921,7 @@ final class TeamRuntimeNotificationTests: XCTestCase {
         let now = Date()
         let tile = TilePoint(x: PlazaMapData.map.spawn.x + 8, y: PlazaMapData.map.spawn.y + 8)
         XCTAssertTrue(PlazaDitto.isGround(tile, in: PlazaMapData.map), "test precondition")
-        host.runtime.session.updatePlazaPosition(inPlaza: true, tile: tile, facing: .down, isWalking: false)
+        host.runtime.session.updatePlazaPosition(inPlaza: true, tile: tile, facing: .down, isWalking: false, isFlushed: false)
         host.runtime.session.updateDitto(ready: true, state: PlazaDittoState(
             tile: tile, facing: .down, isWalking: nil, isRunning: nil, decoyOf: viewerID, since: now, restUntil: nil))
         await settle { viewer.runtime.session.members[hostID]?.ditto != nil }
@@ -960,7 +960,7 @@ final class TeamRuntimeNotificationTests: XCTestCase {
         await settle { viewer.runtime.session.members[hostID] != nil }
         let now = Date()
         let tile = TilePoint(x: PlazaMapData.map.spawn.x + 8, y: PlazaMapData.map.spawn.y + 8)
-        host.runtime.session.updatePlazaPosition(inPlaza: true, tile: tile, facing: .down, isWalking: false)
+        host.runtime.session.updatePlazaPosition(inPlaza: true, tile: tile, facing: .down, isWalking: false, isFlushed: false)
         host.runtime.session.updateDitto(ready: true, state: PlazaDittoState(
             tile: tile, facing: .down, isWalking: nil, isRunning: nil, decoyOf: viewerID, since: now, restUntil: nil))
         await settle { viewer.runtime.session.members[hostID]?.ditto != nil }
