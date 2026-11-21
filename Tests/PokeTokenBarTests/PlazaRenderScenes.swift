@@ -372,7 +372,7 @@ enum PlazaRenderScenes {
     /// 큰 나무(x16–18, y9–10): 앞에 선 나, 왼쪽·오른쪽 이웃, 잎 뒤(17,8)에 선 Misty. 계절마다 한 장.
     private static func bigTree(_ name: String, _ choice: PlazaSeasonChoice, photo: Bool = false) -> PlazaRenderScene {
         scene(name, captures: [10]) { st in
-            var o = Options(); o.season = choice; o.zoom = 2; o.me = TilePoint(x: 17, y: 12)
+            var o = Options(); o.season = choice; o.zoom = 1; o.me = TilePoint(x: 17, y: 12)   // zoom 1: the whole 3x pine (and the teammates around it) in view
             let s = stage(o, on: st)
             s.scene.face(.up)
             s.put([member("ash", "Ash", 15, 10, facing: .right), member("misty", "Misty", 17, 7, facing: .down),
@@ -578,9 +578,10 @@ enum PlazaRenderScenes {
             hotSpring("hot-spring-winter", .winter, zoom: 1, captures: [10], photo: true),
             bigTree("big-tree-summer", .summer), bigTree("big-tree-spring", .spring), bigTree("big-tree-autumn", .autumn),
             bigTree("big-tree-winter", .winter, photo: true),
-            bigTreeHit("big-tree-hit-1", captures: [6, 9, 21, 72], by: "ash", direction: .right, level: 1),
-            bigTreeHit("big-tree-hit-2", captures: [6, 10, 22, 72], by: "brock", direction: .left, level: 2),
-            bigTreeHit("big-tree-hit-3", captures: [6, 12, 28, 44, 90], by: nil, direction: .up, level: 3, drop: .mint),
+            bigTreeHit("big-tree-hit-1", captures: [1, 6, 9, 21, 100, 200], by: "ash", direction: .right, level: 1),
+            bigTreeHit("big-tree-hit-2", captures: [1, 6, 10, 22, 100, 200], by: "brock", direction: .left, level: 2),
+            bigTreeHit("big-tree-hit-3", captures: [1, 6, 12, 28, 44, 100, 200], by: nil, direction: .up, level: 3, drop: .mint),
+            bigTreeHit("big-tree-hit-3-peer", captures: [1, 6, 12, 28, 44, 100, 200], by: "ash", direction: .right, level: 3, drop: .mint),
             ice("ice-frozen") { _, _ in },
             ice("ice-breaking") { s, f in if f == 1 { s.scene.setIceBreak(iceBreak(s), hit: TilePoint(x: 9, y: 14)) } },
             ice("ice-refreeze") { s, f in
