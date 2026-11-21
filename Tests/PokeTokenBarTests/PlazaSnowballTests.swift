@@ -328,4 +328,10 @@ final class PlazaSnowballTests: XCTestCase {
         }
         XCTAssertGreaterThan(named, 500)
     }
+
+    func testTheBigTreeStopsABall() async {
+        let a = PlazaSnowball.aim(from: p(14, 10), facing: .right, bodies: [:], map: map)
+        XCTAssertEqual(a?.end, .ground(p(15, 10)))
+        XCTAssertNil(PlazaSnowball.aim(from: p(15, 10), facing: .right, bodies: [:], map: map))
+    }
 }

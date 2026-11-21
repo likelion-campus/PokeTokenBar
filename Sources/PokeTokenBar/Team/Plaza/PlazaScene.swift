@@ -784,8 +784,9 @@ struct PlazaSceneMember: Equatable, Sendable {
     }
 
     /// 받은 칸이 지도 밖이거나 걸을 수 없으면 쉼터 칸. 다른 버전의 지도나 잘못된 값에도 나무 위에 서지 않는다.
+    /// 구버전 팀원은 큰 나무 칸을 걸어 지나간다. 쉼터로 튀지 않고 그 칸(나무 뒤)에 그린다.
     private func resolvedTile(_ m: PlazaSceneMember) -> TilePoint {
-        if let t = m.tile, map.isWalkable(t) || map.isWater(t) { return t }
+        if let t = m.tile, map.isWalkable(t) || map.isWater(t) || map.isBigTree(t) { return t }
         return shelterWanderer(m.memberID).tile
     }
 

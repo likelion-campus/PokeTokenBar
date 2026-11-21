@@ -170,7 +170,7 @@ final class PlazaPondMapTests: XCTestCase {
         XCTAssertEqual(old.count, new.count)
         for (y, (o, n)) in zip(old, new).enumerated() {
             for (x, (a, b)) in zip(o, n).enumerated() where a != b {
-                XCTAssertTrue(b == "w" || b == "h", "changed to non-water at (\(x),\(y))")
+                XCTAssertTrue(b == "w" || b == "h" || b == "B", "changed to non-water at (\(x),\(y))")   // 'B': the big tree (PR 5) stands on open grass
                 XCTAssertTrue(a == "." || a == "f", "water replaced \(a) at (\(x),\(y))")
             }
         }
