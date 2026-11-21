@@ -590,7 +590,7 @@ extension WindowsSelftest {
         var budget = 6
         var known = "unknown (no app)"
         if let a = wakes0, let b = wakes1 {
-            budget += 5 * ((b.safety - a.safety) + (b.debounce - a.debounce) + (b.day - a.day)) + 60 * (b.refreshes - a.refreshes)
+            budget += 5 * ((b.safety - a.safety) + (b.debounce - a.debounce) + (b.day - a.day)) + 60 * b.refreshesInWindow(since: a)
             known = b.minus(a)
         }
         let paints = (w.scroll?.content.paints ?? 0) + (page.drawn?.stats.paints ?? 0) - paints0
