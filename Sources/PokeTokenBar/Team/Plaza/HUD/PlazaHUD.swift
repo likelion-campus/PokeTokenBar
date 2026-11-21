@@ -196,7 +196,7 @@ import Foundation
         case .topCenter: origin = CGPoint(x: PlazaPanelStyle.pixel((w - size.width) / 2, scale: scale), y: o.y)
         case .bottomLeading: origin = CGPoint(x: o.x, y: h - o.y - size.height)
         case .bottomTrailing: origin = CGPoint(x: w - o.x - size.width, y: h - o.y - size.height)
-        case .center: origin = CGPoint(x: PlazaPanelStyle.pixel((w - size.width) / 2, scale: scale), y: PlazaPanelStyle.pixel((h - size.height) / 2, scale: scale))
+        case .center: origin = CGPoint(x: PlazaPanelStyle.pixel((w - size.width) / 2 + o.x, scale: scale), y: PlazaPanelStyle.pixel((h - size.height) / 2 + o.y, scale: scale))
         case .fill: return CGRect(origin: .zero, size: viewport)
         }
         return CGRect(origin: origin, size: size)

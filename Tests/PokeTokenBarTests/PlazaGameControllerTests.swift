@@ -375,7 +375,7 @@ final class PlazaGameControllerTests: XCTestCase {
         XCTAssertEqual(seen?.winner, w.b.id)
     }
 
-    func testAWatcherGetsBannersNotTheBigTitle() async {
+    func testAWatcherGetsBannersNotTheBigTitle() async throws {
         let w = await world()
         // The teammate and a third member play; I never answer.
         let third = node("다")
@@ -395,5 +395,14 @@ final class PlazaGameControllerTests: XCTestCase {
         XCTAssertEqual(w.c.banner, L(.ko).plazaGameStartedBanner(game: L(.ko).plazaGameName(.bomb), players: 2))
         XCTAssertNotNil(w.c.gameView.holder, "the bomb still shows over the holder")
         XCTAssertNil(w.c.gameView.hint)
+        // The explosion and the result reach a watcher as banners too.
+        let s = try XCTUnwrap(w.c.gameState)
+        let holder = try XCTUnwrap(s.bomb?.holder)
+        now = Date(timeIntervalSince1970: (s.startsAt ?? 0) + PlazaBomb.fuse(seed: s.seed, round: 1) + 0.1)
+        for _ in 0..<4 { third.step(now); await settle(); w.b.step(now); await settle(); w.c.advanceGame(); await settle() }
+        XCTAssertEqual(w.c.gameState?.bomb?.out, [holder], "test precondition")
+        XCTAssertNil(w.c.gameTitle, "no big title for someone who is not playing")
+        let winner = holder == w.b.id ? "다" : "가"
+        XCTAssertEqual(w.c.banner, L(.ko).plazaGameWinBanner(nickname: winner, game: L(.ko).plazaGameName(.bomb)))
     }
 }

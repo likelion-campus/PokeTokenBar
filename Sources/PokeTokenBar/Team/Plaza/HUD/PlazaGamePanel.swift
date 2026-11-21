@@ -138,7 +138,7 @@ import Observation
     }
 }
 
-/// The minigame's big line in the middle of the window: the 3-2-1, the start, who is out, who won. The plaza's pixel
+/// The minigame's big line across the window, a little below its middle: the 3-2-1, the start, who is out, who won. The plaza's pixel
 /// font drawn `magnify` times as big without smoothing, with a dark outline. It takes no clicks.
 @MainActor final class PlazaGameTitlePanel: PlazaPanel {
     let id = PlazaPanelID.gameTitle
@@ -158,6 +158,12 @@ import Observation
     }
 
     var isVisible: Bool { game.title != nil }
+
+    /// Below the middle: my own character stands in the middle of the window, and the title must not cover it flying off.
+    static let drop: CGFloat = 0.2
+    func offset(in viewport: CGSize, scale: CGFloat, text: any PlazaTextEngine) -> CGPoint {
+        CGPoint(x: 0, y: (viewport.height * Self.drop).rounded())
+    }
 
     static func color(_ tone: PlazaGameView.Tone) -> PlazaColor {
         switch tone {

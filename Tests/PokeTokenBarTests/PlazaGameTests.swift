@@ -373,6 +373,12 @@ final class PlazaGameTests: XCTestCase {
         bad({ $0.endedAt = now.timeIntervalSince1970; $0.winner = "stranger" }, "a stranger wins")
         bad({ $0.startsAt = nil }, "players without a start")
         XCTAssertNil(PlazaGame.accepted(good, now: at(PlazaGame.maxLife)), "outlived the limit")
+        // A recruiting game stamped ahead of my clock: only the clock bound can refuse it.
+        let early = PlazaGameState(id: "a@1", kind: "bomb", host: "a", opensAt: now.timeIntervalSince1970 + PlazaGame.clockSlack)
+        XCTAssertNotNil(PlazaGame.accepted(early, now: now))
+        var future = early
+        future.opensAt += 1
+        XCTAssertNil(PlazaGame.accepted(future, now: now), "opened in my future")
         var ended = good
         ended.endedAt = now.timeIntervalSince1970
         XCTAssertNotNil(PlazaGame.accepted(ended, now: now))

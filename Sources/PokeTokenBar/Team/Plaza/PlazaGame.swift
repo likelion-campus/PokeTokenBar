@@ -238,8 +238,9 @@ struct PlazaGameEngine {
         declined = join ? nil : state.id
     }
 
-    /// The host starts without waiting for recruiting to end (it takes effect once two have joined).
-    mutating func requestStart() { if isHost { startRequested = true } }
+    /// The host starts without waiting for recruiting to end (it takes effect once two have joined). Only the host's
+    /// tick reads it, so on anyone else's Mac it does nothing.
+    mutating func requestStart() { startRequested = true }
 
     /// I am leaving the plaza: out of the lobby, and out of a running game (a holder blows up).
     mutating func leave(now: Date, present: Set<String>) {
