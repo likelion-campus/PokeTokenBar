@@ -29,27 +29,15 @@ enum PlazaDrag {
         return k
     }
 
-    /// n: 끌려가는 `victim`이 `puller` 쪽으로 미끄러질 칸 수. 끄는 쪽이 `pushTiles`(1...3)칸 물러난 새 자리의 몸과 내 몸이
-    /// 처음 맞닿는(겹치지 않는) 칸까지다. 몸은 `PlazaBody`다: 발이 같은 줄이라 옆으로 늘 겹치므로, 가는 줄 방향의 몸 사이 간격이
-    /// 1이 될 때까지가 n이다. 몸이 둘 다 1등급이면 예전 발 거리 규칙((발 거리 − 1) + `pushTiles`)과 같다.
-    /// 열려 있지 않은 첫 칸 앞에서 멈추고, 같은 줄이 아니면 0이다. 보내는 쪽은 k만 정하고, 이 끝은 받는 쪽이 같은 등급으로 따진다.
-    static func slide(victim: PlazaBody, puller: PlazaBody, pushTiles: Int, isOpen: (TilePoint) -> Bool) -> Int {
-        guard let d = line(from: victim.foot, to: puller.foot) else { return 0 }
-        var moved = puller
-        for _ in 0..<TeamEmote.pushTiles(pushTiles) { moved.foot = PlazaWalker.offset(moved.foot, d) }
-        // d 쪽으로 본 두 몸의 [아래, 위] 범위. 끄는 쪽이 앞이니 끄는 쪽의 가까운 끝 − 내 먼 끝이 간격이다(1이면 맞닿음).
-        func range(_ b: PlazaBody) -> (lo: Int, hi: Int) {
-            let s = PlazaBodySize.span(b.size)
-            switch d {
-            case .left, .right: return (b.foot.x - s.w, b.foot.x + s.w)
-            case .up, .down: return (b.foot.y - s.h, b.foot.y)
-            }
-        }
-        let me = range(victim), her = range(moved)
-        let gap = (d == .right || d == .down) ? her.lo - me.hi : me.lo - her.hi
-        var tile = victim.foot
+    /// n: 끌려가는 쪽이 `d`(끌려가는 쪽에서 끄는 쪽으로 가는 방향) 쪽으로 미끄러질 칸 수. 끄는 쪽이 물러난 만큼(`pushTiles`, 1...3) 같이
+    /// 미끄러져 둘이 서 있던 배치를 그대로 지킨다(몸 크기와 무관하다: 0칸이 되거나 새로 겹치지 않는다). 발이 한 칸에 겹쳐 있으면
+    /// 명세의 (d − 1) + k에서 d = 0이라 k − 1칸이다. 열려 있지 않은 첫 칸 앞에서 멈춘다. 끄는 쪽이 비운 칸은 막지 않는다(받는 쪽은 끄는 쪽의 칸을
+    /// 빼고 `isOpen`을 세운다). 보내는 쪽(메뉴 줄)과 받는 쪽이 같은 값으로 부른다.
+    static func slide(victim: TilePoint, puller: TilePoint, direction d: PlazaDirection, pushTiles: Int, isOpen: (TilePoint) -> Bool) -> Int {
+        let want = TeamEmote.pushTiles(pushTiles) - (victim == puller ? 1 : 0)
+        var tile = victim
         var n = 0
-        for _ in 0..<max(gap - 1, 0) {
+        for _ in 0..<max(want, 0) {
             let next = PlazaWalker.offset(tile, d)
             guard isOpen(next) else { break }
             tile = next
