@@ -12,9 +12,9 @@ extension PlazaSeasonTests {
 
     /// PR 4: the right pond is the hot spring; outside it the maps are unchanged (`PlazaTileArtTests.testOnlyTheHotSpringChangedTheMap`).
     static let pinnedLooks: [PlazaSeason: (map: String, grass: String)] = [
-        .summer: (map: "844ce80cf4aca5ec683113dc9ab6d9b52c0d264dd233fbb071fcdb2cd62329f9", grass: "6a3c1c6329d9029f65e6303e24b00c537686505d6dc52eb9cdd4434a094824de"),
-        .winter: (map: "1a526e6d40955814f2b1724f29deefefa17d51cbc04bee298aecab0a66d084e4", grass: "fede76052d863a299d449e9167dded7865c4df4d464999a3ea3ff67dd6144a8a"),
-        .spring: (map: "bea68c055e3c07265406c1e639d80460e48d83ae0af67cd2b6ecd3930e06134e", grass: "6a3c1c6329d9029f65e6303e24b00c537686505d6dc52eb9cdd4434a094824de"),
+        .summer: (map: "e8ce964c104e065c424a396fa0a4ac1aaf76b275437cc4c74a05c3d94e316eb3", grass: "6a3c1c6329d9029f65e6303e24b00c537686505d6dc52eb9cdd4434a094824de"),
+        .winter: (map: "94de79bcee0110bd9d22a0b230c111397e34c341fd5f96defff9ce53467fe0c0", grass: "fede76052d863a299d449e9167dded7865c4df4d464999a3ea3ff67dd6144a8a"),
+        .spring: (map: "7371ee8b85064f209d76b93fc065be57ed1f28d6f8ed3b5af4723178b5ed021e", grass: "6a3c1c6329d9029f65e6303e24b00c537686505d6dc52eb9cdd4434a094824de"),
     ]
 
     /// 여름 초록의 정의(스펙 5.4)에 드는 불투명 색.

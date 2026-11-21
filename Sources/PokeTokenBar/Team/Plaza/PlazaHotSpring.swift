@@ -17,20 +17,20 @@ enum PlazaHotSpring {
     struct Prop: Equatable { let col: Int, row: Int, cols: Int, rows: Int; let at: TilePoint; let inWater: Bool }
 
     /// 시트 plaza-tiles.png 의 칸을 그대로 쓴다(코드로 그린 모양 없음).
-    /// P1 (12,10) 물 속 납작한 돌, P2 (14,10) 조약돌 둘, P3 (11,7)-(12,8) 바위 한 쌍, P4 (37,5)-(38,6) 둑의 회색 바위,
+    /// P1 (12,10) 물 속 납작한 돌, P2 (14,10) 조약돌 둘, P3 (11,7)-(12,8) 바위 한 쌍, P4 (4,1)-(5,2) 둑의 풀 난 갈색 바위 한 쌍(처음 안의 (37,5)-(38,6) 회색 덩어리는 비석이라 뺐다),
     /// P5 (7,5) 풀이 난 돌, P6 (10,5) 풀이 난 조약돌.
     static let props: [Prop] = [
         Prop(col: 12, row: 10, cols: 1, rows: 1, at: TilePoint(x: 32, y: 16), inWater: true),
         Prop(col: 14, row: 10, cols: 1, rows: 1, at: TilePoint(x: 36, y: 14), inWater: true),
         Prop(col: 11, row: 7, cols: 2, rows: 2, at: TilePoint(x: 37, y: 19), inWater: true),
-        Prop(col: 37, row: 5, cols: 2, rows: 2, at: TilePoint(x: 39, y: 16), inWater: false),
+        Prop(col: 4, row: 1, cols: 2, rows: 2, at: TilePoint(x: 39, y: 16), inWater: false),
         Prop(col: 7, row: 5, cols: 1, rows: 1, at: TilePoint(x: 31, y: 21), inWater: false),
         Prop(col: 10, row: 5, cols: 1, rows: 1, at: TilePoint(x: 39, y: 13), inWater: false),
     ]
     /// 물 속 바위 칸. 거품 테두리와 그림자까지 있어 물색을 같이 바꾼다.
     static let waterPropCells: [(col: Int, row: Int)] = [(12, 10), (14, 10), (11, 7), (12, 7), (11, 8), (12, 8)]
     /// 둑의 풀 돌 칸. 가을·겨울에는 땅과 같은 색으로 바랜다(`PlazaSeasonSheet`).
-    static let bankStoneCells: [(col: Int, row: Int)] = [(7, 5), (10, 5)]
+    static let bankStoneCells: [(col: Int, row: Int)] = [(7, 5), (10, 5), (4, 2), (5, 2)]
     static let autumnStoneColors: PlazaSnowSheet.Colors = [0x2ECA35: 0x8E9A44, 0x328E41: 0x6E7634]
     static let winterStoneColors: PlazaSnowSheet.Colors = [0x2ECA35: 0xE8F0FA, 0x328E41: 0xB2C7E0]
 

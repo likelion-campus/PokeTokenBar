@@ -86,6 +86,26 @@ final class PlazaHotSpringTests: XCTestCase {
         XCTAssertFalse(PlazaHotSpring.usesSpringWater(p(8, 14), in: map))
     }
 
+    /// The first proposal's east-bank prop, (37,5)-(38,6), is a gravestone (cross and inscription). Every prop is a rock.
+    func testEveryPropIsARockAndNoneIsTheGravestone() throws {
+        XCTAssertEqual(PlazaHotSpring.props.map { [$0.col, $0.row, $0.cols, $0.rows] },
+                       [[12, 10, 1, 1], [14, 10, 1, 1], [11, 7, 2, 2], [4, 1, 2, 2], [7, 5, 1, 1], [10, 5, 1, 1]])
+        // The rock pair's own grass tufts follow the ground like the other bank stones.
+        for c in [(4, 2), (5, 2)] {   // the cells of the pair that carry the tufts
+            XCTAssertTrue(PlazaHotSpring.bankStoneCells.contains { $0.col == c.0 && $0.row == c.1 }, "\(c)")
+        }
+        let sheet = try XCTUnwrap(PlatformPlaza.tileSheet()).pixels.bytes
+        // No cool grey body in any prop cell: the gravestone's body is #9AA3B0-like (blue above red), the rocks are brown.
+        let width = try XCTUnwrap(PlatformPlaza.tileSheet()).width
+        for p in PlazaHotSpring.props where !p.inWater {
+            for y in (p.row * 16)..<((p.row + p.rows) * 16) { for x in (p.col * 16)..<((p.col + p.cols) * 16) {
+                let i = (y * width + x) * 4
+                guard sheet[i + 3] == 255, sheet[i + 1] != 0xCA, sheet[i + 1] != 0x8E else { continue }
+                XCTAssertFalse(sheet[i + 2] > sheet[i] + 8, "a cool grey pixel in prop \(p) at \(x),\(y)")
+            } }
+        }
+    }
+
     /// All or nothing: a map with the spring where one stone's tiles do not fit gets no stones at all.
     func testAStoneThatDoesNotFitDropsEveryStone() throws {
         func rows(_ x: Int, _ y: Int, _ c: Character) -> PlazaMap {
