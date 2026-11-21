@@ -44,6 +44,70 @@ extension WindowsSelftest {
         }
         treeMembers.append(PlazaSceneMember(memberID: "m11", nickname: "Member 11", isAway: false, tile: TilePoint(x: 15, y: 10), facing: .right, isWalking: false))
         await measure(r, device: device, name: "plaza.renderCostTree", me: TilePoint(x: 17, y: 12), sit: nil, members: treeMembers)
+        // The documentation captures: the same offscreen renderer on a summer noon, each written next to the other captures.
+        let shotMembers: [PlazaSceneMember] = [
+            PlazaSceneMember(memberID: "a", nickname: "Ash", isAway: false, tile: TilePoint(x: 33, y: 16), facing: .right, isWalking: false),
+            PlazaSceneMember(memberID: "b", nickname: "Misty", isAway: false, tile: TilePoint(x: 37, y: 18), facing: .left, isWalking: false),
+            PlazaSceneMember(memberID: "c", nickname: "Brock", isAway: false, tile: TilePoint(x: 35, y: 21), facing: .up, isWalking: false),
+        ].enumerated().map { i, m in var m = m; m.isFlushed = i == 0; return m }
+        await shoot(r, device: device, name: "plaza.shotSpring", file: "plaza-hot-spring.png", me: TilePoint(x: 35, y: 17), members: shotMembers) { _, _ in }
+        // The big tree at the moment of my third hit of the day (the one that drops a mint), 10 frames after contact so the bend,
+        // the leaves and the star show; teammates stand beside and behind it.
+        let shotTreeMembers: [PlazaSceneMember] = [
+            PlazaSceneMember(memberID: "a", nickname: "Ash", isAway: false, tile: TilePoint(x: 15, y: 10), facing: .right, isWalking: false),
+            PlazaSceneMember(memberID: "b", nickname: "Brock", isAway: false, tile: TilePoint(x: 19, y: 10), facing: .left, isWalking: false),
+            PlazaSceneMember(memberID: "c", nickname: "Misty", isAway: false, tile: TilePoint(x: 17, y: 7), facing: .down, isWalking: false),
+        ]
+        await shoot(r, device: device, name: "plaza.shotTree", file: "plaza-big-tree.png", me: TilePoint(x: 17, y: 11), members: shotTreeMembers, frames: 70) { scene, f in
+            if f == 1 { scene.face(.up) }
+            if f == 60 { scene.playTreeHit(by: nil, direction: .up, level: 3, drop: .mint) }
+        }
+    }
+
+    /// One documentation capture: `me` and `members` (FIXTURE blocks for sprites) in the summer plaza at noon, `script` called
+    /// before each of `total` frames (1-based), the last frame written as `file`. The shot only fails when no frame can be read.
+    @MainActor private static func shoot(_ r: Recorder, device: WinGfxDevice, name: String, file: String, me: TilePoint,
+                                          members: [PlazaSceneMember], frames total: Int = 120, script: (PlazaScene, Int) -> Void) async {
+        let stage = WinPlazaStage(size: CGSize(width: 960, height: 640))
+        stage.setBackingScale(2)
+        guard case .success(let surface) = WinGfxSurface.offscreen(device: device, width: 1280, height: 960) else {
+            r.add(name, false, "no offscreen surface: \(WinPlazaCodecs.lastError())")
+            return
+        }
+        let renderer = WinPlazaRenderer(surface: surface)
+        let map = PlazaMapData.map
+        let grass = PlatformPlaza.tallGrassArt()
+        let mapImage = PlatformPlaza.tileSheet().map { PlazaTileArt.mapImage(map, sheet: $0, tallGrass: grass) } ?? PlazaTileArt.plainGrassImage(map)
+        let scene = PlazaScene(map: map, mapImage: mapImage, start: me, zoom: 2, nickname: "Me", tallGrass: grass, pondVisuals: true,
+                               iceArt: PlatformPlaza.iceArt(), stage: stage)
+        scene.size = CGSize(width: 640, height: 480)
+        let base = Calendar.current.date(from: DateComponents(year: 2026, month: 7, day: 15, hour: 12)) ?? Date()
+        var now = base
+        scene.now = { now }
+        scene.currentModifiers = { [] }
+        scene.seasonChoice = .summer
+        // FIXTURE: a plain block of one colour per person stands in for each sprite.
+        func blockFrames(_ c: PlazaRGBA) -> PlazaCharacterFrames {
+            var block = PlazaBitmap(width: 28, height: 32)
+            for y in 2..<30 { for x in 3..<25 { block[x, y] = c } }
+            return PlazaCharacterFrames(front: [PlazaFrame(image: PlazaImage(bitmap: block), delay: 0.2)],
+                                        back: [PlazaFrame(image: PlazaImage(bitmap: block), delay: 0.2)])
+        }
+        let colours = [PlazaRGBA(r: 90, g: 130, b: 220, a: 255), PlazaRGBA(r: 90, g: 190, b: 120, a: 255), PlazaRGBA(r: 220, g: 190, b: 80, a: 255)]
+        scene.setCharacter(blockFrames(PlazaRGBA(r: 200, g: 80, b: 80, a: 255)))
+        scene.applyMembers(members)
+        for (i, m) in members.enumerated() { scene.setMemberFrames(m.memberID, blockFrames(colours[i % colours.count])) }
+        let clockBase = 1000.0
+        for _ in 0..<15 { stage.tick(at: clockBase) }
+        for f in 1...total {
+            now = base.addingTimeInterval(Double(f) / 60)
+            script(scene, f)
+            stage.tick(at: clockBase + Double(f) / 60)
+            _ = renderer.drawIfNeeded(stage: stage)
+            device.finish()
+        }
+        guard let rgba = surface.readRGBA() else { r.add(name, false, "no frame readback"); return }
+        r.add(name, writeFrame(rgba, 1280, 960, file) == 0, "\(file) 1280x960, summer noon, a FIXTURE block per person for sprites, steam=\(scene.isSteamShown) tree=\(scene.isTreeShown)")
     }
 
     /// One render-cost case: `me` (sitting at `sit` when given) and `members` on the winter night, 60 warm-up frames, then
