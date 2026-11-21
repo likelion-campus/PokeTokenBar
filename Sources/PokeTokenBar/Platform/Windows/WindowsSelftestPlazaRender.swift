@@ -33,6 +33,55 @@ extension WindowsSelftest {
             return m
         }
         await measure(r, device: device, name: "plaza.renderCostSpring", me: TilePoint(x: 31, y: 17), sit: nil, members: springMembers)
+        // The documentation captures: the same offscreen renderer on a summer noon, each written next to the other captures.
+        let shotMembers: [PlazaSceneMember] = [
+            PlazaSceneMember(memberID: "a", nickname: "Ash", isAway: false, tile: TilePoint(x: 33, y: 16), facing: .right, isWalking: false),
+            PlazaSceneMember(memberID: "b", nickname: "Misty", isAway: false, tile: TilePoint(x: 37, y: 18), facing: .left, isWalking: false),
+            PlazaSceneMember(memberID: "c", nickname: "Brock", isAway: false, tile: TilePoint(x: 35, y: 21), facing: .up, isWalking: false),
+        ].enumerated().map { i, m in var m = m; m.isFlushed = i == 0; return m }
+        await shoot(r, device: device, name: "plaza.shotSpring", file: "plaza-hot-spring.png", me: TilePoint(x: 35, y: 17), members: shotMembers) { _, _ in }
+    }
+
+    /// One documentation capture: `me` and `members` (FIXTURE blocks for sprites) in the summer plaza at noon, `script` called
+    /// before each of 120 frames (1-based), the last frame written as `file`. The shot only fails when no frame can be read.
+    @MainActor private static func shoot(_ r: Recorder, device: WinGfxDevice, name: String, file: String, me: TilePoint,
+                                          members: [PlazaSceneMember], script: (PlazaScene, Int) -> Void) async {
+        let stage = WinPlazaStage(size: CGSize(width: 960, height: 640))
+        stage.setBackingScale(2)
+        guard case .success(let surface) = WinGfxSurface.offscreen(device: device, width: 1280, height: 960) else {
+            r.add(name, false, "no offscreen surface: \(WinPlazaCodecs.lastError())")
+            return
+        }
+        let renderer = WinPlazaRenderer(surface: surface)
+        let map = PlazaMapData.map
+        let grass = PlatformPlaza.tallGrassArt()
+        let mapImage = PlatformPlaza.tileSheet().map { PlazaTileArt.mapImage(map, sheet: $0, tallGrass: grass) } ?? PlazaTileArt.plainGrassImage(map)
+        let scene = PlazaScene(map: map, mapImage: mapImage, start: me, zoom: 2, nickname: "Me", tallGrass: grass, pondVisuals: true,
+                               iceArt: PlatformPlaza.iceArt(), stage: stage)
+        scene.size = CGSize(width: 640, height: 480)
+        let base = Calendar.current.date(from: DateComponents(year: 2026, month: 7, day: 15, hour: 12)) ?? Date()
+        var now = base
+        scene.now = { now }
+        scene.currentModifiers = { [] }
+        scene.seasonChoice = .summer
+        var block = PlazaBitmap(width: 28, height: 32)   // FIXTURE
+        for y in 2..<30 { for x in 3..<25 { block[x, y] = PlazaRGBA(r: 200, g: 120, b: 80, a: 255) } }
+        let frames = PlazaCharacterFrames(front: [PlazaFrame(image: PlazaImage(bitmap: block), delay: 0.2)],
+                                          back: [PlazaFrame(image: PlazaImage(bitmap: block), delay: 0.2)])
+        scene.setCharacter(frames)
+        scene.applyMembers(members)
+        for m in members { scene.setMemberFrames(m.memberID, frames) }
+        let clockBase = 1000.0
+        for _ in 0..<15 { stage.tick(at: clockBase) }
+        for f in 1...120 {
+            now = base.addingTimeInterval(Double(f) / 60)
+            script(scene, f)
+            stage.tick(at: clockBase + Double(f) / 60)
+            _ = renderer.drawIfNeeded(stage: stage)
+            device.finish()
+        }
+        guard let rgba = surface.readRGBA() else { r.add(name, false, "no frame readback"); return }
+        r.add(name, writeFrame(rgba, 1280, 960, file) == 0, "\(file) 1280x960, summer noon, FIXTURE blocks for sprites, steam=\(scene.isSteamShown)")
     }
 
     /// One render-cost case: `me` (sitting at `sit` when given) and `members` on the winter night, 60 warm-up frames, then
