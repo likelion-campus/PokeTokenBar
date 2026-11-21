@@ -40,6 +40,8 @@ struct TeamMemberState: Equatable, Sendable {
     var activity: PlazaActivity?
     /// The size class they sent, 1...3 (1 when none).
     var bodySize = 1
+    /// They claim the hot-spring flush (a literal true on the wire). The plaza draws it only on a spring tile.
+    var isFlushed = false
 }
 
 /// Sits on a `TeamTransporting`: syncs news and reactions, keeps the member table, passes presence and
@@ -135,6 +137,8 @@ final class TeamSession {
     @ObservationIgnored private var activitySentAt: Date?
     /// The size I send, nil at 1 (left out on the wire).
     @ObservationIgnored private(set) var bodySize: Int?
+    /// Whether I send the hot-spring flush.
+    @ObservationIgnored private var isFlushed = false
     /// A change in the time alone is sent at most this often.
     static let activityTimeInterval: TimeInterval = 60
     @ObservationIgnored private let evolutionStage: () -> Int
@@ -224,14 +228,16 @@ final class TeamSession {
     }
 
     func updatePlazaPosition(inPlaza: Bool, tile: TilePoint?, facing: PlazaDirection?, isWalking: Bool,
-                             isRunning: Bool = false) {
+                             isRunning: Bool = false, isFlushed: Bool = false) {
         // 달리기는 칸을 출발할 때나 멈출 때만 바뀌므로 칸·걷기 변화 없이 혼자 바뀌지 않는다.
         let changed = inPlaza != self.inPlaza || tile != self.tile || facing != self.facing || isWalking != self.isWalking
+            || isFlushed != self.isFlushed
         self.inPlaza = inPlaza
         self.tile = tile
         self.facing = facing
         self.isWalking = isWalking
         self.isRunning = isRunning
+        self.isFlushed = isFlushed
         if changed { broadcast(.presence(makePresence())) }
     }
 
@@ -342,6 +348,13 @@ final class TeamSession {
         broadcast(.presence(makePresence()))
     }
 
+    /// The hot-spring flush alone, when my soak deadline passes. Sent only on a change; false is left out.
+    func updateFlushed(_ on: Bool) {
+        guard on != isFlushed else { return }
+        isFlushed = on
+        broadcast(.presence(makePresence()))
+    }
+
     func sendChat(_ text: String, loud: Bool = false) {
         broadcast(.chat(TeamChat(text: text, isLoud: loud ? true : nil)))
     }
@@ -436,6 +449,7 @@ final class TeamSession {
             member.campfire = presence.campfire
             member.activity = presence.activity?.bounded
             member.bodySize = PlazaBodySize.clamped(presence.bodySize)
+            member.isFlushed = presence.isFlushed == true
             members[memberID] = member
             // 코드가 막 바뀌어 이전 팀 링크가 아직 살아 있는 동안에는 받은 일정을 새 팀 몫으로 저장하지 않는다.
             if let schedule = presence.schedule, settings.code == knownCode,
@@ -546,7 +560,8 @@ final class TeamSession {
                      isDiving: isDiving ? true : nil, evolutionStage: { let n = evolutionStage(); return n > 1 ? n : nil }(),
                      schedule: settings.code == knownCode ? settings.schedule : nil,
                      ditto: dittoState, dittoReady: dittoReady ? true : nil, mimicOf: mimicOf, iceBreak: iceBreak, campfire: campfire,
-                     activity: activity, bodySize: bodySize)
+                     activity: activity, bodySize: bodySize,
+                     isFlushed: isFlushed ? true : nil)
     }
 
     private func send(_ message: TeamMessage, to peer: TeamPeerID) {

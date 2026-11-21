@@ -960,6 +960,26 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertEqual(b.session.members[a.memberID]?.isDiving, false)
     }
 
+    func testPresenceCarriesFlushedOnlyWhileOn() async {
+        let a = node("A"), b = node("B")
+        connect(a, b)
+        let tile = TilePoint(x: 34, y: 17)
+        a.session.updatePlazaPosition(inPlaza: true, tile: tile, facing: .left, isWalking: false, isFlushed: true)
+        XCTAssertEqual(b.session.members[a.memberID]?.isFlushed, true)
+        a.session.updatePlazaPosition(inPlaza: true, tile: TilePoint(x: 31, y: 17), facing: .left, isWalking: false)
+        XCTAssertEqual(b.session.members[a.memberID]?.isFlushed, false, "cleared by the presence that moves me")
+        XCTAssertEqual(b.session.members[a.memberID]?.tile, TilePoint(x: 31, y: 17))
+        let falseOnWire = a.transport.sentMessages { if case .presence(let p) = $0, p.isFlushed == false { true } else { false } }
+        XCTAssertEqual(falseOnWire, 0, "false is left out, never sent")
+        let before = a.presencesSent
+        a.session.updateFlushed(true)
+        a.session.updateFlushed(true)
+        XCTAssertEqual(a.presencesSent, before + 1)
+        XCTAssertEqual(b.session.members[a.memberID]?.isFlushed, true)
+        a.session.updateFlushed(false)
+        XCTAssertEqual(b.session.members[a.memberID]?.isFlushed, false)
+    }
+
     func testReceivedStageIsClampedAndMissingIsOne() async {
         let a = node("A", stage: 7), b = node("B")
         connect(a, b)

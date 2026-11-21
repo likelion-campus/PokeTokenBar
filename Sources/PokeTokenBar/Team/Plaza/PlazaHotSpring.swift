@@ -105,6 +105,61 @@ enum PlazaHotSpring {
     }
 }
 
+/// 내가 온천에 들어온 뒤 흐른 시간. 벽시계 하나(`since`)와 마감 하나(`deadline`)뿐이고 세는 반복이 없다.
+struct PlazaSoak: Equatable {
+    private(set) var since: Date?
+
+    /// 들어오면 지금부터 센다. 나가면 비운다. 시계가 뒤로 가서 `since` 가 미래가 되면 지금부터 다시 센다.
+    /// `since` 가 바뀌었으면 true(호출부는 마감을 다시 건다).
+    mutating func update(inSpring: Bool, now: Date) -> Bool {
+        if !inSpring {
+            guard since != nil else { return false }
+            since = nil
+            return true
+        }
+        if let current = since, current <= now { return false }
+        since = now
+        return true
+    }
+
+    var deadline: Date? { since.map { $0.addingTimeInterval(PlazaHotSpring.flushAfter) } }
+
+    func isFlushed(now: Date) -> Bool {
+        guard let since else { return false }
+        return now.timeIntervalSince(since) >= PlazaHotSpring.flushAfter
+    }
+}
+
+/// 한 캐릭터의 빨간 정도(0...1)를 벽시계의 함수로 낸다. 프레임을 세지 않으므로 멈췄던 장면도 첫 프레임부터 맞다.
+struct PlazaFlushFade: Equatable {
+    private(set) var on: Bool
+    private var from: CGFloat
+    private var since: Date
+
+    /// 처음 본 모습: 켜졌으면 한 번에 1, 아니면 0(나중에 들어온 사람, 명세 8.4).
+    init(on: Bool, now: Date) {
+        self.on = on
+        from = on ? 1 : 0
+        since = now
+    }
+
+    /// 바뀌지 않았으면 아무것도 하지 않는다. 바뀌면 지금 수준에서 출발한다.
+    mutating func set(_ on: Bool, now: Date) {
+        guard on != self.on else { return }
+        from = level(at: now)
+        since = now
+        self.on = on
+    }
+
+    func level(at now: Date) -> CGFloat {
+        let t = CGFloat(now.timeIntervalSince(since))
+        if t < 0 { return from }
+        return on ? min(1, from + t / CGFloat(PlazaHotSpring.flushRise)) : max(0, from - t / CGFloat(PlazaHotSpring.flushFade))
+    }
+
+    func blend(at now: Date) -> CGFloat { level(at: now) * PlazaHotSpring.flushBlend }
+}
+
 /// 온천의 김. 조정용 상수는 여기 있다.
 enum PlazaSteam {
     static let maxWisps = 8                       // 조정용 상수 (명세 13, 설계자 판단·미확인)

@@ -154,4 +154,83 @@ final class PlazaHotSpringTests: XCTestCase {
         XCTAssertEqual(out[3], 255)
         XCTAssertEqual(Array(out[4..<8]), [0, 0, 0, 0], "transparent stays transparent")
     }
+
+    // MARK: - The soak clock and the flush fade
+
+    private let t0 = Date(timeIntervalSinceReferenceDate: 1_000)
+
+    func testFlushedAtExactlyThreeMinutes() {
+        var soak = PlazaSoak()
+        XCTAssertTrue(soak.update(inSpring: true, now: t0))
+        XCTAssertFalse(soak.isFlushed(now: t0 + 179.9))
+        XCTAssertTrue(soak.isFlushed(now: t0 + 180))
+        XCTAssertEqual(soak.deadline, t0 + 180)
+        XCTAssertNil(PlazaSoak().deadline)
+        XCTAssertFalse(PlazaSoak().isFlushed(now: t0 + 9_999))
+    }
+
+    func testLeavingAt179RestartsTheCount() {
+        var soak = PlazaSoak()
+        _ = soak.update(inSpring: true, now: t0)
+        XCTAssertTrue(soak.update(inSpring: false, now: t0 + 179))
+        XCTAssertNil(soak.since)
+        XCTAssertFalse(soak.update(inSpring: false, now: t0 + 179.5), "staying out changes nothing")
+        XCTAssertTrue(soak.update(inSpring: true, now: t0 + 180))
+        XCTAssertFalse(soak.isFlushed(now: t0 + 359.9))
+        XCTAssertTrue(soak.isFlushed(now: t0 + 360))
+    }
+
+    func testStayingInDoesNotRestart() {
+        var soak = PlazaSoak()
+        _ = soak.update(inSpring: true, now: t0)
+        XCTAssertFalse(soak.update(inSpring: true, now: t0 + 10))
+        XCTAssertEqual(soak.since, t0)
+    }
+
+    func testAClockThatWentBackRestartsTheSoak() {
+        var soak = PlazaSoak()
+        _ = soak.update(inSpring: true, now: t0)
+        XCTAssertTrue(soak.update(inSpring: true, now: t0 - 3600))
+        XCTAssertEqual(soak.since, t0 - 3600)
+        XCTAssertFalse(soak.isFlushed(now: t0 - 3600 + 179))
+    }
+
+    func testTheRedRisesInTwoSecondsAndFadesOverAMinute() {
+        var fade = PlazaFlushFade(on: false, now: t0)
+        fade.set(true, now: t0)
+        XCTAssertEqual(fade.level(at: t0), 0, accuracy: 1e-9)
+        XCTAssertEqual(fade.level(at: t0 + 1), 0.5, accuracy: 1e-9)
+        XCTAssertEqual(fade.level(at: t0 + 2), 1, accuracy: 1e-9)
+        XCTAssertEqual(fade.level(at: t0 + 50), 1, accuracy: 1e-9, "never above 1")
+        XCTAssertEqual(fade.blend(at: t0 + 2), 0.45, accuracy: 1e-9)
+        fade.set(false, now: t0 + 2)
+        XCTAssertEqual(fade.level(at: t0 + 2), 1, accuracy: 1e-9)
+        XCTAssertEqual(fade.level(at: t0 + 32), 0.5, accuracy: 1e-9)
+        XCTAssertEqual(fade.level(at: t0 + 62), 0, accuracy: 1e-9)
+        XCTAssertEqual(fade.level(at: t0 + 600), 0, accuracy: 1e-9, "never below 0")
+    }
+
+    func testALateJoinerSeesTheRedAtOnce() {
+        XCTAssertEqual(PlazaFlushFade(on: true, now: t0).level(at: t0), 1, accuracy: 1e-9)
+        XCTAssertEqual(PlazaFlushFade(on: false, now: t0).level(at: t0), 0, accuracy: 1e-9)
+    }
+
+    func testTurningBackMidFadeStartsFromTheCurrentLevel() {
+        let T = t0
+        var fade = PlazaFlushFade(on: true, now: T - 100)
+        fade.set(false, now: T)
+        fade.set(true, now: T + 30)
+        XCTAssertEqual(fade.level(at: T + 30), 0.5, accuracy: 1e-9)
+        XCTAssertEqual(fade.level(at: T + 31), 1, accuracy: 1e-9)
+        var same = fade
+        same.set(true, now: T + 40)
+        XCTAssertEqual(same, fade, "no change, no restart")
+    }
+
+    func testAClockThatWentBackHoldsTheLevel() {
+        let T = t0
+        var fade = PlazaFlushFade(on: true, now: T - 100)
+        fade.set(false, now: T)
+        XCTAssertEqual(fade.level(at: T - 100), 1, accuracy: 1e-9)
+    }
 }

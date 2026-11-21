@@ -114,6 +114,22 @@ final class TeamHostilePeerTests: XCTestCase {
         XCTAssertTrue(scene.isDancing(memberID: "A"))
     }
 
+    // MARK: - Flush
+
+    /// A modified app can send anything for the flag. Only a literal true is read, and the frame lives.
+    func testAbsurdFlushValuesBecomeFalseAndTheFrameLives() async throws {
+        let peer = join("hostile")
+        for bad in [#""yes""#, "1", #""true""#, "{}", "null"] {
+            let json = #"{"presence":{"_0":{"nickname":"x","character":{"speciesID":25,"isShiny":false,"speciesName":"P"},"inPlaza":true,"tile":{"x":7,"y":8},"facing":"left","isWalking":true,"isFlushed":\#(bad)}}}"#
+            say(try JSONDecoder().decode(TeamMessage.self, from: Data(json.utf8)), from: peer)
+            XCTAssertEqual(session.members["hostile"]?.isFlushed, false, bad)
+            XCTAssertEqual(session.members["hostile"]?.tile, TilePoint(x: 7, y: 8), bad)
+        }
+        let ok = #"{"presence":{"_0":{"nickname":"x","character":{"speciesID":25,"isShiny":false,"speciesName":"P"},"inPlaza":true,"tile":{"x":7,"y":8},"facing":"left","isWalking":true,"isFlushed":true}}}"#
+        say(try JSONDecoder().decode(TeamMessage.self, from: Data(ok.utf8)), from: peer)
+        XCTAssertEqual(session.members["hostile"]?.isFlushed, true)
+    }
+
     // MARK: - Sizes
 
     /// A modified app can send any size. It is kept within 1...3 and the rest of the frame applies.

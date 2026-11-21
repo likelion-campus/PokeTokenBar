@@ -111,6 +111,7 @@ final class TeamWireTests: XCTestCase {
         full.isDiving = true
         full.evolutionStage = 2
         full.bodySize = 3
+        full.isFlushed = true
         full.mimicOf = "m1"
         full.iceBreak = PlazaIceBreak(at: 1_790_000_000.5, pond: TilePoint(x: 5, y: 13))
         full.schedule = PlazaSchedule(coreStart: 9, coreEnd: 18, seasonPeriod: "week",
@@ -612,6 +613,32 @@ final class TeamWireTests: XCTestCase {
             var decoder = TeamWire.FrameDecoder()
             guard case .presence(let p)? = try decoder.append(frame(json)).first else { return XCTFail("presence dropped") }
             XCTAssertNil(p.bodySize, bad)
+            XCTAssertEqual(p.nickname, "Ash")
+            XCTAssertEqual(p.tile, TilePoint(x: 3, y: 4))
+        }
+    }
+
+    func testIsFlushedIsOptionalOnTheWire() throws {
+        let plain = String(decoding: try TeamWire.encode(.presence(presence)).dropFirst(4), as: UTF8.self)
+        XCTAssertFalse(plain.contains("\"isFlushed\""))
+        var red = presence
+        red.isFlushed = true
+        let json = String(decoding: try TeamWire.encode(.presence(red)).dropFirst(4), as: UTF8.self)
+        XCTAssertTrue(json.contains("\"isFlushed\":true"))
+        var decoder = TeamWire.FrameDecoder()
+        XCTAssertEqual(try decoder.append(try TeamWire.encode(.presence(red))), [.presence(red)])
+        let earlier = frame(#"{"presence":{"_0":{"nickname":"Ash","character":{"speciesID":25,"isShiny":false,"speciesName":"P"},"inPlaza":true,"isWalking":false}}}"#)
+        var d2 = TeamWire.FrameDecoder()
+        guard case .presence(let p)? = try d2.append(earlier).first else { return XCTFail("not a presence") }
+        XCTAssertNil(p.isFlushed)
+    }
+
+    func testUnreadableIsFlushedDropsOnlyTheFlag() throws {
+        for bad in [#""yes""#, "1", "{}"] {
+            let json = #"{"presence":{"_0":{"nickname":"Ash","character":{"speciesID":25,"isShiny":false,"speciesName":"P"},"inPlaza":true,"tile":{"x":3,"y":4},"facing":"left","isWalking":true,"isFlushed":\#(bad)}}}"#
+            var decoder = TeamWire.FrameDecoder()
+            guard case .presence(let p)? = try decoder.append(frame(json)).first else { return XCTFail("presence dropped") }
+            XCTAssertNil(p.isFlushed, bad)
             XCTAssertEqual(p.nickname, "Ash")
             XCTAssertEqual(p.tile, TilePoint(x: 3, y: 4))
         }
