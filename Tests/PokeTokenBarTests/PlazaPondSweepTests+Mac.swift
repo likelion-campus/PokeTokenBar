@@ -1,0 +1,31 @@
+import XCTest
+@testable import PokeTokenBar
+
+/// Sweep A of the hot-spring plan: every direct `.pond` tile check in the plaza sources is classified here.
+/// Mac-only because `SharedSources` is.
+final class PlazaPondSweepTests: XCTestCase {
+    /// (file relative to `Sources/PokeTokenBar/Team/Plaza`, trimmed line). Water rules ask `isWater`; only the lines below name the pond tile.
+    static let allowed: Set<String> = [
+        "PlazaMap.swift|case .tree, .bush, .board, .campfire, .pond: false",
+        "PlazaMap.swift|func isWater(_ p: TilePoint) -> Bool { tile(at: p) == .pond }",
+        "PlazaSnow.swift|case .tallGrass, .tree, .bush, .board, .campfire, .pond: false",
+    ]
+
+    func testEveryDirectPondCheckIsClassified() throws {
+        let root = SharedSources.sourcesRoot.appendingPathComponent("Team/Plaza")
+        let regex = try NSRegularExpression(pattern: #"(^|[^A-Za-z0-9_)\]?!])\.pond\b"#)
+        var hits = Set<String>()
+        for url in SharedSources.allSwiftFiles(root: root) {
+            let rel = SharedSources.relativePath(url, root: root)
+            let text = try String(contentsOf: url, encoding: .utf8)
+            for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
+                let s = String(line)
+                if regex.firstMatch(in: s, range: NSRange(s.startIndex..., in: s)) != nil {
+                    hits.insert("\(rel)|\(s.trimmingCharacters(in: .whitespaces))")
+                }
+            }
+        }
+        XCTAssertEqual(hits, Self.allowed,
+                       "classify it as water (use isWater) or pond-only and list it here. new: \(hits.subtracting(Self.allowed).sorted()) gone: \(Self.allowed.subtracting(hits).sorted())")
+    }
+}

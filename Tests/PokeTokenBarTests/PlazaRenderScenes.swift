@@ -357,6 +357,17 @@ enum PlazaRenderScenes {
         }
     }
 
+    /// 오른쪽 연못(온천): 가운데에서 헤엄치는 나와 물가·물 속 이웃. Task 7 전에는 옛 연못이 보인다.
+    private static func hotSpring(_ name: String, _ choice: PlazaSeasonChoice, hour: Int = 12, zoom: Int, captures: [Int], photo: Bool = false) -> PlazaRenderScene {
+        scene(name, captures: captures) { st in
+            var o = Options(); o.season = choice; o.hour = hour; o.zoom = zoom; o.me = TilePoint(x: 35, y: 17)
+            let s = stage(o, on: st)
+            s.put([member("ash", "Ash", 33, 16, facing: .right), member("misty", "Misty", 37, 18, facing: .left),
+                   member("brock", "Brock", 35, 21, facing: .up)], looks: crowdLooks)
+            return setup(s, photo: photo)
+        }
+    }
+
     private static func ice(_ name: String, _ script: @escaping @MainActor (Stage, Int) -> Void) -> PlazaRenderScene {
         scene(name, captures: [5, 20, 40]) { st in
             var o = Options(); o.season = .winter; o.me = TilePoint(x: 10, y: 12)
@@ -532,6 +543,12 @@ enum PlazaRenderScenes {
             campfire("campfire-ready", hour: 12, lit: false), campfire("campfire-lit-night", hour: 23, lit: true, photo: true),
             campfire("campfire-smoke", hour: 12, lit: false, smoke: true),
             pond("pond-swim", egg: false, photo: true), pond("pond-egg", egg: true),
+            hotSpring("hot-spring", .summer, zoom: 2, captures: [10, 60]),
+            hotSpring("hot-spring-night", .summer, hour: 23, zoom: 2, captures: [10]),
+            hotSpring("hot-spring-summer", .summer, zoom: 1, captures: [10]),
+            hotSpring("hot-spring-spring", .spring, zoom: 1, captures: [10]),
+            hotSpring("hot-spring-autumn", .autumn, zoom: 1, captures: [10]),
+            hotSpring("hot-spring-winter", .winter, zoom: 1, captures: [10], photo: true),
             ice("ice-frozen") { _, _ in },
             ice("ice-breaking") { s, f in if f == 1 { s.scene.setIceBreak(iceBreak(s), hit: TilePoint(x: 9, y: 14)) } },
             ice("ice-refreeze") { s, f in
