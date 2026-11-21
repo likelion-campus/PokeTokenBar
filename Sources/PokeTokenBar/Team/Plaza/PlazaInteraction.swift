@@ -88,6 +88,8 @@ enum PlazaMemberAction: CaseIterable, Equatable {
     case greet
     /// 그 팀원에게 뛰어들어 한 칸 밀어낸다.
     case tackle
+    /// 그 팀원을 바라본 채 뒤로 물러나며 끌어당긴다. 그 팀원이 미끄러져 와 내 새 자리 옆에 선다.
+    case drag
     /// 그 팀원 옆에 붙어 계속 따라다닌다(기차놀이).
     case follow
     /// 그 팀원의 도감 카드를 연다.

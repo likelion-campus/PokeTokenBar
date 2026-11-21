@@ -50,6 +50,7 @@ import SwiftUI
         return [
             MenuCase(name: "member-1-row", content: .memberMenu(one)),
             MenuCase(name: "member-3-rows", content: .memberMenu(three)),
+            MenuCase(name: "member-5-rows", content: .memberMenu(PlazaMemberMenu(memberID: "m4", nickname: "피카츄", nameColor: nil, selection: .drag))),
             MenuCase(name: "member-4-rows-long-name", content: .memberMenu(four)),
             MenuCase(name: "member-4-rows-long-status", content: .memberMenu(status), viewport: CGSize(width: 600, height: 372)),
             MenuCase(name: "member-under-pills", content: .memberMenu(three), pills: true),

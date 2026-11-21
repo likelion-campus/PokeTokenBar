@@ -291,4 +291,142 @@ final class PlazaDragControllerTests: XCTestCase {
         XCTAssertEqual(w.scene.walker.tile, p(18, 12), "at once")
         XCTAssertEqual(w.scene.dustShown, dust, "no node on a paused scene")
     }
+
+    // MARK: - The Space menu row
+
+    private let downKey: UInt16 = 125
+
+    func menu(_ w: World) -> PlazaMemberMenu? {
+        if case .memberMenu(let m) = w.c.overlayContent { m } else { nil }
+    }
+
+    func drags(_ n: Node) -> [TeamEmote] { n.received.emotes.filter { $0.kind == .drag } }
+
+    func testTheMenuListsDragBetweenTackleAndFollow() async {
+        let w = await world(me: p(20, 12), b: p(19, 12), facing: .left)
+        press(w.scene, spaceKey)
+        XCTAssertEqual(menu(w)?.actions, [.greet, .tackle, .drag, .follow, .viewCard])
+        press(w.scene, downKey)
+        press(w.scene, downKey)
+        XCTAssertEqual(menu(w)?.selection, .drag)
+    }
+
+    /// The recorded tile is where b saw me when the drag arrived.
+    @MainActor private final class Seen { var tiles: [TilePoint?] = [] }
+
+    func testChoosingDragSendsItFirstThenStepsMeBack() async {
+        let w = await world(me: p(20, 12), b: p(19, 12), facing: .left, stage: 2)
+        let seen = Seen()
+        let b = w.b, me = w.me
+        b.session.onEmote = { [seen, b] _, e in
+            b.received.emotes.append(e)
+            if e.kind == .drag { seen.tiles.append(b.session.members[me.id]?.tile) }
+        }
+        w.c.setRendering(visible: false)   // pushMe reports at once, so the order on the wire is visible
+        w.c.chooseMenu(.drag, memberID: w.b.id)
+        await settle()
+        XCTAssertEqual(drags(w.b), [TeamEmote(kind: .drag, targetMemberID: w.b.id, pushTiles: 2)])
+        XCTAssertEqual(seen.tiles, [p(20, 12)], "b saw my tile from before the step")
+        XCTAssertEqual(w.scene.walker.tile, p(22, 12))
+        XCTAssertEqual(w.scene.walker.facing, .left)
+        XCTAssertEqual(w.c.activity.tackles, 0)
+    }
+
+    func testMyPullShowsOnMyScreen() async {
+        let w = await world(me: p(20, 12), b: p(19, 12), facing: .left)
+        let dust = w.scene.dustShown
+        press(w.scene, spaceKey)
+        press(w.scene, downKey)
+        press(w.scene, downKey)
+        press(w.scene, spaceKey)
+        XCTAssertEqual(w.scene.dustShown, dust + 2)
+        run(w.scene, PlazaActor.lungeDuration / 2)
+        XCTAssertGreaterThan(w.scene.lungeOffset(memberID: nil)!.x, 0, "I lunge away from b")
+        run(w.scene, 1)
+        XCTAssertEqual(w.scene.walker.tile, p(21, 12))
+    }
+
+    func testAShortStepBackSendsWhatIStepped() async {
+        let w = await world(me: p(36, 10), b: p(35, 10), facing: .left, stage: 3)
+        w.c.chooseMenu(.drag, memberID: w.b.id)
+        run(w.scene, 1.5)
+        await settle()
+        XCTAssertEqual(drags(w.b).first?.pushTiles, 2)
+        XCTAssertEqual(w.scene.walker.tile, p(38, 10))
+    }
+
+    func testNoDragWhenICannotStepBack() async {
+        func assertTackleOnly(_ name: String, _ w: World) {
+            press(w.scene, spaceKey)
+            XCTAssertTrue(menu(w)?.actions.contains(.tackle) == true, "\(name): the menu opened")
+            XCTAssertFalse(menu(w)?.actions.contains(.drag) == true, name)
+        }
+        assertTackleOnly("a tree behind me", await world(me: p(44, 12), b: p(43, 12), facing: .left))
+        assertTackleOnly("a bush behind me", await world(me: p(38, 10), b: p(37, 10), facing: .left))
+        assertTackleOnly("the pond behind me", await world(me: p(10, 12), b: p(10, 11), facing: .up))
+        let crowded = await world(me: p(20, 12), b: p(19, 12), facing: .left)
+        _ = await join(crowded, "다", at: p(21, 12))
+        assertTackleOnly("someone behind me", crowded)
+    }
+
+    func testNoDragForAnEgg() async {
+        let egg = await world(me: p(20, 12), b: p(19, 12), facing: .left, speciesID: nil)
+        press(egg.scene, spaceKey)
+        XCTAssertEqual(menu(egg)?.actions, [.greet, .tackle, .viewCard])
+        let control = await world(me: p(20, 12), b: p(19, 12), facing: .left, speciesID: 25)
+        press(control.scene, spaceKey)
+        XCTAssertTrue(menu(control)?.actions.contains(.drag) == true)
+    }
+
+    func testNoDragWhileISwimEvenWithLandBehindMe() async {
+        let w = await world(me: p(10, 12), facing: .down)
+        press(w.scene, zKey)
+        run(w.scene, 0.5)
+        XCTAssertEqual(w.scene.walker.tile, p(10, 13), "test precondition")
+        XCTAssertTrue(w.scene.isMeInWater, "test precondition")
+        w.scene.myBodySize = 3
+        await claim(w.b, size: 3, in: w)
+        await place(w.b, p(10, 16), in: w)
+        XCTAssertEqual(PlazaDrag.direction(puller: w.scene.myBody, target: w.scene.body(of: w.b.id)!), .up, "test precondition")
+        XCTAssertEqual(PlazaDrag.stepBack(from: p(10, 13), direction: .up, stage: 1, isOpen: { PlazaMapData.map.isWalkable($0) }), 1, "test precondition")
+        press(w.scene, spaceKey)
+        XCTAssertTrue(menu(w)?.actions.contains(.tackle) == true, "the menu opened")
+        XCTAssertFalse(menu(w)?.actions.contains(.drag) == true)
+    }
+
+    func testADittoMeStillDragsNormally() async {
+        let w = await world(me: p(20, 12), b: p(19, 12), facing: .left, speciesID: 132)
+        press(w.scene, spaceKey)
+        XCTAssertTrue(menu(w)?.actions.contains(.drag) == true)
+        w.c.chooseMenu(.drag, memberID: w.b.id)
+        await settle()
+        XCTAssertEqual(drags(w.b).count, 1)
+        XCTAssertFalse(w.b.received.emotes.contains { $0.kind == .mimicTackle })
+        XCTAssertNil(w.c.mimicking)
+    }
+
+    func testAChangedLayoutAtChoiceTimeDoesNothing() async {
+        let w = await world(me: p(20, 12), b: p(19, 12), facing: .left)
+        press(w.scene, spaceKey)
+        XCTAssertTrue(menu(w)?.actions.contains(.drag) == true, "test precondition")
+        _ = await join(w, "다", at: p(21, 12))
+        w.c.chooseMenu(.drag, memberID: w.b.id)
+        run(w.scene, 1)
+        await settle()
+        XCTAssertTrue(drags(w.b).isEmpty)
+        XCTAssertEqual(w.scene.walker.tile, p(20, 12))
+    }
+
+    func testDragSharesTheTackleRateLimit() async {
+        let w = await world(me: p(20, 12), b: p(19, 12), facing: .left)
+        press(w.scene, 8)   // C
+        w.c.chooseMenu(.drag, memberID: w.b.id)
+        await settle()
+        XCTAssertEqual(w.b.received.emotes.filter { $0.kind == .tackle }.count, 1, "test precondition")
+        XCTAssertTrue(drags(w.b).isEmpty)
+        now = now.addingTimeInterval(0.31)   // 0.3 itself is lost to Date's rounding at this magnitude
+        w.c.chooseMenu(.drag, memberID: w.b.id)
+        await settle()
+        XCTAssertEqual(drags(w.b).count, 1)
+    }
 }

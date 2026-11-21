@@ -218,7 +218,7 @@ final class PlazaCardTests: XCTestCase {
         await settleHUD()
         guard case .memberMenu = c.overlayContent, let drawing = host.drawings[.menu] else { return XCTFail("the menu is not shown") }
         let rows = drawing.accessibility.filter { $0.role == .menuItem }
-        XCTAssertEqual(rows.count, 4)
+        XCTAssertEqual(rows.count, 5, "the tile behind me is free here, so 끌어당기기 is a row")
         click(CGPoint(x: 480, y: 300 + 100))   // below the menu: outside it
         XCTAssertEqual(c.overlayContent, .none, "a click outside closes the menu")
         XCTAssertFalse(scene.isOverlayOpen)
@@ -365,7 +365,9 @@ final class PlazaCardTests: XCTestCase {
     func testSpaceBesideATeammateOpensTheMenu() async {
         let (c, scene, _, id) = await standing()
         space(scene)
-        XCTAssertEqual(c.overlayContent, .memberMenu(PlazaMemberMenu(memberID: id, nickname: "민수", selection: .greet)))
+        // no 끌어당기기: the tile behind me (23,5) is the board
+        XCTAssertEqual(c.overlayContent, .memberMenu(PlazaMemberMenu(memberID: id, nickname: "민수", selection: .greet,
+                                                                      actions: [.greet, .tackle, .follow, .viewCard])))
         XCTAssertTrue(scene.isOverlayOpen)
         XCTAssertNil(scene.shownEmote(memberID: nil))
         XCTAssertNil(scene.shownEmote(memberID: id))
@@ -747,7 +749,8 @@ final class PlazaCardTests: XCTestCase {
         let (c, scene, _, id) = await standing()
         space(scene)
         scene.handleKeyDown(keyCode: spaceKey, characters: " ", isRepeat: true)
-        XCTAssertEqual(c.overlayContent, .memberMenu(PlazaMemberMenu(memberID: id, nickname: "민수")))
+        // no 끌어당기기: the tile behind me (23,5) is the board
+        XCTAssertEqual(c.overlayContent, .memberMenu(PlazaMemberMenu(memberID: id, nickname: "민수", actions: [.greet, .tackle, .follow, .viewCard])))
         XCTAssertNil(scene.shownEmote(memberID: nil))
     }
 

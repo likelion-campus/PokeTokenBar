@@ -989,6 +989,7 @@ import Observation
             // 물속에서는 따라갈 수 없다(내가 물속이어도 따라가기는 멈춘다). 몸통박치기는 헤엄치는 쪽끼리도 되지만 잠수한 쪽은 못 한다.
             if scene.isMeInWater || scene.memberIsInWater(id) == true { menu.actions.removeAll { $0 == .follow } }
             if scene.isDiving || scene.memberIsDiving(id) == true { menu.actions.removeAll { $0 == .tackle } }
+            if dragStep(scene, to: id) == nil { menu.actions.removeAll { $0 == .drag } }
             guard !menu.actions.isEmpty else { return }   // 집중 중이거나 잠수 중에 메타몽 모습을 보면 할 일이 없다
             if isDitto { menuDitto = shownDitto }
             menuLook = (id, shownMimics[id])
@@ -1053,6 +1054,9 @@ import Observation
         case .tackle:
             closeOverlay()
             tackle(id)
+        case .drag:
+            closeOverlay()
+            drag(id)
         case .follow:
             closeOverlay()
             scene?.follow(member: id)
@@ -1112,6 +1116,32 @@ import Observation
             return
         }
         session?.sendEmote(.tackle, target: id, pushTiles: TeamEmote.pushTiles(evolutionStage()))
+    }
+
+    /// 끌어당길 수 있을 때 내가 물러날 방향과 칸 수. 메뉴 줄과 고른 일이 모두 이 조건을 읽는다.
+    /// 대상은 늘 팀원이다(메타몽 모습이나 복사본은 `memberTiles`에 없다). 둘 다 집중 중이 아니고 알이 아니며 물속이 아니고(잠수도 물속이다),
+    /// 두 몸이 닿는 같은 줄에 있어야 하고, 내 뒤로 한 칸 이상 물러날 빈 땅(얼음 포함)이 있어야 한다.
+    private func dragStep(_ scene: PlazaScene, to id: String) -> (direction: PlazaDirection, tiles: Int)? {
+        guard scene.memberTiles[id] != nil, let target = scene.body(of: id), !isFocusing, focusRemaining(of: id) == nil,
+              scene.canWalk, !scene.isMeInWater, scene.memberIsInWater(id) != true,
+              let b = PlazaDrag.direction(puller: scene.myBody, target: target) else { return nil }
+        let occupied = scene.occupiedTiles()
+        let k = PlazaDrag.stepBack(from: scene.walker.tile, direction: b, stage: evolutionStage(),
+                                   isOpen: { scene.isWalkableNow($0) && !occupied.contains($0) })
+        return k > 0 ? (b, k) : nil
+    }
+
+    /// 끌어당기기: 먼저 보내고(받는 쪽이 아직 내 옛 칸을 본다) 뛰어드는 그림을 띄운 뒤 내가 물러난다. 팀원이 따라오는 것은 그 팀원의 Mac이 정한다.
+    /// 메뉴를 연 사이에 자리가 바뀌었으면 다시 따져 아무것도 하지 않는다. 몸통박치기와 같은 연타 제한을 쓰고 활동 기록은 남기지 않는다.
+    private func drag(_ id: String) {
+        guard let scene, let step = dragStep(scene, to: id) else { return }
+        let now = clock()
+        if let last = lastEmoteAt, now.timeIntervalSince(last) < Self.emoteInterval { return }
+        lastEmoteAt = now
+        scene.stopDance(memberID: nil)
+        session?.sendEmote(.drag, target: id, pushTiles: step.tiles)
+        scene.playDrag(by: nil, on: id, direction: step.direction)
+        scene.pushMe(step.direction, tiles: step.tiles)
     }
 
     /// 런타임이 부른다. 누군가 몸통박치기를 했다. 맞은 게 나이고 민 팀원이 내 바로 옆(또는 같은 칸)이면 그 반대쪽으로 `tiles`칸

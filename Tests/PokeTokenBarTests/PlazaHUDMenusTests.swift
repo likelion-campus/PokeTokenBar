@@ -64,6 +64,17 @@ import XCTest
         XCTAssertEqual(try frame(r).height, 24 + 4 * lineH + 3 * 4, accuracy: 0.01)
     }
 
+    func testTheMemberMenuListsDragAfterTackle() async throws {
+        let r = rig(.memberMenu(PlazaMemberMenu(memberID: "m", nickname: "민수", nameColor: nil)))
+        let items = try XCTUnwrap(r.host.drawings[.menu]).accessibility
+        XCTAssertEqual(items.map(\.label), ["민수", "인사하기", "몸통박치기", "끌어당기기", "따라가기", "포켓몬 보기"])
+        XCTAssertEqual(items.map(\.role), [.staticText] + Array(repeating: .menuItem, count: 5))
+        let third = items.filter { $0.role == .menuItem }[2]
+        click(r, CGPoint(x: third.frame.midX, y: third.frame.midY))
+        XCTAssertEqual(r.log.actions.last, "menu choose 2")
+        XCTAssertEqual(PlazaMenuText.title(.drag), "끌어당기기")
+    }
+
     func testTheMenuIsCentredBelowThePills() async throws {
         let alone = try frame(rig(.memberMenu(three)))
         XCTAssertEqual(alone.minY, PlazaRosterMetrics.margin)
