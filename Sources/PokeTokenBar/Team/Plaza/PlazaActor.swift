@@ -61,6 +61,7 @@ struct PlazaActorContext {
     /// 폭발에 날아가는 시간과 높이, 도는 바퀴 수. 그 뒤 `sootDuration` 동안 그을려 있다가 마지막 `sootFade` 동안 돌아온다.
     static let blastDuration: TimeInterval = 0.9, blastHeight: CGFloat = 56, blastTurns: CGFloat = 2
     static let sootDuration: TimeInterval = 60, sootFade: TimeInterval = 10, sootBlend: CGFloat = 0.8
+    private static let sootColor = PlazaColor(hex: 0x1A1A1E)
     private var blastElapsed: TimeInterval?
     private(set) var sootRemaining: TimeInterval = 0
     var isBlasting: Bool { blastElapsed != nil }
@@ -152,18 +153,21 @@ struct PlazaActorContext {
         bombNode.zPosition = 12
         bombNode.color = PlazaColor(hex: 0xE8402A)
         bombNode.isHidden = true
-        characterNode.color = PlazaColor(hex: 0x1A1A1E)
     }
 
     func attach(world: PlazaNode, camera: PlazaNode) {
         for node in worldNodes { world.addChild(node) }
         for node in cameraNodes { camera.addChild(node) }
+        cameraParent = camera
+        if hasBomb { camera.addChild(bombNode) }
     }
 
     /// What `attach` adds to the world, in this order: shadow, character, swim ring, submerged ghost (in its crop), nest rim.
     var worldNodes: [PlazaNode] { [shadowNode, characterNode, swimRingNode, ghostCrop, nestFrontNode] }
-    /// What `attach` adds to the camera, in this order: name plate, bubble, 💧, bomb.
-    var cameraNodes: [PlazaNode] { [plateNode, emoteNode, wetNode, bombNode] }
+    /// What `attach` adds to the camera, in this order: name plate, bubble, 💧. The minigame bomb joins the camera only
+    /// while this actor holds one (`setBomb`), so an actor outside a game has the same nodes as before.
+    var cameraNodes: [PlazaNode] { [plateNode, emoteNode, wetNode] }
+    private weak var cameraParent: PlazaNode?
 
     func detach() {
         shadowNode.removeFromParent()
@@ -247,10 +251,12 @@ struct PlazaActorContext {
         if on == hasBomb { return }
         bombElapsed = on ? 0 : nil
         bombNode.isHidden = !on || Self.bombTextures.isEmpty
+        if on { cameraParent?.addChild(bombNode) } else { bombNode.removeFromParent() }
     }
 
     /// 폭발에 맞았다: 빙글 돌며 솟았다 떨어지고, 한동안 그을린다.
     func blast() {
+        characterNode.color = Self.sootColor
         blastElapsed = 0
         sootRemaining = Self.sootDuration
     }

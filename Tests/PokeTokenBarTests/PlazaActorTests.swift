@@ -27,7 +27,7 @@ final class PlazaActorTests: XCTestCase {
         XCTAssertEqual((w[0] as? PlazaSprite)?.anchorPoint, .zero)
         XCTAssertEqual((w[1] as? PlazaSprite)?.anchorPoint, CGPoint(x: 0.5, y: 0), "the character stands on its foot")
         XCTAssertEqual(w[3].children.count, 1, "the crop holds the submerged ghost")
-        XCTAssertEqual(actor.cameraNodes.map(\.zPosition), [10, 11, 11, 12], "name plate, bubble, 💧, bomb")
+        XCTAssertEqual(actor.cameraNodes.map(\.zPosition), [10, 11, 11], "name plate, bubble, 💧")
         XCTAssertTrue(w.allSatisfy(\.isHidden), "nothing shows in the world before frames arrive")
     }
 

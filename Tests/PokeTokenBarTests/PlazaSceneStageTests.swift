@@ -57,10 +57,10 @@ final class PlazaSceneStageTests: XCTestCase {
         s.applyMembers([m])
         let theirs = try XCTUnwrap(s.memberActor("a"))
         XCTAssertTrue(Array(stage.root.children[13...]).elementsEqual(theirs.worldNodes, by: ===), "a teammate appends at the end")
-        XCTAssertTrue(Array(camera.children[5...]).elementsEqual(theirs.cameraNodes, by: ===), "after the tint")
+        XCTAssertTrue(Array(camera.children[4...]).elementsEqual(theirs.cameraNodes, by: ===), "after the tint")
         s.applyMembers([])
         XCTAssertEqual(stage.root.children.count, 13)
-        XCTAssertEqual(camera.children.count, 5)
+        XCTAssertEqual(camera.children.count, 4)
     }
 
     /// A headless stage has no frame clock: nothing calls `update`, so a hidden (or headless) plaza does no frame work.
