@@ -106,6 +106,10 @@ final class TeamRuntime {
                 plaza?.showPull(from: memberID, on: emote.targetMemberID)
                 return
             }
+            if emote.kind == .drag {
+                plaza?.showDrag(from: memberID, on: emote.targetMemberID, tiles: TeamEmote.pushTiles(emote.pushTiles))
+                return
+            }
             if emote.kind == .decoyJump {
                 plaza?.showDecoyJump(from: memberID)
                 return

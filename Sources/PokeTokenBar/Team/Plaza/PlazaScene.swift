@@ -1459,6 +1459,14 @@ struct PlazaSceneMember: Equatable, Sendable {
         showImpact(on: target, direction: direction)
     }
 
+    /// 끌어당기기: 끄는 쪽(`puller`, nil이면 나)이 `direction`(끌려가는 쪽에서 멀어지는 쪽)으로 뛰어들고, 끌려가는 쪽(`target`, nil이면 나)
+    /// 발밑에서 먼지가 인다. 기존 몸통박치기의 뛰어들기와 점프의 먼지 그림만 쓴다. 멈춘 장면에서는 먼지를 만들지 않는다.
+    func playDrag(by puller: String?, on target: String?, direction: PlazaDirection) {
+        actor(puller)?.lunge(toward: direction)
+        guard !isPaused else { return }
+        puffDust(under: target)
+    }
+
     /// 맞은 쪽 몸 가운데에서 민 쪽으로 조금 나온 곳에 터졌다 사라지는 충격 그림. 멈춘 장면에서는 그리지 않는다.
     private func showImpact(on target: String?, direction: PlazaDirection) {
         guard !isPaused, let hit = actor(target) else { return }

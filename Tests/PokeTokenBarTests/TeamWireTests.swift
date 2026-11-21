@@ -55,6 +55,19 @@ final class TeamWireTests: XCTestCase {
         XCTAssertEqual([nil, 0, 1, 2, 3, 4, 99, -5].map(TeamEmote.pushTiles), [1, 1, 1, 2, 3, 3, 3, 1])
     }
 
+    /// A drag's step-back count is optional like a tackle's, and it round-trips.
+    func testDragPushTilesAreOptionalAndRoundTrip() throws {
+        let two = TeamMessage.emote(TeamEmote(kind: .drag, targetMemberID: "m", pushTiles: 2))
+        var decoder = TeamWire.FrameDecoder()
+        XCTAssertEqual(try decoder.append(try TeamWire.encode(two)), [two])
+        let plain = String(decoding: try TeamWire.encode(.emote(TeamEmote(kind: .drag, targetMemberID: "m"))).dropFirst(4), as: UTF8.self)
+        XCTAssertFalse(plain.contains("pushTiles"))
+        var again = TeamWire.FrameDecoder()
+        guard case .emote(let e)? = try again.append(frame(#"{"emote":{"_0":{"kind":"drag","targetMemberID":"m","pushTiles":2}}}"#)).first
+        else { return XCTFail("not an emote") }
+        XCTAssertEqual(e, TeamEmote(kind: .drag, targetMemberID: "m", pushTiles: 2))
+    }
+
     /// A picked name colour is sent only when there is one, and earlier versions' presence reads as none.
     func testNameColorIsOptionalOnTheWire() throws {
         var colored = presence
@@ -178,7 +191,7 @@ final class TeamWireTests: XCTestCase {
 
     /// Doing anything else stops the sender's dance, except the Ditto host's copy jump and the shared moments. A new kind must choose here.
     func testWhichEmotesEndTheSendersDance() {
-        let ends: Set<TeamEmoteKind> = [.heart, .lol, .party, .exclaim, .question, .tackle, .jump, .firework, .decoyFound, .snowball, .mimicTackle, .pray]
+        let ends: Set<TeamEmoteKind> = [.heart, .lol, .party, .exclaim, .question, .tackle, .jump, .firework, .decoyFound, .snowball, .mimicTackle, .pray, .drag]
         for kind in TeamEmoteKind.allCases { XCTAssertEqual(kind.endsSendersDance, ends.contains(kind), "\(kind)") }
         XCTAssertEqual(Set(TeamEmoteKind.allCases.filter { !$0.endsSendersDance }), [.groupPhoto, .pickup, .dance, .decoyJump, .decoyTackle, .pull, .mimicFound])
     }
@@ -661,7 +674,7 @@ final class TeamWireTests: XCTestCase {
         }), ["hello", "inventory", "events", "reactions", "profileRequest", "presence", "emote", "profile", "chat"])
         XCTAssertEqual([TeamEventKind.hatch, .evolve, .graduate, .dittoReveal].map(\.rawValue), ["hatch", "evolve", "graduate", "dittoReveal"])
         XCTAssertEqual([TeamReactionKind.cute, .lol, .congrats, .comment].map(\.rawValue), ["cute", "lol", "congrats", "comment"])
-        XCTAssertEqual(TeamEmoteKind.allCases.map(\.rawValue), ["heart", "lol", "party", "exclaim", "question", "tackle", "jump", "groupPhoto", "pickup", "firework", "dance", "decoyFound", "decoyJump", "decoyTackle", "pull", "snowball", "mimicTackle", "mimicFound", "pray"])
+        XCTAssertEqual(TeamEmoteKind.allCases.map(\.rawValue), ["heart", "lol", "party", "exclaim", "question", "tackle", "jump", "groupPhoto", "pickup", "firework", "dance", "decoyFound", "decoyJump", "decoyTackle", "pull", "snowball", "mimicTackle", "mimicFound", "pray", "drag"])
         XCTAssertEqual([Rarity.common, .uncommon, .rare, .legendary].map(\.rawValue), ["common", "uncommon", "rare", "legendary"])
         XCTAssertEqual(PokemonGender.allCases.map(\.rawValue), ["male", "female", "genderless"])
         XCTAssertEqual(PlazaDirection.allCases.map(\.rawValue), ["up", "down", "left", "right"])

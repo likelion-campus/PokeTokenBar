@@ -1283,6 +1283,27 @@ import Observation
         if drag.tiles == 1 { scene.plunge(drag.direction) } else { scene.pushMe(drag.direction, tiles: drag.tiles, pulledBy: sender) }
     }
 
+    /// 런타임이 부른다. 팀원이 뒤로 물러나며 `target`을 끌어당긴다. 그림(뛰어들기와 먼지)은 늘 보인다. 끌려가는 것은 나일 때만이고,
+    /// 그 팀원이 내 줄에서 몸이 닿는 거리에 있어야 하며, 변장한 나는 끌려가지 않고 들킨다. 내가 물속이거나 집중 중이면 움직이지 않는다.
+    /// 슬라이드는 그 팀원이 물러난 새 자리 바로 옆까지이고, 막힌 칸·물·다른 캐릭터 앞에서 멈춘다. 창이 닫혀 있으면 아무것도 안 한다.
+    func showDrag(from sender: String, on target: String?, tiles: Int) {
+        guard let scene, let target, let from = scene.memberTiles[sender] else { return }
+        let isMe = target == memberID()
+        guard let to = isMe ? scene.walker.tile : scene.memberTiles[target] else { return }
+        // 선 줄이 아니면(지연이나 거짓 송신) 끄는 쪽이 바라보는 쪽의 반대로 물러난다.
+        scene.playDrag(by: sender, on: isMe ? nil : target,
+                       direction: PlazaDrag.line(from: to, to: from) ?? (members[sender]?.facing ?? .down).opposite)
+        guard isMe, let b = PlazaDrag.direction(puller: PlazaBody(foot: from, size: scene.body(of: sender)?.size ?? 1), target: scene.myBody) else { return }
+        // A disguised me is found instead of dragged.
+        if myMimic != nil { return revealMe(by: sender) }
+        guard !scene.isMeInWater, canBePushed else { return }
+        let occupied = scene.occupiedTiles(except: sender)   // 끄는 쪽의 칸은 길을 막지 않는다(pushMe의 pulledBy와 같다)
+        let n = PlazaDrag.slide(victim: scene.walker.tile, puller: from, pushTiles: tiles,
+                                isOpen: { scene.isWalkableNow($0) && !occupied.contains($0) })
+        guard n > 0 else { return }
+        scene.pushMe(b, tiles: n, pulledBy: sender)
+    }
+
     /// 하트나 폭죽을 나와 그 팀원 머리 위에 함께 띄우고 팀원들에게 보낸다. 말풍선 키와 같은 연타 제한을 쓴다.
     private func greet(_ id: String) {
         guard let scene else { return }

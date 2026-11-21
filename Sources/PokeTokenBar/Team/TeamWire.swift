@@ -123,11 +123,15 @@ enum TeamEmoteKind: String, Codable, CaseIterable, Sendable {
     /// 기도 (A while an egg): the sender prayed over its own egg. Shown as a bubble over the sender with a wobble, and only
     /// while the sender is an egg. The prayer count lives in the sender's save and is never sent. Earlier versions skip it.
     case pray
+    /// 끌어당기기 (Space menu): the sender steps back `pushTiles` tiles (its evolution stage, fewer where blocked) away from
+    /// `targetMemberID`, sent before that step. The target's app slides the target after it, to stand beside the sender's new
+    /// tile. Earlier versions skip it.
+    case drag
 
     var notifiesTarget: Bool {
         switch self {
         case .heart, .lol, .party: true
-        case .exclaim, .question, .tackle, .jump, .groupPhoto, .pickup, .firework, .dance, .decoyFound, .decoyJump, .decoyTackle, .pull, .snowball, .mimicTackle, .mimicFound, .pray: false
+        case .exclaim, .question, .tackle, .jump, .groupPhoto, .pickup, .firework, .dance, .decoyFound, .decoyJump, .decoyTackle, .pull, .snowball, .mimicTackle, .mimicFound, .pray, .drag: false
         }
     }
 
@@ -136,7 +140,7 @@ enum TeamEmoteKind: String, Codable, CaseIterable, Sendable {
     /// A new kind must choose.
     var endsSendersDance: Bool {
         switch self {
-        case .heart, .lol, .party, .exclaim, .question, .tackle, .jump, .firework, .decoyFound, .snowball, .mimicTackle, .pray: true
+        case .heart, .lol, .party, .exclaim, .question, .tackle, .jump, .firework, .decoyFound, .snowball, .mimicTackle, .pray, .drag: true
         case .groupPhoto, .pickup, .dance, .decoyJump, .decoyTackle, .pull, .mimicFound: false
         }
     }
@@ -148,7 +152,7 @@ struct TeamEmote: Codable, Equatable, Sendable {
     /// A greeting (Space beside a teammate): the bubble shows over the target too. Left out when false, so
     /// earlier versions read it as an ordinary emote over the sender.
     var isShared: Bool?
-    /// A tackle: how many tiles the target slides, the tackler's evolution stage. Left out for one tile, which is
+    /// A tackle or a drag: how many tiles the target slides (a drag: how far the sender steps back), the sender's evolution stage. Left out for one tile, which is
     /// all that earlier versions push, so they read the same thing.
     var pushTiles: Int?
 

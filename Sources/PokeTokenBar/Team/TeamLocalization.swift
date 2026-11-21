@@ -287,6 +287,7 @@ extension L {
         case .mimicFound: "찾았다"
         case .dance: "춤"
         case .pray: "기도"
+        case .drag: "끌어당기기"
         }
     }
     /// `others`는 첫 사람을 뺀 서로 다른 닉네임 수. 0이면 한 사람이다.
