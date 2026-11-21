@@ -91,16 +91,30 @@ enum PlazaHotSpring {
         return PlazaSnowSheet.recolored(art, pieces: [(waterColors, cells)])
     }
 
-    /// 붉은 기운용 사본: 불투명도는 그대로 두고 색만 `color` 로 바꾼 같은 모양의 그림(미리 곱한 색). 몸 위에 알파 `blend` 로
-    /// 겹쳐 그리면 모든 픽셀이 붉은 쪽으로 한 걸음씩 가는 보간이라 파랑·초록 몸도 붉어진다(곱하기 틴트는 어두워지기만 한다).
-    static func redSilhouette(_ image: PlazaImage, color: PlazaColor = flushColor) -> PlazaImage {
+    /// 붉은 기운은 몸 그림 자체에 구워 넣는다(겹쳐 그리는 노드는 같은 줄 이웃의 그림 위에 칠해질 수 있다). 붉은 정도(0...`flushBlend`)를
+    /// 이 단계 수로 반올림해 쓰므로 프레임마다 만들 그림은 (프레임 x 단계)개를 넘지 않고, 0단계는 원래 그림이다.
+    static let flushSteps = 6
+
+    static func flushStep(forBlend blend: CGFloat) -> Int {
+        guard blend > 0 else { return 0 }
+        return min(flushSteps, Int((blend / flushBlend * CGFloat(flushSteps)).rounded()))
+    }
+
+    /// 단계의 알파(= 몸 색이 `flushColor` 쪽으로 가는 비율).
+    static func flushAmount(step: Int) -> CGFloat { CGFloat(min(max(step, 0), flushSteps)) / CGFloat(flushSteps) * flushBlend }
+
+    /// 모든 불투명 픽셀의 색을 `flushColor` 쪽으로 `flushAmount(step:)` 만큼 보간한 같은 모양의 그림(미리 곱한 색, 알파는 그대로).
+    /// 곱하기 틴트와 달리 파랑·초록도 붉은 쪽으로 간다. 0단계는 받은 그림 그대로다.
+    static func flushLerped(_ image: PlazaImage, step: Int) -> PlazaImage {
+        guard step > 0 else { return image }
+        let f = Double(flushAmount(step: step))
         var bitmap = PlazaBitmap(width: image.width, height: image.height)
         let source = image.pixels.bytes
-        let rgb = [color.red, color.green, color.blue].map { Double($0) * 255 }
+        let rgb = [flushColor.red, flushColor.green, flushColor.blue].map { Double($0) * 255 }
         var out = source
         for i in stride(from: 0, to: source.count, by: 4) {
             let a = Double(source[i + 3]) / 255
-            for c in 0..<3 { out[i + c] = UInt8(min(255, (rgb[c] * a).rounded())) }
+            for c in 0..<3 { out[i + c] = UInt8(min(255, (Double(source[i + c]) * (1 - f) + rgb[c] * a * f).rounded())) }
         }
         bitmap.bytes = out
         return PlazaImage(bitmap: bitmap)

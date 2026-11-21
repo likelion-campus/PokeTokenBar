@@ -36,8 +36,9 @@ struct PlazaPhotoActor {
     var tilt: CGFloat = 0
     /// 잠긴 아랫부분에 섞는 물빛. 온천에서는 온천색.
     var waterColor = PlazaPondArt.waterColor
-    /// 온천의 붉은 기운(0...`flushBlend`). 0보다 크면 몸통만 `PlazaHotSpring.tinted` 로 물들이고 잠긴 아랫부분은 그대로다.
-    var flush: CGFloat = 0
+    /// 온천의 붉은 기운을 구워 넣은 몸 그림(화면의 몸 텍스처와 같은 `PlazaHotSpring.flushLerped`). nil이면 `image` 그대로다.
+    /// 몸통에만 쓰고 잠긴 아랫부분은 `image` 를 물빛으로 칠한다(화면의 `ghostNode` 처럼).
+    var flushedImage: PlazaImage? = nil
 }
 
 /// 기념사진에 찍히는 풀숲 앞 띠 한 칸. 좌표는 월드 픽셀이고 y가 아래로 늘어난다.
@@ -225,12 +226,7 @@ enum PlazaPhotoRenderer {
                 context.scale(x: 1, y: a.squash)
                 context.translate(x: -pivot.x, y: -pivot.y)
             }
-            draw(a.image, x: bodyX, top: bodyTop, w: w, h: h, mirrored: a.flipped)
-            if a.flush > 0 {   // 붉은 사본을 알파로 겹친다(화면과 같다). 같은 자름·기울임 안이라 수면 위 부분에만 얹힌다
-                context.setAlpha(a.opacity * a.flush)
-                draw(PlazaHotSpring.redSilhouette(a.image), x: bodyX, top: bodyTop, w: w, h: h, mirrored: a.flipped)
-                context.setAlpha(a.opacity)
-            }
+            draw(a.flushedImage ?? a.image, x: bodyX, top: bodyTop, w: w, h: h, mirrored: a.flipped)
             if tilted { context.restoreState() }
             if sunk { context.restoreState() }
             if let front = a.front, !sunk {
