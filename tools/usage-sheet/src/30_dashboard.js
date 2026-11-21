@@ -62,9 +62,18 @@ function canonicalPerson(memberId, people) {
   return current;
 }
 
+// The app's default team names ("팀 1", "팀 2": TeamLocalization.teamDefaultName) say nothing about the team,
+// so they never stand in for a department: unrelated teams would all merge under "팀 1".
+var DEFAULT_TEAM_NAME = /^팀 \d+$/;
+
+// The owner's 부서이름; when it is blank, the team name the app sent (참고팀이름) unless it is a default name.
 function departmentOf(team, depts) {
   var d = depts[team];
-  return d && d.name ? String(d.name).trim() : "";
+  if (!d) return "";
+  var name = d.name ? String(d.name).trim() : "";
+  if (name) return name;
+  var suggested = d.suggested ? String(d.suggested).trim() : "";
+  return DEFAULT_TEAM_NAME.test(suggested) ? "" : suggested;
 }
 
 // Summarizes assigned rows in [start, end] (yyyy-MM-dd strings compare correctly as text).

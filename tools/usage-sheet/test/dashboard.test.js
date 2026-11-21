@@ -57,12 +57,33 @@ test("canonicalPerson: hops, cycles, missing targets", () => {
   assert.equal(S.canonicalPerson("__proto__", ppl), "__proto__");
 });
 
-test("departmentOf: trimmed name or empty", () => {
-  const d = people({ t1: { name: "개발팀", suggested: "" }, t2: { name: "", suggested: "x" } });
+test("departmentOf: the owner's name, else the team name the app sent, else empty", () => {
+  const d = people({
+    t1: { name: "개발팀", suggested: "" }, t2: { name: "", suggested: "x" },
+    t3: { name: "  ", suggested: " AXP Div " }, t4: { name: "", suggested: "팀 1" }, t5: { name: "", suggested: "팀 12" },
+    t6: { name: "운영", suggested: "팀 1" }, t7: { name: "", suggested: "우리 팀 1" }, t8: { name: "", suggested: "" },
+  });
   assert.equal(S.departmentOf("t1", d), "개발팀");
-  assert.equal(S.departmentOf("t2", d), "");
+  assert.equal(S.departmentOf("t2", d), "x");
+  assert.equal(S.departmentOf("t3", d), "AXP Div");
+  assert.equal(S.departmentOf("t4", d), "", "a default team name is not a department");
+  assert.equal(S.departmentOf("t5", d), "");
+  assert.equal(S.departmentOf("t6", d), "운영");
+  assert.equal(S.departmentOf("t7", d), "우리 팀 1");
+  assert.equal(S.departmentOf("t8", d), "");
   assert.equal(S.departmentOf("nope", d), "");
   assert.equal(S.departmentOf("constructor", d), "");
+});
+
+test("a team with no 부서이름 counts under its team name; a default team name stays unassigned", () => {
+  const d = mkData({
+    usage: [row("m1", "2026-11-02", "t_a", 100), row("m2", "2026-11-02", "t_b", 40), row("m3", "2026-11-02", "t_c", 7)],
+    depts: people({ t_a: { name: "", suggested: "AXP Div" }, t_b: { name: "개발팀", suggested: "AXP Div" },
+      t_c: { name: "", suggested: "팀 1" } }),
+  });
+  const m = plain(S.computeDashboard(d, "thisMonth", TODAY));
+  assert.deepEqual(m.teams.map((t) => [t.name, t.total, t.people]), [["AXP Div", 100, 1], ["개발팀", 40, 1]]);
+  assert.deepEqual(m.unassigned, { people: 1, total: 7 });
 });
 
 function mockData() {
