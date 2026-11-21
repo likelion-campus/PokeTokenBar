@@ -29,15 +29,27 @@ enum PlazaDrag {
         return k
     }
 
-    /// n: 끌려가는 `victim`이 `puller` 쪽으로 미끄러질 칸 수. (발 거리 − 1) + `pushTiles`(1...3),
-    /// 열려 있지 않은 첫 칸 앞까지. 같은 줄이 아니면 0. 모든 칸이 열려 있으면 끄는 쪽의 새 칸 바로 옆에 선다.
-    static func slide(victim: TilePoint, puller: TilePoint, pushTiles: Int, isOpen: (TilePoint) -> Bool) -> Int {
-        guard let d = line(from: victim, to: puller) else { return 0 }
-        let distance = abs(puller.x - victim.x) + abs(puller.y - victim.y)
-        let want = distance - 1 + TeamEmote.pushTiles(pushTiles)
-        var tile = victim
+    /// n: 끌려가는 `victim`이 `puller` 쪽으로 미끄러질 칸 수. 끄는 쪽이 `pushTiles`(1...3)칸 물러난 새 자리의 몸과 내 몸이
+    /// 처음 맞닿는(겹치지 않는) 칸까지다. 몸은 `PlazaBody`다: 발이 같은 줄이라 옆으로 늘 겹치므로, 가는 줄 방향의 몸 사이 간격이
+    /// 1이 될 때까지가 n이다. 몸이 둘 다 1등급이면 예전 발 거리 규칙((발 거리 − 1) + `pushTiles`)과 같다.
+    /// 열려 있지 않은 첫 칸 앞에서 멈추고, 같은 줄이 아니면 0이다. 보내는 쪽은 k만 정하고, 이 끝은 받는 쪽이 같은 등급으로 따진다.
+    static func slide(victim: PlazaBody, puller: PlazaBody, pushTiles: Int, isOpen: (TilePoint) -> Bool) -> Int {
+        guard let d = line(from: victim.foot, to: puller.foot) else { return 0 }
+        var moved = puller
+        for _ in 0..<TeamEmote.pushTiles(pushTiles) { moved.foot = PlazaWalker.offset(moved.foot, d) }
+        // d 쪽으로 본 두 몸의 [아래, 위] 범위. 끄는 쪽이 앞이니 끄는 쪽의 가까운 끝 − 내 먼 끝이 간격이다(1이면 맞닿음).
+        func range(_ b: PlazaBody) -> (lo: Int, hi: Int) {
+            let s = PlazaBodySize.span(b.size)
+            switch d {
+            case .left, .right: return (b.foot.x - s.w, b.foot.x + s.w)
+            case .up, .down: return (b.foot.y - s.h, b.foot.y)
+            }
+        }
+        let me = range(victim), her = range(moved)
+        let gap = (d == .right || d == .down) ? her.lo - me.hi : me.lo - her.hi
+        var tile = victim.foot
         var n = 0
-        for _ in 0..<want {
+        for _ in 0..<max(gap - 1, 0) {
             let next = PlazaWalker.offset(tile, d)
             guard isOpen(next) else { break }
             tile = next

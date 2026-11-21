@@ -55,17 +55,24 @@ final class PlazaDragTests: XCTestCase {
 
     func testTheTargetSlidesToBesideMyNewTile() {
         for k in 1...3 {
-            XCTAssertEqual(PlazaDrag.slide(victim: p(18, 12), puller: p(19, 12), pushTiles: k, isOpen: open), k)
+            XCTAssertEqual(PlazaDrag.slide(victim: body(18, 12, 1), puller: body(19, 12, 1), pushTiles: k, isOpen: open), k)
         }
-        XCTAssertEqual(PlazaDrag.slide(victim: p(17, 12), puller: p(17, 15), pushTiles: 1, isOpen: open), 3)
-        XCTAssertEqual(PlazaDrag.slide(victim: p(17, 12), puller: p(17, 15), pushTiles: 2, isOpen: open), 4)
-        XCTAssertEqual(PlazaDrag.slide(victim: p(20, 12), puller: p(21, 13), pushTiles: 1, isOpen: open), 0)
+        XCTAssertEqual(PlazaDrag.slide(victim: body(17, 12, 1), puller: body(17, 15, 1), pushTiles: 1, isOpen: open), 3)
+        XCTAssertEqual(PlazaDrag.slide(victim: body(17, 12, 1), puller: body(17, 15, 1), pushTiles: 2, isOpen: open), 4)
+        XCTAssertEqual(PlazaDrag.slide(victim: body(20, 12, 1), puller: body(21, 13, 1), pushTiles: 1, isOpen: open), 0)
     }
 
-    func testTheEndIsBesideThePullersNewTileForEveryReachablePair() {
+    private func overlap(_ a: PlazaBody, _ b: PlazaBody) -> Bool {
+        for x in 0..<45 { for y in 0..<30 where a.covers(p(x, y)) && b.covers(p(x, y)) { return true } }
+        return false
+    }
+
+    /// The target ends where its body first touches the puller's body at its new place, without overlapping it, for every
+    /// pair of classes in every direction. For two class-1 bodies this is the old foot distance of one (pinned above).
+    func testTheEndIsBesideThePullersNewBodyForEveryReachablePair() {
         var rng = PlazaSplitMix64(seed: 0xD4A6)
         let target = p(20, 15)
-        var checked = 0
+        var checked = 0, slid = 0
         for _ in 0..<5_000 {
             let b = PlazaDirection.allCases[Int(rng.next() % 4)]
             let off = Int(rng.next() % 4) + 1
@@ -73,29 +80,55 @@ final class PlazaDragTests: XCTestCase {
             for _ in 0..<off { foot = PlazaWalker.offset(foot, b) }
             let pc = Int(rng.next() % 3) + 1, tc = Int(rng.next() % 3) + 1
             let k = Int(rng.next() % 3) + 1
-            guard let dir = PlazaDrag.direction(puller: PlazaBody(foot: foot, size: pc), target: PlazaBody(foot: target, size: tc)) else { continue }
+            let puller = PlazaBody(foot: foot, size: pc), victim = PlazaBody(foot: target, size: tc)
+            guard let dir = PlazaDrag.direction(puller: puller, target: victim) else { continue }
             checked += 1
-            let n = PlazaDrag.slide(victim: target, puller: foot, pushTiles: k, isOpen: open)
-            var end = target
-            for _ in 0..<n { end = PlazaWalker.offset(end, dir) }
-            var want = foot
-            for _ in 0..<(k - 1) { want = PlazaWalker.offset(want, dir) }
-            XCTAssertEqual(end, want)
+            let n = PlazaDrag.slide(victim: victim, puller: puller, pushTiles: k, isOpen: open)
+            var stepped = puller
+            for _ in 0..<k { stepped.foot = PlazaWalker.offset(stepped.foot, dir) }
+            var end = victim
+            for _ in 0..<n { end.foot = PlazaWalker.offset(end.foot, dir) }
+            if n == 0 {
+                XCTAssertTrue(victim.touches(stepped), "nothing to slide only when already touching: \(b) \(pc) \(tc) \(off) \(k)")
+                continue
+            }
+            slid += 1
+            XCTAssertTrue(end.touches(stepped), "\(b) puller \(pc) target \(tc) offset \(off) k \(k)")
+            XCTAssertFalse(overlap(end, stepped), "inside the puller's body: \(b) puller \(pc) target \(tc) offset \(off) k \(k)")
+            var before = end
+            before.foot = PlazaWalker.offset(end.foot, dir.opposite)
+            XCTAssertFalse(before.touches(stepped), "one tile short of the first touching tile")
         }
         XCTAssertGreaterThan(checked, 500)
+        XCTAssertGreaterThan(slid, 500)
+    }
+
+    func testABigPullersBodyIsNotEnteredAndASmallOnesStaysTheOldDistance() {
+        // puller class 3 below a class-1 target: it covers three rows up from its foot
+        XCTAssertEqual(PlazaDrag.slide(victim: body(17, 12, 1), puller: body(17, 15, 3), pushTiles: 1, isOpen: open), 1)
+        XCTAssertEqual(PlazaDrag.slide(victim: body(17, 12, 1), puller: body(17, 15, 3), pushTiles: 3, isOpen: open), 3)
+        XCTAssertEqual(PlazaDrag.slide(victim: body(17, 12, 1), puller: body(17, 14, 2), pushTiles: 1, isOpen: open), 1)
+        // sideways: a class-3 puller is three wide
+        XCTAssertEqual(PlazaDrag.slide(victim: body(20, 12, 1), puller: body(22, 12, 3), pushTiles: 1, isOpen: open), 1)
+        // a big target is as wide, and as tall, as its own body
+        XCTAssertEqual(PlazaDrag.slide(victim: body(20, 12, 3), puller: body(22, 12, 1), pushTiles: 1, isOpen: open), 1)
+        XCTAssertEqual(PlazaDrag.slide(victim: body(20, 12, 3), puller: body(20, 13, 1), pushTiles: 1, isOpen: open), 1)
+        XCTAssertEqual(PlazaDrag.slide(victim: body(20, 12, 3), puller: body(20, 9, 1), pushTiles: 1, isOpen: open), 1)
+        // two class-1 bodies: exactly the old foot-distance rule
+        XCTAssertEqual(PlazaDrag.slide(victim: body(18, 12, 1), puller: body(19, 12, 1), pushTiles: 2, isOpen: open), 2)
     }
 
     func testTheSlideStopsBeforeTheFirstClosedTile() {
         func closed(_ t: TilePoint) -> (TilePoint) -> Bool { { $0 != t } }
-        XCTAssertEqual(PlazaDrag.slide(victim: p(17, 12), puller: p(17, 15), pushTiles: 1, isOpen: closed(p(17, 14))), 1)
-        XCTAssertEqual(PlazaDrag.slide(victim: p(17, 12), puller: p(17, 15), pushTiles: 1, isOpen: closed(p(17, 13))), 0)
-        XCTAssertEqual(PlazaDrag.slide(victim: p(17, 12), puller: p(17, 15), pushTiles: 1, isOpen: closed(p(17, 16))), 3)
+        XCTAssertEqual(PlazaDrag.slide(victim: body(17, 12, 1), puller: body(17, 15, 1), pushTiles: 1, isOpen: closed(p(17, 14))), 1)
+        XCTAssertEqual(PlazaDrag.slide(victim: body(17, 12, 1), puller: body(17, 15, 1), pushTiles: 1, isOpen: closed(p(17, 13))), 0)
+        XCTAssertEqual(PlazaDrag.slide(victim: body(17, 12, 1), puller: body(17, 15, 1), pushTiles: 1, isOpen: closed(p(17, 16))), 3)
     }
 
     func testAskedTilesStayWithinOneToThree() {
-        XCTAssertEqual(PlazaDrag.slide(victim: p(20, 12), puller: p(19, 12), pushTiles: 99, isOpen: open), 3)
-        XCTAssertEqual(PlazaDrag.slide(victim: p(20, 12), puller: p(19, 12), pushTiles: 0, isOpen: open), 1)
-        XCTAssertEqual(PlazaDrag.slide(victim: p(20, 12), puller: p(19, 12), pushTiles: -5, isOpen: open), 1)
+        XCTAssertEqual(PlazaDrag.slide(victim: body(20, 12, 1), puller: body(19, 12, 1), pushTiles: 99, isOpen: open), 3)
+        XCTAssertEqual(PlazaDrag.slide(victim: body(20, 12, 1), puller: body(19, 12, 1), pushTiles: 0, isOpen: open), 1)
+        XCTAssertEqual(PlazaDrag.slide(victim: body(20, 12, 1), puller: body(19, 12, 1), pushTiles: -5, isOpen: open), 1)
     }
 
     // MARK: - PlazaShove

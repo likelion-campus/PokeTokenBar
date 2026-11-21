@@ -1333,7 +1333,7 @@ import Observation
         if myMimic != nil { return revealMe(by: sender) }
         guard !scene.isMeInWater, canBePushed else { return }
         let occupied = scene.occupiedTiles(except: sender)   // 끄는 쪽의 칸은 길을 막지 않는다(pushMe의 pulledBy와 같다)
-        let n = PlazaDrag.slide(victim: scene.walker.tile, puller: from, pushTiles: tiles,
+        let n = PlazaDrag.slide(victim: scene.myBody, puller: PlazaBody(foot: from, size: scene.body(of: sender)?.size ?? 1), pushTiles: tiles,
                                 isOpen: { scene.isWalkableNow($0) && !occupied.contains($0) })
         guard n > 0, shoves.admit(sender, now: clock()) else { return }
         scene.pushMe(b, tiles: n, pulledBy: sender)

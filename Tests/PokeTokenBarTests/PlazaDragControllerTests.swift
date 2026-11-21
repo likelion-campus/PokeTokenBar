@@ -152,31 +152,94 @@ final class PlazaDragControllerTests: XCTestCase {
         XCTAssertEqual(w.scene.walker.tile, p(18, 12), "b's old tile did not block me")
     }
 
-    func testABigPullerDragsMeFromThreeTilesAway() async {
+    func testABigPullerDragsMeToBesideItsBodyNotOntoIt() async {
         let w = await world(me: p(17, 12))
         await claim(w.b, size: 3, in: w)
         await place(w.b, p(17, 15), in: w)
         pull(w, from: w.b)
         run(w.scene, 1.5)
-        XCTAssertEqual(w.scene.walker.tile, p(17, 15))
+        await place(w.b, p(17, 16), in: w)   // it stepped back one tile
+        let puller = w.scene.body(of: w.b.id)!
+        XCTAssertEqual(w.scene.walker.tile, p(17, 13), "its body covers rows 14...16")
+        XCTAssertTrue(w.scene.myBody.touches(puller))
+        XCTAssertFalse((10...20).contains { y in puller.covers(p(17, y)) && w.scene.myBody.covers(p(17, y)) })
     }
 
     func testTheSlideStopsBeforeSomeoneOrTheWater() async {
-        let w = await world(me: p(17, 12))
+        // along row 12: a class-3 puller at (22,12) covers x 21...23; I would slide three tiles but someone stands at (22,12)
+        let w = await world(me: p(20, 12))
         await claim(w.b, size: 3, in: w)
-        await place(w.b, p(17, 15), in: w)
-        _ = await join(w, "다", at: p(17, 14))
-        pull(w, from: w.b)
+        await place(w.b, p(22, 12), in: w)
+        _ = await join(w, "다", at: p(22, 13))
+        _ = await join(w, "라", at: p(21, 12))
+        pull(w, from: w.b, tiles: 3)
         run(w.scene, 1.5)
-        XCTAssertEqual(w.scene.walker.tile, p(17, 13))
+        XCTAssertEqual(w.scene.walker.tile, p(20, 12), "the first tile is taken")
 
         let pond = await world(me: p(10, 11))
         await claim(pond.b, size: 3, in: pond)
         await place(pond.b, p(10, 14), in: pond)
-        pull(pond, from: pond.b)
+        pull(pond, from: pond.b, tiles: 3)
         run(pond.scene, 1.5)
         XCTAssertEqual(pond.scene.walker.tile, p(10, 12), "stops on the shore")
     }
+
+    /// A tile with room along all four directions.
+    private func clearing() -> TilePoint? {
+        for y in 8..<(PlazaMapData.map.height - 8) { for x in 8..<(PlazaMapData.map.width - 8) {
+            let c = p(x, y)
+            // a plus: each arm eight long and five wide, for the bodies and the sliding along each direction
+            let plus = (-8...8).allSatisfy { a in (-2...2).allSatisfy { cross in
+                map.isWalkable(p(x + a, y + cross)) && map.isWalkable(p(x + cross, y + a)) } }
+            if plus { return c }
+        } }
+        return nil
+    }
+
+    /// Every class of puller and of me, in every direction: with the puller at its stepped-back tile, I stand beside its body
+    /// (touching it, sharing no tile) and one tile short of that would not touch.
+    private func assertBesideTheBody(puller pc: Int, me mc: Int) async throws {
+        // one test opens at most `TestDefaults.maxNamesPerTest` suites: eight worlds of three here
+        let c = try XCTUnwrap(clearing(), "test precondition: a clearing on the map")
+        for b in PlazaDirection.allCases { for k in [1, 3] {
+            let name = "puller \(pc) me \(mc) \(b) k \(k)"
+            let w = await world(me: c)
+            w.scene.myBodySize = mc
+            await claim(w.b, size: pc, in: w)
+            // the nearest foot along b where the bodies touch without sharing a tile
+            var foot = c
+            var found = false
+            for _ in 0..<5 {
+                foot = PlazaWalker.offset(foot, b)
+                let body = PlazaBody(foot: foot, size: pc)
+                if w.scene.myBody.touches(body) && !(0..<40).contains(where: { x in (0..<30).contains { y in body.covers(p(x, y)) && w.scene.myBody.covers(p(x, y)) } }) { found = true; break }
+            }
+            XCTAssertTrue(found, name)
+            await place(w.b, foot, in: w)
+            pull(w, from: w.b, tiles: k)
+            run(w.scene, 2)
+            var stepped = foot
+            for _ in 0..<k { stepped = PlazaWalker.offset(stepped, b) }
+            await place(w.b, stepped, in: w)
+            let puller = try XCTUnwrap(w.scene.body(of: w.b.id)), mine = w.scene.myBody
+            XCTAssertNotEqual(w.scene.walker.tile, c, "\(name): I moved")
+            XCTAssertTrue(mine.touches(puller), name)
+            XCTAssertFalse((0..<40).contains { x in (0..<30).contains { y in puller.covers(p(x, y)) && mine.covers(p(x, y)) } }, "\(name): inside its body")
+            var short = mine
+            short.foot = PlazaWalker.offset(mine.foot, b.opposite)
+            XCTAssertFalse(short.touches(puller), "\(name): one tile short would not touch")
+        } }
+    }
+
+    func testIEndBesideThePullersBodyPuller1Me1() async throws { try await assertBesideTheBody(puller: 1, me: 1) }
+    func testIEndBesideThePullersBodyPuller1Me2() async throws { try await assertBesideTheBody(puller: 1, me: 2) }
+    func testIEndBesideThePullersBodyPuller1Me3() async throws { try await assertBesideTheBody(puller: 1, me: 3) }
+    func testIEndBesideThePullersBodyPuller2Me1() async throws { try await assertBesideTheBody(puller: 2, me: 1) }
+    func testIEndBesideThePullersBodyPuller2Me2() async throws { try await assertBesideTheBody(puller: 2, me: 2) }
+    func testIEndBesideThePullersBodyPuller2Me3() async throws { try await assertBesideTheBody(puller: 2, me: 3) }
+    func testIEndBesideThePullersBodyPuller3Me1() async throws { try await assertBesideTheBody(puller: 3, me: 1) }
+    func testIEndBesideThePullersBodyPuller3Me2() async throws { try await assertBesideTheBody(puller: 3, me: 2) }
+    func testIEndBesideThePullersBodyPuller3Me3() async throws { try await assertBesideTheBody(puller: 3, me: 3) }
 
     // MARK: - Hostile peers
 
