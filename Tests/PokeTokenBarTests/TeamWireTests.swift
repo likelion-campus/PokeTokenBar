@@ -192,9 +192,25 @@ final class TeamWireTests: XCTestCase {
 
     /// Doing anything else stops the sender's dance, except the Ditto host's copy jump and the shared moments. A new kind must choose here.
     func testWhichEmotesEndTheSendersDance() {
-        let ends: Set<TeamEmoteKind> = [.heart, .lol, .party, .exclaim, .question, .tackle, .jump, .firework, .decoyFound, .snowball, .mimicTackle, .pray, .drag]
+        let ends: Set<TeamEmoteKind> = [.heart, .lol, .party, .exclaim, .question, .tackle, .jump, .firework, .decoyFound, .snowball, .mimicTackle, .pray, .drag, .treeShake]
         for kind in TeamEmoteKind.allCases { XCTAssertEqual(kind.endsSendersDance, ends.contains(kind), "\(kind)") }
         XCTAssertEqual(Set(TeamEmoteKind.allCases.filter { !$0.endsSendersDance }), [.groupPhoto, .pickup, .dance, .decoyJump, .decoyTackle, .pull, .mimicFound])
+        XCTAssertFalse(TeamEmoteKind.treeShake.notifiesTarget)
+    }
+
+    /// A tree shake carries the strength in `pushTiles` and, only when it dropped an item, `treeDrop`. Nothing else is added to it.
+    func testTreeDropIsOptionalOnTheWire() throws {
+        func json(_ e: TeamEmote) throws -> String { String(decoding: try TeamWire.encode(.emote(e)).dropFirst(4), as: UTF8.self) }
+        var decoder = TeamWire.FrameDecoder()
+        let plain = TeamEmote(kind: .treeShake, targetMemberID: nil)
+        XCTAssertFalse(try json(plain).contains("treeDrop"))
+        XCTAssertFalse(try json(plain).contains("pushTiles"), "level 1 is left out like every kind's")
+        let drop = TeamEmote(kind: .treeShake, targetMemberID: nil, pushTiles: 3, treeDrop: .mint)
+        XCTAssertTrue(try json(drop).contains("\"treeDrop\":\"mint\""))
+        XCTAssertTrue(try json(drop).contains("\"pushTiles\":3"))
+        XCTAssertEqual(try decoder.append(try TeamWire.encode(.emote(drop))), [.emote(drop)])
+        XCTAssertEqual(try decoder.append(try TeamWire.encode(.emote(plain))), [.emote(plain)])
+        XCTAssertTrue(try json(TeamEmote(kind: .treeShake, targetMemberID: nil, pushTiles: 2)).contains("\"pushTiles\":2"))
     }
 
     /// A snowball names the way it flew. Every other kind leaves the field out, and an earlier version's frame reads as none.
@@ -701,7 +717,7 @@ final class TeamWireTests: XCTestCase {
         }), ["hello", "inventory", "events", "reactions", "profileRequest", "presence", "emote", "profile", "chat"])
         XCTAssertEqual([TeamEventKind.hatch, .evolve, .graduate, .dittoReveal].map(\.rawValue), ["hatch", "evolve", "graduate", "dittoReveal"])
         XCTAssertEqual([TeamReactionKind.cute, .lol, .congrats, .comment].map(\.rawValue), ["cute", "lol", "congrats", "comment"])
-        XCTAssertEqual(TeamEmoteKind.allCases.map(\.rawValue), ["heart", "lol", "party", "exclaim", "question", "tackle", "jump", "groupPhoto", "pickup", "firework", "dance", "decoyFound", "decoyJump", "decoyTackle", "pull", "snowball", "mimicTackle", "mimicFound", "pray", "drag"])
+        XCTAssertEqual(TeamEmoteKind.allCases.map(\.rawValue), ["heart", "lol", "party", "exclaim", "question", "tackle", "jump", "groupPhoto", "pickup", "firework", "dance", "decoyFound", "decoyJump", "decoyTackle", "pull", "snowball", "mimicTackle", "mimicFound", "pray", "drag", "treeShake"])
         XCTAssertEqual([Rarity.common, .uncommon, .rare, .legendary].map(\.rawValue), ["common", "uncommon", "rare", "legendary"])
         XCTAssertEqual(PokemonGender.allCases.map(\.rawValue), ["male", "female", "genderless"])
         XCTAssertEqual(PlazaDirection.allCases.map(\.rawValue), ["up", "down", "left", "right"])

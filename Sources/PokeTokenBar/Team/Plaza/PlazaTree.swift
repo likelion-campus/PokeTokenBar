@@ -403,3 +403,23 @@ struct PlazaTreeItemFall: Equatable {
         return CGPoint(x: to.x, y: to.y - PlazaTree.itemBounce * CGFloat(sin(v * .pi)))
     }
 }
+
+/// 그날 나무를 친 횟수. 내 Mac 에만 저장하고 보내지 않는다(`PlazaPreferences.tree`).
+struct PlazaTreeDay: Codable, Equatable, Sendable {
+    var day: String
+    var hits = 0
+    var dropped = 0
+    static let maxHits = 99_999
+
+    init(day: String) { self.day = day }
+
+    /// `today`(`PlazaActivity.dayKey`)에 한 번 쳤다. 더 늦은 날이면 처음부터 센다. 더 이른 날(시계를 되돌림)이면 저장된 날에 이어 세서
+    /// 민트를 또 받지 못한다(결함 부류 "되감긴 시계"). 이번 때림이 민트를 떨어뜨리면 true: `hitsPerDrop` 번째마다, 하루 `dropsPerDay` 번까지.
+    mutating func hit(on today: String) -> Bool {
+        if today > day { self = PlazaTreeDay(day: today) }
+        hits = min(hits + 1, Self.maxHits)
+        guard hits % PlazaTree.hitsPerDrop == 0, dropped < PlazaTree.dropsPerDay else { return false }
+        dropped += 1
+        return true
+    }
+}

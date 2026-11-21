@@ -420,4 +420,72 @@ import XCTest
         XCTAssertNil(fall.position(at: 5))
         XCTAssertNil(fall.position(at: -0.01))
     }
+
+    // MARK: the day count (Task 7)
+
+    func testTheThirdHitDropsAndTheFourthDoesNot() async {
+        var day = PlazaTreeDay(day: "2026-11-21")
+        let drops = (0..<6).map { _ in day.hit(on: "2026-11-21") }
+        XCTAssertEqual(drops, [false, false, true, false, false, false])
+        XCTAssertEqual(day.dropped, 1)
+        XCTAssertEqual(day.hits, 6)
+    }
+
+    func testANewDayDropsAgain() async {
+        var day = PlazaTreeDay(day: "2026-11-21")
+        for _ in 0..<3 { _ = day.hit(on: "2026-11-21") }
+        XCTAssertEqual([day.hit(on: "2026-11-22"), day.hit(on: "2026-11-22"), day.hit(on: "2026-11-22")], [false, false, true])
+        XCTAssertEqual(day.day, "2026-11-22")
+        XCTAssertEqual(day.hits, 3, "a later day starts over")
+    }
+
+    func testTheDayTurnsAtLocalMidnight() async throws {
+        var seoul = Calendar(identifier: .gregorian)
+        seoul.timeZone = try XCTUnwrap(TimeZone(identifier: "Asia/Seoul"))
+        func at(_ h: Int, _ m: Int, _ sec: Int, day: Int = 21) -> Date {
+            seoul.date(from: DateComponents(year: 2026, month: 11, day: day, hour: h, minute: m, second: sec))!
+        }
+        func key(_ d: Date) -> String { PlazaActivity.dayKey(d, calendar: seoul) }
+        XCTAssertNotEqual(key(at(23, 59, 59)), key(at(0, 0, 0, day: 22)))
+        XCTAssertEqual(key(at(0, 0, 0, day: 22)), key(at(0, 0, 1, day: 22)))
+        var day = PlazaTreeDay(day: "")
+        XCTAssertFalse(day.hit(on: key(at(23, 59, 58))))
+        XCTAssertFalse(day.hit(on: key(at(23, 59, 59))))
+        XCTAssertFalse(day.hit(on: key(at(0, 0, 0, day: 22))), "the third hit is on a new day: it counts as the first")
+        XCTAssertFalse(day.hit(on: key(at(0, 0, 1, day: 22))))
+        XCTAssertTrue(day.hit(on: key(at(0, 0, 2, day: 22))))
+    }
+
+    func testAClockSetBackGivesNoSecondMint() async {
+        var day = PlazaTreeDay(day: "2026-11-22")
+        XCTAssertEqual([day.hit(on: "2026-11-22"), day.hit(on: "2026-11-22"), day.hit(on: "2026-11-22")], [false, false, true])
+        for _ in 0..<3 { XCTAssertFalse(day.hit(on: "2026-11-21"), "an earlier day keeps counting on the saved one") }
+        XCTAssertEqual(day.day, "2026-11-22")
+        XCTAssertEqual(day.dropped, 1)
+        _ = day.hit(on: "2026-11-23"); _ = day.hit(on: "2026-11-23")
+        XCTAssertTrue(day.hit(on: "2026-11-23"))
+    }
+
+    func testHitsStopAtTheCap() async {
+        var day = PlazaTreeDay(day: "d")
+        day.hits = PlazaTreeDay.maxHits
+        _ = day.hit(on: "d")
+        XCTAssertEqual(day.hits, PlazaTreeDay.maxHits)
+    }
+
+    func testTheTreeDaySurvivesARestart() async throws {
+        let suite = "plaza.test.tree.\(UUID())"
+        let defaults = try XCTUnwrap(TestDefaults.make(suite: suite))
+        let first = PlazaPreferences(defaults: defaults)
+        XCTAssertNil(first.tree)
+        var day = PlazaTreeDay(day: "2026-11-21")
+        _ = day.hit(on: "2026-11-21"); _ = day.hit(on: "2026-11-21")
+        first.tree = day
+        let second = PlazaPreferences(defaults: defaults)
+        XCTAssertEqual(second.tree, day)
+        second.tree = nil
+        XCTAssertNil(PlazaPreferences(defaults: defaults).tree)
+        defaults.set(Data("not json".utf8), forKey: "team.plaza.tree")
+        XCTAssertNil(PlazaPreferences(defaults: defaults).tree, "garbage reads as nothing")
+    }
 }

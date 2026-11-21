@@ -11,6 +11,7 @@ import Foundation
     private static let campfireKey = "team.plaza.campfire"
     private static let takenItemSlotsKey = "team.plaza.takenItemSlots"
     private static let activityKey = "team.plaza.activity"
+    private static let treeKey = "team.plaza.tree"
 
     private let defaults: UserDefaults
 
@@ -101,6 +102,21 @@ import Foundation
                 return
             }
             defaults.set(data, forKey: Self.activityKey)
+        }
+    }
+
+    /// 오늘 큰 나무를 친 횟수와 받은 민트. 다시 켜도 이어 센다(`PlazaTreeDay.hit(on:)` 가 날짜를 본다). 읽을 수 없으면 nil.
+    var tree: PlazaTreeDay? {
+        get {
+            guard let data = defaults.data(forKey: Self.treeKey) else { return nil }
+            return try? JSONDecoder().decode(PlazaTreeDay.self, from: data)
+        }
+        set {
+            guard let newValue, let data = try? JSONEncoder().encode(newValue) else {
+                defaults.removeObject(forKey: Self.treeKey)
+                return
+            }
+            defaults.set(data, forKey: Self.treeKey)
         }
     }
 

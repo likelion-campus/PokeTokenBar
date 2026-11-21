@@ -47,7 +47,7 @@ extension PlazaEmoteTests {
     func testEachEmoteHasArt() async {
         var pixels: [[UInt8]] = []
         // The decoy kinds and the pull are protocol messages, never bubbles; a new kind must be listed on purpose.
-        let decoyKinds: [TeamEmoteKind] = [.decoyFound, .decoyJump, .decoyTackle, .pull, .snowball, .mimicTackle, .mimicFound, .drag]
+        let decoyKinds: [TeamEmoteKind] = [.decoyFound, .decoyJump, .decoyTackle, .pull, .snowball, .mimicTackle, .mimicFound, .drag, .treeShake]
         let bubbleKinds: [TeamEmoteKind] = [.heart, .lol, .party, .exclaim, .question, .tackle, .jump, .groupPhoto, .pickup,
                                             .firework, .dance, .pray]
         XCTAssertEqual(Set(bubbleKinds + decoyKinds), Set(TeamEmoteKind.allCases), "every kind is sorted into bubble or message")

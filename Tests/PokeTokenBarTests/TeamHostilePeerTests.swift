@@ -216,6 +216,27 @@ final class TeamHostilePeerTests: XCTestCase {
                        [0, PlazaActivity.maxCount, 0, PlazaActivity.maxCount, 5, 0])
     }
 
+    /// A modified app can send any `treeDrop`. An unreadable value or an unknown kind becomes nil, and the frame lives with a level in range.
+    func testAbsurdTreeShakesBecomeHarmless() async throws {
+        let peer = join("hostile")
+        var got: [TeamEmote] = []
+        session.onEmote = { _, e in got.append(e) }
+        for bad in [#""banana""#, "5", "{}", "null", #""MINT""#] {
+            let json = #"{"emote":{"_0":{"kind":"treeShake","pushTiles":2,"treeDrop":\#(bad)}}}"#
+            say(try JSONDecoder().decode(TeamMessage.self, from: Data(json.utf8)), from: peer)
+            XCTAssertEqual(got.last?.kind, .treeShake, bad)
+            XCTAssertNil(got.last?.treeDrop, bad)
+        }
+        for (raw, level) in [("99", 3), ("-1", 1), ("0", 1)] {
+            let json = #"{"emote":{"_0":{"kind":"treeShake","pushTiles":\#(raw)}}}"#
+            say(try JSONDecoder().decode(TeamMessage.self, from: Data(json.utf8)), from: peer)
+            XCTAssertEqual(TeamEmote.pushTiles(got.last?.pushTiles), level, raw)
+        }
+        say(try JSONDecoder().decode(TeamMessage.self, from: Data(#"{"emote":{"_0":{"kind":"treeShake","pushTiles":3,"treeDrop":"mint"}}}"#.utf8)), from: peer)
+        XCTAssertEqual(got.last?.treeDrop, .mint, "control: a known kind is kept")
+        XCTAssertEqual(got.count, 9, "every frame lived")
+    }
+
     func testAnOverlongMimicIsDropped() async {
         let peer = join("hostile")
         for length in [TeamWire.maxFieldBytes + 1, 10_000] {
