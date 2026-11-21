@@ -97,6 +97,7 @@ final class TeamWireTests: XCTestCase {
         full.focusEndsAt = Date(timeIntervalSince1970: 1_790_000_000.5)
         full.isDiving = true
         full.evolutionStage = 2
+        full.bodySize = 3
         full.mimicOf = "m1"
         full.iceBreak = PlazaIceBreak(at: 1_790_000_000.5, pond: TilePoint(x: 5, y: 13))
         full.schedule = PlazaSchedule(coreStart: 9, coreEnd: 18, seasonPeriod: "week",
@@ -573,6 +574,34 @@ final class TeamWireTests: XCTestCase {
         XCTAssertEqual(p.tile, TilePoint(x: 3, y: 4))
         XCTAssertEqual(p.facing, .left)
         XCTAssertEqual(p.nameColor, 16752335)
+    }
+
+    func testBodySizeIsOptionalOnTheWire() throws {
+        let plain = String(decoding: try TeamWire.encode(.presence(presence)).dropFirst(4), as: UTF8.self)
+        XCTAssertFalse(plain.contains("\"bodySize\""))
+        for n in [2, 3] {
+            var big = presence
+            big.bodySize = n
+            let json = String(decoding: try TeamWire.encode(.presence(big)).dropFirst(4), as: UTF8.self)
+            XCTAssertTrue(json.contains("\"bodySize\":\(n)"))
+            var decoder = TeamWire.FrameDecoder()
+            XCTAssertEqual(try decoder.append(try TeamWire.encode(.presence(big))), [.presence(big)])
+        }
+        let earlier = frame(#"{"presence":{"_0":{"nickname":"Ash","character":{"speciesID":25,"isShiny":false,"speciesName":"P"},"inPlaza":true,"isWalking":false}}}"#)
+        var d2 = TeamWire.FrameDecoder()
+        guard case .presence(let p)? = try d2.append(earlier).first else { return XCTFail("not a presence") }
+        XCTAssertNil(p.bodySize)
+    }
+
+    func testUnreadableBodySizeDropsOnlyTheSize() throws {
+        for bad in [#""3""#, "true"] {
+            let json = #"{"presence":{"_0":{"nickname":"Ash","character":{"speciesID":25,"isShiny":false,"speciesName":"P"},"inPlaza":true,"tile":{"x":3,"y":4},"facing":"left","isWalking":true,"bodySize":\#(bad)}}}"#
+            var decoder = TeamWire.FrameDecoder()
+            guard case .presence(let p)? = try decoder.append(frame(json)).first else { return XCTFail("presence dropped") }
+            XCTAssertNil(p.bodySize, bad)
+            XCTAssertEqual(p.nickname, "Ash")
+            XCTAssertEqual(p.tile, TilePoint(x: 3, y: 4))
+        }
     }
 
     func testIceBreakIsOptionalOnTheWire() throws {

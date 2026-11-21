@@ -38,6 +38,8 @@ struct TeamMemberState: Equatable, Sendable {
     var campfire: PlazaCampfireSwitch?
     /// What they did in the plaza today, kept within `PlazaActivity.bounded`. nil from an earlier version.
     var activity: PlazaActivity?
+    /// The size class they sent, 1...3 (1 when none).
+    var bodySize = 1
 }
 
 /// Sits on a `TeamTransporting`: syncs news and reactions, keeps the member table, passes presence and
@@ -131,6 +133,8 @@ final class TeamSession {
     /// My plaza activity as last handed over; teammates get it with every presence.
     @ObservationIgnored private(set) var activity: PlazaActivity?
     @ObservationIgnored private var activitySentAt: Date?
+    /// The size I send, nil at 1 (left out on the wire).
+    @ObservationIgnored private(set) var bodySize: Int?
     /// A change in the time alone is sent at most this often.
     static let activityTimeInterval: TimeInterval = 60
     @ObservationIgnored private let evolutionStage: () -> Int
@@ -330,6 +334,14 @@ final class TeamSession {
         broadcast(.presence(makePresence()))
     }
 
+    /// My plaza body size class. Sent only on a change; 1 is left out.
+    func updateBodySize(_ size: Int) {
+        let new = PlazaBodySize.sent(size)
+        guard new != bodySize else { return }
+        bodySize = new
+        broadcast(.presence(makePresence()))
+    }
+
     func sendChat(_ text: String, loud: Bool = false) {
         broadcast(.chat(TeamChat(text: text, isLoud: loud ? true : nil)))
     }
@@ -423,6 +435,7 @@ final class TeamSession {
             member.iceBreak = presence.iceBreak
             member.campfire = presence.campfire
             member.activity = presence.activity?.bounded
+            member.bodySize = PlazaBodySize.clamped(presence.bodySize)
             members[memberID] = member
             // 코드가 막 바뀌어 이전 팀 링크가 아직 살아 있는 동안에는 받은 일정을 새 팀 몫으로 저장하지 않는다.
             if let schedule = presence.schedule, settings.code == knownCode,
@@ -533,7 +546,7 @@ final class TeamSession {
                      isDiving: isDiving ? true : nil, evolutionStage: { let n = evolutionStage(); return n > 1 ? n : nil }(),
                      schedule: settings.code == knownCode ? settings.schedule : nil,
                      ditto: dittoState, dittoReady: dittoReady ? true : nil, mimicOf: mimicOf, iceBreak: iceBreak, campfire: campfire,
-                     activity: activity)
+                     activity: activity, bodySize: bodySize)
     }
 
     private func send(_ message: TeamMessage, to peer: TeamPeerID) {
