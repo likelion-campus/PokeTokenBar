@@ -359,9 +359,10 @@ enum PlazaRenderScenes {
     }
 
     /// 오른쪽 연못(온천): 가운데에서 헤엄치는 나와 물가·물 속 이웃. Task 7 전에는 옛 연못이 보인다.
-    private static func hotSpring(_ name: String, _ choice: PlazaSeasonChoice, hour: Int = 12, zoom: Int, captures: [Int], photo: Bool = false) -> PlazaRenderScene {
+    private static func hotSpring(_ name: String, _ choice: PlazaSeasonChoice, hour: Int = 12, zoom: Int, backing: CGFloat? = nil, captures: [Int], photo: Bool = false) -> PlazaRenderScene {
         scene(name, captures: captures) { st in
             var o = Options(); o.season = choice; o.hour = hour; o.zoom = zoom; o.me = TilePoint(x: 35, y: 17)
+            if let backing { o.backing = backing }
             let s = stage(o, on: st)
             s.put([member("ash", "Ash", 33, 16, facing: .right, flushed: true), member("misty", "Misty", 37, 18, facing: .left),
                    member("brock", "Brock", 35, 21, facing: .up)], looks: crowdLooks)
@@ -539,10 +540,11 @@ enum PlazaRenderScenes {
 
     static var all: [PlazaRenderScene] { makeAll() }
 
-    /// Scenes only the cross-OS compare renders: `base-noon` at the fractional display scales Windows has and the Mac has not
-    /// (not in `all`, so the Mac's own base-vs-head compare is unchanged).
+    /// Scenes only the cross-OS compare renders: `base-noon` at the fractional display scales Windows has and the Mac has not,
+    /// and the hot spring (steam, flushed swimmer) at 1.25x (not in `all`, so the Mac's own base-vs-head compare is unchanged).
     static var crossExtras: [PlazaRenderScene] {
-        let list = [base("base-noon-1.25x", backing: 1.25, zoom: 2), base("base-noon-1.5x", backing: 1.5, zoom: 2)]
+        let list = [base("base-noon-1.25x", backing: 1.25, zoom: 2), base("base-noon-1.5x", backing: 1.5, zoom: 2),
+                    hotSpring("hot-spring-1.25x", .summer, zoom: 2, backing: 1.25, captures: [10, 60])]
         return PlazaRenderEnv.only.map { only in list.filter { only.contains($0.name) } } ?? list
     }
 

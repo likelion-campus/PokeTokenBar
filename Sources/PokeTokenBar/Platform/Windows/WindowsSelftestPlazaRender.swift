@@ -44,12 +44,23 @@ extension WindowsSelftest {
             PlazaSceneMember(memberID: "c", nickname: "Brock", isAway: false, tile: TilePoint(x: 35, y: 21), facing: .up, isWalking: false),
         ].enumerated().map { i, m in var m = m; m.isFlushed = i == 0; return m }
         await shoot(r, device: device, name: "plaza.shotSpring", file: "plaza-hot-spring.png", me: TilePoint(x: 35, y: 17), members: shotMembers) { _, _ in }
+        // The big tree at the moment of my third hit of the day (the one that drops a mint), 10 frames after contact so the bend,
+        // the leaves and the star show; teammates stand beside and behind it.
+        let treeMembers: [PlazaSceneMember] = [
+            PlazaSceneMember(memberID: "a", nickname: "Ash", isAway: false, tile: TilePoint(x: 15, y: 10), facing: .right, isWalking: false),
+            PlazaSceneMember(memberID: "b", nickname: "Brock", isAway: false, tile: TilePoint(x: 19, y: 10), facing: .left, isWalking: false),
+            PlazaSceneMember(memberID: "c", nickname: "Misty", isAway: false, tile: TilePoint(x: 17, y: 7), facing: .down, isWalking: false),
+        ]
+        await shoot(r, device: device, name: "plaza.shotTree", file: "plaza-big-tree.png", me: TilePoint(x: 17, y: 11), members: treeMembers, frames: 70) { scene, f in
+            if f == 1 { scene.face(.up) }
+            if f == 60 { scene.playTreeHit(by: nil, direction: .up, level: 3, drop: .mint) }
+        }
     }
 
     /// One documentation capture: `me` and `members` (FIXTURE blocks for sprites) in the summer plaza at noon, `script` called
-    /// before each of 120 frames (1-based), the last frame written as `file`. The shot only fails when no frame can be read.
+    /// before each of `total` frames (1-based), the last frame written as `file`. The shot only fails when no frame can be read.
     @MainActor private static func shoot(_ r: Recorder, device: WinGfxDevice, name: String, file: String, me: TilePoint,
-                                          members: [PlazaSceneMember], script: (PlazaScene, Int) -> Void) async {
+                                          members: [PlazaSceneMember], frames total: Int = 120, script: (PlazaScene, Int) -> Void) async {
         let stage = WinPlazaStage(size: CGSize(width: 960, height: 640))
         stage.setBackingScale(2)
         guard case .success(let surface) = WinGfxSurface.offscreen(device: device, width: 1280, height: 960) else {
@@ -81,7 +92,7 @@ extension WindowsSelftest {
         for (i, m) in members.enumerated() { scene.setMemberFrames(m.memberID, blockFrames(colours[i % colours.count])) }
         let clockBase = 1000.0
         for _ in 0..<15 { stage.tick(at: clockBase) }
-        for f in 1...120 {
+        for f in 1...total {
             now = base.addingTimeInterval(Double(f) / 60)
             script(scene, f)
             stage.tick(at: clockBase + Double(f) / 60)
@@ -89,7 +100,7 @@ extension WindowsSelftest {
             device.finish()
         }
         guard let rgba = surface.readRGBA() else { r.add(name, false, "no frame readback"); return }
-        r.add(name, writeFrame(rgba, 1280, 960, file) == 0, "\(file) 1280x960, summer noon, a FIXTURE block per person for sprites, steam=\(scene.isSteamShown)")
+        r.add(name, writeFrame(rgba, 1280, 960, file) == 0, "\(file) 1280x960, summer noon, a FIXTURE block per person for sprites, steam=\(scene.isSteamShown) tree=\(scene.isTreeShown)")
 =======
         // The big tree under me, shaking: eleven teammates around it (x 13...24 on rows 12 and 7; none on a tree tile, those on row 7
         // behind the narrow top stand behind it) and one standing at (15,10) who hits it.
