@@ -14,6 +14,7 @@ final class MacPlazaGraphicsTests: XCTestCase {
         var out: [(String, CGImage)] = [
             ("plaza-tiles.png", try XCTUnwrap(PlazaResources.tileSheet(in: bundle))),
             ("plaza-water-balloon.png", try XCTUnwrap(PlazaResources.waterBalloon(in: bundle))),
+            ("plaza-leaf-sheet.png", try XCTUnwrap(leafSheet(in: bundle))),
             ("plaza-tallgrass.png", try XCTUnwrap(PlazaResources.tallGrassSheet(in: bundle))),
             ("plaza-ice-cracks.png", try XCTUnwrap(PlazaResources.iceCrackSheet(in: bundle))),
             ("plaza-ice-gloss.png", try XCTUnwrap(PlazaResources.iceGlossSheet(in: bundle))),
@@ -22,6 +23,12 @@ final class MacPlazaGraphicsTests: XCTestCase {
         XCTAssertFalse(frames.isEmpty)
         out += frames.enumerated().map { ("plaza-ice-shatter.gif#\($0.offset)", $0.element) }
         return out
+    }
+
+    private func leafSheet(in bundle: Bundle) -> CGImage? {
+        guard let url = PlazaResources.resourceURL("plaza-leaf-sheet", "png", in: bundle),
+              let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        return CGImageSourceCreateImageAtIndex(source, 0, nil)
     }
 
     /// `SheetPixels` / `PlazaSnowSheet.recolored` read pixels exactly like this (verbatim).
@@ -85,6 +92,7 @@ final class MacPlazaGraphicsTests: XCTestCase {
     static let expectedColourSpaces: [String] = [
         "plaza-tiles.png kCGColorSpaceSRGB alpha 3 bpc 8 bpp 32 bpr 2560 drawUnchanged false changedBytes 55638",
         "plaza-water-balloon.png kCGColorSpaceSRGB alpha 3 bpc 8 bpp 32 bpr 56 drawUnchanged false changedBytes 756",
+        "plaza-leaf-sheet.png kCGColorSpaceSRGB alpha 3 bpc 8 bpp 32 bpr 512 drawUnchanged true changedBytes 0",
         "plaza-tallgrass.png kCGColorSpaceSRGB alpha 3 bpc 8 bpp 32 bpr 832 drawUnchanged true changedBytes 0",
         "plaza-ice-cracks.png kCGColorSpaceSRGB alpha 3 bpc 8 bpp 32 bpr 1024 drawUnchanged false changedBytes 42",
         "plaza-ice-gloss.png kCGColorSpaceSRGB alpha 3 bpc 8 bpp 32 bpr 336 drawUnchanged true changedBytes 0",

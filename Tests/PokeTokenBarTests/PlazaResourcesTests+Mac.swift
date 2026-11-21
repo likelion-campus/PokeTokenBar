@@ -22,6 +22,14 @@ extension PlazaResourcesTests {
         XCTAssertEqual(digest, "3ae2d716a639227daa849d3885306be9798bb89dc7c62a2507518887fca1902b")
     }
 
+    /// The CC-BY-SA credit says "unmodified", so the bundled bytes must stay the original file.
+    func testLeafSheetIsTheUnmodifiedOriginal() throws {
+        let bundle = try XCTUnwrap(PlazaResources.resourceBundle())
+        let url = try XCTUnwrap(PlazaResources.resourceURL("plaza-leaf-sheet", "png", in: bundle))
+        let digest = SHA256.hash(data: try Data(contentsOf: url)).map { String(format: "%02x", $0) }.joined()
+        XCTAssertEqual(digest, "4ad08bd59fbd202e7193befe3c40cd19a144a87ce30b06e5171a89753a874c17")
+    }
+
     func testFontsRegisterAndResolve() {
         XCTAssertTrue(PlazaResources.registerFonts())
         XCTAssertTrue(PlazaResources.registerFonts(), "calling twice stays safe")

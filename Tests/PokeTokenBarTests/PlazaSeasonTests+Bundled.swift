@@ -48,6 +48,37 @@ extension PlazaSeasonTests {
         }
     }
 
+    /// 번들 시트에서 자른 봄·가을 공의 픽셀 SHA-256(시트나 자를 영역이 바뀌면 걸린다).
+    static let pinnedCuts: [PlazaSeason: String] = [
+        .spring: "d41ec3dd75113f7fd81e5c851a64b6ddaad129597d6793e8aeb7f38e65965433",
+        .autumn: "74e7449c94e216ff0b62536fbba0edefbb15e88f0ee6044aa4c9e5103e695d7c",
+    ]
+
+    func testEverySeasonThrowsItsOwnBundledPicture() async throws {
+        XCTAssertNil(PlazaResources.ballSource(.winter))
+        let grid = PlazaSnowballArt.art(.winter).ball
+        XCTAssertEqual([grid.image.width, grid.image.height], [4, 4], "winter keeps the grid snowball")
+        XCTAssertNotNil(BundledArt.image(PlazaResources.waterBalloonName), "the summer balloon loads")
+        var cuts: [PlazaSeason: PlazaImage] = [:]
+        for season in [PlazaSeason.spring, .autumn] {
+            let source = try XCTUnwrap(PlazaResources.ballSource(season))
+            let sheet = try XCTUnwrap(BundledArt.image(source.name), "\(season): the sheet is bundled")
+            let cut = try XCTUnwrap(sheet.cropping(to: try XCTUnwrap(source.crop)))
+            XCTAssertEqual([cut.width, cut.height], [17, 15], "\(season)")
+            XCTAssertTrue((12...20).contains(15 * PlazaSnowballArt.ballScale(cut)), "\(season) flies 12-20 world px high")
+            XCTAssertEqual(PlazaParityGoldens.sha256Hex(cut.pixels.bytes), Self.pinnedCuts[season], "\(season) cut")
+            XCTAssertTrue(PlazaSnowballArt.art(season, ball: cut).ball.image === cut)
+            cuts[season] = cut
+        }
+        XCTAssertNotEqual(cuts[.spring]?.pixels.bytes, cuts[.autumn]?.pixels.bytes)
+        let balls = [grid.image] + cuts.values + [BundledArt.image(PlazaResources.waterBalloonName)].compactMap { $0 }
+        for season in PlazaSeason.allCases {
+            for piece in PlazaSnowballArt.art(season).burst {
+                XCTAssertFalse(balls.contains { $0.pixels.bytes == piece.image.pixels.bytes && $0 !== grid.image }, "\(season) burst piece equals a ball")
+            }
+        }
+    }
+
     /// 장면이 처음 보이는 계절은 여름이다. 팀이 다른 계절을 골라 둔 광장을 열어도(첫 라운드는 고른 적 없는 겨울)
     /// 처음 던지는 공부터 그 계절 것이어야 한다. 파일이 없는 계절은 눈 격자 공이다.
     func testEachSeasonThrowsItsBundledPictureOrItsGrid() async throws {
@@ -298,6 +329,6 @@ extension PlazaSeasonTests {
         XCTAssertEqual(try ballSize(), CGSize(width: 14, height: 18))
         s.seasonChoice = .autumn
         XCTAssertEqual(Set(s.snowballBallSizes.map { "\($0)" }).count, 1)
-        XCTAssertEqual(s.snowballBallSizes.first, CGSize(width: 16, height: 16))
+        XCTAssertEqual(s.snowballBallSizes.first, CGSize(width: 17, height: 15), "autumn throws the leaf clump")
     }
 }

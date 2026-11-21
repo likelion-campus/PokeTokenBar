@@ -44,6 +44,8 @@ Found and **not** changed. These are out of PR 1's scope, so report them to the 
 - Winter keeps `#2D5B3F` in bushes and `#4B692F` in tall grass, because winter must not change.
 - Spring keeps green tree bottoms (5.3).
 
+**Ruling (implementation, 2026-11-21):** `water-balloon@20` is not byte-identical. A burst is already on screen at frame 20, and the old code drew the balloon picture in it (the R4 bug), so the capture changes with the fix. It is in Task 5's differ list and Task 6 Step 1's stale list. Also, `PlazaArtParityPixelArtTests/testSeasonSheetsAreByteIdentical` no longer compares autumn against the legacy port (autumn changed on purpose), so that suite is in Task 3 Step 4's filter.
+
 ## Global Constraints
 
 **Workspace**
@@ -347,7 +349,7 @@ func testSummerWinterAndSpringLooksAreUnchanged() async throws {
     - `art = tallGrassSheet.map { tallGrass($0, season:) }.flatMap(PlazaTallGrassArt.init(sheet:))`;
     - `PlazaSnowLook(mapImage: mapImage(map, sheet: tiles(sheet, season:), tallGrass: art, trees: trees(sheet, season:)), tallGrass: art)`.
   - The controller and the three test copies keep their `season != .summer` guard and their caches, and call `look`. The HUD test's `seasonImage` returns `.mapImage`.
-- [ ] **Step 4: Run** `swift test --filter 'PlazaSeasonTests|PlazaTileArtTests|PlazaSnowSheetTests|PlazaIceArtTests|PlazaTallGrass|PlazaPreviewScenesTests'`. Expected: PASS, including `testSummerWinterAndSpringLooksAreUnchanged` with the Task 1 hashes.
+- [ ] **Step 4: Run** `swift test --filter 'PlazaSeasonTests|PlazaTileArtTests|PlazaSnowSheetTests|PlazaIceArtTests|PlazaTallGrass|PlazaPreviewScenesTests|PlazaArtParityPixelArtTests'`. Expected: PASS, including `testSummerWinterAndSpringLooksAreUnchanged` with the Task 1 hashes.
 - [ ] **Step 5: Injection.** Delete `0x2B7D4A` from the maple colouring and run `--filter PlazaSeasonTests/testAutumnLeavesNoSummerGreen`. Expected: FAIL naming the maple tree. Revert, then run. Expected: PASS.
 - [ ] **Step 6: Run** `swift test --filter PlazaHUDMenuRenderTests` (Mac, no window). Expected: PASS. If the autumn map-layer bound in `testTheMapLayerIsCloseToSwiftUIsResampling` trips, report the measured line; do not raise the bound silently.
 - [ ] **Step 7: Run** `swift test --filter PlazaCrossRenderCompareMacTests/testCommittedReferenceTreesAreCurrent`. Expected: the Task 1 stems plus `autumn@10` and `autumn@60`. The message shows the first 20, sorted.
@@ -448,8 +450,8 @@ PTB_PLAZA_RENDER_ONLY=summer,spring,autumn,summer-edge,spring-edge,autumn-edge,s
 ```
   Expected:
   - exit 1, with `RENDER: <k> differ: …`;
-  - the list covers `autumn@*`, `autumn-edge@10`, `petal-balls@*`, `leaf-balls@*`, `water-balloon@26` and `water-balloon@32`;
-  - it does not list `snowballs@*` (winter keeps its ball and burst, ruling 5), `summer*`, `spring*`, `water-balloon@5/12/20` or `summer-edge`/`spring-edge`. Those are byte-identical.
+  - the list covers `autumn@*`, `autumn-edge@10`, `petal-balls@*`, `leaf-balls@*`, `water-balloon@20`, `water-balloon@26` and `water-balloon@32`;
+  - it does not list `snowballs@*` (winter keeps its ball and burst, ruling 5), `summer*`, `spring*`, `water-balloon@5/12` or `summer-edge`/`spring-edge`. Those are byte-identical.
   - Ignore the `FRAMECOST` lines (one run).
   - The PNGs are `$S/plaza-renders/base/<scene>@<frame>.png` and `$S/plaza-renders/head/…`, with diffs in `head/diff-*.png`.
 - [ ] **Step 2: Contact sheets.**
@@ -477,9 +479,9 @@ PTB_PLAZA_RENDER_ONLY=summer,spring,autumn,summer-edge,spring-edge,autumn-edge,s
 
 - [ ] **Step 1: Check against the old reference** (the spec 5.4 `--check`): `env -u PTB_PLAZA_RENDER_ONLY scripts/plaza-render-cross.sh --check --scratch "$S/cross"`.
   - Expected: exit 1, with `CROSS-MAC: reference is STALE:` listing exactly:
-    - `autumn@10 pixels` and `autumn@60 pixels`;
+    - `autumn@10 pixels`, `autumn@60 pixels` and `water-balloon@20` (a burst is already up at frame 20; the old picture was the balloon, the R4 bug);
     - the 19 Task 1 stems marked `(not in the reference)`.
-  - `snowballs@5/12/20`, `spring@*`, `winter-snow@*`, `photo-winter-snow`, `water-balloon@5/12/20` and every other scene must not appear.
+  - `snowballs@5/12/20`, `spring@*`, `winter-snow@*`, `photo-winter-snow`, `water-balloon@5/12` and every other scene must not appear.
   - If any other stem appears, run the same `--check` at Task 1's parent in a scratch worktree. A stem that is stale there too is pre-existing; say so in the PR.
 - [ ] **Step 2: Write.** Run `env -u PTB_PLAZA_RENDER_ONLY scripts/plaza-render-cross.sh --write --scratch "$S/cross"`. Expected: `wrote …/mac-reference.tar.gz (<bytes> bytes, 148 captures)` (129 today + 19).
 - [ ] **Step 3: Verify.**
