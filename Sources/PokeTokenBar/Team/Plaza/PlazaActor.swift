@@ -26,6 +26,8 @@ struct PlazaActorContext {
     private let shadowNode = PlazaSprite()
     /// 헤엄칠 때 몸이 물에 잠기는 높이에 얹는 물결 고리.
     private let swimRingNode = PlazaSprite()
+    /// 발이 선 칸이 온천인가. 바뀔 때만 잠긴 아랫부분의 색과 헤엄 고리 그림을 갈아 끼운다.
+    private var isInSpring = false
     /// 물에 잠긴 아랫부분(알은 몸통 전체)을 물 아래에 비치게 그리는 반투명 스프라이트. 연못 사각형으로 자르는 크롭 노드 안에 둔다.
     private let ghostCrop = PlazaCropNode()
     private let ghostNode = PlazaSprite()
@@ -330,6 +332,17 @@ struct PlazaActorContext {
     /// 알(`eggSunk`)은 자르지 않고 몸통을 숨긴 채 통째로 잠긴 그림 하나만 그리며, 고리는 그 꼭대기에 둔다.
     func place(foot: CGPoint, pose: PlazaSpriteChoice, in context: PlazaActorContext, concealment: CGFloat = 0, isMe: Bool = false,
                swimSink: CGFloat = 0, waterRect: CGRect? = nil) {
+        place(foot: foot, pose: pose, in: context, concealment: concealment, isMe: isMe, swimSink: swimSink, waterRect: waterRect, hotSpring: false)
+    }
+
+    /// 위와 같되 `hotSpring` 이면 잠긴 아랫부분과 헤엄 고리가 온천 물빛이다(발이 선 칸이 온천인가). 바뀔 때만 노드를 만진다.
+    func place(foot: CGPoint, pose: PlazaSpriteChoice, in context: PlazaActorContext, concealment: CGFloat = 0, isMe: Bool = false,
+               swimSink: CGFloat = 0, waterRect: CGRect? = nil, hotSpring: Bool) {
+        if hotSpring != isInSpring {
+            isInSpring = hotSpring
+            ghostNode.color = hotSpring ? PlazaHotSpring.waterColor : PlazaPondArt.waterColor
+            swimRingNode.texture = hotSpring ? Self.springSwimRingTexture : Self.swimRingTexture
+        }
         if swimSink != self.swimSink {
             self.swimSink = swimSink
             applyFrame()
@@ -404,6 +417,11 @@ struct PlazaActorContext {
     /// 기념사진에 찍을 값. 그림을 아직 못 받았으면 nil이다. 이름표와 말풍선은 화면 배율과 상관없이 배율 2로 새로 만든다.
     /// `waterClip`은 헤엄칠 때 발이 선 연못의 사각형(월드, y 아래로)이다.
     func photoActor(foot rawFoot: CGPoint, pose: PlazaSpriteChoice, waterClip: CGRect? = nil) -> PlazaPhotoActor? {
+        photoActor(foot: rawFoot, pose: pose, waterClip: waterClip, hotSpring: false)
+    }
+
+    /// 위와 같되 `hotSpring` 이면 잠긴 아랫부분의 물빛이 온천색이다.
+    func photoActor(foot rawFoot: CGPoint, pose: PlazaSpriteChoice, waterClip: CGRect?, hotSpring: Bool) -> PlazaPhotoActor? {
         guard let list = currentFrames, !list.isEmpty else { return nil }
         // 춤의 옆걸음은 그림자도 함께 간다(화면의 `place`와 같다).
         let dancePose = dancePose
@@ -432,7 +450,8 @@ struct PlazaActorContext {
                                bubble: chatText.flatMap { PlazaChatBubble.image(text: $0, scale: 2) }
                                    ?? emoteKind.map { PlazaEmoteArt.image($0, scale: 2, large: true) },
                                opacity: opacity, plateBaseY: plateBaseY, sink: eggSunk ? 0 : swimSink, waterClip: swimSink > 0 ? waterClip : nil, eggSunk: eggSunk,
-                               lift: dancePose.lift, squash: dancePose.squash, tilt: dancePose.tilt)
+                               lift: dancePose.lift, squash: dancePose.squash, tilt: dancePose.tilt,
+                               waterColor: hotSpring ? PlazaHotSpring.waterColor : PlazaPondArt.waterColor)
     }
 
     // MARK: - 값 읽기
@@ -456,6 +475,9 @@ struct PlazaActorContext {
     /// 잠긴 아랫부분(테스트용).
     var isSubmergedBodyVisible: Bool { !ghostCrop.isHidden }
     var submergedBodyAlpha: CGFloat { ghostNode.alpha }
+    var submergedBodyColor: PlazaColor { ghostNode.color }
+    /// 테스트용: 헤엄 고리가 온천 그림인가.
+    var isSwimRingSpring: Bool { swimRingNode.texture === Self.springSwimRingTexture }
     var submergedBodyTopY: CGFloat { ghostNode.position.y }
     var submergedBodySize: CGSize { ghostNode.size }
     var submergedBodyTextureRect: CGRect { ghostNode.texture?.rect ?? .zero }
@@ -570,6 +592,7 @@ struct PlazaActorContext {
     }
 
     private static let swimRingTexture = PlazaTexture(PlazaPondArt.swimRing())
+    static let springSwimRingTexture = PlazaTexture(PlazaHotSpring.recolored(PlazaPondArt.swimRing()))
 
     private func refreshShadow() {
         guard let frames, let first = frames.front.first else { return }

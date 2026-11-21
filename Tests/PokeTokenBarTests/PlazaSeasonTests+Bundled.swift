@@ -10,11 +10,47 @@ extension PlazaSeasonTests {
         return (look.mapImage, PlazaSeasonSheet.tallGrass(grassSheet, season: season))
     }
 
+    /// PR 4: the right pond is the hot spring; outside it the maps are unchanged (`PlazaTileArtTests.testOnlyTheHotSpringChangedTheMap`).
     static let pinnedLooks: [PlazaSeason: (map: String, grass: String)] = [
-        .summer: (map: "949e959dca07032e73fc0843305a40c4bca7514195ffdf201dba83371c2f9ffb", grass: "6a3c1c6329d9029f65e6303e24b00c537686505d6dc52eb9cdd4434a094824de"),
-        .winter: (map: "d889e407fd03342b2e9aa0ddf860e01d907b42a057a3c3e3406974486f5e0ee5", grass: "fede76052d863a299d449e9167dded7865c4df4d464999a3ea3ff67dd6144a8a"),
-        .spring: (map: "7fcc5153081c42df66328ce4884fe5cbcfe0b0c1409e1c918f60372de0ac86f5", grass: "6a3c1c6329d9029f65e6303e24b00c537686505d6dc52eb9cdd4434a094824de"),
+        .summer: (map: "844ce80cf4aca5ec683113dc9ab6d9b52c0d264dd233fbb071fcdb2cd62329f9", grass: "6a3c1c6329d9029f65e6303e24b00c537686505d6dc52eb9cdd4434a094824de"),
+        .winter: (map: "1a526e6d40955814f2b1724f29deefefa17d51cbc04bee298aecab0a66d084e4", grass: "fede76052d863a299d449e9167dded7865c4df4d464999a3ea3ff67dd6144a8a"),
+        .spring: (map: "bea68c055e3c07265406c1e639d80460e48d83ae0af67cd2b6ecd3930e06134e", grass: "6a3c1c6329d9029f65e6303e24b00c537686505d6dc52eb9cdd4434a094824de"),
     ]
+
+    /// 여름 초록의 정의(스펙 5.4)에 드는 불투명 색.
+    private func stoneGreens(_ image: PlazaImage, _ c: (col: Int, row: Int)) -> Set<UInt32> {
+        let b = image.pixels.bytes
+        var out = Set<UInt32>()
+        for y in (c.row * 16)..<(c.row * 16 + 16) { for x in (c.col * 16)..<(c.col * 16 + 16) {
+            let i = (y * image.width + x) * 4
+            guard b[i + 3] == 255 else { continue }
+            let (r, g, bl) = (Int(b[i]), Int(b[i + 1]), Int(b[i + 2]))
+            if g > r, g > bl, (g - min(r, bl)) * 10 >= g * 3 { out.insert(UInt32(b[i]) << 16 | UInt32(b[i + 1]) << 8 | UInt32(b[i + 2])) }
+        } }
+        return out
+    }
+
+    func testTheHotSpringStonesKeepNoSummerGreenInWinter() async throws {
+        let sheet = try XCTUnwrap(PlatformPlaza.tileSheet())
+        let winter = PlazaSeasonSheet.tiles(sheet, season: .winter)
+        for c in PlazaHotSpring.bankStoneCells {
+            XCTAssertFalse(stoneGreens(sheet, c).isEmpty, "the stone \(c) is green in the original")
+            XCTAssertEqual(stoneGreens(winter, c).intersection(stoneGreens(sheet, c)), [], "winter stone \(c)")
+        }
+    }
+
+    func testSpringAndSummerStonesStayGreenLikeTheGround() async throws {
+        let sheet = try XCTUnwrap(PlatformPlaza.tileSheet())
+        for season in [PlazaSeason.spring, .summer] {
+            let tiles = PlazaSeasonSheet.tiles(sheet, season: season)
+            for c in PlazaHotSpring.bankStoneCells {
+                for y in (c.row * 16)..<(c.row * 16 + 16) { for x in (c.col * 16)..<(c.col * 16 + 16) {
+                    let i = (y * sheet.width + x) * 4
+                    XCTAssertEqual(Array(tiles.pixels.bytes[i..<i + 4]), Array(sheet.pixels.bytes[i..<i + 4]), "\(season) stone \(c)")
+                } }
+            }
+        }
+    }
 
     func testSummerWinterAndSpringLooksAreUnchanged() async throws {
         for season in [PlazaSeason.summer, .winter, .spring] {
@@ -217,7 +253,7 @@ extension PlazaSeasonTests {
         }
         let tiles = PlazaSeasonSheet.tiles(sheet, season: .autumn)
         let cells = PlazaTileArt.grassCells + PlazaTileArt.lilyCells + PlazaPond.shoreCells + PlazaTileArt.flowerCells
-            + [PlazaTileArt.bushCell, PlazaTileArt.signCell]
+            + [PlazaTileArt.bushCell, PlazaTileArt.signCell] + PlazaHotSpring.bankStoneCells
         for c in cells {
             let region = (c.col * 16, c.row * 16, 16, 16)
             let left = greens(tiles, region).intersection(greens(sheet, region))
@@ -251,7 +287,9 @@ extension PlazaSeasonTests {
     /// 칸 목록에 없는데 `mapImage` 가 그리는 초록(목록 누락)이 여기서 걸린다. 허용 예외는 아래 `allowed` 에 칸과 이유를 적는다.
     func testTheWholeAutumnMapHasNoSummerGreen() async throws {
         let grassSheet = try XCTUnwrap(PlatformPlaza.tallGrassSheet())
-        let allowed: Set<UInt32> = []
+        // 온천의 청록 물(`PlazaHotSpring.waterColors` 의 값 둘)은 계절마다 같고 여름 초록의 정의에 들지만 원본 시트의 색이 아니다.
+        let allowed: Set<UInt32> = [0x4FA8A0, 0x2F7C78]
+        XCTAssertEqual(summerGreens(try XCTUnwrap(PlatformPlaza.tileSheet())).intersection(allowed), [], "the allowed colours are not the sheet's summer greens")
         let summer = try bundledLook(.summer), autumn = try bundledLook(.autumn)
         XCTAssertGreaterThan(summerGreens(summer.map).count, 5, "the summer map has greens to look for")
         XCTAssertEqual(summerGreens(autumn.map).intersection(summerGreens(summer.map)).subtracting(allowed).map { String($0, radix: 16) }.sorted(), [], "map")

@@ -402,6 +402,23 @@ final class PlazaPhotoTests: XCTestCase {
         }
     }
 
+    /// The water half; Task 7 adds the flush half.
+    func testAPhotoOfTheSpringShowsSpringWaterAndTheFlush() async throws {
+        let scene = newScene()
+        scene.setCharacter(frames())
+        func at(_ id: String, _ x: Int, _ y: Int) -> PlazaSceneMember {
+            PlazaSceneMember(memberID: id, nickname: id, isAway: false, tile: TilePoint(x: x, y: y), facing: .down, isWalking: false)
+        }
+        scene.applyMembers([at("a", 34, 18), at("b", 8, 14)])
+        scene.setMemberFrames("a", frames())
+        scene.setMemberFrames("b", frames())
+        let actors = try XCTUnwrap(scene.photoInput()).actors   // me, then a, b in key order
+        XCTAssertEqual(actors.count, 3)
+        XCTAssertEqual(actors[1].waterColor, PlazaHotSpring.waterColor)
+        XCTAssertEqual(actors[2].waterColor, PlazaPondArt.waterColor)
+        XCTAssertEqual(actors[0].waterColor, PlazaPondArt.waterColor, "me, on land")
+    }
+
     func testPhotoInputKeepsEggsAwayMembersAndSkipsMembersStillLoading() async throws {
         let scene = newScene()
         scene.setCharacter(frames())

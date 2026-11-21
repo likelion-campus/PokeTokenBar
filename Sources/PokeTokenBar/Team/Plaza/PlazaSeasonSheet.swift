@@ -34,11 +34,12 @@ enum PlazaSeasonSheet {
         return colors.map { PlazaSnowSheet.recolored(crop, pieces: [($0, cells)]) }
     }
 
-    /// plaza-tiles.png 에서 바꿔 칠할 조각. 여름은 없다. 겨울은 `PlazaSnowSheet.tilePieces`. 가을 나무는 `trees` 로 따로 그린다.
+    /// plaza-tiles.png 에서 바꿔 칠할 조각. 여름은 없다. 겨울은 `PlazaSnowSheet.tilePieces` 에 온천 둑의 돌을 더한 것(`PlazaSnowSheet` 는 옛 구현과 바이트까지 같게 고정이라 여기서 더한다).
+    /// 봄과 여름의 돌은 땅처럼 여름 초록 그대로다. 가을 나무는 `trees` 로 따로 그린다.
     static func tilePieces(_ season: PlazaSeason) -> [PlazaSnowSheet.Piece] {
         switch season {
         case .summer: []
-        case .winter: PlazaSnowSheet.tilePieces
+        case .winter: PlazaSnowSheet.tilePieces + [(PlazaHotSpring.winterStoneColors, PlazaHotSpring.bankStoneCells)]
         case .spring: [
             ([0x2ECA5C: 0xF8BBCF, 0x50EB6C: 0xFDDCE6, 0x299750: 0xE88DAC, 0x328E53: 0xE88DAC], treeCells),
             ([0xE8F8D0: 0xFDDCE6, 0x60D0C0: 0xF2A0BC], PlazaTileArt.flowerCells),
@@ -49,6 +50,7 @@ enum PlazaSeasonSheet {
             ([0x328E41: 0x6E7634, 0xE8F8D0: 0xF6E7B0, 0x60D0C0: 0xD98A2A], PlazaTileArt.flowerCells),
             ([0x2ECA35: 0xB4462A, 0x62EB3D: 0xD86A34, 0x29973B: 0x7E3020, 0x2D5B3F: 0x4E1A12], [PlazaTileArt.bushCell]),
             ([0x2ECA35: 0xB4462A, 0x29973B: 0x7E3020], [PlazaTileArt.signCell]),
+            (PlazaHotSpring.autumnStoneColors, PlazaHotSpring.bankStoneCells),
         ]
         }
     }

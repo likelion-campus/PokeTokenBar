@@ -56,4 +56,86 @@ final class PlazaHotSpringTests: XCTestCase {
         XCTAssertEqual(PlazaIce.ponds(in: old).count, 3)
         XCTAssertEqual(PlazaIce.ponds(in: map).count, 2)
     }
+
+    // MARK: Props and colours
+
+    func testThePropsSitOnTheirTilesAndChangeNoWalking() {
+        let props = PlazaHotSpring.props(in: map)
+        XCTAssertEqual(props, PlazaHotSpring.props)
+        XCTAssertEqual(props.count, 6)
+        XCTAssertEqual(props.map(\.at), [p(32, 16), p(36, 14), p(37, 19), p(39, 16), p(31, 21), p(39, 13)])
+        for prop in props {
+            for dy in 0..<prop.rows { for dx in 0..<prop.cols {
+                let t = p(prop.at.x + dx, prop.at.y + dy)
+                if prop.inWater {
+                    XCTAssertTrue(map.isHotSpring(t), "\(prop) \(t)")
+                } else {
+                    XCTAssertTrue(map.isWalkable(t), "\(prop) \(t) is open ground")
+                    XCTAssertFalse(map.isWater(t))
+                }
+            } }
+        }
+        XCTAssertEqual(props.filter(\.inWater).map { [$0.col, $0.row] }, [[12, 10], [14, 10], [11, 7]])
+        XCTAssertEqual(PlazaHotSpring.props(in: old), [], "no spring, no stones")
+        let b = PlazaHotSpring.artBounds(in: map)
+        XCTAssertEqual([b?.minX, b?.minY, b?.maxX, b?.maxY], [31, 13, 40, 21])
+        XCTAssertNil(PlazaHotSpring.artBounds(in: old))
+        XCTAssertTrue(PlazaHotSpring.usesSpringWater(p(31, 13), in: map))
+        XCTAssertTrue(PlazaHotSpring.usesSpringWater(p(39, 21), in: map))
+        XCTAssertFalse(PlazaHotSpring.usesSpringWater(p(30, 17), in: map))
+        XCTAssertFalse(PlazaHotSpring.usesSpringWater(p(8, 14), in: map))
+    }
+
+    private func sheet() throws -> PlazaImage { try XCTUnwrap(PlatformPlaza.tileSheet()) }
+
+    func testTheSpringSheetSwapsOnlyTheWaterColours() throws {
+        let original = try sheet()
+        let spring = PlazaHotSpring.sheet(original)
+        XCTAssertEqual([spring.width, spring.height], [original.width, original.height])
+        let o = original.pixels.bytes, s = spring.pixels.bytes
+        func rgb(_ b: [UInt8], _ i: Int) -> UInt32 { UInt32(b[i]) << 16 | UInt32(b[i + 1]) << 8 | UInt32(b[i + 2]) }
+        let cells = [PlazaTileArt.waterCell] + PlazaPond.shoreCells + PlazaHotSpring.waterPropCells
+        func inside(_ x: Int, _ y: Int) -> Bool { cells.contains { $0.col == x / 16 && $0.row == y / 16 } }
+        for y in 0..<original.height { for x in 0..<original.width {
+            let i = (y * original.width + x) * 4
+            if inside(x, y) {
+                if s[i + 3] == 255 { XCTAssertNil(PlazaHotSpring.waterColors[rgb(s, i)], "(\(x),\(y)) keeps a water colour") }
+                if o[i + 3] == 255, let to = PlazaHotSpring.waterColors[rgb(o, i)] { XCTAssertEqual(rgb(s, i), to, "(\(x),\(y))") }
+            } else {
+                XCTAssertEqual(Array(s[i..<i + 4]), Array(o[i..<i + 4]), "(\(x),\(y)) is outside the swapped cells")
+            }
+        } }
+        let (wc, wr) = (PlazaTileArt.waterCell.col, PlazaTileArt.waterCell.row)
+        for y in 0..<16 { for x in 0..<16 {
+            let i = ((wr * 16 + y) * original.width + wc * 16 + x) * 4
+            XCTAssertEqual(rgb(s, i), 0x4FA8A0); XCTAssertEqual(s[i + 3], 255)
+        } }
+    }
+
+    func testRecolouredEffectsKeepTheirShapes() {
+        for art in [PlazaPondArt.swimRing(), PlazaPondArt.droplet(), PlazaPondArt.bubble(), PlazaPondArt.ring(radius: 9)] {
+            let new = PlazaHotSpring.recolored(art)
+            let a = art.pixels.bytes, b = new.pixels.bytes
+            XCTAssertEqual([new.width, new.height], [art.width, art.height])
+            for i in stride(from: 3, to: a.count, by: 4) { XCTAssertEqual(a[i], b[i]) }
+            for i in stride(from: 0, to: a.count, by: 4) where a[i + 3] == 255 {
+                let from = UInt32(a[i]) << 16 | UInt32(a[i + 1]) << 8 | UInt32(a[i + 2])
+                let to = UInt32(b[i]) << 16 | UInt32(b[i + 1]) << 8 | UInt32(b[i + 2])
+                XCTAssertEqual(to, PlazaHotSpring.waterColors[from] ?? from)
+            }
+        }
+        let ring = PlazaHotSpring.recolored(PlazaPondArt.swimRing()).pixels.bytes
+        XCTAssertTrue(stride(from: 0, to: ring.count, by: 4).contains { ring[$0] == 0x74 && ring[$0 + 1] == 0xC0 && ring[$0 + 2] == 0xB6 })
+    }
+
+    func testTheTintIsTheSharedRenderersFormula() {
+        var bitmap = PlazaBitmap(width: 2, height: 1)
+        bitmap[0, 0] = PlazaRGBA(r: 255, g: 255, b: 255, a: 255)
+        let out = PlazaHotSpring.tinted(PlazaImage(bitmap: bitmap), blend: 0.45).pixels.bytes
+        XCTAssertEqual(Double(out[0]), 241, accuracy: 1)
+        XCTAssertEqual(Double(out[1]), 176, accuracy: 1)
+        XCTAssertEqual(Double(out[2]), 167, accuracy: 1)
+        XCTAssertEqual(out[3], 255)
+        XCTAssertEqual(Array(out[4..<8]), [0, 0, 0, 0], "transparent stays transparent")
+    }
 }

@@ -1347,11 +1347,13 @@ struct PlazaSceneMember: Equatable, Sendable {
         func pose(_ facing: PlazaDirection, _ isWalking: Bool) -> PlazaSpriteChoice {
             PlazaPose.choice(facing: facing, isWalking: isWalking, clock: clock)
         }
-        var actors = [me.photoActor(foot: walker.footPoint, pose: pose(walker.facing, walker.isWalking), waterClip: photoWaterClip(foot: walker.footPoint))]
+        var actors = [me.photoActor(foot: walker.footPoint, pose: pose(walker.facing, walker.isWalking), waterClip: photoWaterClip(foot: walker.footPoint),
+                                 hotSpring: map.isHotSpring(walker.tile))]
         for id in remotes.keys.sorted() {
             guard let r = remotes[id] else { continue }
             actors.append(r.actor.photoActor(foot: r.motion.footPoint, pose: pose(r.motion.facing, r.motion.isWalking),
-                                          waterClip: photoWaterClip(foot: r.motion.footPoint)))
+                                          waterClip: photoWaterClip(foot: r.motion.footPoint),
+                                          hotSpring: map.isHotSpring(r.motion.tile)))
         }
         let tint = daylightTint
         return PlazaPhotoInput(mapImage: mapImage, visibleRect: rect, pixelsPerWorld: zoom * 2, actors: actors.compactMap { $0 },
@@ -2169,13 +2171,14 @@ struct PlazaSceneMember: Equatable, Sendable {
                                         zoom: zoom, backing: backing, viewport: size)
         me.place(foot: foot, pose: pose, in: context,
                  concealment: concealment(tile: walker.tile, step: walker.currentStep, actor: me, dive: myDive.level), isMe: true,
-                 swimSink: swimSink(tile: walker.tile, step: walker.currentStep, actor: me), waterRect: waterRect(foot: foot))
+                 swimSink: swimSink(tile: walker.tile, step: walker.currentStep, actor: me), waterRect: waterRect(foot: foot),
+                 hotSpring: map.isHotSpring(walker.tile))
         for r in remotes.values {
             let p = PlazaPose.choice(facing: r.motion.facing, isWalking: r.motion.isWalking, clock: clock)
             r.actor.place(foot: r.motion.footPoint, pose: p, in: context,
                           concealment: concealment(tile: r.motion.tile, step: r.motion.currentStep, actor: r.actor, dive: r.dive.level),
                           swimSink: swimSink(tile: r.motion.tile, step: r.motion.currentStep, actor: r.actor),
-                          waterRect: waterRect(foot: r.motion.footPoint))
+                          waterRect: waterRect(foot: r.motion.footPoint), hotSpring: map.isHotSpring(r.motion.tile))
         }
     }
 
