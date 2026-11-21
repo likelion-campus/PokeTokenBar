@@ -158,6 +158,13 @@ import XCTest
         XCTAssertEqual(s.treeNodeCount, 0)
         XCTAssertFalse(s.isTreeShown)
         XCTAssertNil(s.treeZ)
+        XCTAssertFalse(s.isTreeBusy)
+        XCTAssertEqual(s.treeBandOffsets, [])
+        XCTAssertEqual(s.treeStretch, 1)
+        XCTAssertEqual(s.treeLeafCount, 0)
+        XCTAssertNil(s.treeItemPosition)
+        s.playTreeHit(by: nil, direction: .up, level: 3, drop: .mint)   // no layer: the tackler still lunges, nothing else
+        XCTAssertFalse(s.isTreeBusy)
     }
 
     func testTheSameSeasonWritesNothing() async throws {
@@ -381,6 +388,14 @@ import XCTest
         XCTAssertEqual(kick.y, rest.y, accuracy: 0.001)
         XCTAssertEqual(after, rest, "and back")
         XCTAssertEqual(s.cameraKickOffset, .zero)
+        // Every direction kicks the same way: along the hit (scene y points up).
+        for (d, expect) in [(PlazaDirection.left, CGPoint(x: -2, y: 0)), (.up, CGPoint(x: 0, y: 2)), (.down, CGPoint(x: 0, y: -2))] {
+            let q = hitScene()
+            q.playTreeHit(by: nil, direction: d, level: 3, drop: .mint)
+            var seen = CGPoint.zero
+            run(q, from: 1.0 / 60, seconds: 0.3, step: 1.0 / 120) { _ in if abs(q.cameraKickOffset.x) + abs(q.cameraKickOffset.y) > abs(seen.x) + abs(seen.y) { seen = q.cameraKickOffset } }
+            XCTAssertEqual(seen, expect, "\(d)")
+        }
         // A teammate's level 3 and my own level 2 never kick.
         for (by, level) in [("a" as String?, 3), (nil, 2), (nil, 1)] {
             let q = hitScene()

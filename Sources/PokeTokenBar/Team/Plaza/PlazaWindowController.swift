@@ -115,6 +115,8 @@ import Observation
     /// 왼쪽 아래 대화 기록과 오른쪽 아래 작은 지도가 겹치지 않는 폭, 펼친 단축키 안내가 다 보이는 높이.
     static let minContentSize = CGSize(width: 600, height: 372)
     private var lastEmoteAt: Date?
+    /// 오늘 큰 나무를 친 횟수와 받은 민트(내 Mac 에만 저장한다). `prepareScene` 이 저장된 값으로 채운다.
+    private var treeDay = PlazaTreeDay(day: "")
     /// 기도 소식 연타 제한: 마지막으로 팀원에게 보낸 시각부터 잰다. 횟수는 제한 없이 센다.
     private var lastPraySentAt: Date?
     /// 기도한 직후 위쪽 안내 줄에 횟수를 보여 주는 시간. 알은 걷지 못해 대개 소식판 옆에 서 있고, 그 자리에서는
@@ -341,6 +343,7 @@ import Observation
         campfireSwitch = PlazaCampfire.accepted(preferences.campfire, now: clock())
         session?.updateCampfire(campfireSwitch)
         activity = (preferences.activity ?? PlazaActivity(day: "")).rolled(to: PlazaActivity.dayKey(clock()))
+        treeDay = preferences.tree ?? PlazaTreeDay(day: "")
         session?.updateActivity(activity)
         restoreFocus()
         _ = hud   // the pills follow the overlay model from now on
@@ -423,6 +426,7 @@ import Observation
             guard let self, !self.isFocusing else { return }
             if self.pullUnder() { return }
             if self.scene?.isDiving == true { return }   // a diver cannot tackle: nothing to pull means nothing happens, not even a turn
+            if self.hitTree() { return }   // the tree before a teammate: facing it hits it even with someone beside
             if let id = self.faceNearbyMember(in: self.scene?.interactionTiles) { self.tackle(id) }
         }
         s.onSnowballKey = { [weak self] in self?.handleSnowballKey() }
@@ -1377,6 +1381,42 @@ import Observation
         guard n > 0 else { return }
         shove(by: sender) { scene.pushMe(b, tiles: n, pulledBy: sender) }
     }
+
+    /// 큰 나무 치기(C): 나무를 바라보고 있으면(몸이 크면 몸이 나무에 닿고 그쪽을 바라보면) 팀원 대신 나무를 친다. 나무를 보고 있으면 true
+    /// (연타 제한에 걸려도 true라 C가 옆 팀원으로 넘어가지 않는다). 하루 세 번째에는 민트가 떨어지는데, 정하고 주고 알리는 것은 여기서
+    /// 한 번이고 장면이 그리는지와 상관없다. 몸통박치기가 아니라서 오늘 한 일의 몸통박치기에는 세지 않는다.
+    private func hitTree() -> Bool {
+        guard let scene, PlazaTree.isFacing(scene.myBody, facing: scene.walker.facing, tiles: scene.treeTiles) else { return false }
+        let now = clock()
+        if let last = lastEmoteAt, now.timeIntervalSince(last) < Self.emoteInterval { return true }
+        lastEmoteAt = now
+        scene.stopDance(memberID: nil)
+        let drops = treeDay.hit(on: PlazaActivity.dayKey(now))
+        preferences.tree = treeDay
+        let level = PlazaTree.level(hits: treeDay.hits, drops: drops)
+        let drop = drops ? PlazaTree.dropItem : nil
+        scene.playTreeHit(by: nil, direction: scene.walker.facing, level: level, drop: drop)
+        session?.sendEmote(.treeShake, target: nil, pushTiles: level, treeDrop: drop)
+        if let drop {
+            grantItem(drop)
+            record(.pickup)
+            showBanner(L(.ko).plazaTreeDropped(drop))
+        }
+        return true
+    }
+
+    /// 런타임이 부른다. 팀원이 나무를 쳤다. 그 팀원의 몸이 내 화면의 나무에 닿을 때만 그린다(아니면 무시). 아무도 움직이지 않고, 주지도
+    /// 알리지도 기록하지도 않는다. 떨어지는 아이템은 그 팀원 발 앞에서 끝나는 그림일 뿐이다. 창이 닫혀 있으면 아무것도 안 한다.
+    func showTreeShake(from sender: String, level: Int, drop: ItemKind?) {
+        guard let scene, scene.memberTiles[sender] != nil, let body = scene.body(of: sender),
+              PlazaTree.touches(body, tiles: scene.treeTiles) else { return }
+        let direction = PlazaTree.hitDirection(body, facing: members[sender]?.facing ?? .down, tiles: scene.treeTiles)
+        scene.playTreeHit(by: sender, direction: direction, level: TeamEmote.pushTiles(level), drop: drop)
+    }
+
+    /// 테스트용: 띄운 배너 수(닫을 때도 오른다)와 오늘 나무를 친 횟수.
+    var bannersShown: Int { bannerGeneration }
+    var treeHitsToday: Int { treeDay.day == PlazaActivity.dayKey(clock()) ? treeDay.hits : 0 }
 
     /// 하트나 폭죽을 나와 그 팀원 머리 위에 함께 띄우고 팀원들에게 보낸다. 말풍선 키와 같은 연타 제한을 쓴다.
     private func greet(_ id: String) {

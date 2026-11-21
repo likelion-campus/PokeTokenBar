@@ -488,4 +488,10 @@ import XCTest
         defaults.set(Data("not json".utf8), forKey: "team.plaza.tree")
         XCTAssertNil(PlazaPreferences(defaults: defaults).tree, "garbage reads as nothing")
     }
+
+    func testTheBannerNamesEachItemKindAsTheSubject() async {
+        XCTAssertEqual(L(.ko).plazaTreeDropped(.mint), "나무에서 민트가 떨어졌어요! 가방에 넣었어요")
+        XCTAssertEqual(L(.ko).plazaTreeDropped(.rareCandy), "나무에서 이상한 사탕이 떨어졌어요! 가방에 넣었어요")
+        XCTAssertEqual(L(.ko).plazaTreeDropped(.shinyCharm), "나무에서 이로치 부적이 떨어졌어요! 가방에 넣었어요")
+    }
 }

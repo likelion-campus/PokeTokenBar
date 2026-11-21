@@ -180,7 +180,7 @@ import Foundation
         return landed
     }
 
-    private func snap(_ v: CGFloat, _ step: CGFloat) -> CGFloat { step > 0 ? (v / step).rounded() * step : v }
+    private func snap(_ v: CGFloat, _ step: CGFloat) -> CGFloat { (v / step).rounded() * step }
 
     /// 지금 시계에 맞는 모습을 쓴다(때림이 없으면 쉬는 모습).
     private func write(step: CGFloat) {
