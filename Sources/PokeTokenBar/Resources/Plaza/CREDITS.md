@@ -57,3 +57,10 @@
 - License: CC0 (public domain)
 - Source: https://opengameart.org/content/shattering-boulder
 - The app recolours frames 2–4 at runtime.
+
+## Steam (plaza-steam.png)
+- "Smoke Puff" (`smoke_5.png`, unmodified; the page lists it as `smoke.png`) by Aidan_Walker
+- License: CC0 (public domain)
+- Source: https://opengameart.org/content/smoke-puff
+- SHA-256: 246e0f333142c5d388dab36d50caf19fe508e8274ad4ecf7c7b96c0b92b0b8f8
+- The plaza hot spring's steam: the first six of its seven 32×32 cells (the seventh is empty), cut at runtime and drawn as they are with a changing transparency.

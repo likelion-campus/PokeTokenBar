@@ -5,13 +5,17 @@ final class PlazaIceTests: XCTestCase {
     private func p(_ x: Int, _ y: Int) -> TilePoint { TilePoint(x: x, y: y) }
     private let T = 1_800_000_000.0
     private var ponds: [PlazaIce.Pond] { PlazaIce.ponds(in: PlazaMapData.map) }
+    /// The v2.5.635 map: the right pond is still an ordinary pond. The pinned draws are that version's behaviour,
+    /// which a mixed-version plaza still sees from older apps.
+    private var oldMap: PlazaMap { try! PlazaMap(rows: PlazaMapData.rows.map { $0.replacingOccurrences(of: "h", with: "w") }) }
+    private var oldPonds: [PlazaIce.Pond] { PlazaIce.ponds(in: oldMap) }
     private var L: TilePoint { p(5, 13) }
     private var R: TilePoint { p(32, 14) }
     private var B: TilePoint { p(20, 24) }
     private func br(_ pond: TilePoint, _ at: Double) -> PlazaIceBreak { PlazaIceBreak(at: at, pond: pond) }
 
     func testPondsAreFoundInRowMajorOrderOfTheirFirstTile() throws {
-        let found = ponds
+        let found = oldPonds
         XCTAssertEqual(found.map(\.anchor), [p(5, 13), p(32, 14), p(20, 24)])
         XCTAssertEqual(found.map { $0.tiles.count }, [30, 49, 9])
         let r = found[1]
@@ -30,23 +34,80 @@ final class PlazaIceTests: XCTestCase {
     private func date(_ s: Double) -> Date { Date(timeIntervalSince1970: s) }
 
     func testTheFrozenPondFollowsTheLastBreakAMinuteLater() {
-        let ps = ponds
+        let ps = ponds   // [L, B]: the hot spring does not freeze
         let late = date(T + 60)
         XCTAssertEqual(PlazaIce.frozenIndex(last: nil, now: date(T), ponds: ps), 0)
         XCTAssertNil(PlazaIce.frozenIndex(last: br(L, T), now: date(T + 59.9), ponds: ps))
         XCTAssertNil(PlazaIce.frozenIndex(last: br(L, T), now: date(T - 500), ponds: ps))
-        // The draw is pinned: break L at T freezes B (2), not the rotation's R.
-        XCTAssertEqual(PlazaIce.frozenIndex(last: br(L, T), now: late, ponds: ps), 2)
-        XCTAssertEqual(PlazaIce.frozenIndex(last: br(R, T), now: late, ponds: ps), 2)
-        XCTAssertEqual(PlazaIce.frozenIndex(last: br(B, T), now: late, ponds: ps), 1)
+        XCTAssertEqual(PlazaIce.frozenIndex(last: br(L, T), now: late, ponds: ps), 1)
+        XCTAssertEqual(PlazaIce.frozenIndex(last: br(B, T), now: late, ponds: ps), 0)
+        XCTAssertEqual(PlazaIce.frozenIndex(last: br(R, T), now: late, ponds: ps), 0, "a break of the spring counts as no break")
         XCTAssertNil(PlazaIce.frozenIndex(last: br(L, T), now: late, ponds: []))
         XCTAssertNil(PlazaIce.frozenIndex(last: nil, now: late, ponds: []))
         XCTAssertEqual(PlazaIce.frozenIndex(last: br(p(6, 13), T), now: late, ponds: ps), 0)
     }
 
+    func testTheHotSpringIsNotAPondThatFreezes() {
+        XCTAssertEqual(ponds.map(\.anchor), [L, B])
+        XCTAssertEqual(ponds.map { $0.tiles.count }, [30, 9])
+        XCTAssertEqual(oldPonds.map(\.anchor), [L, R, B])
+    }
+
+    func testAStoredOrReceivedBreakOfTheSpringIsUnknown() {
+        let ps = ponds
+        XCTAssertNil(PlazaIce.accepted(br(R, T), now: date(T), ponds: ps))
+        XCTAssertEqual(PlazaIce.frozenIndex(last: br(R, T), now: date(T + 600), ponds: ps), 0)
+        // merge does not filter; its callers pass only accepted breaks (PlazaWindowController), so an R break never reaches it.
+        XCTAssertEqual(PlazaIce.merged(br(L, T), br(R, T + 1), ponds: ps), br(R, T + 1))
+    }
+
+    private var drawTimes: [Double] { (0..<200).map { T + Double($0) * 7.31 } }
+
+    func testTheLeftAndBottomPondsTakeTurns() {
+        let ps = ponds
+        for at in drawTimes {
+            XCTAssertEqual(PlazaIce.frozenIndex(last: br(L, at), now: date(at + 60), ponds: ps), 1)
+            XCTAssertEqual(PlazaIce.frozenIndex(last: br(B, at), now: date(at + 60), ponds: ps), 0)
+        }
+    }
+
+    // MARK: Mixed versions (spec 8.6), as far as code can say it
+
+    func testMixedVersionsAgreeWithNoBreak() {
+        XCTAssertEqual(PlazaIce.frozenIndex(last: nil, now: date(T), ponds: ponds), 0)
+        XCTAssertEqual(PlazaIce.frozenIndex(last: nil, now: date(T), ponds: oldPonds), 0)
+        XCTAssertEqual(ponds[0].anchor, oldPonds[0].anchor, "both name the left pond")
+    }
+
+    func testAfterALeftBreakNewFreezesTheBottomAndOldFreezesEitherOther() {
+        var old = Set<Int>()
+        for at in drawTimes {
+            XCTAssertEqual(PlazaIce.frozenIndex(last: br(L, at), now: date(at + 60), ponds: ponds), 1)
+            if let i = PlazaIce.frozenIndex(last: br(L, at), now: date(at + 60), ponds: oldPonds) { old.insert(i) }
+        }
+        XCTAssertEqual(old, [1, 2], "old apps pick the spring (1) or the bottom pond (2), by seed")
+    }
+
+    func testAfterABottomBreakNewFreezesTheLeftAndOldFreezesLeftOrRight() {
+        var old = Set<Int>()
+        for at in drawTimes {
+            XCTAssertEqual(PlazaIce.frozenIndex(last: br(B, at), now: date(at + 60), ponds: ponds), 0)
+            if let i = PlazaIce.frozenIndex(last: br(B, at), now: date(at + 60), ponds: oldPonds) { old.insert(i) }
+        }
+        XCTAssertEqual(old, [0, 1])
+    }
+
+    func testOldVersionsAcceptTheBreaksNewVersionsSend() {
+        for pond in [L, B] { XCTAssertNotNil(PlazaIce.accepted(br(pond, T), now: date(T), ponds: oldPonds)) }
+    }
+
+    func testMergeOrdersLeftAndBottomTheSameInBothLists() {
+        for ps in [ponds, oldPonds] { XCTAssertEqual(PlazaIce.merged(br(L, T), br(B, T), ponds: ps), br(B, T)) }
+    }
+
     /// Values computed by an independent script (FNV-1a of "plaza-ice-next-<at bits>-<x>-<y>", SplitMix64, % candidates).
     func testTheDrawIsPinnedToTheSeedString() {
-        let ps = ponds
+        let ps = oldPonds
         func pick(_ pond: TilePoint, _ at: Double) -> Int? {
             PlazaIce.frozenIndex(last: br(pond, at), now: date(at + 60), ponds: ps)
         }
@@ -59,7 +120,7 @@ final class PlazaIceTests: XCTestCase {
     }
 
     func testTheFrozenPondIsNeverTheBrokenOneAndEveryOtherPondGetsPicked() {
-        let ps = ponds
+        let ps = oldPonds
         for (i, pond) in [L, R, B].enumerated() {
             var seen = Set<Int>()
             for k in 0..<200 {
@@ -93,7 +154,7 @@ final class PlazaIceTests: XCTestCase {
     }
 
     func testTheDrawEdgeCases() throws {
-        let ps = ponds
+        let ps = oldPonds
         let one = [ps[1]]
         XCTAssertEqual(PlazaIce.frozenIndex(last: br(R, T), now: date(T + 60), ponds: one), 0, "one pond refreezes itself")
         XCTAssertNil(PlazaIce.frozenIndex(last: br(R, T), now: date(T + 59), ponds: one))
@@ -119,7 +180,7 @@ final class PlazaIceTests: XCTestCase {
     }
 
     func testMergeKeepsTheLaterBreakThenTheLaterPond() {
-        let ps = ponds
+        let ps = oldPonds
         XCTAssertEqual(PlazaIce.merged(br(L, T), br(R, T - 1), ponds: ps), br(L, T))
         XCTAssertEqual(PlazaIce.merged(br(L, T - 1), br(R, T), ponds: ps), br(R, T))
         XCTAssertEqual(PlazaIce.merged(br(L, T), br(R, T), ponds: ps), br(R, T), "equal at: the later pond")
@@ -131,7 +192,7 @@ final class PlazaIceTests: XCTestCase {
     }
 
     func testThreeBreaksInTheSameMinuteEndOnTheLastOne() {
-        let ps = ponds
+        let ps = oldPonds
         var last: PlazaIceBreak?
         for b in [br(L, T), br(R, T + 20), br(B, T + 40)] { last = PlazaIce.merged(last, b, ponds: ps) }
         XCTAssertEqual(last, br(B, T + 40))
@@ -156,7 +217,7 @@ final class PlazaIceTests: XCTestCase {
     }
 
     func testCentreAndNearestTile() {
-        let ps = ponds
+        let ps = oldPonds
         XCTAssertEqual(ps.map(\.center), [p(9, 14), p(35, 17), p(21, 25)])
         let r = ps[1]
         XCTAssertEqual(r.nearestTile(to: p(31, 17)), p(32, 17))
@@ -166,7 +227,7 @@ final class PlazaIceTests: XCTestCase {
     }
 
     func testCrackRingsAndTheirStep() {
-        let r = ponds[1]
+        let r = oldPonds[1]
         var counts: [Int: Int] = [:]
         for t in r.tiles { counts[PlazaIce.ring(of: t, hit: p(32, 17)), default: 0] += 1 }
         XCTAssertEqual(counts, [0: 1, 1: 5, 2: 9, 3: 11, 4: 7, 5: 9, 6: 7])
@@ -176,7 +237,7 @@ final class PlazaIceTests: XCTestCase {
     }
 
     func testShardTilesSpreadFromTheHit() {
-        let ps = ponds
+        let ps = oldPonds
         XCTAssertEqual(PlazaIce.shardTiles(pond: ps[1], hit: p(32, 17)),
                        [p(32, 17), p(37, 15), p(36, 19), p(34, 15), p(35, 17), p(33, 19)])
         XCTAssertEqual(PlazaIce.shardTiles(pond: ps[0], hit: p(5, 14)),
@@ -207,7 +268,7 @@ final class PlazaIceTests: XCTestCase {
         XCTAssertEqual(PlazaIce.crackCell(at: p(32, 14)), 5)
         XCTAssertEqual(PlazaIce.crackCell(at: p(35, 17)), 0)
         XCTAssertEqual(PlazaIce.crackCell(at: p(20, 24)), 8)
-        let cells = ponds[1].tiles.map { PlazaIce.crackCell(at: $0) }
+        let cells = oldPonds[1].tiles.map { PlazaIce.crackCell(at: $0) }
         XCTAssertEqual(Set(cells.map { $0 % 6 }).count, 6)
         XCTAssertEqual(cells.filter { $0 >= 6 }.count, 25)
     }

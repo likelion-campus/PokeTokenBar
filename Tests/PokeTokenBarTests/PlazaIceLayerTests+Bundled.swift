@@ -18,18 +18,18 @@ extension PlazaIceLayerTests {
         for _ in 0..<frames { t += 0.01; s.update(t) }
     }
 
-    /// R frozen, one frame drawn, then R breaks at `hit`.
-    private func breakR(_ s: PlazaScene, hit: TilePoint) {
+    /// B frozen (L broke a minute ago), one frame drawn, then B breaks at `hit`.
+    private func breakB(_ s: PlazaScene, hit: TilePoint) {
         s.setIceBreak(brk(L, ago: 100))
         s.update(t)
-        s.setIceBreak(brk(R), hit: hit)
+        s.setIceBreak(brk(B), hit: hit)
     }
 
     func testAFreezeFadesInByTheClockFromAtPlusAMinute() async throws {
         let s = scene()
         s.setIceBreak(brk(L))
         s.update(0)
-        XCTAssertNil(s.iceAlpha(pondAnchor: R))
+        XCTAssertNil(s.iceAlpha(pondAnchor: B))
         nowSeconds += 60.25
         s.update(1)
         XCTAssertEqual(try XCTUnwrap(s.iceAlpha(pondAnchor: B)), 0.25, accuracy: 1e-6)
@@ -42,7 +42,7 @@ extension PlazaIceLayerTests {
         let s = scene()
         s.setIceBreak(brk(L, ago: 600))
         s.update(0)
-        XCTAssertEqual(try XCTUnwrap(s.iceAlpha(pondAnchor: R)), 1, accuracy: 1e-6)
+        XCTAssertEqual(try XCTUnwrap(s.iceAlpha(pondAnchor: B)), 1, accuracy: 1e-6)
     }
 
     func testAnIdleFrozenPondDoesNoWorkPerFrame() async {
@@ -50,11 +50,11 @@ extension PlazaIceLayerTests {
         s.setIceBreak(brk(L, ago: 100))
         s.update(0)
         let draws = s.iceDrawCount, nodes = s.iceLayerNodeCount
-        let id = s.iceTextureID(pondAnchor: R)
+        let id = s.iceTextureID(pondAnchor: B)
         for i in 1...60 { s.update(Double(i) * 0.01) }
         XCTAssertEqual(s.iceDrawCount, draws)
         XCTAssertEqual(s.iceLayerNodeCount, nodes)
-        XCTAssertEqual(s.iceTextureID(pondAnchor: R), id)
+        XCTAssertEqual(s.iceTextureID(pondAnchor: B), id)
         XCTAssertNotNil(id)
     }
 
@@ -81,9 +81,9 @@ extension PlazaIceLayerTests {
 
     func testTheSceneDrivesTheBreakByFrames() async {
         let s = scene()
-        breakR(s, hit: p(33, 17))
+        breakB(s, hit: p(21, 25))
         run(s, 0.32)
-        XCTAssertEqual(s.shownCrackCount, 49)
+        XCTAssertEqual(s.shownCrackCount, 9)
         XCTAssertEqual(s.shownShardCount, 2)
     }
 
@@ -94,10 +94,10 @@ extension PlazaIceLayerTests {
         XCTAssertEqual(frozen.count, 1)
         XCTAssertEqual(frozen[0].alpha, 1)
         let b = scene()
-        breakR(b, hit: p(33, 17))
+        breakB(b, hit: p(21, 25))
         run(b, 0.55)
         let ice = try XCTUnwrap(b.photoInput()).ice
-        XCTAssertEqual(ice.count, 1 + 49)
+        XCTAssertEqual(ice.count, 1 + 9)
         let expected = PlazaIce.iceAlpha(elapsed: 0.55)
         for particle in ice { XCTAssertEqual(particle.alpha, expected, accuracy: 0.02) }
         XCTAssertFalse(ice.contains { $0.size.width == 64 })

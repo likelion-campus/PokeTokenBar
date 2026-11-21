@@ -77,14 +77,15 @@ enum PlazaIce {
     /// shardStart + 5·shardStagger + 3·shardFrameLength
     static let breakEnd: TimeInterval = 0.67
 
-    /// 연못 칸의 상하좌우 연결 묶음, 기준 칸(행 우선) 순서. 물 없는 지도는 [].
+    /// 연못 칸의 상하좌우 연결 묶음, 기준 칸(행 우선) 순서. 온천은 얼지 않아 목록에 없다. 연못 없는 지도는 [].
     static func ponds(in map: PlazaMap) -> [Pond] {
         var seen = Set<TilePoint>()
         var result: [Pond] = []
+        let isPond = { (q: TilePoint) in map.tile(at: q) == .pond }   // 온천(.hotSpring)은 연못이 아니다
         for y in 0..<map.height {
             for x in 0..<map.width {
                 let start = TilePoint(x: x, y: y)
-                guard map.isWater(start), !seen.contains(start) else { continue }
+                guard isPond(start), !seen.contains(start) else { continue }
                 var group = [start]
                 seen.insert(start)
                 var head = 0
@@ -93,7 +94,7 @@ enum PlazaIce {
                     head += 1
                     for d in PlazaDirection.allCases {
                         let n = PlazaWalker.offset(q, d)
-                        if map.isWater(n), seen.insert(n).inserted { group.append(n) }
+                        if isPond(n), seen.insert(n).inserted { group.append(n) }
                     }
                 }
                 result.append(Pond(tiles: group))

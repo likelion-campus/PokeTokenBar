@@ -36,7 +36,7 @@ extension WindowsSelftest {
         let tls = a.transport.peerIDs.first.flatMap { a.transport.negotiated($0) }
         var presence = false
         if joined {
-            a.session.updatePlazaPosition(inPlaza: true, tile: TilePoint(x: 3, y: 4), facing: .down, isWalking: false)
+            a.session.updatePlazaPosition(inPlaza: true, tile: TilePoint(x: 3, y: 4), facing: .down, isWalking: false, isFlushed: false)
             presence = await waitUntil(timeout: 5) { b.session.members[a.settings.memberID]?.inPlaza == true }
         }
         let selfDials = a.dials(to: a.ownNames) + b.dials(to: b.ownNames)

@@ -23,6 +23,7 @@ import Foundation
         var reach: CGFloat = 0   // 방울: 옆으로 가는 거리
         var height: CGFloat = 0   // 방울: 가장 높이 오르는 높이
         var toRadius = 0   // 고리: 끝 반지름(시트 픽셀)
+        var spring = false   // 온천 물빛으로 그리는가
         var age: TimeInterval
         let node: PlazaSprite
     }
@@ -30,6 +31,7 @@ import Foundation
     private struct Pending {
         let at: CGPoint
         let toRadius: Int
+        let spring: Bool
         var wait: TimeInterval
     }
 
@@ -41,14 +43,20 @@ import Foundation
     private var dropletPool: [PlazaSprite] = []
     private var ringPool: [PlazaSprite] = []
     private var bubblePool: [PlazaSprite] = []
-    private var ringTextures: [Int: PlazaTexture] = [:]   // 반지름(시트 픽셀)마다 하나
+    private struct RingKey: Hashable { let radius: Int; let spring: Bool }
+    private var ringTextures: [RingKey: PlazaTexture] = [:]   // 반지름(시트 픽셀)과 온천 여부마다 하나
     let root = PlazaNode()
     private let dropletTexture = PlazaTexture(PlazaPondArt.droplet())
     private let bubbleTexture = PlazaTexture(PlazaPondArt.bubble())
+    /// 온천의 방울·거품. 물빛 넷을 온천색으로 바꾼 같은 모양이다(거품은 물빛 색이 없어 같다).
+    private let springDropletTexture = PlazaTexture(PlazaHotSpring.recolored(PlazaPondArt.droplet()))
+    private let springBubbleTexture = PlazaTexture(PlazaHotSpring.recolored(PlazaPondArt.bubble()))
+    private let map: PlazaMap
     private var isConcealed = false
     private var bubbleSerial = 0
 
     init(map: PlazaMap = PlazaMapData.map) {
+        self.map = map
         worldHeight = CGFloat(map.height * PlazaMap.tileSize)
     }
 
@@ -56,29 +64,35 @@ import Foundation
     var ringCount: Int { rings.count }
     var bubbleCount: Int { bubbles.count }
     var pendingCount: Int { pending.count }
+    /// 테스트용: 지금 떠 있는 입자의 그림.
+    var dropletImages: [PlazaImage] { droplets.compactMap { $0.node.texture?.image } }
+    var ringImages: [PlazaImage] { rings.compactMap { $0.node.texture?.image } }
+    var bubbleImages: [PlazaImage] { bubbles.compactMap { $0.node.texture?.image } }
 
     /// 물보라는 `tile`의 물가선(칸 아래쪽, 발이 닿는 높이)에서 시작한다.
     func splash(at tile: TilePoint, big: Bool) {
         guard !isConcealed else { return }
+        let spring = map.isHotSpring(tile)
         let foot = PlazaWalker.footPoint(from: tile, to: tile, progress: 0)
         let p = CGPoint(x: foot.x, y: worldHeight - foot.y)
         // 대기열은 물보라 통째로 넣거나 통째로 버린다(고리만 잃고 방울만 남지 않게).
         if big {
             guard pending.count < Self.maxPending else { return }
-            pending.append(Pending(at: p, toRadius: Self.bigRingToRadius, wait: Self.secondRingDelay))
+            pending.append(Pending(at: p, toRadius: Self.bigRingToRadius, spring: spring, wait: Self.secondRingDelay))
         }
-        startDroplets(big ? Self.bigShapes : Self.smallShapes, at: p)
-        startRing(at: p, toRadius: big ? Self.bigRingToRadius : Self.smallRingToRadius, elapsed: 0)
+        startDroplets(big ? Self.bigShapes : Self.smallShapes, at: p, spring: spring)
+        startRing(at: p, toRadius: big ? Self.bigRingToRadius : Self.smallRingToRadius, spring: spring, elapsed: 0)
     }
 
     func bubble(at tile: TilePoint) {
         guard !isConcealed, bubbles.count < Self.maxBubbles else { return }
         let node = bubblePool.popLast() ?? makeNode(z: Self.bubbleZ, size: 3)
-        node.texture = bubbleTexture
+        let spring = map.isHotSpring(tile)
+        node.texture = spring ? springBubbleTexture : bubbleTexture
         var c = center(of: tile)
         c.x += Self.bubbleOffsets[bubbleSerial % Self.bubbleOffsets.count]
         bubbleSerial += 1
-        let b = Particle(start: c, age: 0, node: node)
+        let b = Particle(start: c, spring: spring, age: 0, node: node)
         node.isHidden = false
         bubbles.append(b)
         placeBubble(b)
@@ -93,7 +107,7 @@ import Foundation
         var waiting: [Pending] = []
         for var p in pending {
             p.wait -= dt
-            if p.wait <= 0 { startRing(at: p.at, toRadius: p.toRadius, elapsed: -p.wait) } else { waiting.append(p) }
+            if p.wait <= 0 { startRing(at: p.at, toRadius: p.toRadius, spring: p.spring, elapsed: -p.wait) } else { waiting.append(p) }
         }
         pending = waiting
     }
@@ -118,21 +132,21 @@ import Foundation
         CGPoint(x: (p.x / Self.grid).rounded() * Self.grid, y: (p.y / Self.grid).rounded() * Self.grid)
     }
 
-    private func startDroplets(_ shapes: [(reach: CGFloat, height: CGFloat)], at p: CGPoint) {
+    private func startDroplets(_ shapes: [(reach: CGFloat, height: CGFloat)], at p: CGPoint, spring: Bool) {
         for shape in shapes where droplets.count < Self.maxDroplets {
             let node = dropletPool.popLast() ?? makeNode(z: Self.dropletZ, size: 3)
-            node.texture = dropletTexture
-            let d = Particle(start: p, reach: shape.reach, height: shape.height, age: 0, node: node)
+            node.texture = spring ? springDropletTexture : dropletTexture
+            let d = Particle(start: p, reach: shape.reach, height: shape.height, spring: spring, age: 0, node: node)
             node.isHidden = false
             droplets.append(d)
             placeDroplet(d)
         }
     }
 
-    private func startRing(at p: CGPoint, toRadius: Int, elapsed: TimeInterval) {
+    private func startRing(at p: CGPoint, toRadius: Int, spring: Bool, elapsed: TimeInterval) {
         guard rings.count < Self.maxRings else { return }
         let node = ringPool.popLast() ?? makeNode(z: Self.ringZ, size: 0)
-        let r = Particle(start: p, toRadius: toRadius, age: elapsed, node: node)
+        let r = Particle(start: p, toRadius: toRadius, spring: spring, age: elapsed, node: node)
         node.isHidden = false
         rings.append(r)
         placeRing(r)
@@ -171,9 +185,11 @@ import Foundation
         let k = CGFloat(r.age / Self.ringLife)
         let span = r.toRadius - Self.ringFromRadius
         let radius = Self.ringFromRadius + Int((CGFloat(span) * k).rounded())
-        let texture = ringTextures[radius] ?? {
-            let t = PlazaTexture(PlazaPondArt.ring(radius: radius))
-            ringTextures[radius] = t
+        let key = RingKey(radius: radius, spring: r.spring)
+        let texture = ringTextures[key] ?? {
+            let ring = PlazaPondArt.ring(radius: radius)
+            let t = PlazaTexture(r.spring ? PlazaHotSpring.recolored(ring) : ring)
+            ringTextures[key] = t
             return t
         }()
         r.node.texture = texture

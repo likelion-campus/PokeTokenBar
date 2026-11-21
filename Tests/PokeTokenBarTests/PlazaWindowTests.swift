@@ -781,7 +781,7 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         pondHub.connect(me.transport, to: other.transport)
         await waitUntil { me.session.members[other.settings.memberID] != nil }
         if let mate {
-            other.session.updatePlazaPosition(inPlaza: true, tile: mate, facing: .down, isWalking: false)
+            other.session.updatePlazaPosition(inPlaza: true, tile: mate, facing: .down, isWalking: false, isFlushed: false)
             await waitUntil { c.scene?.memberTiles[other.settings.memberID] == mate }
         }
         c.scene!.face(.right)
@@ -936,7 +936,7 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         pondKey(c.scene!, zKey)
         settle(c.scene!, &t)
         XCTAssertTrue(c.scene!.isMeInWater)
-        mate.session.updatePlazaPosition(inPlaza: true, tile: TilePoint(x: 31, y: 18), facing: .down, isWalking: false)
+        mate.session.updatePlazaPosition(inPlaza: true, tile: TilePoint(x: 31, y: 18), facing: .down, isWalking: false, isFlushed: false)
         for _ in 0..<400 where c.scene?.memberTiles[mate.settings.memberID] != TilePoint(x: 31, y: 18) {
             await Task.yield(); settle(c.scene!, &t, seconds: 0.05)
         }
@@ -977,7 +977,7 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         pondNow = pondNow.addingTimeInterval(1)
         pondKey(c2.scene!, zKey)
         XCTAssertTrue(c2.scene!.isDiving)
-        mate.session.updatePlazaPosition(inPlaza: true, tile: TilePoint(x: 31, y: 18), facing: .down, isWalking: false)
+        mate.session.updatePlazaPosition(inPlaza: true, tile: TilePoint(x: 31, y: 18), facing: .down, isWalking: false, isFlushed: false)
         for _ in 0..<400 where c2.scene?.memberTiles[mate.settings.memberID] != TilePoint(x: 31, y: 18) {
             await Task.yield(); settle(c2.scene!, &t, seconds: 0.05)
         }

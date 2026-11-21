@@ -30,6 +30,26 @@ final class PlazaPondLayerTests: XCTestCase {
         XCTAssertEqual(PlazaPondArt.swimRing().width, 12)
     }
 
+    func testEffectsInTheSpringAreJade() async {
+        let layer = PlazaPondLayer()
+        layer.splash(at: TilePoint(x: 34, y: 17), big: true)
+        layer.bubble(at: TilePoint(x: 34, y: 17))
+        layer.update(dt: 0.2)
+        XCTAssertFalse(layer.dropletImages.isEmpty)
+        for image in layer.dropletImages + layer.ringImages + layer.bubbleImages {
+            let c = opaqueColours(image)
+            XCTAssertFalse(c.contains(0x2996DB) || c.contains(0x5AAEE4) || c.contains(0x1E7CB8), "a spring effect keeps a pond colour")
+        }
+        for image in layer.dropletImages { XCTAssertTrue(opaqueColours(image).contains(0x74C0B6)) }
+        XCTAssertFalse(layer.ringImages.isEmpty)
+        // the left pond keeps today's textures
+        let pond = PlazaPondLayer()
+        pond.splash(at: TilePoint(x: 8, y: 14), big: true)
+        pond.update(dt: 0.2)
+        for image in pond.dropletImages { XCTAssertTrue(opaqueColours(image).contains(0x2996DB)) }
+        for image in pond.ringImages { XCTAssertTrue(opaqueColours(image).contains(0x5AAEE4)) }
+    }
+
     func testSmallAndBigSplash() async {
         let layer = PlazaPondLayer()
         layer.splash(at: tile, big: false)

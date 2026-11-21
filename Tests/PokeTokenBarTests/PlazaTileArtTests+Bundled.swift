@@ -47,17 +47,17 @@ extension PlazaTileArtTests {
         XCTAssertEqual(tile(withFlower, 2, 1, width: w), tile(img, 2, 1, width: w))
     }
 
-    /// One pad in each pond is really baked: its opaque sheet pixels land on the water tile (doubled), and a bare water tile stays plain.
+    /// One pad in each pond (not the hot spring) is really baked: its opaque sheet pixels land on the water tile (doubled), and a bare water tile stays plain.
     func testLilyPadsAreBakedInEachPond() throws {
         let sheet = try sheet(), sp = pixels(sheet)
         let img = pixels(try sharedMap())
         let w = 48 * 32
-        let bare = tile(img, 36, 18, width: w)   // east pond, no pad
+        let bare = tile(img, 8, 14, width: w)   // left pond, no pad (the east pond is the hot spring now: no pads at all)
         var expectedWater: [UInt8] = []
         for r in 0..<32 { for c in 0..<32 { expectedWater += pixel(sp, 3 * 16 + c / 2, 7 * 16 + r / 2, width: sheet.width) } }
         XCTAssertEqual(bare, expectedWater)
-        // (tile, sheet cell): single pads in both ponds, and the first and second half of each pair.
-        let pads: [(x: Int, y: Int, col: Int)] = [(33, 18, 2), (21, 25, 2), (35, 16, 4), (36, 16, 5)]
+        // (tile, sheet cell): the single pads of the two ponds that are ponds. No pair is drawn anywhere any more.
+        let pads: [(x: Int, y: Int, col: Int)] = [(14, 13, 2), (21, 25, 2)]
         for pad in pads {
             let baked = tile(img, pad.x, pad.y, width: w)
             XCTAssertNotEqual(baked, expectedWater, "pad at (\(pad.x),\(pad.y)) not drawn")
@@ -170,5 +170,88 @@ extension PlazaTileArtTests {
         let swapped = try PlazaMap(rows: PlazaMapData.rows.map { $0.replacingOccurrences(of: "F", with: ".") })
         let a = pixels(try sharedMap()), b = pixels(PlazaTileArt.mapImage(swapped, sheet: sheet))
         XCTAssertEqual(tile(a, 36, 23, width: 48 * 32), tile(b, 36, 23, width: 48 * 32))
+    }
+
+    // MARK: The hot spring
+
+    private static let oldRows = PlazaMapData.rows.map { $0.replacingOccurrences(of: "h", with: "w") }
+    private func oldMap() throws -> PlazaMap { try PlazaMap(rows: Self.oldRows) }
+    private func looks(_ map: PlazaMap, _ season: PlazaSeason) throws -> PlazaImage {
+        let sheet = try sheet(), grass = try XCTUnwrap(PlatformPlaza.tallGrassSheet())
+        return PlazaSeasonSheet.look(map, sheet: sheet, tallGrassSheet: grass, season: season).mapImage
+    }
+    private var allSeasons: [PlazaSeason] { [.summer, .spring, .autumn, .winter] }
+
+    func testTheSpringIsJadeInEverySeason() throws {
+        let map = PlazaMapData.map
+        let blue: Set<[UInt8]> = [[0x1E, 0x7C, 0xB8], [0x16, 0x5C, 0x88], [0x5A, 0xAE, 0xE4]]
+        for season in allSeasons {
+            let img = pixels(try looks(map, season))
+            let w = 48 * 32
+            for y in 0..<map.height { for x in 0..<map.width where PlazaHotSpring.usesSpringWater(TilePoint(x: x, y: y), in: map) {
+                let t = tile(img, x, y, width: w)
+                for i in stride(from: 0, to: t.count, by: 4) where t[i + 3] == 255 {
+                    XCTAssertFalse(blue.contains(Array(t[i..<i + 3])), "\(season) tile (\(x),\(y)) keeps a pond colour")
+                }
+            } }
+            XCTAssertEqual(Set(stride(from: 0, to: 32 * 32 * 4, by: 4).map { Array(tile(img, 36, 18, width: w)[$0..<$0 + 4]) }),
+                           [[0x4F, 0xA8, 0xA0, 255]], "\(season) bare spring tile")
+        }
+    }
+
+    /// Ruling 2: the stones' 0x66 shadow blends over jade. A swap on the finished map would leave these blends blue.
+    func testNoBlueShadowIsLeftInTheSpring() throws {
+        let sp = pixels(try sheet()), sw = try sheet().width
+        var shadow: [UInt8]?
+        for y in 0..<16 { for x in 0..<16 {
+            let px = pixel(sp, 12 * 16 + x, 10 * 16 + y, width: sw)
+            if px[3] == 0x66 { shadow = px }
+        } }
+        let s = try XCTUnwrap(shadow, "cell (12,10) has a 0x66 shadow pixel")
+        var stale: Set<[UInt8]> = []
+        for water in [[0x1E, 0x7C, 0xB8], [0x16, 0x5C, 0x88], [0x5A, 0xAE, 0xE4]] as [[Int]] {
+            stale.insert((0..<3).map { UInt8(min(255, Int(s[$0]) + water[$0] * (255 - Int(s[3])) / 255)) })
+        }
+        XCTAssertEqual(stale.count, 3)
+        for season in allSeasons {
+            let img = pixels(try looks(PlazaMapData.map, season))
+            for i in stride(from: 0, to: img.count, by: 4) {
+                XCTAssertFalse(stale.contains(Array(img[i..<i + 3])), "\(season): a pond-blue shadow blend at pixel \(i / 4)")
+                if stale.contains(Array(img[i..<i + 3])) { return }
+            }
+        }
+    }
+
+    func testTheHotSpringHasNoLilyPads() throws {
+        let img = pixels(try sharedMap()), w = 48 * 32
+        let bare = tile(img, 36, 18, width: w)
+        for (x, y) in [(33, 18), (35, 16), (36, 16)] { XCTAssertEqual(tile(img, x, y, width: w), bare, "(\(x),\(y))") }
+    }
+
+    func testOnlyTheHotSpringChangedTheMap() throws {
+        let map = PlazaMapData.map, old = try oldMap()
+        let b = try XCTUnwrap(PlazaHotSpring.artBounds(in: map))
+        let w = 48 * 32
+        for season in allSeasons {
+            let a = pixels(try looks(map, season)), o = pixels(try looks(old, season))
+            var bad = 0, inside = 0
+            for row in 0..<(32 * 32) {
+                for tx in 0..<48 {
+                    let start = (row * w + tx * 32) * 4
+                    let same = a[start..<start + 128] == o[start..<start + 128]
+                    if (b.minX...b.maxX).contains(tx) && (b.minY...b.maxY).contains(row / 32) { if !same { inside += 1 } } else if !same { bad += 1 }
+                }
+            }
+            XCTAssertEqual(bad, 0, "\(season): pixels changed outside the spring's art")
+            XCTAssertGreaterThan(inside, 0, "\(season): the spring is drawn")
+        }
+    }
+
+    /// The pre-PR summer map hash (`PlazaSeasonTests.pinnedLooks[.summer].map` before PR 4): a map without 'h' draws today's pond.
+    static let preSpringSummerMap = "949e959dca07032e73fc0843305a40c4bca7514195ffdf201dba83371c2f9ffb"
+
+    func testAMapWithoutTheSpringDrawsTheOldPond() throws {
+        let hash = PlazaParityGoldens.sha256Hex(pixels(try looks(try oldMap(), .summer)))
+        XCTAssertEqual(hash, Self.preSpringSummerMap)
     }
 }

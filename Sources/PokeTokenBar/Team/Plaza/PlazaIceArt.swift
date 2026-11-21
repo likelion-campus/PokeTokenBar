@@ -8,10 +8,8 @@ struct PlazaIceArt {
     static let fill: UInt32 = 0xADCDEC, band: UInt32 = 0x94B9DF, hilite: UInt32 = 0xC8DEF4, crack: UInt32 = 0x6A97C6
     static let glossColors: [UInt32] = [0xB5D3EF, 0xC0DBF3, 0xD0E5F8]
     static let shardColors: [UInt32: UInt32] = [0x2D2727: 0x6A98C8, 0x39342F: 0x8FB7DE, 0x736353: 0xD8EAF8, 0xB39B83: 0xF4FAFF]
-    /// 연못 기준 칸별 윤기 무늬. R(32,14)은 승인된 시안, L(5,13)과 B(20,24)는 구현 계획에서 정했다. 다른 연못은 없다.
+    /// 연못 기준 칸별 윤기 무늬. L(5,13)과 B(20,24)만 있다. 오른쪽 연못(32,14)은 온천이라 얼지 않는다.
     static let glossPatches: [TilePoint: [GlossPatch]] = [
-        TilePoint(x: 32, y: 14): [GlossPatch(i: 1, j: 1, n: 2, rx: 30, ry: 22), GlossPatch(i: 4, j: 3, n: 2, rx: 31, ry: 23),
-                                  GlossPatch(i: 1, j: 5, n: 1, rx: 15, ry: 12), GlossPatch(i: 5, j: 0, n: 1, rx: 15, ry: 12)],
         TilePoint(x: 5, y: 13): [GlossPatch(i: 1, j: 0, n: 2, rx: 30, ry: 22), GlossPatch(i: 5, j: 1, n: 1, rx: 15, ry: 12),
                                  GlossPatch(i: 8, j: 0, n: 1, rx: 15, ry: 12)],
         TilePoint(x: 20, y: 24): [GlossPatch(i: 1, j: 1, n: 1, rx: 15, ry: 12)]

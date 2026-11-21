@@ -131,7 +131,7 @@ final class PlazaBoardTests: XCTestCase {
         c.prepareScene()
         hub.connect(me.transport, to: other.transport)
         await waitUntil { me.session.members[other.id] != nil }
-        other.session.updatePlazaPosition(inPlaza: true, tile: tile, facing: .down, isWalking: false)
+        other.session.updatePlazaPosition(inPlaza: true, tile: tile, facing: .down, isWalking: false, isFlushed: false)
         await waitUntil { me.session.members[other.id]?.tile == tile && c.scene?.memberTiles[other.id] == tile }
         return (c, me, other)
     }

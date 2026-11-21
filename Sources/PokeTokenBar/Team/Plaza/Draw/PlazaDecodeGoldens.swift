@@ -25,6 +25,8 @@ enum PlazaDecodeGoldens {
             sha256: "535a1133578e3def6997427f1a92dddef27ba1f623a93bb3d198913727bde002"),
         Art(name: "plaza-leaf-sheet", ext: "png", width: 128, height: 160,
             sha256: "0a588662ca1bf02feabeb812875408374b2f0e1188b0b03a96e38b659250abcb"),
+        Art(name: "plaza-steam", ext: "png", width: 224, height: 32,
+            sha256: "cd831445626aa84efc3827315ee4bf5fe20c19ef499268cb488f54132a2ccf01"),
     ]
 
     /// `plaza-ice-shatter.gif`, frame by frame as `decodeImageFrames` returns it (ImageIO), with the delay `UI/GIFDecoder` gives.

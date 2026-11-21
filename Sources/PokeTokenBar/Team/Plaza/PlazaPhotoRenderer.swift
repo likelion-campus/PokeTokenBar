@@ -34,6 +34,11 @@ struct PlazaPhotoActor {
     var squash: CGFloat = 1
     /// 춤으로 발(그림 아래 가운데)을 축으로 기운 라디안. 양수는 반시계 방향.
     var tilt: CGFloat = 0
+    /// 잠긴 아랫부분에 섞는 물빛. 온천에서는 온천색.
+    var waterColor = PlazaPondArt.waterColor
+    /// 온천의 붉은 기운을 구워 넣은 몸 그림(화면의 몸 텍스처와 같은 `PlazaHotSpring.flushLerped`). nil이면 `image` 그대로다.
+    /// 몸통에만 쓰고 잠긴 아랫부분은 `image` 를 물빛으로 칠한다(화면의 `ghostNode` 처럼).
+    var flushedImage: PlazaImage? = nil
 }
 
 /// 기념사진에 찍히는 풀숲 앞 띠 한 칸. 좌표는 월드 픽셀이고 y가 아래로 늘어난다.
@@ -176,7 +181,7 @@ enum PlazaPhotoRenderer {
             let footTop = px(a.foot.y - a.bob - a.lift, origin: rect.minY)
             let sunk = a.sink > 0
             if a.eggSunk {
-                if let pond = a.waterClip, let tinted = Self.submerged(a.image, graphics: graphics) {
+                if let pond = a.waterClip, let tinted = Self.submerged(a.image, graphics: graphics, color: a.waterColor) {
                     let x0 = px(pond.minX, origin: rect.minX), x1 = px(pond.maxX, origin: rect.minX)
                     let y0 = px(pond.minY, origin: rect.minY), y1 = px(pond.maxY, origin: rect.minY)
                     if x1 > x0, y1 > y0 {
@@ -190,7 +195,7 @@ enum PlazaPhotoRenderer {
                 }
                 return
             }
-            if sunk, let pond = a.waterClip, let tinted = Self.submerged(a.image, graphics: graphics) {
+            if sunk, let pond = a.waterClip, let tinted = Self.submerged(a.image, graphics: graphics, color: a.waterColor) {
                 // 잠긴 아랫부분: 화면처럼 연못 안, 발 선 아래만 반투명한 물빛으로.
                 let x0 = px(pond.minX, origin: rect.minX), x1 = px(pond.maxX, origin: rect.minX)
                 let y0 = max(px(pond.minY, origin: rect.minY), footTop), y1 = px(pond.maxY, origin: rect.minY)
@@ -221,7 +226,7 @@ enum PlazaPhotoRenderer {
                 context.scale(x: 1, y: a.squash)
                 context.translate(x: -pivot.x, y: -pivot.y)
             }
-            draw(a.image, x: bodyX, top: bodyTop, w: w, h: h, mirrored: a.flipped)
+            draw(a.flushedImage ?? a.image, x: bodyX, top: bodyTop, w: w, h: h, mirrored: a.flipped)
             if tilted { context.restoreState() }
             if sunk { context.restoreState() }
             if let front = a.front, !sunk {
@@ -246,9 +251,11 @@ enum PlazaPhotoRenderer {
         drawProps(upTo: nil)
 
         for p in input.weather {
+            context.setAlpha(p.alpha)
             draw(p.image, x: px(p.origin.x, origin: rect.minX), top: px(p.origin.y, origin: rect.minY),
                  w: Int((p.size.width * ppw).rounded()), h: Int((p.size.height * ppw).rounded()))
         }
+        context.setAlpha(1)
 
         if input.tint != .none {
             let t = input.tint
@@ -315,12 +322,11 @@ enum PlazaPhotoRenderer {
     }
 
     /// 그림에 물빛을 `submergedBlend`만큼 섞은 사본(투명한 곳은 그대로).
-    private static func submerged(_ image: PlazaImage, graphics: any PlazaGraphics) -> PlazaImage? {
+    private static func submerged(_ image: PlazaImage, graphics: any PlazaGraphics, color w: PlazaColor) -> PlazaImage? {
         guard let c = graphics.makeCanvas(width: image.width, height: image.height, colorSpace: .sRGB) else { return nil }
         let rect = CGRect(x: 0, y: 0, width: image.width, height: image.height)
         c.draw(image, in: rect)
         c.setBlend(.sourceAtop)
-        let w = PlazaPondArt.waterColor
         c.setFillColor(PlazaColor(srgbRed: w.red, green: w.green, blue: w.blue, alpha: PlazaPondArt.submergedBlend))
         c.fill(rect)
         return c.makeImage()

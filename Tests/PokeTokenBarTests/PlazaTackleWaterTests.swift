@@ -130,4 +130,9 @@ final class PlazaTackleWaterTests: XCTestCase {
         XCTAssertEqual(peak, PlazaPondLayer.bigDroplets, "a land to water move splashes whoever made it")
         XCTAssertEqual(s.isWet(memberID: "wet"), true)
     }
+
+    /// The water these tests use is the hot spring (32...38 x 14...20): moving it must not quietly turn them into pond tests.
+    func testThisSuitePushesIntoTheHotSpring() async {
+        for tile in [p(32, 16), p(33, 16), p(35, 16), p(36, 16)] { XCTAssertTrue(PlazaMapData.map.isHotSpring(tile), "\(tile)") }
+    }
 }

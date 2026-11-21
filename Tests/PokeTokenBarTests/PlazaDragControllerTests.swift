@@ -69,7 +69,7 @@ final class PlazaDragControllerTests: XCTestCase {
     private func controller(_ me: Node, start: TilePoint, speciesID: Int?, stage: Int) -> PlazaWindowController {
         let prefs = PlazaPreferences(defaults: TestDefaults.make(suite: "plaza.drag.prefs.\(UUID())"))
         prefs.saveLastTile(start)
-        // The left pond is broken (the next one is the far right pond): this class swims in the left one.
+        // The left pond is broken (the next one is the bottom pond): this class swims in the left one.
         prefs.iceBreak = PlazaIceBreak(at: now.timeIntervalSince1970, pond: TilePoint(x: 5, y: 13))
         return PlazaWindowController(preferences: prefs, loader: PlazaCharacterLoader(fetcher: EmptyFetcher()),
                                      nickname: { "나" }, memberID: { me.settings.memberID },
@@ -114,7 +114,7 @@ final class PlazaDragControllerTests: XCTestCase {
     }
 
     func place(_ n: Node, _ tile: TilePoint, in w: World) async {
-        n.session.updatePlazaPosition(inPlaza: true, tile: tile, facing: .down, isWalking: false)
+        n.session.updatePlazaPosition(inPlaza: true, tile: tile, facing: .down, isWalking: false, isFlushed: false)
         for _ in 0..<200 where w.scene.memberTiles[n.id] != tile { await Task.yield(); t += 0.05; w.scene.update(t) }
         XCTAssertEqual(w.scene.memberTiles[n.id], tile, "test precondition")
     }
@@ -419,6 +419,45 @@ final class PlazaDragControllerTests: XCTestCase {
         let crowded = await world(me: p(20, 12), b: p(19, 12), facing: .left)
         _ = await join(crowded, "다", at: p(21, 12))
         assertTackleOnly("someone behind me", crowded)
+    }
+
+    // MARK: - The hot spring is water for the drag rules
+
+    /// The slide stops on the bank before a hot-spring tile exactly as it does before a pond tile (compare `testTheSlideStopsBeforeSomeoneOrTheWater`).
+    func testTheSlideStopsBeforeTheHotSpringLikeAPond() async {
+        let spring = await world(me: p(35, 12))
+        await claim(spring.b, size: 3, in: spring)
+        await place(spring.b, p(35, 15), in: spring)
+        pull(spring, from: spring.b, tiles: 3)
+        run(spring.scene, 1.5)
+        XCTAssertEqual(spring.scene.walker.tile, p(35, 13), "stops on the bank")
+    }
+
+    /// No drag row while I swim in the hot spring, with land behind me (the pond twin is `testNoDragWhileISwimEvenWithLandBehindMe`).
+    func testNoDragWhileISwimInTheHotSpring() async {
+        let w = await world(me: p(31, 17), facing: .right)
+        press(w.scene, zKey)
+        run(w.scene, 1)
+        XCTAssertEqual(w.scene.walker.tile, p(32, 17), "test precondition")
+        XCTAssertTrue(w.scene.isMeInWater, "test precondition")
+        w.scene.myBodySize = 3
+        await claim(w.b, size: 3, in: w)
+        await place(w.b, p(35, 17), in: w)
+        XCTAssertNotNil(PlazaDrag.direction(puller: w.scene.myBody, target: w.scene.body(of: w.b.id)!), "test precondition: the bodies touch on a line")
+        XCTAssertEqual(PlazaDrag.stepBack(from: p(32, 17), direction: .left, stage: 1, isOpen: { PlazaMapData.map.isWalkable($0) }), 1, "test precondition: land behind me")
+        w.scene.face(.right)
+        press(w.scene, spaceKey)
+        XCTAssertTrue(menu(w)?.actions.contains(.tackle) == true, "the menu opened")
+        XCTAssertFalse(menu(w)?.actions.contains(.drag) == true)
+    }
+
+    /// No drag row for a teammate who swims in the hot spring.
+    func testNoDragForATeammateSwimmingInTheHotSpring() async {
+        let w = await world(me: p(31, 17), b: p(32, 17), facing: .right)
+        XCTAssertEqual(w.scene.memberIsInWater(w.b.id), true, "test precondition")
+        press(w.scene, spaceKey)
+        XCTAssertTrue(menu(w)?.actions.contains(.tackle) == true, "the menu opened")
+        XCTAssertFalse(menu(w)?.actions.contains(.drag) == true)
     }
 
     func testNoDragForAnEgg() async {

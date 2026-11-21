@@ -19,7 +19,7 @@ final class PlazaIceControllerTests: XCTestCase {
 
     private var T: Double { now.timeIntervalSince1970 }
     private var leftPond: TilePoint { TilePoint(x: 5, y: 13) }
-    private var R: TilePoint { TilePoint(x: 32, y: 14) }
+    private var R: TilePoint { TilePoint(x: 32, y: 14) }   // the hot spring: no longer a pond that freezes
     private var B: TilePoint { TilePoint(x: 20, y: 24) }
     private func brk(_ pond: TilePoint, _ at: Double) -> PlazaIceBreak { PlazaIceBreak(at: at, pond: pond) }
     private func p(_ x: Int, _ y: Int) -> TilePoint { TilePoint(x: x, y: y) }
@@ -124,7 +124,7 @@ final class PlazaIceControllerTests: XCTestCase {
     }
 
     private func place(_ w: World, _ tile: TilePoint) async {
-        w.b.session.updatePlazaPosition(inPlaza: true, tile: tile, facing: .down, isWalking: false)
+        w.b.session.updatePlazaPosition(inPlaza: true, tile: tile, facing: .down, isWalking: false, isFlushed: false)
         for _ in 0..<200 where w.scene.memberTiles[w.b.id] != tile { await Task.yield(); t += 0.05; w.scene.update(t) }
         XCTAssertEqual(w.scene.memberTiles[w.b.id], tile, "test precondition")
     }
@@ -256,18 +256,41 @@ final class PlazaIceControllerTests: XCTestCase {
     func testAMismatchedBreakTurnsMyIceToWaterAtOnce() async {
         let w = await world(me: p(20, 10))
         XCTAssertEqual(w.scene.frozenPondAnchor, leftPond, "test precondition")
-        w.b.session.updateIceBreak(brk(R, T))
+        w.b.session.updateIceBreak(brk(B, T))
         await settle()
         XCTAssertNil(w.scene.breakingHit)
-        XCTAssertNil(w.scene.frozenPondAnchor, "nothing is frozen for a minute after R")
+        XCTAssertNil(w.scene.frozenPondAnchor, "nothing is frozen for a minute after B")
         XCTAssertTrue(w.scene.isWaterNow(p(6, 14)))
+    }
+
+    func testASavedBreakOfTheSpringFreezesTheLeftPond() async {
+        let prefs = PlazaPreferences(defaults: TestDefaults.make(suite: "plaza.ice.spring.\(UUID())"))
+        prefs.iceBreak = brk(R, T - 3600)
+        let w = await world(me: p(20, 10), prefs: prefs)
+        XCTAssertNil(w.c.iceBreak)
+        XCTAssertEqual(w.scene.frozenPondAnchor, leftPond)
+    }
+
+    func testAJumpThatBreaksTheSpringIsJustAJump() async {
+        let prefs = PlazaPreferences(defaults: TestDefaults.make(suite: "plaza.ice.springjump.\(UUID())"))
+        let w = await world(me: p(20, 10), prefs: prefs)
+        let saved = w.c.iceBreak, prefsBefore = prefs.iceBreak
+        w.c.showJump(memberID: w.b.id, iceBreak: brk(R, T))
+        XCTAssertEqual(w.c.iceBreak, saved)
+        XCTAssertEqual(prefs.iceBreak, prefsBefore)
+        XCTAssertEqual(w.scene.iceLandingCount, 0)
+        w.b.session.updateIceBreak(brk(R, T))
+        await settle()
+        XCTAssertEqual(w.c.iceBreak, saved)
+        XCTAssertEqual(w.scene.iceLandingCount, 0)
+        XCTAssertEqual(w.scene.frozenPondAnchor, leftPond)
     }
 
     func testARestartKeepsTheLastBreak() async {
         let prefs = PlazaPreferences(defaults: TestDefaults.make(suite: "plaza.ice.restart.\(UUID())"))
         prefs.iceBreak = brk(leftPond, T - 100)
         let w = await world(me: p(20, 10), prefs: prefs)
-        XCTAssertEqual(w.scene.frozenPondAnchor, R)
+        XCTAssertEqual(w.scene.frozenPondAnchor, B)
         XCTAssertNil(w.scene.breakingHit)
         XCTAssertEqual(w.b.session.members[w.me.id]?.iceBreak, brk(leftPond, T - 100))
     }
@@ -275,8 +298,8 @@ final class PlazaIceControllerTests: XCTestCase {
     func testThePreferenceRoundTrips() async {
         let prefs = PlazaPreferences(defaults: TestDefaults.make(suite: "plaza.ice.roundtrip.\(UUID())"))
         XCTAssertNil(prefs.iceBreak)
-        prefs.iceBreak = brk(R, 7)
-        XCTAssertEqual(prefs.iceBreak, brk(R, 7))
+        prefs.iceBreak = brk(B, 7)
+        XCTAssertEqual(prefs.iceBreak, brk(B, 7))
         prefs.iceBreak = nil
         XCTAssertNil(prefs.iceBreak)
     }

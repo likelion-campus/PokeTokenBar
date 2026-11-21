@@ -114,6 +114,22 @@ final class TeamHostilePeerTests: XCTestCase {
         XCTAssertTrue(scene.isDancing(memberID: "A"))
     }
 
+    // MARK: - Flush
+
+    /// A modified app can send anything for the flag. Only a literal true is read, and the frame lives.
+    func testAbsurdFlushValuesBecomeFalseAndTheFrameLives() async throws {
+        let peer = join("hostile")
+        for bad in [#""yes""#, "1", #""true""#, "{}", "null"] {
+            let json = #"{"presence":{"_0":{"nickname":"x","character":{"speciesID":25,"isShiny":false,"speciesName":"P"},"inPlaza":true,"tile":{"x":7,"y":8},"facing":"left","isWalking":true,"isFlushed":\#(bad)}}}"#
+            say(try JSONDecoder().decode(TeamMessage.self, from: Data(json.utf8)), from: peer)
+            XCTAssertEqual(session.members["hostile"]?.isFlushed, false, bad)
+            XCTAssertEqual(session.members["hostile"]?.tile, TilePoint(x: 7, y: 8), bad)
+        }
+        let ok = #"{"presence":{"_0":{"nickname":"x","character":{"speciesID":25,"isShiny":false,"speciesName":"P"},"inPlaza":true,"tile":{"x":7,"y":8},"facing":"left","isWalking":true,"isFlushed":true}}}"#
+        say(try JSONDecoder().decode(TeamMessage.self, from: Data(ok.utf8)), from: peer)
+        XCTAssertEqual(session.members["hostile"]?.isFlushed, true)
+    }
+
     // MARK: - Sizes
 
     /// A modified app can send any size. It is kept within 1...3 and the rest of the frame applies.
@@ -379,6 +395,49 @@ final class TeamHostilePeerTests: XCTestCase {
         }
         XCTAssertEqual(s.children.count, before)
         XCTAssertEqual(s.sparkleCount, 0)
+    }
+
+    /// A flood of flag toggles every 0.1 s (so the fade crosses every step and the animation changes frames), never
+    /// grows the whole node tree, and the baked pictures stay within frames x steps.
+    func testAFlushFloodKeepsTheWholeTreeAndTheTextureCacheBounded() async {
+        func count(_ nodes: [PlazaNode]) -> Int { nodes.reduce(0) { $0 + 1 + count($1.children) } }
+        func image(_ r: UInt8) -> PlazaImage {
+            var bitmap = PlazaBitmap(width: 24, height: 40)
+            for y in 0..<40 { for x in 0..<24 { bitmap[x, y] = PlazaRGBA(r: r, g: 0, b: 255 - r, a: 255) } }
+            return PlazaImage(bitmap: bitmap)
+        }
+        let frames = PlazaCharacterFrames(front: [PlazaFrame(image: image(10), delay: 0.1), PlazaFrame(image: image(200), delay: 0.1)],
+                                          back: [PlazaFrame(image: image(10), delay: 0.1), PlazaFrame(image: image(200), delay: 0.1)])
+        for paused in [false, true] {
+            var date = Date(timeIntervalSince1970: 1_800_000_000)
+            let map = PlazaMapData.map
+            let s = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: map.spawn, zoom: 2, nickname: "나", pondVisuals: true)
+            s.now = { date }
+            func member(_ flushed: Bool) -> PlazaSceneMember {
+                var m = PlazaSceneMember(memberID: "A", nickname: "A", isAway: false, tile: TilePoint(x: 34, y: 17), facing: .down, isWalking: false)
+                m.isFlushed = flushed
+                return m
+            }
+            s.applyMembers([member(false)])
+            s.setMemberFrames("A", frames)
+            var t = 0.0
+            s.update(t)
+            s.isPaused = paused
+            let nodes = count(s.children), steam = s.steamNodeCount, ice = s.iceLayerNodeCount
+            var biggest = 0
+            for i in 0..<600 {   // 60 s of scene time: on for 2.5 s (the rise crosses every step), off for 2.5 s, and again
+                s.applyMembers([member((i / 25) % 2 == 0)])
+                date += 0.1
+                t += 0.05
+                s.update(t)
+                biggest = max(biggest, s.memberFlushCacheCount("A") ?? 0)
+                XCTAssertEqual(count(s.children), nodes, "paused \(paused) toggle \(i)")
+            }
+            XCTAssertEqual(s.steamNodeCount, steam)
+            XCTAssertEqual(s.iceLayerNodeCount, ice)
+            XCTAssertLessThanOrEqual(biggest, frames.front.count * PlazaHotSpring.flushSteps, "paused \(paused): baked pictures are bounded by frames x steps")
+            if !paused { XCTAssertGreaterThan(biggest, 1, "test precondition: the flood did bake pictures") }
+        }
     }
 
     func testIceLandingsAddNothingWhileTheSceneIsPaused() async {

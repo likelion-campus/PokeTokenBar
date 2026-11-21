@@ -18,11 +18,18 @@ final class MacPlazaGraphicsTests: XCTestCase {
             ("plaza-tallgrass.png", try XCTUnwrap(PlazaResources.tallGrassSheet(in: bundle))),
             ("plaza-ice-cracks.png", try XCTUnwrap(PlazaResources.iceCrackSheet(in: bundle))),
             ("plaza-ice-gloss.png", try XCTUnwrap(PlazaResources.iceGlossSheet(in: bundle))),
+            ("plaza-steam.png", try XCTUnwrap(steamSheet(in: bundle))),
         ]
         let frames = PlazaResources.iceShatterFrames(in: bundle)
         XCTAssertFalse(frames.isEmpty)
         out += frames.enumerated().map { ("plaza-ice-shatter.gif#\($0.offset)", $0.element) }
         return out
+    }
+
+    private func steamSheet(in bundle: Bundle) -> CGImage? {
+        guard let url = PlazaResources.resourceURL("plaza-steam", "png", in: bundle),
+              let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        return CGImageSourceCreateImageAtIndex(source, 0, nil)
     }
 
     private func leafSheet(in bundle: Bundle) -> CGImage? {
@@ -96,6 +103,7 @@ final class MacPlazaGraphicsTests: XCTestCase {
         "plaza-tallgrass.png kCGColorSpaceSRGB alpha 3 bpc 8 bpp 32 bpr 832 drawUnchanged true changedBytes 0",
         "plaza-ice-cracks.png kCGColorSpaceSRGB alpha 3 bpc 8 bpp 32 bpr 1024 drawUnchanged false changedBytes 42",
         "plaza-ice-gloss.png kCGColorSpaceSRGB alpha 3 bpc 8 bpp 32 bpr 336 drawUnchanged true changedBytes 0",
+        "plaza-steam.png kCGColorSpaceSRGB alpha 3 bpc 8 bpp 32 bpr 896 drawUnchanged true changedBytes 0",
         "plaza-ice-shatter.gif#0 kCGColorSpaceSRGB alpha 3 bpc 8 bpp 32 bpr 128 drawUnchanged true changedBytes 0",
         "plaza-ice-shatter.gif#1 kCGColorSpaceSRGB alpha 3 bpc 8 bpp 32 bpr 128 drawUnchanged true changedBytes 0",
         "plaza-ice-shatter.gif#2 kCGColorSpaceSRGB alpha 3 bpc 8 bpp 32 bpr 128 drawUnchanged true changedBytes 0",

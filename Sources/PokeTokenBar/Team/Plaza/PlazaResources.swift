@@ -44,6 +44,9 @@ enum PlazaResources {
     static let iceCrackSheetName = "plaza-ice-cracks"   // png
     static let iceGlossSheetName = "plaza-ice-gloss"    // png
     static let iceShatterName = "plaza-ice-shatter"     // gif
+    static let steamSheetName = "plaza-steam"           // png, 224×32, "Smoke Puff" (smoke_5.png) 받은 그대로. 온천 김
+    /// 김 시트의 앞 여섯 칸(32×32). 일곱째 칸은 비어 있다.
+    static let steamFrames: [PlazaPixelRect] = (0..<6).map { PlazaPixelRect(x: 32 * $0, y: 0, width: 32, height: 32) }
 
     /// 계절이 던지는 공 그림의 파일과 자를 영역(nil이면 파일 전체). 겨울은 파일이 없어 격자 눈뭉치다.
     static func ballSource(_ season: PlazaSeason) -> (name: String, crop: PlazaPixelRect?)? {

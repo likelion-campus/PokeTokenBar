@@ -91,12 +91,12 @@ final class PlazaStartleControllerTests: XCTestCase {
         c.prepareScene()
         let scene = try XCTUnwrap(c.scene)
         XCTAssertNotNil(scene.tallGrassLayer, "the tall grass art ships with the app")
-        other.session.updatePlazaPosition(inPlaza: true, tile: theirTile, facing: .down, isWalking: false)
+        other.session.updatePlazaPosition(inPlaza: true, tile: theirTile, facing: .down, isWalking: false, isFlushed: false)
         if let another {
             let third = node("지영")
             hub.connect(me.transport, to: third.transport)
             await settle()
-            third.session.updatePlazaPosition(inPlaza: true, tile: another, facing: .down, isWalking: false)
+            third.session.updatePlazaPosition(inPlaza: true, tile: another, facing: .down, isWalking: false, isFlushed: false)
         }
         await settle()
         XCTAssertEqual(scene.memberTiles[other.id], theirTile)

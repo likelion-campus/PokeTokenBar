@@ -75,7 +75,7 @@ final class PlazaSnowballControllerTests: XCTestCase {
     private func controller(_ me: Node, start: TilePoint, speciesID: Int?, stage: Int) -> PlazaWindowController {
         let prefs = PlazaPreferences(defaults: defaults())
         prefs.saveLastTile(start)
-        // The left pond is broken (the next one is the far right pond): this class swims in the left one.
+        // The left pond is broken (the next one is the bottom pond): this class swims in the left one.
         prefs.iceBreak = PlazaIceBreak(at: now.timeIntervalSince1970, pond: TilePoint(x: 5, y: 13))
         return PlazaWindowController(preferences: prefs, loader: PlazaCharacterLoader(fetcher: EmptyFetcher()),
                                      nickname: { "나" }, memberID: { me.settings.memberID },
@@ -120,7 +120,7 @@ final class PlazaSnowballControllerTests: XCTestCase {
     }
 
     private func place(_ w: World, _ tile: TilePoint) async {
-        w.b.session.updatePlazaPosition(inPlaza: true, tile: tile, facing: .down, isWalking: false)
+        w.b.session.updatePlazaPosition(inPlaza: true, tile: tile, facing: .down, isWalking: false, isFlushed: false)
         for _ in 0..<200 where w.scene.memberTiles[w.b.id] != tile { await Task.yield(); t += 0.05; w.scene.update(t) }
         XCTAssertEqual(w.scene.memberTiles[w.b.id], tile, "test precondition")
     }

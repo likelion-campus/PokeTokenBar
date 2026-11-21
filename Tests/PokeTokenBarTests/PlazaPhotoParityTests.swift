@@ -130,7 +130,7 @@ final class PlazaPhotoParityTests: XCTestCase {
             ("props", { $0.props = [PlazaPhotoProp(particle: PlazaPhotoParticle(image: self.pattern(12, 14, seed: 60), origin: CGPoint(x: 50, y: 45), size: CGSize(width: 12, height: 14)), baseY: 55)] }),
             ("ice and items", { $0.ice = [PlazaPhotoParticle(image: self.pattern(40, 30, seed: 70), origin: CGPoint(x: 30, y: 40), size: CGSize(width: 40, height: 30), alpha: 0.6)]
                 $0.items = [PlazaPhotoParticle(image: self.pattern(8, 8, seed: 71), origin: CGPoint(x: 75, y: 55), size: CGSize(width: 8, height: 8))] }),
-            ("weather", { $0.weather = (0..<12).map { PlazaPhotoParticle(image: self.pattern(3, 3, seed: 80 + $0), origin: CGPoint(x: Double($0) * 9.7, y: Double($0) * 6.1), size: CGSize(width: 3, height: 3), alpha: 0.8) } }),
+            ("weather", { $0.weather = (0..<12).map { PlazaPhotoParticle(image: self.pattern(3, 3, seed: 80 + $0), origin: CGPoint(x: Double($0) * 9.7, y: Double($0) * 6.1), size: CGSize(width: 3, height: 3), alpha: 1) } }),   // weather particles are always alpha 1 (the steam fades; `PlazaWeatherTests.testAParticleIsDrawnAtItsAlpha`)
             ("night tint", { $0.tint = PlazaDaylight.Tint(red: 0.4, green: 0.5, blue: 0.8) }),
             ("campfire light", { $0.tint = PlazaDaylight.Tint(red: 0.4, green: 0.5, blue: 0.8); $0.light = light }),
             ("firework light and sparks", { $0.tint = PlazaDaylight.Tint(red: 0.4, green: 0.5, blue: 0.8)

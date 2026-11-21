@@ -54,6 +54,9 @@ struct TeamPresence: Codable, Equatable, Sendable {
     /// The plaza size class (1...3) of the picture the sender shows. Left out at 1; a receiver keeps it within 1...3;
     /// unreadable values become nil; earlier versions ignore it.
     @LossyOptional var bodySize: Int?
+    /// Flushed red from three minutes in the plaza hot spring. Left out when false; a receiver draws it only while the
+    /// sender's tile is a hot-spring tile; unreadable values become nil; earlier versions ignore it.
+    @LossyOptional var isFlushed: Bool?
 }
 
 /// 읽을 수 없는 값(나중 버전의 모양, 잘못된 값)을 nil 로 읽는 선택값. 이 필드만 너그럽고 나머지 필드는 합성 Codable 그대로라,

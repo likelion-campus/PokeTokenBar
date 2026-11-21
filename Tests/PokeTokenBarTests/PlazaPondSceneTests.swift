@@ -58,6 +58,19 @@ final class PlazaPondSceneTests: XCTestCase {
         XCTAssertGreaterThan(try XCTUnwrap(s.memberShadowOpacity("a")), 0)
     }
 
+    func testASwimmerInTheSpringShowsSpringWater() async throws {
+        let s = scene(start: p(20, 22))
+        s.applyMembers([member("a", p(34, 18)), member("b", p(8, 14))])
+        s.setMemberFrames("a", frames()); s.setMemberFrames("b", frames())
+        run(s, 0.1)
+        let spring = try XCTUnwrap(s.memberActor("a")), pond = try XCTUnwrap(s.memberActor("b"))
+        func same(_ x: PlazaColor, _ y: PlazaColor) -> Bool { abs(x.red - y.red) + abs(x.green - y.green) + abs(x.blue - y.blue) < 1e-5 }   // the node keeps Floats
+        XCTAssertTrue(same(spring.submergedBodyColor, PlazaHotSpring.waterColor))
+        XCTAssertTrue(spring.isSwimRingSpring)
+        XCTAssertTrue(same(pond.submergedBodyColor, PlazaPondArt.waterColor))
+        XCTAssertFalse(pond.isSwimRingSpring)
+    }
+
     func testPlungeStaysUncutUntilItLandsInTheWater() async {
         let s = scene(start: p(20, 22))
         add(s, "a", p(31, 18))
@@ -674,5 +687,10 @@ final class PlazaPondSceneTests: XCTestCase {
         s.isPaused = true
         s.canWalk = false
         XCTAssertEqual(s.walker.tile, p(33, 18))
+    }
+
+    /// The water these tests use is the hot spring (32...38 x 14...20): moving it must not quietly turn them into pond tests.
+    func testThisSuiteSwimsInTheHotSpring() async {
+        for tile in [p(32, 18), p(33, 17), p(33, 18), p(34, 18), p(34, 19), p(34, 20), p(35, 16), p(35, 18)] { XCTAssertTrue(PlazaMapData.map.isHotSpring(tile), "\(tile)") }
     }
 }

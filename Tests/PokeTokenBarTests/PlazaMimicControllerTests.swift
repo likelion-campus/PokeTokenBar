@@ -144,7 +144,7 @@ final class PlazaMimicControllerTests: XCTestCase {
         let c = controller(me)
         c.prepareScene()
         await connect(me, quiet)
-        quiet.session.updatePlazaPosition(inPlaza: true, tile: ground(8, 8), facing: .down, isWalking: false)
+        quiet.session.updatePlazaPosition(inPlaza: true, tile: ground(8, 8), facing: .down, isWalking: false, isFlushed: false)
         quiet.session.updateDitto(ready: true, state: nil)
         await settle()
         return World(me: me, quiet: quiet, c: c)
@@ -155,7 +155,7 @@ final class PlazaMimicControllerTests: XCTestCase {
     private func join(_ w: World, _ name: String, _ character: TeamMonSummary, at tile: TilePoint, nameColor: UInt32? = nil) async -> Node {
         let n = node(name, character: character, nameColor: nameColor)
         await connect(w.me, n)
-        n.session.updatePlazaPosition(inPlaza: true, tile: tile, facing: .down, isWalking: false)
+        n.session.updatePlazaPosition(inPlaza: true, tile: tile, facing: .down, isWalking: false, isFlushed: false)
         await waitUntil { w.scene.memberTiles[n.id] == tile }
         await settle()
         return n
@@ -237,7 +237,7 @@ final class PlazaMimicControllerTests: XCTestCase {
         let x = await join(w, "지아", Self.jia, at: row(24), nameColor: jiaColor)
         m.session.updateMimic(x.id)
         await waitUntil { w.c.shownMimics[m.id] == x.id }
-        x.session.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false)
+        x.session.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false, isFlushed: false)
         await waitUntil { w.c.shownMimics.isEmpty }
         await settle()
         XCTAssertEqual(w.me.session.members[m.id]?.mimicOf, x.id, "test precondition: m still says it copies x")
@@ -544,7 +544,7 @@ final class PlazaMimicControllerTests: XCTestCase {
         let (w, x) = await dittoWorld()
         w.c.chooseMenu(.tackle, memberID: x.id)
         XCTAssertEqual(w.c.mimicking, x.id)
-        x.session.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false)
+        x.session.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false, isFlushed: false)
         await waitUntil { w.c.mimicking == nil }
         await waitUntil { x.session.members[w.me.id]?.mimicOf == nil }
         XCTAssertNil(x.session.members[w.me.id]?.mimicOf)
@@ -558,7 +558,7 @@ final class PlazaMimicControllerTests: XCTestCase {
         let d = await join(w, "디토", Self.ditto, at: row(24))
         w.c.chooseMenu(.tackle, memberID: d.id)
         XCTAssertEqual(w.c.mimicking, d.id)
-        d.session.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false)
+        d.session.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false, isFlushed: false)
         await waitUntil { w.c.mimicking == nil }
         XCTAssertNil(w.c.mimicking)
     }
@@ -953,7 +953,7 @@ final class PlazaMimicControllerTests: XCTestCase {
         let doyun = await join(w, "도윤", Self.pikachu, at: row(7))
         let gone = await join(w, "떠남", Self.pikachu, at: row(8))
         let m = await disguisedOther(w, x)
-        gone.session.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false)
+        gone.session.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false, isFlushed: false)
         await waitUntil { w.me.session.members[gone.id]?.inPlaza == false }
         await settle()   // the controller observes the leave on the next hop
 

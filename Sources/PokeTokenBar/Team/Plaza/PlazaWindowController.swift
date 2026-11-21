@@ -55,6 +55,10 @@ import Observation
     /// 창이 열려 있는 동안 1초마다 모닥불·타이머·안내를 다시 맞추는 틱. 테스트에서 바꿔 끼운다.
     private let focusTickSleep: @MainActor (Duration) async -> Void
     private var focusTick: Task<Void, Never>?
+    /// 온천에 든 뒤 3분 마감을 기다리는 잠. 마감 하나뿐이라 세는 반복이 없다. 테스트에서 바꿔 끼운다.
+    private let soakSleep: @MainActor (Duration) async -> Void
+    private var soak = PlazaSoak()
+    private var soakTask: Task<Void, Never>?
     /// 창이 열려 있는 동안 0.05초마다 메타몽을 한 걸음 진행하는 틱. 테스트에서 바꿔 끼운다.
     private let dittoLoopSleep: @MainActor (Duration) async -> Void
     private var dittoLoop: Task<Void, Never>?
@@ -270,6 +274,7 @@ import Observation
          spriteRetrySleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) },
          renderCheckSleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) },
          focusTickSleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) },
+         soakSleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) },
          dittoLoopSleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) },
          dittoSeed: @escaping () -> UInt64 = { UInt64.random(in: .min ... .max) },
          isFrontmost: (@MainActor () -> Bool)? = nil,
@@ -281,6 +286,7 @@ import Observation
         self.chatInput = chatInput ?? PlatformPlaza.makeChatInput()
         self.frontmostOverride = isFrontmost
         self.focusTickSleep = focusTickSleep
+        self.soakSleep = soakSleep
         self.dittoLoopSleep = dittoLoopSleep
         self.dittoSeed = dittoSeed
         self.spriteRetrySleep = spriteRetrySleep
@@ -1546,7 +1552,7 @@ import Observation
         focus = restored
         focusFacing = seat.facing
         session?.updateFocus(endsAt: restored.endsAt)
-        session?.updatePlazaPosition(inPlaza: true, tile: seat.tile, facing: seat.facing, isWalking: false)
+        session?.updatePlazaPosition(inPlaza: true, tile: seat.tile, facing: seat.facing, isWalking: false, isFlushed: false)
     }
 
     /// 가장 가까운 빈 자리에 앉아 집중을 시작한다. 이미 앉아 있거나 빈 자리가 없으면 아무것도 안 한다.
@@ -1593,7 +1599,7 @@ import Observation
         if campfireSwitch?.lit == true { setCampfire(lit: nil) }
         if scene == nil {
             // 창이 닫혀 있는 동안 앉은 모습으로 남아 있었다. 이제 광장을 떠난 것으로 알린다.
-            session?.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false)
+            session?.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false, isFlushed: false)
         } else {
             refreshCampfire()
         }
@@ -1884,8 +1890,39 @@ import Observation
     }
 
     private func sendPosition(inPlaza: Bool, scene: PlazaScene) {
+        // 붉은 기운은 내 칸을 알리는 바로 그 presence 에 실린다. 온천을 나오면 같은 presence 에서 빠진다.
+        let now = clock()
+        let inSpring = inPlaza && PlazaMapData.map.isHotSpring(scene.walker.tile)
+        if soak.update(inSpring: inSpring, now: now) { armSoak() }
+        let flushed = inSpring && soak.isFlushed(now: now)
+        scene.setMyFlushed(flushed)
         session?.updatePlazaPosition(inPlaza: inPlaza, tile: scene.walker.tile, facing: scene.walker.facing,
-                                     isWalking: scene.walker.isWalking, isRunning: scene.walker.isRunning)
+                                     isWalking: scene.walker.isWalking, isRunning: scene.walker.isRunning, isFlushed: flushed)
+    }
+
+    /// 마감 하나를 건다(이전 것은 취소). 마감이 없으면(온천을 나왔으면) 아무것도 걸지 않는다.
+    private func armSoak() {
+        soakTask?.cancel()
+        soakTask = nil
+        guard let deadline = soak.deadline else { return }
+        let wait = max(0, Int((deadline.timeIntervalSince(clock()) * 1000).rounded(.up)))
+        let sleep = soakSleep
+        soakTask = Task { [weak self] in   // 기다리는 동안 self 를 붙들지 않는다
+            await sleep(.milliseconds(wait))
+            guard !Task.isCancelled, let self else { return }
+            self.flushIfDue()
+        }
+    }
+
+    private func flushIfDue() {
+        if soak.isFlushed(now: clock()) {
+            scene?.setMyFlushed(true)
+            session?.updateFlushed(true)
+        } else if soak.deadline != nil {
+            // 시계가 뒤로 갔다: 시작 시각이 지금보다 뒤면 지금부터 3분을 다시 센다(되돌린 시간만큼 늦어지지 않는다). 아니면 남은 만큼 기다린다.
+            _ = soak.update(inSpring: true, now: clock())
+            armSoak()
+        }
     }
 
     /// 팀이 정한 밝은 시간대와 계절을 장면과 지도에 넣는다. 정한 적이 없으면 기본값.
@@ -2046,7 +2083,8 @@ import Observation
                                     facing: $0.facing ?? .down, isWalking: $0.isWalking, isIdle: $0.isIdle,
                                     nameColor: look?.nameHex ?? $0.nameColor,
                                     isRunning: $0.isRunning, isDiving: $0.isDiving, evolutionStage: $0.evolutionStage,
-                                    nature: look != nil ? look?.nature : $0.character.nature, bodySize: $0.bodySize)
+                                    nature: look != nil ? look?.nature : $0.character.nature, bodySize: $0.bodySize,
+                                    isFlushed: $0.isFlushed)
         })
         let shown = targets.filter { looks[$0.key] != nil }
         for (id, target) in shown where shownMimics[id] != target {
@@ -2193,6 +2231,9 @@ import Observation
         renderWatchdog = nil
         focusTick?.cancel()
         focusTick = nil
+        soakTask?.cancel()
+        soakTask = nil
+        soak = PlazaSoak()
         dittoLoop?.cancel()
         dittoLoop = nil
         dittoBrain = nil
@@ -2218,9 +2259,9 @@ import Observation
         if let scene, session != nil {
             // 앉아 있으면 창을 닫아도 팀원에게는 그 자리에 앉은 채로 남는다.
             if let focus {
-                session?.updatePlazaPosition(inPlaza: true, tile: focus.seat, facing: focusFacing, isWalking: false)
+                session?.updatePlazaPosition(inPlaza: true, tile: focus.seat, facing: focusFacing, isWalking: false, isFlushed: false)
             } else {
-                session?.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false)
+                session?.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false, isFlushed: false)
             }
             scene.onLocalPositionChange = nil
         }

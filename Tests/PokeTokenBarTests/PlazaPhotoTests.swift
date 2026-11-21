@@ -402,6 +402,97 @@ final class PlazaPhotoTests: XCTestCase {
         }
     }
 
+    /// The water half and the flush half.
+    func testAPhotoOfTheSpringShowsSpringWaterAndTheFlush() async throws {
+        let scene = newScene()
+        scene.setCharacter(frames())
+        func at(_ id: String, _ x: Int, _ y: Int) -> PlazaSceneMember {
+            PlazaSceneMember(memberID: id, nickname: id, isAway: false, tile: TilePoint(x: x, y: y), facing: .down, isWalking: false)
+        }
+        var flushed = at("a", 34, 18)
+        flushed.isFlushed = true
+        var offSpring = at("b", 8, 14)
+        offSpring.isFlushed = true   // a claim off the spring is not drawn
+        scene.applyMembers([flushed, offSpring])
+        scene.setMemberFrames("a", frames())
+        scene.setMemberFrames("b", frames())
+        let actors = try XCTUnwrap(scene.photoInput()).actors   // me, then a, b in key order
+        XCTAssertEqual(actors.count, 3)
+        XCTAssertNotNil(actors[1].flushedImage, "a late joiner sees the red at once")
+        XCTAssertNil(actors[2].flushedImage)
+        XCTAssertNil(actors[0].flushedImage)
+        XCTAssertEqual(actors[1].waterColor, PlazaHotSpring.waterColor)
+        XCTAssertEqual(actors[2].waterColor, PlazaPondArt.waterColor)
+        XCTAssertEqual(actors[0].waterColor, PlazaPondArt.waterColor, "me, on land")
+
+        // The renderer draws the baked picture for the body: white -> (241,176,167), blue -> (101,36,167).
+        var red = actor(solid(2, 2, white), foot: CGPoint(x: 4, y: 8), scale: 1)
+        red.flushedImage = PlazaHotSpring.flushLerped(red.image, step: PlazaHotSpring.flushSteps)
+        let px = Pixels(try XCTUnwrap(PlazaPhotoRenderer.renderBitmap(input(map: solid(8, 8, black), rect: CGRect(x: 0, y: 0, width: 8, height: 8), ppw: 1, [red]))))
+        XCTAssertEqual(Int(px[4, 7].r), 241, accuracy: 1)
+        XCTAssertEqual(Int(px[4, 7].g), 176, accuracy: 1)
+        XCTAssertEqual(Int(px[4, 7].b), 167, accuracy: 1)
+        var blueBody = actor(solid(2, 2, blue), foot: CGPoint(x: 4, y: 8), scale: 1)
+        blueBody.flushedImage = PlazaHotSpring.flushLerped(blueBody.image, step: PlazaHotSpring.flushSteps)
+        let bpx = Pixels(try XCTUnwrap(PlazaPhotoRenderer.renderBitmap(input(map: solid(8, 8, black), rect: CGRect(x: 0, y: 0, width: 8, height: 8), ppw: 1, [blueBody]))))
+        XCTAssertEqual(Int(bpx[4, 7].r), 101, accuracy: 1)
+        XCTAssertEqual(Int(bpx[4, 7].g), 36, accuracy: 1)
+        XCTAssertEqual(Int(bpx[4, 7].b), 167, accuracy: 1)
+        let plain = actor(solid(2, 2, white), foot: CGPoint(x: 4, y: 8), scale: 1)
+        let px2 = Pixels(try XCTUnwrap(PlazaPhotoRenderer.renderBitmap(input(map: solid(8, 8, black), rect: CGRect(x: 0, y: 0, width: 8, height: 8), ppw: 1, [plain]))))
+        XCTAssertTrue(same(px2[4, 7], white))
+    }
+
+    /// The flush is baked into the body's own picture (no extra node, so no draw-order question between neighbours), in a few steps, built
+    /// only while someone is flushed, bounded by frames x steps, and released when the level returns to 0.
+    func testTheFlushIsBakedIntoTheBodyTextureAndReleasedAtTheEnd() async {
+        var date = Calendar.current.date(from: DateComponents(year: 2026, month: 5, day: 10, hour: 12))!
+        let scene = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: map.spawn, zoom: 2, nickname: "나", pondVisuals: true)
+        scene.backingOverride = 2
+        scene.size = CGSize(width: 800, height: 600)
+        scene.now = { date }
+        let tall = PlazaCharacterFrames(front: [PlazaFrame(image: solid(24, 40, red), delay: 0.1)], back: [PlazaFrame(image: solid(24, 40, red), delay: 0.1)])
+        scene.setCharacter(frames())
+        func swimmer(_ flushed: Bool) -> PlazaSceneMember {
+            var m = PlazaSceneMember(memberID: "a", nickname: "a", isAway: false, tile: TilePoint(x: 34, y: 18), facing: .down, isWalking: false)
+            m.isFlushed = flushed
+            return m
+        }
+        scene.applyMembers([swimmer(false)])
+        scene.setMemberFrames("a", tall)
+        scene.update(0)
+        scene.update(0.05)
+        XCTAssertEqual(scene.memberFlushStep("a"), 0)
+        XCTAssertEqual(scene.memberFlushCacheCount("a"), 0, "nobody flushed: nothing built")
+        XCTAssertEqual(scene.memberBodyChildCount("a"), 0)
+        scene.applyMembers([swimmer(true)])
+        date += 1
+        scene.update(0.1)
+        XCTAssertEqual(scene.memberFlushStep("a"), 3, "half way through the 2 s rise")
+        XCTAssertEqual(scene.memberFlushBlend("a") ?? -1, PlazaHotSpring.flushBlend / 2, accuracy: 1e-6)
+        date += 1
+        scene.update(0.15)
+        XCTAssertEqual(scene.memberFlushStep("a"), PlazaHotSpring.flushSteps)
+        XCTAssertEqual(scene.memberBodyChildCount("a"), 0, "no overlay node: the body shows the lerped picture itself")
+        let body = scene.memberCharacterSize("a")
+        XCTAssertLessThan(body?.height ?? 99, 60, "test precondition: the swimmer is cut at the waterline")
+        XCTAssertGreaterThan(scene.memberFlushCacheCount("a") ?? 0, 0)
+        XCTAssertLessThanOrEqual(scene.memberFlushCacheCount("a") ?? 99, PlazaHotSpring.flushSteps, "bounded by frames x steps (one frame)")
+        let pixel = scene.memberBodyTexturePixel("a")
+        XCTAssertEqual(Double(pixel?.r ?? 0), 255 * 0.55 + 224 * 0.45, accuracy: 1, "the red frame is lerped toward red, not tinted")
+        let under = scene.memberSubmergedTexturePixel("a")
+        XCTAssertEqual(Int(under?.r ?? 0), 255, "the part under the water keeps the plain picture (the water tint is applied over it)")
+        XCTAssertEqual(Int(under?.g ?? 99), 0)
+        // a new set of frames drops the old pictures
+        scene.setMemberFrames("a", tall)
+        XCTAssertLessThanOrEqual(scene.memberFlushCacheCount("a") ?? 99, 1)
+        scene.applyMembers([swimmer(false)])
+        date += 61
+        scene.update(0.2)
+        XCTAssertEqual(scene.memberFlushStep("a"), 0)
+        XCTAssertEqual(scene.memberFlushCacheCount("a"), 0, "released when the fade ends")
+    }
+
     func testPhotoInputKeepsEggsAwayMembersAndSkipsMembersStillLoading() async throws {
         let scene = newScene()
         scene.setCharacter(frames())

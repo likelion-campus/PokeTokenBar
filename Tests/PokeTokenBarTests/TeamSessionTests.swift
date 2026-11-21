@@ -712,7 +712,7 @@ final class TeamSessionTests: XCTestCase {
     func testPositionChangeReachesOthers() async {
         let a = node("A"), b = node("B")
         connect(a, b)
-        a.session.updatePlazaPosition(inPlaza: true, tile: TilePoint(x: 3, y: 4), facing: .left, isWalking: true)
+        a.session.updatePlazaPosition(inPlaza: true, tile: TilePoint(x: 3, y: 4), facing: .left, isWalking: true, isFlushed: false)
         let m = b.session.members[a.memberID]
         XCTAssertEqual(m?.inPlaza, true)
         XCTAssertEqual(m?.tile, TilePoint(x: 3, y: 4))
@@ -720,15 +720,15 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertEqual(m?.isWalking, true)
         XCTAssertEqual(m?.nickname, "A")
         let before = a.presencesSent
-        a.session.updatePlazaPosition(inPlaza: true, tile: TilePoint(x: 3, y: 4), facing: .left, isWalking: true)
+        a.session.updatePlazaPosition(inPlaza: true, tile: TilePoint(x: 3, y: 4), facing: .left, isWalking: true, isFlushed: false)
         XCTAssertEqual(a.presencesSent, before)
     }
 
     func testLeavingPlazaMarksAway() async {
         let a = node("A"), b = node("B")
         connect(a, b)
-        a.session.updatePlazaPosition(inPlaza: true, tile: TilePoint(x: 3, y: 4), facing: .up, isWalking: false)
-        a.session.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false)
+        a.session.updatePlazaPosition(inPlaza: true, tile: TilePoint(x: 3, y: 4), facing: .up, isWalking: false, isFlushed: false)
+        a.session.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false, isFlushed: false)
         let m = b.session.members[a.memberID]
         XCTAssertEqual(m?.inPlaza, false)
         XCTAssertNil(m?.tile)
@@ -739,10 +739,10 @@ final class TeamSessionTests: XCTestCase {
     func testIdleIsSentWithThePlazaOpenOrClosed() async {
         let a = node("A"), b = node("B")
         connect(a, b)
-        a.session.updatePlazaPosition(inPlaza: true, tile: TilePoint(x: 3, y: 4), facing: .up, isWalking: false)
+        a.session.updatePlazaPosition(inPlaza: true, tile: TilePoint(x: 3, y: 4), facing: .up, isWalking: false, isFlushed: false)
         a.session.updateIdle(true)
         XCTAssertEqual(b.session.members[a.memberID]?.isIdle, true)
-        a.session.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false)
+        a.session.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false, isFlushed: false)
         XCTAssertEqual(b.session.members[a.memberID]?.isIdle, true, "closing the plaza does not clear idle")
         XCTAssertEqual(b.session.members[a.memberID]?.inPlaza, false)
         let before = a.presencesSent
@@ -916,7 +916,7 @@ final class TeamSessionTests: XCTestCase {
         a.session.updateMimic("x")
         XCTAssertEqual(b.session.members[a.memberID]?.mimicSeenAt, t0)
         clock.advance(10)
-        a.session.updatePlazaPosition(inPlaza: true, tile: TilePoint(x: 2, y: 2), facing: .left, isWalking: false)
+        a.session.updatePlazaPosition(inPlaza: true, tile: TilePoint(x: 2, y: 2), facing: .left, isWalking: false, isFlushed: false)
         XCTAssertEqual(b.session.members[a.memberID]?.mimicOf, "x")
         XCTAssertEqual(b.session.members[a.memberID]?.mimicSeenAt, t0, "a repeat of the same value keeps the stamp")
         clock.advance(10)
@@ -960,6 +960,26 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertEqual(b.session.members[a.memberID]?.isDiving, false)
     }
 
+    func testPresenceCarriesFlushedOnlyWhileOn() async {
+        let a = node("A"), b = node("B")
+        connect(a, b)
+        let tile = TilePoint(x: 34, y: 17)
+        a.session.updatePlazaPosition(inPlaza: true, tile: tile, facing: .left, isWalking: false, isFlushed: true)
+        XCTAssertEqual(b.session.members[a.memberID]?.isFlushed, true)
+        a.session.updatePlazaPosition(inPlaza: true, tile: TilePoint(x: 31, y: 17), facing: .left, isWalking: false, isFlushed: false)
+        XCTAssertEqual(b.session.members[a.memberID]?.isFlushed, false, "cleared by the presence that moves me")
+        XCTAssertEqual(b.session.members[a.memberID]?.tile, TilePoint(x: 31, y: 17))
+        let falseOnWire = a.transport.sentMessages { if case .presence(let p) = $0, p.isFlushed == false { true } else { false } }
+        XCTAssertEqual(falseOnWire, 0, "false is left out, never sent")
+        let before = a.presencesSent
+        a.session.updateFlushed(true)
+        a.session.updateFlushed(true)
+        XCTAssertEqual(a.presencesSent, before + 1)
+        XCTAssertEqual(b.session.members[a.memberID]?.isFlushed, true)
+        a.session.updateFlushed(false)
+        XCTAssertEqual(b.session.members[a.memberID]?.isFlushed, false)
+    }
+
     func testReceivedStageIsClampedAndMissingIsOne() async {
         let a = node("A", stage: 7), b = node("B")
         connect(a, b)
@@ -983,7 +1003,7 @@ final class TeamSessionTests: XCTestCase {
     func testDisconnectedMemberIsKeptAsAsleepUntilBack() async {
         let a = node("A"), b = node("B")
         let ab = connect(a, b)
-        b.session.updatePlazaPosition(inPlaza: true, tile: TilePoint(x: 3, y: 4), facing: .up, isWalking: false)
+        b.session.updatePlazaPosition(inPlaza: true, tile: TilePoint(x: 3, y: 4), facing: .up, isWalking: false, isFlushed: false)
         hub.disconnect(ab)
         XCTAssertTrue(a.session.members.isEmpty)
         XCTAssertEqual(a.session.asleepMembers[b.memberID]?.nickname, "B")

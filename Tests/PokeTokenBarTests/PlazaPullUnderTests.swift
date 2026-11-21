@@ -218,4 +218,9 @@ final class PlazaPullUnderTests: XCTestCase {
         XCTAssertTrue(isWater(p(38, 17)))
         for x in 39...44 { XCTAssertTrue(map.isWalkable(p(x, 17)), "x=\(x)") }
     }
+
+    /// The water these tests use is the hot spring (32...38 x 14...20): moving it must not quietly turn them into pond tests.
+    func testThisSuitePullsFromTheHotSpring() async {
+        for tile in [p(32, 16), p(33, 16), p(34, 16), p(38, 17)] { XCTAssertTrue(PlazaMapData.map.isHotSpring(tile), "\(tile)") }
+    }
 }

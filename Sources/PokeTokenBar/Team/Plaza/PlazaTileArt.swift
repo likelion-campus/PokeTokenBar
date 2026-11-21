@@ -12,7 +12,7 @@ enum PlazaTileArt {
     static let grassCells: [Cell] = [(0, 9), (1, 9), (0, 10), (1, 10), (5, 9), (8, 9), (5, 10), (8, 10)]
     static let flowerCells: [Cell] = [(0, 8), (1, 8), (2, 12), (3, 11), (3, 12)]
     static let bushCell: Cell = (2, 14)
-    private static let waterCell: Cell = (3, 7)
+    static let waterCell: Cell = (3, 7)
     private static let lilySingle: Cell = (2, 0)
     private static let lilyPair: [Cell] = [(4, 0), (5, 0)]
     /// 연잎 칸 모두(가을에 땅과 같이 바랜다).
@@ -45,17 +45,20 @@ enum PlazaTileArt {
     /// `trees` 가 있으면 나무마다 `treeVariant` 가 고른 32×32 그림을 놓고, nil이면 시트의 나무 칸을 쓴다. 있다면 비어 있지 않다.
     static func mapImage(_ map: PlazaMap, sheet: PlazaImage, tallGrass: PlazaTallGrassArt? = nil, trees: [PlazaImage]? = nil) -> PlazaImage {
         var canvas = Canvas(width: map.width * tile, height: map.height * tile, sheet: SheetPixels(sheet))
+        // 온천이 있는 지도만: 물색을 바꾼 시트 사본에서 온천 칸과 그 물가를 그린다(없으면 지금 그림 그대로).
+        let spring = PlazaHotSpring.tiles(in: map).isEmpty ? nil : SheetPixels(PlazaHotSpring.sheet(sheet))
         for y in 0..<map.height {
             for x in 0..<map.width {
                 let p = TilePoint(x: x, y: y)
                 let n = Noise(p)
+                let waterSheet = spring.flatMap { PlazaHotSpring.usesSpringWater(p, in: map) ? $0 : nil } ?? canvas.sheet
                 if map.isWater(p) {
-                    canvas.blit(waterCell, cols: 1, rows: 1, x: x * tile, y: y * tile)
+                    canvas.blit(waterCell, cols: 1, rows: 1, x: x * tile, y: y * tile, from: waterSheet)
                     continue
                 }
                 canvas.blit(grassCells[n.below(grassCells.count, 1)], cols: 1, rows: 1, x: x * tile, y: y * tile)
                 if case .cell(let col, let row) = PlazaPond.shore(at: p, isWater: map.isWater) {
-                    canvas.blit((col, row), cols: 1, rows: 1, x: x * tile, y: y * tile)
+                    canvas.blit((col, row), cols: 1, rows: 1, x: x * tile, y: y * tile, from: waterSheet)
                     continue
                 }
                 switch map.tile(at: p) {
@@ -68,6 +71,7 @@ enum PlazaTileArt {
             }
         }
         drawLilyPads(map, &canvas)
+        if let spring { drawHotSpringProps(map, spring, &canvas) }
         if let tallGrass { drawTallGrass(map, tallGrass, &canvas) }
         drawTrees(map, &canvas, trees: trees)
         let b = map.boardTile
@@ -81,15 +85,24 @@ enum PlazaTileArt {
         return canvas.image()
     }
 
-    /// 연잎: 연못마다 물 칸 위에 한 칸짜리와 두 칸짜리. 그 자리가 물이 아닌 지도(작은 테스트 지도)에는 그리지 않는다.
+    /// 연잎: 연못마다 물 칸 위에 한 칸짜리와 두 칸짜리. 그 자리가 연못이 아닌 지도(작은 테스트 지도)에는 그리지 않는다. 온천에는 연잎이 없다.
     private static func drawLilyPads(_ map: PlazaMap, _ canvas: inout Canvas) {
-        for single in lilySingleTiles where map.isWater(single) {
+        for single in lilySingleTiles where map.tile(at: single) == .pond {
             canvas.blit(lilySingle, cols: 1, rows: 1, x: single.x * tile, y: single.y * tile)
         }
         for pair in lilyPairTiles {
-            for (i, c) in lilyPair.enumerated() where map.isWater(TilePoint(x: pair.x + i, y: pair.y)) {
+            for (i, c) in lilyPair.enumerated() where map.tile(at: TilePoint(x: pair.x + i, y: pair.y)) == .pond {
                 canvas.blit(c, cols: 1, rows: 1, x: (pair.x + i) * tile, y: pair.y * tile)
             }
+        }
+    }
+
+    /// 온천 둘레의 돌: 시트 칸을 그대로 복사한다. 물 속 바위의 그림자는 온천색 물 위에 섞인다(`spring` 은 온천 시트).
+    private static func drawHotSpringProps(_ map: PlazaMap, _ spring: SheetPixels, _ canvas: inout Canvas) {
+        for prop in PlazaHotSpring.props(in: map) {
+            // 시트가 작으면(테스트용 합성 시트) 그 돌 칸은 없다. 시트 밖을 읽지 않는다.
+            guard (prop.col + prop.cols) * cell <= spring.width, (prop.row + prop.rows) * cell <= spring.height else { continue }
+            canvas.blit((prop.col, prop.row), cols: prop.cols, rows: prop.rows, x: prop.at.x * tile, y: prop.at.y * tile, from: spring)
         }
     }
 
@@ -186,10 +199,15 @@ enum PlazaTileArt {
 
         /// 시트의 (cols x rows)칸 영역을 2배로 키워 (x, y)(왼쪽 위, 월드 픽셀)에 겹쳐 그린다.
         mutating func blit(_ c: Cell, cols: Int, rows: Int, x: Int, y: Int) {
+            blit(c, cols: cols, rows: rows, x: x, y: y, from: sheet)
+        }
+
+        /// 위와 같되 `source`(같은 크기 배치의 다른 시트)에서 가져온다.
+        mutating func blit(_ c: Cell, cols: Int, rows: Int, x: Int, y: Int, from source: SheetPixels) {
             let sw = cols * PlazaTileArt.cell, sh = rows * PlazaTileArt.cell
             for sy in 0..<sh {
                 for sx in 0..<sw {
-                    plot(sheetX: c.col * PlazaTileArt.cell + sx, sheetY: c.row * PlazaTileArt.cell + sy,
+                    plot(from: source, sheetX: c.col * PlazaTileArt.cell + sx, sheetY: c.row * PlazaTileArt.cell + sy,
                          x: x + sx * PlazaTileArt.scale, y: y + sy * PlazaTileArt.scale)
                 }
             }

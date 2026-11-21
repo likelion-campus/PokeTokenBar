@@ -8,6 +8,9 @@ import XCTest
 final class PlazaArtParityPixelArtTests: XCTestCase {
     private let seasons: [PlazaSeason] = [.summer, .spring, .autumn, .winter]
 
+    /// The v2.5.635 map (the right pond is an ordinary pond): where the new builder must still match the legacy port.
+    private var preSpringMap: PlazaMap { try! PlazaMap(rows: PlazaMapData.rows.map { $0.replacingOccurrences(of: "h", with: "w") }) }
+
     private func cg(_ image: CGImage?, _ what: String = "bundled sheet") throws -> CGImage { try XCTUnwrap(image, what) }
 
     /// Like `PlazaArtParity.assertIdentical`, for a legacy image that `CGContext.makeImage()` made: its rows may be padded
@@ -49,7 +52,7 @@ final class PlazaArtParityPixelArtTests: XCTestCase {
         let grassCG = try cg(PlazaResources.tallGrassSheet())
         let legacyGrass = try XCTUnwrap(LegacyPlazaTallGrassArt(sheet: grassCG))
         let newGrass = try XCTUnwrap(PlazaTallGrassArt(sheet: PlazaImage(cgImage: grassCG)))
-        let map = PlazaMapData.map
+        let map = preSpringMap
         PlazaArtParity.assertIdentical(LegacyPlazaTileArt.mapImage(map, sheet: sheetCG),
                                        PlazaTileArt.mapImage(map, sheet: sheet), "map without tall grass")
         PlazaArtParity.assertIdentical(LegacyPlazaTileArt.mapImage(map, sheet: sheetCG, tallGrass: legacyGrass),
@@ -66,12 +69,25 @@ final class PlazaArtParityPixelArtTests: XCTestCase {
     func testSeasonSheetsAreByteIdentical() throws {
         let tilesCG = try cg(PlazaResources.tileSheet()), tiles = PlazaImage(cgImage: tilesCG)
         let grassCG = try cg(PlazaResources.tallGrassSheet()), grass = PlazaImage(cgImage: grassCG)
-        let map = PlazaMapData.map
+        let map = preSpringMap
         // 가을은 일부러 달라졌다(올리브 땅, 나무 셋). 옛 구현과 같은지 볼 수 없어 PlazaSeasonTests 의 표 테스트가 맡는다.
         for season in seasons where season != .autumn {
             let legacyTiles = LegacyPlazaSeasonSheet.tiles(tilesCG, season: season)
             let newTiles = PlazaSeasonSheet.tiles(tiles, season: season)
-            PlazaArtParity.assertIdentical(legacyTiles, newTiles, "tiles \(season)")
+            if season == .winter {
+                // 겨울은 온천 둑의 돌 두 칸만 다르다(`PlazaSeasonSheet.tilePieces`). 나머지는 옛 시트와 같다.
+                let (a, b) = (PlazaImage(cgImage: legacyTiles).pixels.bytes, newTiles.pixels.bytes)
+                XCTAssertEqual(a.count, b.count)
+                var differing = 0
+                for y in 0..<newTiles.height { for x in 0..<newTiles.width {
+                    if PlazaHotSpring.bankStoneCells.contains(where: { $0.col == x / 16 && $0.row == y / 16 }) { continue }
+                    let i = (y * newTiles.width + x) * 4
+                    if Array(a[i..<i + 4]) != Array(b[i..<i + 4]) { differing += 1 }
+                } }
+                XCTAssertEqual(differing, 0, "winter tiles differ outside the stones")
+            } else {
+                PlazaArtParity.assertIdentical(legacyTiles, newTiles, "tiles \(season)")
+            }
             let legacyGrass = LegacyPlazaSeasonSheet.tallGrass(grassCG, season: season)
             let newGrass = PlazaSeasonSheet.tallGrass(grass, season: season)
             PlazaArtParity.assertIdentical(legacyGrass, newGrass, "tall grass \(season)")
@@ -236,7 +252,7 @@ final class PlazaArtParityPixelArtTests: XCTestCase {
                                                     tallGrass: LegacyPlazaTallGrassArt(sheet: LegacyPlazaSnowSheet.tallGrass(grassCG)))
         let newMap = PlazaImage(cgImage: legacyMap)
         let ponds = PlazaIce.ponds(in: PlazaMapData.map)
-        XCTAssertEqual(ponds.count, 3)
+        XCTAssertEqual(ponds.count, 2)   // the hot spring does not freeze
         for pond in ponds {
             PlazaArtParity.assertIdentical(LegacyPlazaIceArt.overlay(mapImage: legacyMap, pond: pond, gloss: legacyGloss),
                                            PlazaIceArt.overlay(mapImage: newMap, pond: pond, gloss: newGloss), "overlay \(pond.anchor)")
