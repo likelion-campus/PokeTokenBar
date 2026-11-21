@@ -229,4 +229,17 @@ import XCTest
         try await Task.sleep(for: .seconds(1))
         XCTAssertEqual(rig.hud.renderCounts[.board] ?? 0, idle, "idle and visible: no renders")
     }
+
+    /// The rig's `wait` returns only after the renders already scheduled have run. The indicator's last fade beat stops its clock and
+    /// schedules the render in a later task, so a count read as soon as the clock stopped missed that render, and it landed inside the
+    /// test's idle second (36 against 35, now and then on a loaded Mac and on CI).
+    func testTheRigsWaitReturnsAfterAScheduledRenderLands() async throws {
+        let rig = try await rig()
+        defer { rig.close() }
+        let before = rig.hud.renderCounts[.board] ?? 0
+        rig.hud.setNeedsRender(.board)
+        XCTAssertEqual(rig.hud.renderCounts[.board] ?? 0, before, "the render is only scheduled")
+        try await rig.wait { true }
+        XCTAssertEqual(rig.hud.renderCounts[.board] ?? 0, before + 1, "it landed before wait returned")
+    }
 }

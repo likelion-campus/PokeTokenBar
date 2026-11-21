@@ -107,14 +107,14 @@ final class SettingsModelTests: XCTestCase {
 
     func testTheUsageReportCaptionSaysNotYetBeforeTheFirstSend() async {
         XCTAssertEqual(SettingsModel.usageReportCaption(lastSent: nil),
-                       "토큰 사용량을 회사 대시보드로 보내는 중 · 아직 보내지 않았어요")
+                       "회사 대시보드로 보내는 중 · 아직 안 보냄")
     }
 
     func testTheUsageReportCaptionShowsTheLastSendTime() async {
         let l = L(.ko)
         let at = Date(timeIntervalSince1970: 1_800_000_000)
         XCTAssertEqual(SettingsModel.usageReportCaption(lastSent: at),
-                       "토큰 사용량을 회사 대시보드로 보내는 중 · 마지막으로 보낸 시각 \(l.teamScheduleDate(at))")
+                       "회사 대시보드로 보내는 중 · \(l.teamScheduleDate(at))")
     }
 
     func testTheReportLineFollowsTheScheduleCaptionOnlyWhileTheTeamIsReady() async {
