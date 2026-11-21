@@ -215,6 +215,12 @@ enum PlazaTree {
     static let itemStartRow = 30                                   // 자른 그림의 줄: 아이템이 시작하는 높이
     static let cameraKick: CGFloat = 2                             // 월드 픽셀. 내 3단계 때림만. 0이면 꺼진다
     static let cameraKickDuration: TimeInterval = 0.12
+    static let impactGrow: TimeInterval = 0.14                     // 별이 0.6에서 `impactScale` 까지 자라는 시간(태클의 별과 같다)
+    static let impactHold: TimeInterval = 0.12                     // 다 자란 뒤 흐려지기 전까지
+    static let impactFade: TimeInterval = 0.22
+    static let dustLife: TimeInterval = 0.35                       // 먼지가 퍼지며 흐려지는 시간(`puffDust` 처럼)
+    static let dustLift: CGFloat = 3                               // 먼지가 일어 오르는 월드 픽셀(`puffDust` 의 3)
+    static let cullMargin: CGFloat = 64                            // 그림 사각형에서 이만큼 안에 화면이 닿으면 그린다(낙엽이 옆으로 흘러도 잘리지 않게)
 
     /// 1...3 으로 맞춘 표 번호.
     private static func index(_ level: Int) -> Int { min(max(level, 1), bend.count) - 1 }

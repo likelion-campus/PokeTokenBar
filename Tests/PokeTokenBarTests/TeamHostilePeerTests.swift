@@ -440,6 +440,31 @@ final class TeamHostilePeerTests: XCTestCase {
         }
     }
 
+    /// A teammate who sends a thousand tree shakes in one frame (a modified app can) adds no node, and one landing makes at most one sparkle burst.
+    func testATreeShakeFloodAddsNoNode() async throws {
+        func count(_ nodes: [PlazaNode]) -> Int { nodes.reduce(0) { $0 + 1 + count($1.children) } }
+        for paused in [false, true] {
+            let map = PlazaMapData.map
+            let s = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: map.spawn, zoom: 2, nickname: "나", pondVisuals: true)
+            s.applyMembers([PlazaSceneMember(memberID: "A", nickname: "A", isAway: false, tile: TilePoint(x: 17, y: 11), facing: .up, isWalking: false)])
+            s.update(0)
+            XCTAssertEqual(s.treeNodeCount, 22, "precondition: the tree layer exists, so this cannot pass vacuously")
+            s.isPaused = paused
+            let nodes = count(s.children), tree = s.treeNodeCount
+            for _ in 0..<1000 { s.playTreeHit(by: "A", direction: .up, level: 3, drop: .mint) }
+            var peak = 0
+            if !paused {
+                for i in 1...120 {   // 2 s
+                    s.update(Double(i) / 60)
+                    peak = max(peak, s.sparkleCount)
+                }
+            }
+            XCTAssertEqual(s.treeNodeCount, tree, "paused \(paused)")
+            XCTAssertLessThanOrEqual(peak, 7, "paused \(paused): at most one sparkle burst")
+            if paused { XCTAssertEqual(count(s.children), nodes) }
+        }
+    }
+
     func testIceLandingsAddNothingWhileTheSceneIsPaused() async {
         let map = PlazaMapData.map
         let s = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: map.spawn, zoom: 2, nickname: "나",

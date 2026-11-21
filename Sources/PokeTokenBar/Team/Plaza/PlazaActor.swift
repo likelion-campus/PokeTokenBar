@@ -81,7 +81,8 @@ struct PlazaActorContext {
     static let lungeDuration: TimeInterval = 0.24
     /// 가장 멀리 나갔을 때의 월드 픽셀.
     static let lungeDistance: CGFloat = 8
-    private var lunge: (direction: PlazaDirection, elapsed: TimeInterval)?
+    /// `level` 가 있으면 나무를 치는 돌진이다(`PlazaTree.lungeOffset`: 닿고, 멈추고, 물러났다 돌아온다). nil 이면 위의 사인 곡선.
+    private var lunge: (direction: PlazaDirection, elapsed: TimeInterval, level: Int?)?
 
     /// 마지막 `place`가 받은 풀숲 가림 정도와 내 캐릭터 여부. 기념사진이 같은 값으로 그린다.
     private(set) var concealment: CGFloat = 0
@@ -198,7 +199,12 @@ struct PlazaActorContext {
     }
 
     func lunge(toward d: PlazaDirection) {
-        lunge = (d, 0)
+        lunge = (d, 0, nil)
+    }
+
+    /// 큰 나무를 치는 돌진. 닿는 순간 멈췄다가(타격 멈춤) 물러나고 돌아온다.
+    func treeLunge(toward d: PlazaDirection, level: Int) {
+        lunge = (d, 0, level)
     }
 
     func jump() {
@@ -274,7 +280,8 @@ struct PlazaActorContext {
     /// 지금 뛰어든 만큼(월드 픽셀, y가 아래로). 뛰어들지 않았으면 0.
     var lungeOffset: CGPoint {
         guard let lunge else { return .zero }
-        let amount = (sin(.pi * min(lunge.elapsed / Self.lungeDuration, 1)) * Self.lungeDistance).rounded()
+        let amount = (lunge.level.map { PlazaTree.lungeOffset(at: lunge.elapsed, level: $0) }
+                      ?? sin(.pi * min(lunge.elapsed / Self.lungeDuration, 1)) * Self.lungeDistance).rounded()
         switch lunge.direction {
         case .right: return CGPoint(x: amount, y: 0)
         case .left: return CGPoint(x: -amount, y: 0)
@@ -297,7 +304,7 @@ struct PlazaActorContext {
         let useBack = dancePose.back ?? useBack
         if var l = lunge {
             l.elapsed += dt
-            lunge = l.elapsed >= Self.lungeDuration ? nil : l
+            lunge = l.elapsed >= (l.level.map { PlazaTree.lungeLength(level: $0) } ?? Self.lungeDuration) ? nil : l
         }
         if let e = jumpElapsed {
             jumpElapsed = e + dt >= Self.jumpDuration ? nil : e + dt

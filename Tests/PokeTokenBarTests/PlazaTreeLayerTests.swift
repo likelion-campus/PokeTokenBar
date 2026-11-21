@@ -29,8 +29,8 @@ import XCTest
         return PlazaCharacterFrames(front: f, back: f)
     }
 
-    private func member(_ id: String, _ x: Int, _ y: Int) -> PlazaSceneMember {
-        PlazaSceneMember(memberID: id, nickname: id, isAway: false, tile: p(x, y), facing: .down, isWalking: false)
+    private func member(_ id: String, _ x: Int, _ y: Int, facing: PlazaDirection = .down) -> PlazaSceneMember {
+        PlazaSceneMember(memberID: id, nickname: id, isAway: false, tile: p(x, y), facing: facing, isWalking: false)
     }
 
     func testAnOldPeerOnTheTrunkIsDrawnThere() async throws {
@@ -60,7 +60,7 @@ import XCTest
         let union = layer.bandWorldRects.dropFirst().reduce(layer.bandWorldRects[0]) { $0.union($1) }
         XCTAssertEqual(union, try XCTUnwrap(PlazaTree.artRect(in: map)))
         XCTAssertEqual(layer.bandWorldRects.map(\.height), [30, 30, 30, 54])
-        XCTAssertEqual(s.treeNodeCount, 6, "two roots and four bands")
+        XCTAssertEqual(s.treeNodeCount, 22, "two roots, four bands, twelve leaves, two dust puffs, the star and the item")
     }
 
     func testTeammatesInFrontAndBehind() async throws {
@@ -171,5 +171,249 @@ import XCTest
         layer.setSeason(.winter)
         layer.setHidden(false)
         XCTAssertTrue(layer.isShown)
+    }
+
+    // MARK: Task 6: the hit on screen
+
+    /// A scene with the hitters standing where they can reach the trunk.
+    private func hitScene(start: TilePoint = TilePoint(x: 17, y: 11), season: PlazaSeasonChoice = .summer) -> PlazaScene {
+        let s = treeScene(start: start, season: season)
+        s.applyMembers([member("a", 15, 10, facing: .right), member("b", 19, 10, facing: .left),
+                        member("c", 17, 7, facing: .down), member("d", 17, 11, facing: .up)])
+        for id in ["a", "b", "c", "d"] { s.setMemberFrames(id, solidFrames()) }
+        s.update(1.0 / 60)
+        return s
+    }
+
+    private var tick: TimeInterval { 1.0 / 60 }
+
+    /// Runs the scene on from `t`, returning the new time.
+    @discardableResult private func run(_ s: PlazaScene, from t: TimeInterval, seconds: TimeInterval, step: TimeInterval = 1.0 / 60,
+                                        each: (TimeInterval) -> Void = { _ in }) -> TimeInterval {
+        var now = t
+        let end = t + seconds
+        while now < end - 1e-9 {
+            now += step
+            s.update(now)
+            each(now - t)
+        }
+        return now
+    }
+
+    func testThePoolIsMadeOnceAndNeverGrows() async throws {
+        let s = hitScene()
+        let layer = try XCTUnwrap(s.treeLayer)
+        XCTAssertEqual(s.treeNodeCount, 22, "2 roots + 20 sprites, from the first frame")
+        XCTAssertTrue(s.root.children.contains { $0 === layer.root } && s.root.children.contains { $0 === layer.fxRoot })
+        var t = run(s, from: 1.0 / 60, seconds: 0.2)
+        let others = s.root.children.count
+        for i in 0..<1000 {
+            s.playTreeHit(by: i % 3 == 0 ? nil : ["a", "b", "c", "d"][i % 4], direction: PlazaDirection.allCases[i % 4], level: i % 3 + 1,
+                          drop: i % 5 == 0 ? .mint : nil)
+            if i % 20 == 0 { t = run(s, from: t, seconds: 0.05) }
+            XCTAssertEqual(s.treeNodeCount, 22)
+        }
+        t = run(s, from: t, seconds: 10)   // the sparkles and the star are gone, the pool is the same
+        XCTAssertEqual(s.treeNodeCount, 22)
+        XCTAssertEqual(s.root.children.count, others, "no other node of the scene grew either")
+        XCTAssertFalse(s.isTreeBusy)
+    }
+
+    func testAPausedSceneDoesNothing() async throws {
+        let s = hitScene()
+        s.isPaused = true
+        let nodes = s.root.children.count, tree = s.treeNodeCount
+        for _ in 0..<100 { s.playTreeHit(by: "a", direction: .right, level: 3, drop: .mint); s.playTreeHit(by: nil, direction: .up, level: 3, drop: .mint) }
+        XCTAssertEqual(s.lungeOffset(memberID: "a"), .zero)
+        XCTAssertEqual(s.lungeOffset(memberID: nil), .zero)
+        XCTAssertFalse(s.isTreeBusy)
+        XCTAssertEqual(s.cameraKickOffset, .zero)
+        XCTAssertEqual(s.root.children.count, nodes)
+        XCTAssertEqual(s.treeNodeCount, tree)
+        XCTAssertEqual(s.sparkleCount, 0)
+    }
+
+    func testAnIdleTreeWritesNothing() async throws {
+        let s = hitScene()
+        let layer = try XCTUnwrap(s.treeLayer)
+        let rest = layer.spriteStates
+        run(s, from: 1.0 / 60, seconds: 10)
+        XCTAssertEqual(layer.spriteStates, rest, "600 idle frames: no property moved")
+        // After a hit the tree settles back to exactly the resting state.
+        s.playTreeHit(by: "a", direction: .right, level: 3, drop: .mint)
+        let t = run(s, from: 10, seconds: 6)
+        XCTAssertFalse(s.isTreeBusy)
+        // A hidden sprite keeps its last position and alpha (nothing draws it), so settled means: shown ones as before, the others hidden.
+        XCTAssertEqual(layer.spriteStates.map { $0.hidden ? nil : $0 }, rest.map { $0.hidden ? nil : $0 }, "settled: bands home, leaves, dust, star and item hidden again")
+        _ = t
+    }
+
+    /// Off screen the clocks run but no node is written; scrolling back shows the right moment.
+    func testAnOffscreenHitAdvancesButWritesNothing() async throws {
+        let sheet = try XCTUnwrap(PlatformPlaza.tallGrassSheet())
+        var images = [PlazaSeason: PlazaImage]()
+        for season in PlazaSeason.allCases { images[season] = PlazaTree.image(sheet, season: season) }
+        let layer = PlazaTreeLayer(map: map, images: images, worldHeight: map.pixelSize.height)
+        let art = try XCTUnwrap(PlazaTree.artRect(in: map))
+        let far = CGRect(x: 1000, y: 0, width: 400, height: 300), near = CGRect(x: 400, y: 150, width: 400, height: 300)
+        let rest = layer.spriteStates
+        layer.hit(direction: .right, level: 2, tacklerFoot: CGPoint(x: 496, y: 348), tacklerHeight: 48, drop: nil)
+        var landed = false
+        for _ in 0..<12 { landed = layer.update(dt: tick, visible: far, step: 0.25) || landed }   // 0.2 s
+        XCTAssertFalse(landed)
+        XCTAssertEqual(layer.spriteStates, rest, "nothing written while the tree is out of view")
+        XCTAssertTrue(layer.isBusy, "but the clock ran")
+        _ = layer.update(dt: 0.05, visible: near, step: 0.25)
+        let elapsed = 12 * tick + 0.05
+        let hold = PlazaTree.contactAt + PlazaTree.hitStop[1]
+        XCTAssertGreaterThan(elapsed, hold)
+        let expected = PlazaTree.bandOffsets(bend: PlazaTree.bendAmount(at: elapsed, level: 2))
+        XCTAssertEqual(layer.bandOffsets, expected, "the bend is the one at the total elapsed time")
+        XCTAssertNotEqual(layer.spriteStates, rest)
+        XCTAssertGreaterThan(layer.shownLeafCount, 0, "the burst already happened off screen")
+        _ = art
+    }
+
+    func testAHorizontalHitShearsAwayAndSettles() async throws {
+        let s = hitScene()
+        s.playTreeHit(by: "a", direction: .right, level: 2, drop: nil)
+        var peak: [CGFloat] = []
+        var t = run(s, from: 1.0 / 60, seconds: 0.133) { _ in }
+        peak = s.treeBandOffsets
+        XCTAssertEqual(peak, [6, 3, 3, 0], "at the hold: away from a hit that moves right")
+        t = run(s, from: t, seconds: 1.0) { _ in XCTAssertEqual(s.treeBandOffsets.last, 0, "the trunk never moves") }
+        XCTAssertEqual(s.treeBandOffsets, [0, 0, 0, 0], "settled")
+        XCTAssertEqual(s.treeStretch, 1)
+        s.playTreeHit(by: "b", direction: .left, level: 2, drop: nil)
+        t = run(s, from: t, seconds: 0.133)
+        XCTAssertEqual(s.treeBandOffsets, [-6, -3, -3, 0], ".left mirrors it")
+    }
+
+    func testAVerticalHitStretchesOrSquashes() async throws {
+        let s = hitScene()
+        XCTAssertEqual(s.treeStretch, 1)
+        s.playTreeHit(by: "d", direction: .up, level: 2, drop: nil)
+        var t = run(s, from: 1.0 / 60, seconds: 0.133)
+        XCTAssertGreaterThan(s.treeStretch, 1, "a hit from the south leans the tree away: taller")
+        XCTAssertEqual(s.treeBandOffsets, [0, 0, 0, 0], "a vertical hit shears nothing")
+        t = run(s, from: t, seconds: 1.0)
+        XCTAssertEqual(s.treeStretch, 1)
+        s.playTreeHit(by: "c", direction: .down, level: 2, drop: nil)
+        t = run(s, from: t, seconds: 0.133)
+        XCTAssertLessThan(s.treeStretch, 1, "a hit from the north leans it toward the viewer: squashed")
+    }
+
+    func testHitStopHoldsTheTacklerAndTheTree() async throws {
+        let s = hitScene()
+        s.playTreeHit(by: "a", direction: .right, level: 2, drop: nil)
+        let hold = PlazaTree.contactAt + PlazaTree.hitStop[1]
+        var samples: [(CGPoint, [CGFloat])] = []
+        run(s, from: 1.0 / 60, seconds: 0.3, step: 1.0 / 240) { dt in
+            if dt > PlazaTree.contactAt + 0.01 && dt < hold - 0.01 { samples.append((s.lungeOffset(memberID: "a") ?? .zero, s.treeBandOffsets)) }
+        }
+        XCTAssertGreaterThan(samples.count, 5)
+        let first = try XCTUnwrap(samples.first)
+        XCTAssertEqual(first.0.x, PlazaTree.lungeDistance[1])
+        for sample in samples { XCTAssertEqual(sample.0, first.0); XCTAssertEqual(sample.1, first.1) }
+    }
+
+    func testTheBurstGrowsWithTheLevel() async throws {
+        for level in 1...3 {
+            let s = hitScene()
+            s.playTreeHit(by: "a", direction: .right, level: level, drop: nil)
+            let hold = PlazaTree.contactAt + PlazaTree.hitStop[level - 1]
+            run(s, from: 1.0 / 60, seconds: hold + 0.03)
+            XCTAssertEqual(s.treeLeafCount, PlazaTree.leaves[level - 1], "level \(level)")
+        }
+        let s = hitScene()
+        s.playTreeHit(by: "a", direction: .right, level: 3, drop: nil)
+        var t = run(s, from: 1.0 / 60, seconds: 0.4)
+        XCTAssertEqual(s.treeLeafCount, 8)
+        s.playTreeHit(by: "b", direction: .left, level: 3, drop: nil)
+        t = run(s, from: t, seconds: 0.4)
+        XCTAssertLessThanOrEqual(s.treeLeafCount, PlazaTree.maxFallingLeaves)
+        XCTAssertGreaterThan(s.treeLeafCount, 8)
+    }
+
+    func testTheDropFallsToTheTacklersFeetAndSparklesOnce() async throws {
+        let s = hitScene()
+        let foot = s.walker.footPoint
+        s.playTreeHit(by: nil, direction: .up, level: 3, drop: .mint)
+        let start = PlazaTree.itemStart(artRect: try XCTUnwrap(PlazaTree.artRect(in: map)), tacklerFoot: foot)
+        var positions: [CGPoint] = [], jumps = 0, previous = 0
+        run(s, from: 1.0 / 60, seconds: 1.6) { _ in
+            if let p = s.treeItemPosition { positions.append(p) }
+            if s.sparkleCount > previous { jumps += 1; XCTAssertEqual(s.sparkleCount - previous, 7, "one sparkle burst") }
+            previous = s.sparkleCount
+        }
+        XCTAssertEqual(jumps, 1, "exactly one sparkle for the landing")
+        let first = try XCTUnwrap(positions.first), last = try XCTUnwrap(positions.last)
+        XCTAssertLessThan(first.y, foot.y - 40, "it starts in the canopy above the tackler: \(first) vs \(start)")
+        XCTAssertEqual(last.x, foot.x, accuracy: 0.6)
+        XCTAssertLessThanOrEqual(last.y, foot.y + 0.6)
+        XCTAssertTrue(positions.contains { abs($0.x - foot.x) < 0.6 && abs($0.y - foot.y) < 0.6 }, "it reached the feet")
+        XCTAssertNil(s.treeItemPosition, "hidden after the bounce")
+        // A second hit 0.2 s into a fall restarts it: only its own landing sparkles.
+        let s2 = hitScene()
+        s2.playTreeHit(by: nil, direction: .up, level: 3, drop: .mint)
+        var t = run(s2, from: 1.0 / 60, seconds: PlazaTree.contactAt + PlazaTree.hitStop[2] + PlazaTree.itemDelay + 0.2)
+        s2.playTreeHit(by: nil, direction: .up, level: 3, drop: .mint)
+        var burst = 0, last2 = 0
+        t = run(s2, from: t, seconds: 1.6) { _ in
+            if s2.sparkleCount > last2 { burst += 1 }
+            last2 = s2.sparkleCount
+        }
+        XCTAssertEqual(burst, 1, "the cancelled fall never sparkled")
+    }
+
+    func testOnlyMyDropKicksTheCamera() async throws {
+        let s = hitScene()
+        let rest = s.cameraPosition, view = s.visibleWorldRect
+        s.playTreeHit(by: nil, direction: .right, level: 3, drop: .mint)
+        var atKick: CGPoint?, after: CGPoint?
+        run(s, from: 1.0 / 60, seconds: 0.3, step: 1.0 / 120) { dt in
+            XCTAssertEqual(s.visibleWorldRect, view, "culling and the photo do not move")
+            if abs(dt - (PlazaTree.contactAt + 0.04)) < 0.003 { atKick = s.cameraPosition }
+            if dt > PlazaTree.contactAt + PlazaTree.cameraKickDuration + 0.01 { after = s.cameraPosition }
+        }
+        let kick = try XCTUnwrap(atKick)
+        XCTAssertEqual(kick.x - rest.x, 2, accuracy: 0.001, "2 px in the hit direction")
+        XCTAssertEqual(kick.y, rest.y, accuracy: 0.001)
+        XCTAssertEqual(after, rest, "and back")
+        XCTAssertEqual(s.cameraKickOffset, .zero)
+        // A teammate's level 3 and my own level 2 never kick.
+        for (by, level) in [("a" as String?, 3), (nil, 2), (nil, 1)] {
+            let q = hitScene()
+            q.playTreeHit(by: by, direction: .right, level: level, drop: level == 3 ? .mint : nil)
+            run(q, from: 1.0 / 60, seconds: 0.4, step: 1.0 / 120) { _ in XCTAssertEqual(q.cameraKickOffset, .zero) }
+        }
+    }
+
+    func testWithTheBackgroundHiddenOnlyTheTacklerAndTheStarPlay() async throws {
+        let s = hitScene()
+        s.setBackgroundHidden(true)
+        s.playTreeHit(by: nil, direction: .up, level: 3, drop: .mint)
+        var lunged = false, star = false, item = false
+        run(s, from: 1.0 / 60, seconds: 0.5) { _ in
+            if s.lungeOffset(memberID: nil) != .zero { lunged = true }
+            if s.treeLayer?.isImpactShown == true { star = true }
+            if s.treeItemPosition != nil { item = true }
+            XCTAssertFalse(s.isTreeShown)
+        }
+        XCTAssertTrue(lunged); XCTAssertTrue(star); XCTAssertTrue(item)
+    }
+
+    func testThePhotoFollowsTheBend() async throws {
+        let s = hitScene()
+        s.zoom = 1
+        let rest = try XCTUnwrap(s.photoInput()).props.filter { $0.baseY == 352 }.map(\.particle.origin.x)
+        XCTAssertEqual(rest.count, 4)
+        s.playTreeHit(by: "a", direction: .right, level: 3, drop: nil)
+        run(s, from: 1.0 / 60, seconds: 0.25)
+        let props = try XCTUnwrap(s.photoInput()).props.filter { $0.baseY == 352 }
+        let bands = props.prefix(4).map(\.particle.origin.x)
+        XCTAssertEqual(zip(bands, rest).map { $0 - $1 }, s.treeBandOffsets, "the photo's bands carry the offsets of the screen")
+        XCTAssertEqual(props.count, 4 + s.treeLeafCount, "shown leaves are props too")
+        XCTAssertGreaterThan(s.treeLeafCount, 0)
     }
 }

@@ -381,15 +381,17 @@ enum PlazaRenderScenes {
         }
     }
 
-    /// 큰 나무를 치는 장면. 모두 줄기에 닿는 자리에 서 있다. 타격 호출은 나무가 화면에 그려지는 작업(Task 6)에서 붙는다.
-    private static func bigTreeHit(_ name: String, captures: [Int]) -> PlazaRenderScene {
+    /// 큰 나무를 치는 장면. 모두 줄기에 닿는 자리에 서 있고, 1번째 프레임에 때린다(`by` 가 nil이면 나).
+    private static func bigTreeHit(_ name: String, captures: [Int], by: String?, direction: PlazaDirection, level: Int, drop: ItemKind? = nil) -> PlazaRenderScene {
         scene(name, captures: captures) { st in
             var o = Options(); o.season = .summer; o.zoom = 2; o.me = TilePoint(x: 17, y: 11)
             let s = stage(o, on: st)
             s.scene.face(.up)
             s.put([member("ash", "Ash", 15, 10, facing: .right), member("brock", "Brock", 19, 10, facing: .left),
                    member("misty", "Misty", 17, 7, facing: .down), member("dawn", "Dawn", 20, 12)], looks: crowdLooks)
-            return setup(s)
+            return setup(s) { f in
+                if f == 1 { s.scene.playTreeHit(by: by, direction: direction, level: level, drop: drop) }
+            }
         }
     }
 
@@ -576,9 +578,9 @@ enum PlazaRenderScenes {
             hotSpring("hot-spring-winter", .winter, zoom: 1, captures: [10], photo: true),
             bigTree("big-tree-summer", .summer), bigTree("big-tree-spring", .spring), bigTree("big-tree-autumn", .autumn),
             bigTree("big-tree-winter", .winter, photo: true),
-            bigTreeHit("big-tree-hit-1", captures: [6, 9, 21, 72]),
-            bigTreeHit("big-tree-hit-2", captures: [6, 10, 22, 72]),
-            bigTreeHit("big-tree-hit-3", captures: [6, 12, 28, 44, 90]),
+            bigTreeHit("big-tree-hit-1", captures: [6, 9, 21, 72], by: "ash", direction: .right, level: 1),
+            bigTreeHit("big-tree-hit-2", captures: [6, 10, 22, 72], by: "brock", direction: .left, level: 2),
+            bigTreeHit("big-tree-hit-3", captures: [6, 12, 28, 44, 90], by: nil, direction: .up, level: 3, drop: .mint),
             ice("ice-frozen") { _, _ in },
             ice("ice-breaking") { s, f in if f == 1 { s.scene.setIceBreak(iceBreak(s), hit: TilePoint(x: 9, y: 14)) } },
             ice("ice-refreeze") { s, f in
