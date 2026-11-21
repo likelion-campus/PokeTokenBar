@@ -106,6 +106,20 @@ final class PlazaHotSpringTests: XCTestCase {
         }
     }
 
+    /// The drag rules (PR 3) ask only `isWalkable`: the spring answers like the pond it replaced, so a slide stops before it.
+    func testTheDragRulesAnswerAtTheSpringAsAtTheOldPond() {
+        let old = self.old
+        XCTAssertEqual(PlazaDrag.slide(victim: p(35, 12), puller: p(35, 10), direction: .down, pushTiles: 3, isOpen: { self.map.isWalkable($0) }), 1,
+                       "the slide stops on the bank before (35,14)")
+        for y in 10...24 { for x in 28...42 { for d in PlazaDirection.allCases { for k in 1...3 {
+            let v = p(x, y)
+            XCTAssertEqual(PlazaDrag.slide(victim: v, puller: p(x, y + 2), direction: d, pushTiles: k, isOpen: { self.map.isWalkable($0) }),
+                           PlazaDrag.slide(victim: v, puller: p(x, y + 2), direction: d, pushTiles: k, isOpen: { old.isWalkable($0) }), "\(v) \(d) \(k)")
+            XCTAssertEqual(PlazaDrag.stepBack(from: v, direction: d, stage: k, isOpen: { self.map.isWalkable($0) }),
+                           PlazaDrag.stepBack(from: v, direction: d, stage: k, isOpen: { old.isWalkable($0) }), "\(v) \(d) \(k)")
+        } } } }
+    }
+
     /// All or nothing: a map with the spring where one stone's tiles do not fit gets no stones at all.
     func testAStoneThatDoesNotFitDropsEveryStone() throws {
         func rows(_ x: Int, _ y: Int, _ c: Character) -> PlazaMap {
