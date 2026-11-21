@@ -12,6 +12,11 @@ final class PlazaDragTests: XCTestCase {
         XCTAssertEqual(TeamEmote.pushTileRange, 1...3)
     }
 
+    func testOppositeFlipsEveryDirection() {
+        XCTAssertEqual(PlazaDirection.allCases.map(\.opposite), [.down, .up, .right, .left])
+        XCTAssertEqual(PlazaDirection.allCases.map { $0.opposite.opposite }, PlazaDirection.allCases)
+    }
+
     func testALineIsARowOrAColumnButNotTheSameTile() {
         let o = p(5, 5)
         XCTAssertEqual(PlazaDrag.line(from: o, to: p(8, 5)), .right)

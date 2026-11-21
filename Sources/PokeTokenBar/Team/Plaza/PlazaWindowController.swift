@@ -1164,7 +1164,7 @@ import Observation
         guard isMe, touching else { return }
         // A disguised me is found instead of pushed.
         if myMimic != nil { return revealMe(by: sender) }
-        if canBePushed { scene.pushMe(direction, tiles: tiles) }
+        if canBePushed, shoves.admit(sender, now: clock()) { scene.pushMe(direction, tiles: tiles) }
     }
 
     /// 런타임이 부른다. 메타몽 팀원의 몸통박치기. 아무도 밀리지 않고 충격 그림만 보이며, 맞은 게 변장한 나이고 옆에 있으면 들킨다.
@@ -1268,12 +1268,16 @@ import Observation
             if isMe {
                 guard self.scene?.myBody.covers(shot.endTile) == true else { return }
                 if self.myMimic != nil { self.revealMe(by: sender) }
-                else if self.canBePushed { self.scene?.pushMe(direction, tiles: pushed) }
+                else if self.canBePushed, self.shoves.admit(sender, now: self.clock()) { self.scene?.pushMe(direction, tiles: pushed) }
             } else if isDitto, self.shownDitto?.isDecoy == false, self.scene?.body(of: PlazaDitto.sceneKey)?.covers(shot.endTile) == true {
                 self.dittoFormTackled(by: sender)
             }
         }
     }
+
+    /// 나를 움직이는 이모트(몸통박치기·끌어당기기·물귀신·눈덩이)를 보낸 팀원마다 1초에 한 번만 움직인다. 별과 당기는 그림은 늘 보인다.
+    /// 모든 길에서 마지막 관문이다(변장 들킴 뒤, 움직이기 직전). 메타몽 복사본의 장난(`playDecoyTackle`)은 제 60초 규칙을 쓴다.
+    private var shoves = PlazaShove()
 
     /// 집중 중이거나 모닥불 메뉴를 연 나는 밀리지 않는다.
     private var canBePushed: Bool { !isFocusing && !isCampfireMenuOpen }
@@ -1308,7 +1312,8 @@ import Observation
     func showPull(from sender: String, on target: String?) {
         guard let scene, target == memberID(), !isPhotoMode, let from = scene.memberTiles[sender],
               let drag = PlazaPullUnder.drag(victim: scene.walker.tile, puller: from, isWater: { scene.isWaterNow($0) },
-                                             isWalkable: { scene.isWalkableNow($0) }) else { return }
+                                             isWalkable: { scene.isWalkableNow($0) }),
+              shoves.admit(sender, now: clock()) else { return }
         // 끄는 팀원은 물러나는 중이라 그 칸이 비었는지 따지지 않는다
         if drag.tiles == 1 { scene.plunge(drag.direction) } else { scene.pushMe(drag.direction, tiles: drag.tiles, pulledBy: sender) }
     }
@@ -1330,7 +1335,7 @@ import Observation
         let occupied = scene.occupiedTiles(except: sender)   // 끄는 쪽의 칸은 길을 막지 않는다(pushMe의 pulledBy와 같다)
         let n = PlazaDrag.slide(victim: scene.walker.tile, puller: from, pushTiles: tiles,
                                 isOpen: { scene.isWalkableNow($0) && !occupied.contains($0) })
-        guard n > 0 else { return }
+        guard n > 0, shoves.admit(sender, now: clock()) else { return }
         scene.pushMe(b, tiles: n, pulledBy: sender)
     }
 

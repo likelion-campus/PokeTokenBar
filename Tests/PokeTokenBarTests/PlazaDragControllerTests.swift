@@ -429,4 +429,123 @@ final class PlazaDragControllerTests: XCTestCase {
         await settle()
         XCTAssertEqual(drags(w.b).count, 1)
     }
+
+    // MARK: - Receive cooldown
+
+    func testTwoTacklesFromOneTeammateUnderASecondApartPushMeOnce() async {
+        let w = await world(me: p(20, 12), b: p(19, 12))
+        let t0 = now, impacts = w.scene.impactsShown
+        w.c.showTackle(from: w.b.id, on: w.me.id, tiles: 1)
+        run(w.scene, 1)
+        XCTAssertEqual(w.scene.walker.tile, p(21, 12))
+        await place(w.b, p(20, 12), in: w)
+        now = t0.addingTimeInterval(0.99)
+        w.c.showTackle(from: w.b.id, on: w.me.id, tiles: 1)
+        run(w.scene, 1)
+        XCTAssertEqual(w.scene.walker.tile, p(21, 12))
+        XCTAssertEqual(w.scene.impactsShown, impacts + 2, "the star shows both times")
+    }
+
+    func testTwoTacklesASecondApartPushMeTwice() async {
+        let w = await world(me: p(20, 12), b: p(19, 12))
+        let t0 = now
+        w.c.showTackle(from: w.b.id, on: w.me.id, tiles: 1)
+        run(w.scene, 1)
+        await place(w.b, p(20, 12), in: w)
+        now = t0.addingTimeInterval(1.0)
+        w.c.showTackle(from: w.b.id, on: w.me.id, tiles: 1)
+        run(w.scene, 1)
+        XCTAssertEqual(w.scene.walker.tile, p(22, 12))
+    }
+
+    /// After b's tackle at t0 moved me to (21,12), what a second move from b at `after` seconds does.
+    private func tackleThen(_ follow: (World) async -> Void, after: TimeInterval, me mine: TilePoint = TilePoint(x: 20, y: 12),
+                            b bTile: TilePoint = TilePoint(x: 19, y: 12)) async -> World {
+        let w = await world(me: mine, b: bTile)
+        let t0 = now
+        w.c.showTackle(from: w.b.id, on: w.me.id, tiles: 1)
+        run(w.scene, 1)
+        now = t0.addingTimeInterval(after)
+        await follow(w)
+        return w
+    }
+
+    func testASnowballPullOrDragWithinASecondOfATackleDoesNotMoveMe() async {
+        // snowball
+        let ball: (World) async -> Void = { w in
+            await self.place(w.b, self.p(17, 12), in: w)
+            w.c.showSnowball(from: w.b.id, on: w.me.id, tiles: 1, direction: .right)
+            self.run(w.scene, 1.2)
+        }
+        var w = await tackleThen(ball, after: 0.99)
+        XCTAssertEqual(w.scene.walker.tile, p(21, 12), "snowball within a second")
+        XCTAssertGreaterThan(w.scene.impactsShown, 1, "the snowball still bursts")
+        w = await tackleThen(ball, after: 1.0)
+        XCTAssertEqual(w.scene.walker.tile, p(22, 12), "snowball control")
+        // underwater pull: b swims at (14,14); its tackle puts me at (16,14)
+        let under: (World) async -> Void = { w in
+            w.c.showPull(from: w.b.id, on: w.me.id)
+            self.run(w.scene, 1)
+        }
+        w = await tackleThen(under, after: 0.99, me: p(15, 14), b: p(14, 14))
+        XCTAssertEqual(w.scene.walker.tile, p(16, 14), "pull within a second")
+        w = await tackleThen(under, after: 1.0, me: p(15, 14), b: p(14, 14))
+        XCTAssertEqual(w.scene.walker.tile, p(14, 14), "pull control: in the water")
+        XCTAssertTrue(w.scene.isMeInWater)
+        // drag
+        let dragged: (World) async -> Void = { w in
+            await self.place(w.b, self.p(20, 12), in: w)
+            let dust = w.scene.dustShown
+            self.pull(w, from: w.b)
+            self.run(w.scene, 1)
+            XCTAssertGreaterThan(w.scene.dustShown, dust, "the pull still draws")
+        }
+        w = await tackleThen(dragged, after: 0.99)
+        XCTAssertEqual(w.scene.walker.tile, p(21, 12), "drag within a second")
+        w = await tackleThen(dragged, after: 1.0)
+        XCTAssertEqual(w.scene.walker.tile, p(20, 12), "drag control")
+    }
+
+    func testAnotherTeammatesMoveIsNotHeldByTheFirstOnesSecond() async {
+        let w = await world(me: p(20, 12), b: p(19, 12))
+        let t0 = now
+        w.c.showTackle(from: w.b.id, on: w.me.id, tiles: 1)
+        run(w.scene, 1)
+        XCTAssertEqual(w.scene.walker.tile, p(21, 12), "test precondition")
+        let c = await join(w, "다", at: p(20, 12))
+        now = t0.addingTimeInterval(0.5)
+        w.c.showTackle(from: c.id, on: w.me.id, tiles: 1)
+        run(w.scene, 1)
+        XCTAssertEqual(w.scene.walker.tile, p(22, 12))
+    }
+
+    func testAnAttemptFromOutOfReachDoesNotStartTheSecond() async {
+        let w = await world(me: p(20, 12), b: p(18, 12))
+        let t0 = now
+        w.c.showTackle(from: w.b.id, on: w.me.id, tiles: 1)
+        run(w.scene, 1)
+        XCTAssertEqual(w.scene.walker.tile, p(20, 12))
+        await place(w.b, p(19, 12), in: w)
+        now = t0.addingTimeInterval(0.1)
+        w.c.showTackle(from: w.b.id, on: w.me.id, tiles: 1)
+        run(w.scene, 1)
+        XCTAssertEqual(w.scene.walker.tile, p(21, 12))
+    }
+
+    // MARK: - Hostile peers
+
+    func testAHundredHitsASecondFromOneTeammateMoveMeOnceASecond() async {
+        let w = await world(me: p(8, 12), b: p(4, 12))
+        w.c.setRendering(visible: false)   // a hidden plaza lands each ball at once and pushes at once
+        let t0 = now
+        var moved: [Int] = []
+        var last = w.scene.walker.tile
+        for i in 0..<200 {
+            now = t0.addingTimeInterval(Double(i) / 100)
+            w.c.showSnowball(from: w.b.id, on: w.me.id, tiles: 1, direction: .right)
+            if w.scene.walker.tile != last { moved.append(i); last = w.scene.walker.tile }
+        }
+        XCTAssertEqual(moved, [0, 100])
+        XCTAssertEqual(w.scene.walker.tile, p(10, 12))
+    }
 }
