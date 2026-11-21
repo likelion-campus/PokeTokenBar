@@ -2002,12 +2002,14 @@ struct PlazaSceneMember: Equatable, Sendable {
     /// 테스트용: 지금 그리는 지도 그림.
     var shownMapImage: PlazaImage { mapImage }
 
-    /// 계절마다 던지는 공 그림 파일. 프로세스당 한 번 읽고, 없는 계절은 눈 격자 공으로 던진다.
+    /// 계절마다 던지는 공 그림. 프로세스당 한 번 읽고(필요하면 한 칸을 잘라), 없는 계절은 눈 격자 공으로 던진다.
     private static let ballImages: [PlazaSeason: PlazaImage] = {
         var out: [PlazaSeason: PlazaImage] = [:]
         for season in PlazaSeason.allCases {
-            if let image = PlatformPlaza.graphics.assetURL(PlazaResources.ballName(season), ext: "png")
-                .flatMap({ PlatformPlaza.graphics.decodeImage(at: $0) }) { out[season] = image }
+            guard let source = PlazaResources.ballSource(season),
+                  let file = PlatformPlaza.graphics.assetURL(source.name, ext: "png").flatMap({ PlatformPlaza.graphics.decodeImage(at: $0) })
+            else { continue }
+            out[season] = source.crop.map { file.cropping(to: $0) } ?? file
         }
         return out
     }()

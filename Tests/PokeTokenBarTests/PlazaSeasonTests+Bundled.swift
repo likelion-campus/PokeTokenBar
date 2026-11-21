@@ -33,16 +33,19 @@ extension PlazaSeasonTests {
         XCTAssertEqual(art.ball.scale, 1, "one picture pixel is one world pixel")
         XCTAssertFalse(art.burst.contains { $0.image === balloon })
         XCTAssertEqual(art.burst.map { $0.image.pixels.bytes }, PlazaSnowballArt.art(.summer).burst.map { $0.image.pixels.bytes })
-        XCTAssertEqual(PlazaResources.ballName(.summer), PlazaResources.waterBalloonName)
+        let summer = PlazaResources.ballSource(.summer)
+        XCTAssertEqual(summer?.name, PlazaResources.waterBalloonName)
+        XCTAssertNil(summer?.crop)
     }
 
-    func testEachSeasonNamesItsOwnBallFile() async {
-        let names = PlazaSeason.allCases.map { PlazaResources.ballName($0) }
-        XCTAssertEqual(PlazaResources.ballName(.winter), "plaza-snowball")
-        XCTAssertEqual(PlazaResources.ballName(.spring), "plaza-petal-ball")
-        XCTAssertEqual(PlazaResources.ballName(.summer), "plaza-water-balloon")
-        XCTAssertEqual(PlazaResources.ballName(.autumn), "plaza-leaf-ball")
-        XCTAssertEqual(Set(names).count, 4)
+    func testEachSeasonHasItsBallSource() async {
+        XCTAssertNil(PlazaResources.ballSource(.winter), "winter keeps the grid snowball")
+        XCTAssertEqual(PlazaResources.ballSource(.summer)?.name, "plaza-water-balloon")
+        for (season, y) in [(PlazaSeason.spring, 129), (.autumn, 33)] {
+            let source = PlazaResources.ballSource(season)
+            XCTAssertEqual(source?.name, "plaza-leaf-sheet", "\(season)")
+            XCTAssertEqual(source?.crop, PlazaPixelRect(x: 33, y: y, width: 17, height: 15), "\(season)")
+        }
     }
 
     /// 장면이 처음 보이는 계절은 여름이다. 팀이 다른 계절을 골라 둔 광장을 열어도(첫 라운드는 고른 적 없는 겨울)
@@ -57,7 +60,9 @@ extension PlazaSeasonTests {
             }
             XCTAssertEqual(s.shownSeason, season)
             s.playSnowball(by: nil, shot: PlazaSnowballShot(from: map.spawn, direction: .up, end: .ground(TilePoint(x: map.spawn.x, y: map.spawn.y - 3)))) {}
-            let want = PlazaSnowballArt.art(season, ball: BundledArt.image(PlazaResources.ballName(season))).ball
+            let source = PlazaResources.ballSource(season)
+            let file = source.flatMap { src in BundledArt.image(src.name).map { img in src.crop.flatMap { img.cropping(to: $0) } ?? img } }
+            let want = PlazaSnowballArt.art(season, ball: file).ball
             XCTAssertEqual(s.snowballBallImages.last?.pixels.bytes, want.image.pixels.bytes, "\(season)")
             XCTAssertEqual(s.snowballBallSizes.last, CGSize(width: CGFloat(want.image.width) * want.scale, height: CGFloat(want.image.height) * want.scale), "\(season)")
         }

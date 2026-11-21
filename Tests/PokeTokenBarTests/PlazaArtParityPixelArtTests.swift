@@ -67,7 +67,8 @@ final class PlazaArtParityPixelArtTests: XCTestCase {
         let tilesCG = try cg(PlazaResources.tileSheet()), tiles = PlazaImage(cgImage: tilesCG)
         let grassCG = try cg(PlazaResources.tallGrassSheet()), grass = PlazaImage(cgImage: grassCG)
         let map = PlazaMapData.map
-        for season in seasons {
+        // 가을은 일부러 달라졌다(올리브 땅, 나무 셋). 옛 구현과 같은지 볼 수 없어 PlazaSeasonTests 의 표 테스트가 맡는다.
+        for season in seasons where season != .autumn {
             let legacyTiles = LegacyPlazaSeasonSheet.tiles(tilesCG, season: season)
             let newTiles = PlazaSeasonSheet.tiles(tiles, season: season)
             PlazaArtParity.assertIdentical(legacyTiles, newTiles, "tiles \(season)")
