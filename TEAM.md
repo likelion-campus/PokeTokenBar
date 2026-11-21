@@ -123,6 +123,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "C:/Users/<사용자>/.claud
 
 ![광장 창. 샘플 팀원, Windows CI 러너에서 찍은 화면](assets/windows/plaza-window.png)
 
+![온천. 샘플 팀원(색 블록), Windows CI 러너에서 찍은 화면](assets/windows/plaza-hot-spring.png)
+
+![큰 나무에 세 번째로 부딪히는 순간. 샘플 팀원(색 블록), Windows CI 러너에서 찍은 화면](assets/windows/plaza-big-tree.png)
+
 ### Mac과 다른 점, 아직 없는 것
 
 Windows 팝오버는 Mac의 화면을 그대로 따라 만든 별도 구현입니다. 의도한 차이와 이유는 `docs/reference/windows-differences.md` 에 모아 두었습니다. 크게 보면:
