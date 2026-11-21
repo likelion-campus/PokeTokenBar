@@ -3358,7 +3358,7 @@ read_when:
 - **직접 원인:** 리포터를 시작하는 조건이 `TeamSettings.isReady` 하나뿐이었다. "이 인스턴스가 진짜 설치인가"를 묻는 조건이 없었다.
 - **왜 못 걸렀나:** 리포터 테스트는 가짜 전송을 주입하므로 실제 전송이 나가는 경로를 한 번도 밟지 않았다. 셀프테스트는 팀 설정을 건드리는 검사와 리포터가 같은 앱 안에 산다는 사실을 아무도 겹쳐 보지 않았다 — 태스크별 리뷰는 각자 파일 안에서만 봤고, 최종 전체 브랜치 리뷰에서 처음 드러났다.
 - **부류 스윕:** 앱의 바깥 쓰기는 이것 하나다. `UpdateChecker`·PokeAPI·한도 조회·팀 연결은 읽기이거나 팀원 사이 로컬 통신이다. 시트 리다이렉트 확인(`WindowsSelftestUsageReport`)은 지원하지 않는 버전으로 보내 시트가 거절하고 아무것도 쓰지 않는다.
-- **고침:** `UsageReporter.shouldRun(stateDirectory:defaultDirectory:isSelftest:)` — 상태 폴더가 기본이고 셀프테스트 실행이 아닐 때만 리포터를 만든다(맥·윈도 공통). 아니면 리포터가 nil 이라 설정 줄은 "아직 보내지 않았어요" 로 읽힌다.
+- **고침:** `UsageReporter.shouldRun(stateDirectory:defaultDirectory:isSelftest:)` — 상태 폴더가 기본이고 셀프테스트 실행이 아닐 때만 리포터를 만든다(맥·윈도 공통). 아니면 리포터가 nil 이라 설정 줄은 "아직 안 보냄" 으로 읽힌다.
 - **영구 캡처:** `UsageReporterTests.testOnlyARealInstallOutsideASelftestReports`(네 분기), `windows-app.yml` 의 "No usage report from selftests" 단계 — 수집한 앱 로그에 `usage report sent|rejected|failed` 줄이 있으면 실패한다.
 - **규칙:** 셀프테스트·CI·개발 인스턴스는 운영 서비스에 쓰지 않는다. 바깥으로 쓰는 코드를 더할 때는 그것을 켜는 조건에 "진짜 설치인가"를 넣고, 그 조건을 CI 가 로그로 한 번 더 확인하게 한다.
 
@@ -3386,3 +3386,4 @@ read_when:
 - **고침:** 보고 줄을 일정 캡션과 **같은 힌트**의 둘째 줄로 넣는다(`SettingsModel.teamCaptionLines`, `WinTeamSection.caption` 이 CR LF 로 잇는다). 창 수는 다시 164 개이고, 맥처럼 두 줄 사이에 구분선이 없다(전의 별도 행은 맥에 없는 구분선을 그렸다).
 - **영구 캡처:** `SettingsModelTests.testTheReportLineFollowsTheScheduleCaptionOnlyWhileTheTeamIsReady`. 예산 자체는 `settings.openCost` 가 이미 지킨다 — 릴리스 모드가 막는다.
 - **규칙:** 윈도 팝오버 페이지에 행을 더하기 전에, 기존 행의 힌트나 라벨에 넣을 수 있는지 먼저 본다. 행을 더했다면 PR 의 windows-app 실행에서 `settings.openCost`·`popover.swapCost` 줄의 `frames with a paint`·`windows made` 를 직접 읽는다(잡이 초록이어도).
+- **후속(같은 날, 두 번째 릴리스 실행 44764713785):** 창이 164 개로 돌아온 뒤에도 설치된 앱의 셀프테스트가 5 프레임을 두 번 쟀다. 둘째 줄이 두 줄로 감겨 설정 페이지가 v2.5.635 보다 32 px 컸고(2356 → 2388), 전환이 3 프레임 위주에서 4 프레임 위주로 옮겨 느린 러너에서 5 가 됐다. 사용자 결정으로 문구를 한 줄로 줄였다: "회사 대시보드로 보내는 중 · 11월 20일 16:05" / "… · 아직 안 보냄"(맥·윈도 같은 문구). 예산(4)은 그대로 둔다.
