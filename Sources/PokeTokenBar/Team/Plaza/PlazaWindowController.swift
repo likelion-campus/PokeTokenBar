@@ -142,7 +142,7 @@ import Observation
     private lazy var chatLogPanel = PlazaChatLogPanel(log: chatLog)
     private lazy var menuPanel = PlazaMenuPanel(model: overlayModel, pills: pillsPanel)
     private lazy var minimapPanel = PlazaMinimapPanel(model: minimap, background: backgroundModel, worldSize: map.pixelSize,
-                                                      mapImage: { [unowned self] in mapImage })
+                                                      mapImage: { [unowned self] in minimapImage(for: .summer) })
     private lazy var clockPanel = PlazaClockPanel(worldSize: map.pixelSize)
     private let chatInput: any PlazaChatInputHost
     private let chatLog = PlazaChatLog()
@@ -193,8 +193,26 @@ import Observation
         return look
     }
 
+    /// 작은 지도 그림(나무를 얹은 것)도 계절마다 한 번만 만든다. 같은 그림이어야 작은 지도가 줄여 둔 그림을 다시 쓴다.
+    private static var cachedMinimapImages: [PlazaSeason: PlazaImage] = [:]
+    private lazy var treeArtRect = PlazaTree.artRect(in: map)
+
+    /// 그 계절의 지도 그림에 큰 나무를 얹은 것. 나무나 그림이 없으면 지도 그림 그대로.
+    func minimapImage(for season: PlazaSeason) -> PlazaImage {
+        let plain = season == .summer ? mapImage : (Self.seasonLook(for: map, season: season)?.mapImage ?? mapImage)
+        guard let rect = treeArtRect else { return plain }
+        if let cached = Self.cachedMinimapImages[season] { return cached }
+        guard let sheet = PlatformPlaza.tallGrassSheet(), let tree = PlazaTree.image(sheet, season: season) else { return plain }
+        let baked = PlazaTree.baked(plain, tree: tree, at: rect)
+        Self.cachedMinimapImages[season] = baked
+        return baked
+    }
+
+    /// 테스트용: 작은 지도가 평소 지도 대신 쓰는 계절 그림(여름은 nil).
+    var minimapSeasonImage: PlazaImage? { minimap.seasonMapImage }
+
     private func seasonChanged(_ season: PlazaSeason) {
-        minimap.seasonMapImage = Self.seasonLook(for: map, season: season)?.mapImage
+        minimap.seasonMapImage = season == .summer ? nil : minimapImage(for: season)
         shortcutModel.season = season
     }
 

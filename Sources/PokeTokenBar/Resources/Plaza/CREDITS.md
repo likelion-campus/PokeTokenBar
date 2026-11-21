@@ -26,6 +26,7 @@
 - Copyright notice: https://red-voxel.itch.io/ - RedVoxel
 - Source: https://opengameart.org/content/pokemon-inspired-16x16-tiles
 - In the plaza's winter and autumn the app recolours this image at runtime (exact colour swaps, no new shapes); the recoloured image is a derivative and stays under CC-BY-SA 3.0.
+- The plaza's big tree is the pine at (83, 48), 42×48, cut from this image at runtime and drawn at 2×. In winter its light and mid greens, and in autumn and winter its ground band, get exact colour swaps. The cut and recoloured pine is a derivative and stays under CC-BY-SA 3.0.
 
 ## Water balloon (plaza-water-balloon.png)
 - "Water gun fight art" (`waterballoon.png`, unmodified) by rrcaseyr

@@ -29,6 +29,13 @@ final class PlazaResourcesTests: XCTestCase {
         }
     }
 
+    func testCreditsNameTheBigTreeCut() throws {
+        let credits = try text("CREDITS", "md")
+        for needle in ["(83, 48)", "42×48", "big tree", "plaza-tallgrass.png"] {
+            XCTAssertTrue(credits.contains(needle), needle)
+        }
+    }
+
     func testCreditsNameTheWaterBalloonArtist() throws {
         let credits = try text("CREDITS", "md")
         for needle in ["rrcaseyr", "Water gun fight art", "https://opengameart.org/content/water-gun-fight-art", "plaza-water-balloon.png"] {

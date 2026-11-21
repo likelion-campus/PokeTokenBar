@@ -95,4 +95,20 @@ final class PlazaSnowSheetTests: XCTestCase {
         XCTAssertEqual(out.rgba(3, 0), [0, 0, 0, 0])
         XCTAssertEqual(out.rgba(16, 0), [0x3A, 0xBE, 0x41, 255])
     }
+
+    func testRowRecolourMatchesCellRecolourOnACellAlignedBand() {
+        var px = Pixels(width: 32, height: 32)
+        for y in 0..<32 { for x in 0..<32 { px.set(x, y, [0x3A, 0xBE, 0x41, 255]) } }
+        px.set(5, 3, [0x33, 0x1F, 0x29, 255])
+        let rows = Pixels(PlazaSnowSheet.recolored(px.image(), rows: [(PlazaSnowSheet.groundColors, 0..<16)]))
+        let cells = Pixels(PlazaSnowSheet.recolored(px.image(), pieces: [(PlazaSnowSheet.groundColors, [(0, 0), (1, 0)])]))
+        XCTAssertEqual(rows.bytes[0..<(32 * 16 * 4)], cells.bytes[0..<(32 * 16 * 4)])
+        XCTAssertEqual(rows.rgba(0, 0), [0xC6, 0xDA, 0xF0, 255])
+        XCTAssertEqual(rows.rgba(5, 3), [0x33, 0x1F, 0x29, 255])
+        for y in 16..<32 { for x in 0..<32 { XCTAssertEqual(rows.rgba(x, y), px.rgba(x, y), "(\(x),\(y)) is outside the band") } }
+        // A band that runs past the image is clipped, and an empty one changes nothing.
+        let past = Pixels(PlazaSnowSheet.recolored(px.image(), rows: [(PlazaSnowSheet.groundColors, 30..<99), (PlazaSnowSheet.groundColors, 50..<60)]))
+        XCTAssertEqual(past.rgba(0, 31), [0xC6, 0xDA, 0xF0, 255])
+        XCTAssertEqual(past.rgba(0, 29), [0x3A, 0xBE, 0x41, 255])
+    }
 }
