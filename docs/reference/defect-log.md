@@ -3387,3 +3387,12 @@ read_when:
 - **영구 캡처:** `SettingsModelTests.testTheReportLineFollowsTheScheduleCaptionOnlyWhileTheTeamIsReady`. 예산 자체는 `settings.openCost` 가 이미 지킨다 — 릴리스 모드가 막는다.
 - **규칙:** 윈도 팝오버 페이지에 행을 더하기 전에, 기존 행의 힌트나 라벨에 넣을 수 있는지 먼저 본다. 행을 더했다면 PR 의 windows-app 실행에서 `settings.openCost`·`popover.swapCost` 줄의 `frames with a paint`·`windows made` 를 직접 읽는다(잡이 초록이어도).
 - **후속(같은 날, 두 번째 릴리스 실행 44764713785):** 창이 164 개로 돌아온 뒤에도 설치된 앱의 셀프테스트가 5 프레임을 두 번 쟀다. 둘째 줄이 두 줄로 감겨 설정 페이지가 v2.5.635 보다 32 px 컸고(2356 → 2388), 전환이 3 프레임 위주에서 4 프레임 위주로 옮겨 느린 러너에서 5 가 됐다. 사용자 결정으로 문구를 한 줄로 줄였다: "회사 대시보드로 보내는 중 · 11월 20일 16:05" / "… · 아직 안 보냄"(맥·윈도 같은 문구). 예산(4)은 그대로 둔다.
+
+## 광장 패널의 "쉴 때 렌더 없음" 검사가 가끔 하나를 더 셌다 (#319 CI, v2.5.636 세 번째 릴리스 실행, 2026-11-21)
+- **증상:** `PlazaBoardWindowTests.testOpeningAndClosingNeverRelayoutsTheHostAndTheIndicatorEndsItsTimers` 가 "idle and visible: no renders" 에서 36 ≠ 35 로 실패했다. #319 의 맥 CI 에서 한 번(재실행은 통과), 같은 날 릴리스 맥 게이트에서 한 번. 앞선 릴리스 게이트 두 번은 통과했다. 바뀐 코드는 광장과 무관한 문구뿐이었다.
+- **직접 원인:** 스크롤 표시의 마지막 사라짐 박자(`PlazaScrollIndicator` 의 fade `onTick`)는 시계를 먼저 멈추고(`isTimerRunning == false`) 렌더는 `PlazaHUD.setNeedsRender` 가 **다음 메인 액터 Task** 로 미룬다. 시계는 메인 런루프의 `Timer` 라, 테스트의 `rig.wait`(20 ms 마다 조건 확인) 가 그 사이에 깨면 조건이 참이 된 채 렌더 전 수를 `idle` 로 읽고, 미뤄 둔 렌더는 이어지는 1 초 안에 들어와 하나가 더 세진다. 부하가 큰 맥(전체 스위트)·러너에서 그 틈이 넓어진다.
+- **왜 못 걸렀나:** 테스트는 "타이머가 멈췄다 = 렌더도 끝났다" 를 가정했고, 보통은 Task 가 깨어난 wait 보다 먼저 돌아 통과했다. `rig.wait` 의 주석이 느린 러너를 다뤘지만(고정 sleep 대신 조건 대기) 조건 뒤에 남은 일은 다루지 않았다.
+- **부류 스윕:** `rig.wait` 호출 3곳(보드 1, 채팅 기록 2 — 하나는 렌더를 끈 상태라 무관)과, 같은 "타이머 끝난 뒤 렌더 수 읽기" 를 고정 1.6 s sleep 으로 하던 카드 테스트 하나. 로스터 테스트는 시계가 처음부터 없는 상태를 재서 해당 없다. 윈도 셀프테스트(`WindowsSelftestPlazaPanels`)는 0.5 s 펌프 뒤 1–5 범위로 재서 해당 없다. 제품 코드는 바꾸지 않는다 — 마지막 박자의 렌더(투명도 0)는 맞는 동작이다.
+- **고침:** `PlazaWindowRig.wait` 가 조건이 참이 된 뒤 `flush()`(20 번 yield)로 미뤄 둔 렌더를 끝내고 돌아온다. 카드 테스트의 1.6 s sleep 을 `rig.wait { !isTimerRunning }` 로 바꿨다.
+- **영구 캡처:** `PlazaBoardWindowTests.testTheRigsWaitReturnsAfterAScheduledRenderLands` — `setNeedsRender` 직후 `wait { true }` 가 렌더 수 +1 을 보여야 한다. `flush()` 를 빼면 매번 실패한다(결정적).
+- **규칙:** 광장 HUD 의 렌더 수를 읽기 전에는 `rig.flush()` 나 `rig.wait` 를 거친다. 시계·타이머 상태가 바뀐 직후라도 렌더는 아직 예약만 된 상태일 수 있다.
