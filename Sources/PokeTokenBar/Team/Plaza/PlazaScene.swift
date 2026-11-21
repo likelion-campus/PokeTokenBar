@@ -23,6 +23,8 @@ struct PlazaSceneMember: Equatable, Sendable {
     var evolutionStage = 1
     /// 이름 위에 쓰는 성격. 모르면 이름만 쓴다.
     var nature: PokemonNature?
+    /// 그 팀원이 보낸 몸 크기 등급 1...3. 이 화면의 그림 크기가 아니라 받은 값이다.
+    var bodySize = 1
 }
 
 /// 광장 장면. 월드는 y가 아래로 늘어나고 SpriteKit은 위로 늘어나므로 `sceneY = 월드 높이 - y`로 바꾼다.
@@ -215,6 +217,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         var diving = false
         var dive = DiveFade()
         var stage = 1
+        var bodySize = 1
         var pond = PondWatch()
         /// 광장 메타몽 전용: 팀원을 따라 한 모습인지.
         var isDecoy = false
@@ -343,6 +346,10 @@ struct PlazaSceneMember: Equatable, Sendable {
     private var myPond = PondWatch()
     /// 내 진화 단계(1...3). 큰 물보라가 젖게 하는 반경이다. 창 컨트롤러가 내 종이 바뀔 때마다 맞춘다.
     var myEvolutionStage = 1
+    /// 내 몸 크기 등급(1...3). 창 컨트롤러가 보이는 그림을 잴 때마다 맞춘다. 바뀌면 안내 줄을 다시 맞춘다.
+    var myBodySize = 1 {
+        didSet { if myBodySize != oldValue { refreshInteractionTarget() } }
+    }
 
     /// 잠수로 흐려지는 정도(0–1). `PlazaPond.diveFade`초에 걸쳐 오가며 장면 시간(dt)으로만 잰다.
     private struct DiveFade {
@@ -638,6 +645,7 @@ struct PlazaSceneMember: Equatable, Sendable {
                 }
                 r.diving = m.isDiving
                 r.stage = m.evolutionStage
+                r.bodySize = m.bodySize
                 r.color = PlazaNameColor.color(forMemberID: m.memberID, chosen: m.nameColor)
                 r.actor.setName(r.displayName, color: r.color)
                 r.actor.setTitle(m.nature.map(L(.ko).plazaNatureTitle))
@@ -650,7 +658,7 @@ struct PlazaSceneMember: Equatable, Sendable {
                 motion.senderIsRunning = !m.isAway && m.isRunning
                 let r = Remote(actor: PlazaActor(name: Remote.displayName(m.nickname, isIdle: m.isIdle), color: color),
                                color: color, nickname: m.nickname, isAway: m.isAway, isIdle: m.isIdle, motion: motion,
-                               wanderer: wanderer, diving: m.isDiving, stage: m.evolutionStage)
+                               wanderer: wanderer, diving: m.isDiving, stage: m.evolutionStage, bodySize: m.bodySize)
                 r.actor.setTitle(m.nature.map(L(.ko).plazaNatureTitle))
                 r.actor.attach(world: root, camera: cameraNode)
                 remotes[m.memberID] = r
@@ -683,6 +691,7 @@ struct PlazaSceneMember: Equatable, Sendable {
             r.color = shown.nameColor
             r.isDecoy = shown.isDecoy
             r.isBouncing = shown.isBouncing
+            r.bodySize = shown.bodySize
             r.actor.setName(r.displayName, color: r.color)
             r.actor.setTitle(shown.title)
             remotes[key] = r
@@ -694,6 +703,7 @@ struct PlazaSceneMember: Equatable, Sendable {
                            nickname: shown.name, isAway: false, motion: motion)
             r.isDecoy = shown.isDecoy
             r.isBouncing = shown.isBouncing
+            r.bodySize = shown.bodySize
             r.actor.setTitle(shown.title)
             r.actor.attach(world: root, camera: cameraNode)
             remotes[key] = r
@@ -2160,6 +2170,18 @@ struct PlazaSceneMember: Equatable, Sendable {
         if let tile = dittoTile { tiles[PlazaDitto.sceneKey] = tile }
         return tiles
     }
+    /// 내 몸.
+    var myBody: PlazaBody { PlazaBody(foot: walker.tile, size: myBodySize) }
+    /// 한 키의 몸: nil은 나, 팀원·메타몽은 지금 칸과 받은 등급, 모르는 키는 nil. 안내·메뉴·키가 모두 여기서 읽는다.
+    func body(of id: String?) -> PlazaBody? {
+        guard let id else { return myBody }
+        guard let r = remotes[id] else { return nil }
+        return PlazaBody(foot: r.motion.tile, size: r.bodySize)
+    }
+    /// 칸 표를 몸 표로. 모르는 키의 등급은 1.
+    func bodies(_ tiles: [String: TilePoint]) -> [String: PlazaBody] {
+        tiles.reduce(into: [:]) { $0[$1.key] = PlazaBody(foot: $1.value, size: remotes[$1.key]?.bodySize ?? 1) }
+    }
     /// 테스트용
     func memberFoot(_ id: String) -> CGPoint? { remotes[id]?.motion.footPoint }
     func memberName(_ id: String) -> String? { remotes[id]?.displayName }
@@ -2358,6 +2380,7 @@ struct PlazaDittoShown: Equatable {
     var nameColor: PlazaColor
     var title: String?
     var isDecoy: Bool
+    var bodySize: Int = 1
 }
 
 extension PlazaScene: PlazaStageDelegate {}

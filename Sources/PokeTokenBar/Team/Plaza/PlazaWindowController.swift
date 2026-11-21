@@ -71,12 +71,15 @@ import Observation
     /// `shownDitto`에 입힌 이름·색·칭호·그림. 둘 다 그대로면 0.05초 틱마다 장면과 지도를 다시 건드리지 않는다.
     private var shownDittoLook: DittoLook?
     private let dittoSeed: () -> UInt64
+    /// 마지막으로 잰 내 몸 크기 등급. 광장이 닫힌 동안에는 그대로 두고, 새 장면에 심고 열 때 다시 잰다.
+    private(set) var myBodySize = 1
 
     private struct DittoLook: Equatable {
         var name: String
         var color: PlazaColor
         var title: String?
         var subject: CompanionStore.RepresentativeSubject
+        var bodySize: Int
     }
     /// 지금 모닥불에 앉아 집중 중인 나. 앉으면 저장하고, 끝나거나 일어서면 지운다.
     private(set) var focus: PlazaFocus?
@@ -376,6 +379,7 @@ import Observation
         nameColorModel.isOpen = false
         s.canWalk = subject().speciesID != nil
         s.myEvolutionStage = evolutionStage()
+        s.myBodySize = myBodySize   // 닫힌 동안 바뀐 크기는 열 때 다시 잰다
         s.onDivingChange = { [weak self] in self?.session?.updateDiving($0); self?.refreshHint() }
         s.onZoomChange = { [weak self, preferences] in
             preferences.zoom = $0
@@ -1721,18 +1725,20 @@ import Observation
             if id == memberID() {
                 // 내 칸은 창을 열 때 `refreshRoster` 가 이미 캐시해 두었다. 틱마다 도감을 훑지 않는다.
                 look = DittoLook(name: nickname(), color: scene.nameColor,
-                                 title: (myEntryCache ?? nil)?.nature.map(L(.ko).plazaNatureTitle), subject: subject())
+                                 title: (myEntryCache ?? nil)?.nature.map(L(.ko).plazaNatureTitle), subject: subject(),
+                                 bodySize: myBodySize)
             } else if let m = members[id], m.inPlaza {
                 look = DittoLook(name: m.nickname, color: PlazaNameColor.color(forMemberID: id, chosen: m.nameColor),
                                  title: m.character.nature.map(L(.ko).plazaNatureTitle),
-                                 subject: .init(speciesID: m.character.speciesID, isShiny: m.character.isShiny, form: m.character.form))
+                                 subject: .init(speciesID: m.character.speciesID, isShiny: m.character.isShiny, form: m.character.form),
+                                 bodySize: m.bodySize)
             } else {
                 return
             }
         } else {
             look = DittoLook(name: L(.ko).plazaDittoName,
                              color: PlazaNameColor.color(forMemberID: PlazaDitto.sceneKey, chosen: PlazaDitto.nameHex), title: nil,
-                             subject: .init(speciesID: PlazaDitto.speciesID, isShiny: false, form: nil))
+                             subject: .init(speciesID: PlazaDitto.speciesID, isShiny: false, form: nil), bodySize: 1)
         }
         if state == shownDitto, look == shownDittoLook, change == .none { return }
         shownDitto = state
@@ -1740,7 +1746,7 @@ import Observation
         scene.applyDitto(PlazaDittoShown(tile: state.tile, facing: state.facing, isWalking: state.isWalking ?? false,
                                          isRunning: state.isRunning ?? false,
                                          isBouncing: state.isBouncing == true && !state.isDecoy, name: look.name, nameColor: look.color,
-                                         title: look.title, isDecoy: state.isDecoy))
+                                         title: look.title, isDecoy: state.isDecoy, bodySize: look.bodySize))
         if memberSubjects[PlazaDitto.sceneKey] != look.subject {
             memberSubjects[PlazaDitto.sceneKey] = look.subject
             startMemberLoad(PlazaDitto.sceneKey, subject: look.subject)
@@ -1962,7 +1968,7 @@ import Observation
                                     facing: $0.facing ?? .down, isWalking: $0.isWalking, isIdle: $0.isIdle,
                                     nameColor: look?.nameHex ?? $0.nameColor,
                                     isRunning: $0.isRunning, isDiving: $0.isDiving, evolutionStage: $0.evolutionStage,
-                                    nature: look != nil ? look?.nature : $0.character.nature)
+                                    nature: look != nil ? look?.nature : $0.character.nature, bodySize: $0.bodySize)
         })
         let shown = targets.filter { looks[$0.key] != nil }
         for (id, target) in shown where shownMimics[id] != target {
@@ -2040,6 +2046,10 @@ import Observation
         // 기다리는 동안 닫혔거나 더 새 요청이 있었으면 버린다.
         guard generation == refreshGeneration, let scene else { return }
         scene.setCharacter(frames)
+        // 내 보이는 그림이 오는 유일한 길이다. 처음·재시도·종 바뀜·변장 시작과 끝이 모두 여기를 지난다.
+        myBodySize = PlazaBodySize.size(of: frames) ?? 1
+        scene.myBodySize = myBodySize
+        session?.updateBodySize(myBodySize)
         if Self.shouldRetry(frames, attempt: attempt) {
             Task { [weak self, sleep = spriteRetrySleep] in
                 await sleep(Self.spriteRetryDelay)
