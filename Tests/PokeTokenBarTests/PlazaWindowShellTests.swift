@@ -545,7 +545,7 @@ private struct NoSpritesFetcher: PlazaSpriteFetching {
         c.show()
         _ = shell.take()
         let link = t.hub.connect(t.meT, to: t.otherT)
-        t.other.updatePlazaPosition(inPlaza: true, tile: PlazaMapData.map.spawn, facing: .down, isWalking: false)
+        t.other.updatePlazaPosition(inPlaza: true, tile: PlazaMapData.map.spawn, facing: .down, isWalking: false, isFlushed: false)
         let scene = try XCTUnwrap(c.scene)
         let otherID = t.otherS.memberID
         await settle { scene.memberTiles[otherID] != nil }
@@ -573,7 +573,7 @@ private struct NoSpritesFetcher: PlazaSpriteFetching {
         let scene = try XCTUnwrap(c.scene)
         let me = t.meS.memberID, otherID = t.otherS.memberID
         let beside = TilePoint(x: scene.walker.tile.x + 1, y: scene.walker.tile.y)
-        t.other.updatePlazaPosition(inPlaza: true, tile: beside, facing: .left, isWalking: false)
+        t.other.updatePlazaPosition(inPlaza: true, tile: beside, facing: .left, isWalking: false, isFlushed: false)
         await settle { scene.memberTiles[otherID] == beside }
         XCTAssertEqual(scene.memberTiles[otherID], beside, "test precondition: the teammate stands beside me")
         let presenting: any PlazaPresenting = c

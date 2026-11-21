@@ -178,17 +178,31 @@ final class PlazaHotSpringTests: XCTestCase {
         XCTAssertTrue(stride(from: 0, to: ring.count, by: 4).contains { ring[$0] == 0x74 && ring[$0 + 1] == 0xC0 && ring[$0 + 2] == 0xB6 })
     }
 
-    func testTheRedSilhouetteReplacesRgbAndKeepsAlpha() {
-        var bitmap = PlazaBitmap(width: 3, height: 1)
-        bitmap[0, 0] = PlazaRGBA(r: 10, g: 200, b: 255, a: 255)
-        bitmap[1, 0] = PlazaRGBA(r: 50, g: 50, b: 50, a: 128)   // premultiplied half alpha
-        let out = PlazaHotSpring.redSilhouette(PlazaImage(bitmap: bitmap)).pixels.bytes
-        XCTAssertEqual(Array(out[0..<4]), [0xE0, 0x50, 0x3C, 255], "an opaque pixel is exactly the flush colour")
-        XCTAssertEqual(Double(out[4]), 0xE0 * 128.0 / 255, accuracy: 1)
-        XCTAssertEqual(Double(out[5]), 0x50 * 128.0 / 255, accuracy: 1)
-        XCTAssertEqual(Double(out[6]), 0x3C * 128.0 / 255, accuracy: 1)
-        XCTAssertEqual(out[7], 128, "alpha is kept")
-        XCTAssertEqual(Array(out[8..<12]), [0, 0, 0, 0], "transparent stays transparent")
+    /// The flush is baked into the body's own picture: a plain lerp of every opaque pixel toward `flushColor`, in a few steps.
+    func testTheLerpedFrameMovesEveryColourTowardRed() {
+        XCTAssertEqual(PlazaHotSpring.flushSteps, 6)
+        XCTAssertEqual(PlazaHotSpring.flushStep(forBlend: 0), 0)
+        XCTAssertEqual(PlazaHotSpring.flushStep(forBlend: PlazaHotSpring.flushBlend), 6)
+        XCTAssertEqual(PlazaHotSpring.flushStep(forBlend: PlazaHotSpring.flushBlend / 2), 3)
+        XCTAssertEqual(PlazaHotSpring.flushStep(forBlend: 5), 6, "never above the last step")
+        XCTAssertEqual(PlazaHotSpring.flushStep(forBlend: 0.01), 0, "a tiny level rounds to the plain frame")
+        XCTAssertEqual(PlazaHotSpring.flushAmount(step: 0), 0)
+        XCTAssertEqual(PlazaHotSpring.flushAmount(step: 6), PlazaHotSpring.flushBlend, accuracy: 1e-9)
+        var bitmap = PlazaBitmap(width: 4, height: 1)
+        bitmap[0, 0] = PlazaRGBA(r: 255, g: 255, b: 255, a: 255)
+        bitmap[1, 0] = PlazaRGBA(r: 0, g: 0, b: 255, a: 255)
+        bitmap[2, 0] = PlazaRGBA(r: 50, g: 50, b: 50, a: 128)   // premultiplied half alpha; pixel 3 stays transparent
+        let image = PlazaImage(bitmap: bitmap)
+        XCTAssertTrue(PlazaHotSpring.flushLerped(image, step: 0) === image, "step 0 is the plain frame itself")
+        let out = PlazaHotSpring.flushLerped(image, step: 6).pixels.bytes
+        // white -> (241,176,167); blue -> (101,36,167): a lerp, so blue moves toward red instead of going dark
+        for (got, want) in zip(out[0..<3], [241.0, 176, 167]) { XCTAssertEqual(Double(got), want, accuracy: 1) }
+        for (got, want) in zip(out[4..<7], [101.0, 36, 167]) { XCTAssertEqual(Double(got), want, accuracy: 1) }
+        XCTAssertEqual(out[3], 255)
+        XCTAssertEqual(Array(out[12..<16]), [0, 0, 0, 0], "transparent stays transparent")
+        // premultiplied half alpha: rgb' = rgb * (1 - a) + red * alpha * a
+        XCTAssertEqual(Double(out[8]), 50 * 0.55 + 224 * (128.0 / 255) * 0.45, accuracy: 1)
+        XCTAssertEqual(out[11], 128, "alpha is kept")
     }
 
     // MARK: - The soak clock and the flush fade

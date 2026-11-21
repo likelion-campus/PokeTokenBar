@@ -228,7 +228,7 @@ final class TeamSession {
     }
 
     func updatePlazaPosition(inPlaza: Bool, tile: TilePoint?, facing: PlazaDirection?, isWalking: Bool,
-                             isRunning: Bool = false, isFlushed: Bool = false) {
+                             isRunning: Bool = false, isFlushed: Bool) {
         // 달리기는 칸을 출발할 때나 멈출 때만 바뀌므로 칸·걷기 변화 없이 혼자 바뀌지 않는다.
         let changed = inPlaza != self.inPlaza || tile != self.tile || facing != self.facing || isWalking != self.isWalking
             || isFlushed != self.isFlushed

@@ -92,9 +92,11 @@ struct PlazaActorContext {
     private var frameIndex = 0
     private var frameElapsed: TimeInterval = 0
     private var textureCache: [ObjectIdentifier: PlazaTexture] = [:]
-    /// 붉은 기운 사본(몸 위 자식 노드)과 프레임별 붉은 그림. 붉은 동안에만 만들고 끝나면 버린다.
-    private var flushNode: PlazaSprite?
-    private var redCache: [ObjectIdentifier: PlazaTexture] = [:]
+    /// 붉은 기운의 단계(`PlazaHotSpring.flushStep`)와, 그 단계로 구워 낸 (프레임, 단계)별 그림. 붉은 동안에만 늦게 만들고
+    /// 0단계로 돌아오거나 프레임이 바뀌면 버린다. 몸 텍스처가 곧 붉은 그림이라 따로 얹는 노드가 없다.
+    private(set) var flushStep = 0
+    private struct FlushKey: Hashable { let image: ObjectIdentifier; let step: Int }
+    private var flushCache: [FlushKey: (image: PlazaImage, texture: PlazaTexture)] = [:]
 
     init(name: String, color: PlazaColor) {
         self.name = name
@@ -176,7 +178,7 @@ struct PlazaActorContext {
     func setFrames(_ f: PlazaCharacterFrames) {
         frames = f
         textureCache.removeAll()
-        redCache.removeAll()
+        flushCache.removeAll()
         frameIndex = 0
         frameElapsed = 0
         characterNode.isHidden = false
@@ -425,13 +427,16 @@ struct PlazaActorContext {
     }
 
     /// 위와 같되 `hotSpring` 이면 잠긴 아랫부분의 물빛이 온천색이다.
-    /// `flush` 는 온천의 붉은 기운(0...`flushBlend`)이다. 몸통에만 입히고 잠긴 아랫부분에는 입히지 않는다.
+    /// `flush` 는 온천의 붉은 기운(0...`flushBlend`)이다. 화면과 같은 단계의 구운 그림(`flushedImage`)을 몸통에만 쓰고 잠긴 아랫부분은 그대로다.
     func photoActor(foot rawFoot: CGPoint, pose: PlazaSpriteChoice, waterClip: CGRect?, hotSpring: Bool, flush: CGFloat = 0) -> PlazaPhotoActor? {
         guard let list = currentFrames, !list.isEmpty else { return nil }
+        var flushedImage: PlazaImage?
         // 춤의 옆걸음은 그림자도 함께 간다(화면의 `place`와 같다).
         let dancePose = dancePose
         let foot = CGPoint(x: rawFoot.x + dancePose.offsetX, y: rawFoot.y)
         let image = list[frameIndex % list.count].image
+        let flushStep = PlazaHotSpring.flushStep(forBlend: flush)
+        if flushStep > 0 { flushedImage = flushImage(for: image, step: flushStep).image }
         var shadow: PlazaImage?
         var shadowRect = CGRect.zero
         if let size = shadowTextureSize {
@@ -456,55 +461,43 @@ struct PlazaActorContext {
                                    ?? emoteKind.map { PlazaEmoteArt.image($0, scale: 2, large: true) },
                                opacity: opacity, plateBaseY: plateBaseY, sink: eggSunk ? 0 : swimSink, waterClip: swimSink > 0 ? waterClip : nil, eggSunk: eggSunk,
                                lift: dancePose.lift, squash: dancePose.squash, tilt: dancePose.tilt,
-                               waterColor: hotSpring ? PlazaHotSpring.waterColor : PlazaPondArt.waterColor, flush: flush)
+                               waterColor: hotSpring ? PlazaHotSpring.waterColor : PlazaPondArt.waterColor,
+                               flushedImage: flushedImage)
     }
 
-    /// 온천의 붉은 기운. 몸과 같은 그림을 `flushColor` 한 색으로 칠한 사본을 몸 위에 알파 `blend` 로 겹쳐 그린다(몸의 자식 노드라
-    /// 뒤집힘·배율·기울기·풀숲 흐려짐·숨김이 그대로 따르고, 헤엄칠 때는 몸과 같이 수면 위 부분만 잘린다. 잠긴 아랫부분 `ghostNode` 는 그대로).
-    /// 사본 노드와 그림은 붉은 동안에만 있고 0이 되면 버린다(안 붉은 캐릭터는 프레임마다 아무것도 하지 않는다).
+    /// 온천의 붉은 기운(0...`flushBlend`). `PlazaHotSpring.flushSteps` 단계로 반올림해, 단계가 바뀔 때만 몸 텍스처를 붉게 구운 그림으로
+    /// 바꾼다(몸의 자식 노드를 얹지 않으므로 같은 줄 이웃과 그리는 순서가 얽히지 않고, 사진도 같은 그림을 쓴다). 헤엄칠 때는 몸이
+    /// 잘린 만큼 수면 위 부분만 붉고, 잠긴 아랫부분 `ghostNode` 는 원래 그림에 물빛이다. 0단계로 돌아오면 구운 그림을 버린다.
     func setFlush(_ blend: CGFloat) {
-        if blend <= 0 {
-            guard let node = flushNode else { return }
-            node.removeFromParent()
-            flushNode = nil
-            redCache.removeAll()
-            return
-        }
-        if flushNode == nil {
-            let node = PlazaSprite()
-            node.anchorPoint = CGPoint(x: 0.5, y: 0)
-            node.zPosition = 0.00005   // 몸 바로 위, 잠긴 부분(+0.0001)과 이름표(카메라 공간) 아래
-            characterNode.addChild(node)
-            flushNode = node
-            applyFrame()
-        }
-        flushNode?.alpha = blend
+        let step = PlazaHotSpring.flushStep(forBlend: blend)
+        guard step != flushStep else { return }
+        flushStep = step
+        if step == 0 { flushCache.removeAll() }
+        applyFrame()
     }
 
-    /// 몸의 현재 그림(자른 몸이면 같은 줄만)과 같은 크기로 붉은 사본을 맞춘다.
-    private func syncFlushNode(image: PlazaImage, cutFraction f: CGFloat?, size: CGSize) {
-        guard let node = flushNode else { return }
-        let red: PlazaTexture
-        if let cached = redCache[ObjectIdentifier(image)] {
-            red = cached
-        } else {
-            red = PlazaTexture(PlazaHotSpring.redSilhouette(image))
-            redCache[ObjectIdentifier(image)] = red
-        }
-        if let f {
-            node.texture = PlazaTexture(rect: CGRect(x: 0, y: f, width: 1, height: 1 - f), in: red)
-        } else {
-            node.texture = red
-        }
-        node.size = size
+    /// (프레임, 단계)의 구운 그림과 텍스처. 없으면 지금 만든다.
+    private func flushImage(for image: PlazaImage, step: Int) -> (image: PlazaImage, texture: PlazaTexture) {
+        let key = FlushKey(image: ObjectIdentifier(image), step: step)
+        if let cached = flushCache[key] { return cached }
+        let baked = PlazaHotSpring.flushLerped(image, step: step)
+        let made = (image: baked, texture: PlazaTexture(baked))
+        flushCache[key] = made
+        return made
     }
 
-    /// 테스트용: 붉은 사본이 있는지, 그 알파(= 붉은 정도), 크기, 만들어 둔 붉은 그림 수, 몸의 색 섞기(곱하기 틴트는 없어야 한다).
-    var hasFlushOverlay: Bool { flushNode != nil }
-    var flushBlend: CGFloat { flushNode?.alpha ?? 0 }
-    var flushOverlaySize: CGSize? { flushNode?.size }
-    var redTextureCount: Int { redCache.count }
-    var bodyColorBlend: CGFloat { characterNode.colorBlendFactor }
+    /// 테스트용: 단계, 만들어 둔 구운 그림 수, 몸 노드의 자식 수(붉은 기운이 노드를 더하면 안 된다), 몸 텍스처의 첫 픽셀.
+    var flushBlend: CGFloat { PlazaHotSpring.flushAmount(step: flushStep) }
+    var flushCacheCount: Int { flushCache.count }
+    var bodyChildCount: Int { characterNode.children.count }
+    var submergedTexturePixel: (r: UInt8, g: UInt8, b: UInt8, a: UInt8)? {
+        guard let bytes = ghostNode.texture?.image.pixels.bytes, bytes.count >= 4 else { return nil }
+        return (bytes[0], bytes[1], bytes[2], bytes[3])
+    }
+    var bodyTexturePixel: (r: UInt8, g: UInt8, b: UInt8, a: UInt8)? {
+        guard let bytes = characterNode.texture?.image.pixels.bytes, bytes.count >= 4 else { return nil }
+        return (bytes[0], bytes[1], bytes[2], bytes[3])
+    }
 
     // MARK: - 값 읽기
 
@@ -621,23 +614,22 @@ struct PlazaActorContext {
             texture = PlazaTexture(image)
             textureCache[ObjectIdentifier(image)] = texture
         }
+        let bodyTexture = flushStep > 0 ? flushImage(for: image, step: flushStep).texture : texture   // 몸은 붉게, 잠긴 부분은 원래 그림
         let full = Self.scaledSize(of: image)
         // `size`는 현재 배율을 곱한 값이라, 춤의 눌림이 남은 채 대입하면 눌림이 지워지거나 두 번 곱해진다. `place`가 눌림을 다시 건다.
         characterNode.yScale = 1
         let cut = swimSink > 0 && !shadowIsNest ? min((swimSink / Self.characterScale).rounded(), CGFloat(image.height) - 1) : 0   // 그림 줄 단위로 자른다
         if cut > 0 {
             let f = cut / CGFloat(image.height)
-            let top = PlazaTexture(rect: CGRect(x: 0, y: f, width: 1, height: 1 - f), in: texture)
+            let top = PlazaTexture(rect: CGRect(x: 0, y: f, width: 1, height: 1 - f), in: bodyTexture)
             characterNode.texture = top
             characterNode.size = CGSize(width: full.width, height: full.height - cut * Self.characterScale)
-            syncFlushNode(image: image, cutFraction: f, size: characterNode.size)
             let low = PlazaTexture(rect: CGRect(x: 0, y: 0, width: 1, height: f), in: texture)   // 잘려 나간 아래 줄
             ghostNode.texture = low
             ghostNode.size = CGSize(width: full.width, height: cut * Self.characterScale)
         } else {
-            characterNode.texture = texture
+            characterNode.texture = bodyTexture
             characterNode.size = full
-            syncFlushNode(image: image, cutFraction: nil, size: full)
             if eggSunk {   // 물에 든 알: 통째로 물빛 몸통 하나
                 ghostNode.texture = texture
                 ghostNode.size = full

@@ -124,7 +124,7 @@ final class PlazaIceControllerTests: XCTestCase {
     }
 
     private func place(_ w: World, _ tile: TilePoint) async {
-        w.b.session.updatePlazaPosition(inPlaza: true, tile: tile, facing: .down, isWalking: false)
+        w.b.session.updatePlazaPosition(inPlaza: true, tile: tile, facing: .down, isWalking: false, isFlushed: false)
         for _ in 0..<200 where w.scene.memberTiles[w.b.id] != tile { await Task.yield(); t += 0.05; w.scene.update(t) }
         XCTAssertEqual(w.scene.memberTiles[w.b.id], tile, "test precondition")
     }

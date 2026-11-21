@@ -46,7 +46,7 @@ extension PlazaPrayTests {
     /// 팀원을 광장 안 한 칸에 세우고, 내 장면이 그 팀원을 알 때까지 기다린다.
     private func standInPlaza(_ other: Node, seenBy c: PlazaWindowController, me: Node) async {
         let tile = TilePoint(x: map.spawn.x + 3, y: map.spawn.y)
-        other.session.updatePlazaPosition(inPlaza: true, tile: tile, facing: .down, isWalking: false)
+        other.session.updatePlazaPosition(inPlaza: true, tile: tile, facing: .down, isWalking: false, isFlushed: false)
         let id = other.settings.memberID
         // 세션이 먼저 알고 컨트롤러는 한 박자 늦게 따라온다. 장면이 그 칸을 알면 컨트롤러도 안다.
         await waitUntil { me.session.members[id]?.inPlaza == true && c.scene?.memberTiles[id] == tile }

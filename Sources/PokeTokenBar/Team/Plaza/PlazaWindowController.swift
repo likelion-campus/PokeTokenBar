@@ -1570,7 +1570,7 @@ import Observation
         focus = restored
         focusFacing = seat.facing
         session?.updateFocus(endsAt: restored.endsAt)
-        session?.updatePlazaPosition(inPlaza: true, tile: seat.tile, facing: seat.facing, isWalking: false)
+        session?.updatePlazaPosition(inPlaza: true, tile: seat.tile, facing: seat.facing, isWalking: false, isFlushed: false)
     }
 
     /// 가장 가까운 빈 자리에 앉아 집중을 시작한다. 이미 앉아 있거나 빈 자리가 없으면 아무것도 안 한다.
@@ -1617,7 +1617,7 @@ import Observation
         if campfireSwitch?.lit == true { setCampfire(lit: nil) }
         if scene == nil {
             // 창이 닫혀 있는 동안 앉은 모습으로 남아 있었다. 이제 광장을 떠난 것으로 알린다.
-            session?.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false)
+            session?.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false, isFlushed: false)
         } else {
             refreshCampfire()
         }
@@ -1937,7 +1937,9 @@ import Observation
             scene?.setMyFlushed(true)
             session?.updateFlushed(true)
         } else if soak.deadline != nil {
-            armSoak()   // 시계가 뒤로 갔다: 남은 만큼 다시 기다린다
+            // 시계가 뒤로 갔다: 시작 시각이 지금보다 뒤면 지금부터 3분을 다시 센다(되돌린 시간만큼 늦어지지 않는다). 아니면 남은 만큼 기다린다.
+            _ = soak.update(inSpring: true, now: clock())
+            armSoak()
         }
     }
 
@@ -2275,9 +2277,9 @@ import Observation
         if let scene, session != nil {
             // 앉아 있으면 창을 닫아도 팀원에게는 그 자리에 앉은 채로 남는다.
             if let focus {
-                session?.updatePlazaPosition(inPlaza: true, tile: focus.seat, facing: focusFacing, isWalking: false)
+                session?.updatePlazaPosition(inPlaza: true, tile: focus.seat, facing: focusFacing, isWalking: false, isFlushed: false)
             } else {
-                session?.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false)
+                session?.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false, isFlushed: false)
             }
             scene.onLocalPositionChange = nil
         }

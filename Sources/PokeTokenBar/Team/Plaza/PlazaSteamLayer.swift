@@ -10,7 +10,7 @@ import Foundation
     private let textures: [PlazaTexture]
     private let sprites: [PlazaSprite]
     private let worldHeight: CGFloat
-    /// 온천 칸들의 바깥 상자에 `cullMargin` 을 더한 영역(월드 픽셀, y 아래로).
+    /// 온천 칸들의 바깥 상자에 `cullMargin` 을 두르고 위쪽에 `rise` 를 더한 영역(월드 픽셀, y 아래로).
     private let cullBounds: CGRect
 
     init(springTiles: [TilePoint], worldHeight: CGFloat, frames: [PlazaImage]) {
@@ -23,6 +23,7 @@ import Foundation
         if let x0 = xs.min(), let x1 = xs.max(), let y0 = ys.min(), let y1 = ys.max() {
             cullBounds = CGRect(x: x0, y: y0, width: x1 + size - x0, height: y1 + size - y0)
                 .insetBy(dx: -PlazaSteam.cullMargin, dy: -PlazaSteam.cullMargin)
+                .adding(top: PlazaSteam.rise)   // 줄기는 수명 동안 `rise` 만큼 위로 올라가므로 끝이 그만큼 더 위까지 닿는다
         } else {
             cullBounds = .null
         }
@@ -90,4 +91,9 @@ import Foundation
     var spriteStates: [SpriteState] {
         sprites.map { SpriteState(x: $0.position.x, y: $0.position.y, alpha: $0.alpha, hidden: $0.isHidden, texture: $0.texture.map(ObjectIdentifier.init)) }
     }
+}
+
+private extension CGRect {
+    /// y 가 아래로 늘어나는 좌표에서 위쪽(작은 y)으로 `top` 만큼 늘린 사각형.
+    func adding(top: CGFloat) -> CGRect { CGRect(x: minX, y: minY - top, width: width, height: height + top) }
 }

@@ -135,10 +135,11 @@ final class PlazaSteamLayerTests: XCTestCase {
     func testTheMarginIsOneTile() async throws {
         let frames = try XCTUnwrap(PlazaScene.steamFrames.isEmpty ? nil : PlazaScene.steamFrames)
         let layer = PlazaSteamLayer(springTiles: springTiles, worldHeight: map.pixelSize.height, frames: frames)
-        // the spring spans y 448..<672, so its margin box starts at y 416; this rect only touches it
-        layer.update(dt: 1.0 / 60, visible: CGRect(x: 1000, y: 0, width: 300, height: 416), isHidden: false, step: 0.5)
+        // the spring spans y 448..<672. Its margin box starts at y 416, and a wisp rises 24 px over its life (`PlazaSteam.rise`), so a
+        // wisp's tip can reach y 392: the box starts there. A view that only touches it shows nothing; one pixel more shows the layer.
+        layer.update(dt: 1.0 / 60, visible: CGRect(x: 1000, y: 0, width: 300, height: 392), isHidden: false, step: 0.5)
         XCTAssertTrue(layer.root.isHidden)
-        layer.update(dt: 1.0 / 60, visible: CGRect(x: 1000, y: 0, width: 300, height: 417), isHidden: false, step: 0.5)
+        layer.update(dt: 1.0 / 60, visible: CGRect(x: 1000, y: 0, width: 300, height: 393), isHidden: false, step: 0.5)
         XCTAssertFalse(layer.root.isHidden)
     }
 

@@ -50,7 +50,7 @@ extension PlazaEmoteTests {
         c.prepareScene()
         await connect(me, other)
         other.session.updatePlazaPosition(inPlaza: true, tile: PlazaTargeting.facingTile(from: start, facing: .down),
-                                          facing: .down, isWalking: false)
+                                          facing: .down, isWalking: false, isFlushed: false)
         await settle()
         press(c.scene!, heartKey)
         await settle()
@@ -92,7 +92,7 @@ extension PlazaEmoteTests {
         await connect(me, other)
         let far = TilePoint(x: start.x + 6, y: start.y)
         XCTAssertTrue(map.isWalkable(far), "test precondition")
-        other.session.updatePlazaPosition(inPlaza: true, tile: far, facing: .down, isWalking: false)
+        other.session.updatePlazaPosition(inPlaza: true, tile: far, facing: .down, isWalking: false, isFlushed: false)
         await settle()
         press(c.scene!, heartKey)
         await settle()
@@ -108,7 +108,7 @@ extension PlazaEmoteTests {
         c.prepareScene()
         await connect(me, other)
         other.session.updatePlazaPosition(inPlaza: true, tile: PlazaTargeting.facingTile(from: start, facing: .down),
-                                          facing: .down, isWalking: false)
+                                          facing: .down, isWalking: false, isFlushed: false)
         await settle()
         press(c.scene!, exclaimKey)
         now += 1

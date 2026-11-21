@@ -148,6 +148,14 @@ test("unassigned-department accounts are excluded and counted", () => {
   assert.equal(m.excludedAccounts, 1);
 });
 
+test("an account in a team with no 부서이름 is listed under the team name; a default team name is excluded", () => {
+  const limits = [].concat(current("a", "m1", "Max", 50, 3, { team: "tS" }), current("b", "m2", "Max", 50, 3, { team: "tD" }));
+  const depts = map({ tS: { name: "", suggested: "AXP Div" }, tD: { name: "", suggested: "팀 2" } });
+  const m = plan(mkData({ limits, depts }));
+  assert.deepEqual(m.rows.map((r) => r.team), ["AXP Div"]);
+  assert.equal(m.excludedAccounts, 1);
+});
+
 test("sorting: forecast rank, projected desc with null last, nickname", () => {
   const people = map({ m1: { nickname: "나", mergeInto: "" }, m2: { nickname: "가", mergeInto: "" }, m3: { nickname: "다", mergeInto: "" },
     m4: { nickname: "라", mergeInto: "" } });

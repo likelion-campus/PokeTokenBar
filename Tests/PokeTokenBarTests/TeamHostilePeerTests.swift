@@ -397,24 +397,46 @@ final class TeamHostilePeerTests: XCTestCase {
         XCTAssertEqual(s.sparkleCount, 0)
     }
 
-    /// Toggling the flag again and again never grows the node tree: the red is a colour on a node that is already there.
-    func testAFlushFloodAddsNoNode() async {
+    /// A flood of flag toggles every 0.1 s (so the fade crosses every step and the animation changes frames), never
+    /// grows the whole node tree, and the baked pictures stay within frames x steps.
+    func testAFlushFloodKeepsTheWholeTreeAndTheTextureCacheBounded() async {
+        func count(_ nodes: [PlazaNode]) -> Int { nodes.reduce(0) { $0 + 1 + count($1.children) } }
+        func image(_ r: UInt8) -> PlazaImage {
+            var bitmap = PlazaBitmap(width: 24, height: 40)
+            for y in 0..<40 { for x in 0..<24 { bitmap[x, y] = PlazaRGBA(r: r, g: 0, b: 255 - r, a: 255) } }
+            return PlazaImage(bitmap: bitmap)
+        }
+        let frames = PlazaCharacterFrames(front: [PlazaFrame(image: image(10), delay: 0.1), PlazaFrame(image: image(200), delay: 0.1)],
+                                          back: [PlazaFrame(image: image(10), delay: 0.1), PlazaFrame(image: image(200), delay: 0.1)])
         for paused in [false, true] {
-            let s = scene()
-            s.isPaused = paused
+            var date = Date(timeIntervalSince1970: 1_800_000_000)
+            let map = PlazaMapData.map
+            let s = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: map.spawn, zoom: 2, nickname: "나", pondVisuals: true)
+            s.now = { date }
             func member(_ flushed: Bool) -> PlazaSceneMember {
                 var m = PlazaSceneMember(memberID: "A", nickname: "A", isAway: false, tile: TilePoint(x: 34, y: 17), facing: .down, isWalking: false)
                 m.isFlushed = flushed
                 return m
             }
             s.applyMembers([member(false)])
-            s.update(0)   // the first frame makes the member's own nodes
-            let nodes = s.children.count, steam = s.steamNodeCount, ice = s.iceLayerNodeCount
-            for i in 0..<1_000 { s.applyMembers([member(i.isMultiple(of: 2))]) }
-            s.update(0.05)
-            XCTAssertEqual(s.children.count, nodes, "paused \(paused)")
+            s.setMemberFrames("A", frames)
+            var t = 0.0
+            s.update(t)
+            s.isPaused = paused
+            let nodes = count(s.children), steam = s.steamNodeCount, ice = s.iceLayerNodeCount
+            var biggest = 0
+            for i in 0..<600 {   // 60 s of scene time: on for 2.5 s (the rise crosses every step), off for 2.5 s, and again
+                s.applyMembers([member((i / 25) % 2 == 0)])
+                date += 0.1
+                t += 0.05
+                s.update(t)
+                biggest = max(biggest, s.memberFlushCacheCount("A") ?? 0)
+                XCTAssertEqual(count(s.children), nodes, "paused \(paused) toggle \(i)")
+            }
             XCTAssertEqual(s.steamNodeCount, steam)
             XCTAssertEqual(s.iceLayerNodeCount, ice)
+            XCTAssertLessThanOrEqual(biggest, frames.front.count * PlazaHotSpring.flushSteps, "paused \(paused): baked pictures are bounded by frames x steps")
+            if !paused { XCTAssertGreaterThan(biggest, 1, "test precondition: the flood did bake pictures") }
         }
     }
 

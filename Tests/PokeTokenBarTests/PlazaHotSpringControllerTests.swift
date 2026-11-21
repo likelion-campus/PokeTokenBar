@@ -184,16 +184,17 @@ final class PlazaHotSpringControllerTests: XCTestCase {
         XCTAssertEqual(gate.requested.last, .milliseconds(180_000))
     }
 
-    /// The system clock was set back while the deadline slept: it wakes early, flushes nobody and waits the rest again.
-    func testAClockSetBackWhileSoakingWaitsTheRestAgain() async {
+    /// The system clock was set back while the deadline slept: it wakes early, flushes nobody and the soak restarts from now (three
+    /// minutes), not after the whole set-back.
+    func testAClockSetBackWhileSoakingRestartsTheSoakFromNow() async {
         let w = await world(me: p(31, 17), b: p(20, 12))
         await enterTheSpring(w)
         now -= 3600
         gate.fire()
         await settle()
         XCTAssertEqual(w.b.session.members[w.me.id]?.isFlushed, false)
-        XCTAssertEqual(gate.requested, [.milliseconds(180_000), .milliseconds(3_780_000)])
-        now += 3780
+        XCTAssertEqual(gate.requested, [.milliseconds(180_000), .milliseconds(180_000)], "three minutes from the new now, not 63")
+        now += 180
         gate.fire()
         await settle()
         XCTAssertEqual(w.b.session.members[w.me.id]?.isFlushed, true)
