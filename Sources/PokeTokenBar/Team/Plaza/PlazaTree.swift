@@ -144,4 +144,255 @@ enum PlazaTree {
         bitmap.bytes = data
         return PlazaImage(bitmap: bitmap)
     }
+
+    // MARK: 닿기 (명세 9.3, 6.3)
+
+    /// 몸이 덮은 칸 가운데 나무 칸이 아닌 칸에서 `facing` 으로 한 칸 앞이 나무 칸인 것이 있다. 등급 1은 발 앞 칸이 나무 칸일 때다.
+    /// 나무 칸 안에 선 몸(구버전 팀원)은 그 칸에서 판정하지 않는다.
+    static func isFacing(_ body: PlazaBody, facing: PlazaDirection, tiles: Set<TilePoint>) -> Bool {
+        let span = PlazaBodySize.span(body.size)
+        for y in (body.foot.y - span.h)...body.foot.y {
+            for x in (body.foot.x - span.w)...(body.foot.x + span.w) {
+                let cell = TilePoint(x: x, y: y)
+                if !tiles.contains(cell), tiles.contains(PlazaWalker.offset(cell, facing)) { return true }
+            }
+        }
+        return false
+    }
+
+    /// 몸이 나무 칸 어느 하나와 같거나 상하좌우로 붙어 있다.
+    static func touches(_ body: PlazaBody, tiles: Set<TilePoint>) -> Bool {
+        tiles.contains { body.touches(PlazaBody(foot: $0, size: 1)) }
+    }
+
+    /// 때리는 쪽: 나무를 보고 있으면 그쪽, 아니면 몸이 선 쪽에서 나무로(줄의 서쪽이면 오른쪽, 동쪽이면 왼쪽, 북쪽이면 아래, 남쪽이면 위).
+    static func hitDirection(_ body: PlazaBody, facing: PlazaDirection, tiles: Set<TilePoint>) -> PlazaDirection {
+        if isFacing(body, facing: facing, tiles: tiles) { return facing }
+        let minX = tiles.reduce(Int.max) { min($0, $1.x) }, maxX = tiles.reduce(Int.min) { max($0, $1.x) }
+        let minY = tiles.reduce(Int.max) { min($0, $1.y) }
+        if body.foot.x < minX { return .right }
+        if body.foot.x > maxX { return .left }
+        return body.foot.y < minY ? .down : .up
+    }
+
+    /// 세게 맞는 마지막 단계. 이 단계는 민트가 떨어지는 때림에만 쓴다(`level`).
+    private static let dropLevel = 3
+
+    /// 이번 때림의 세기 1...3. 떨어지는 때림은 3이고, 나머지는 하루 세 번 주기 안에서 1, 2, 2(`hitsPerDrop` 번째 전까지)로 돈다.
+    static func level(hits: Int, drops: Bool) -> Int {
+        drops ? dropLevel : min(2, (max(hits, 1) - 1) % hitsPerDrop + 1)
+    }
+
+    // MARK: 타격감 (결정 (b)). 표의 항목은 [level − 1]
+
+    static let contactAt: TimeInterval = 0.1                       // 몸이 줄기에 닿는다
+    static let hitStop: [TimeInterval] = [0.05, 0.067, 0.1]        // 때린 쪽과 나무가 멈춘다 (3, 4, 6 프레임)
+    static let lungeDistance: [CGFloat] = [8, 9, 10]               // 월드 픽셀 (태클의 돌진은 8)
+    static let recoil: [CGFloat] = [2, 3, 4]                       // 출발점 너머로 물러나는 월드 픽셀
+    static let recoilDuration: TimeInterval = 0.08
+    static let returnDuration: TimeInterval = 0.14
+    static let bend: [CGFloat] = [3, 6, 9]                         // 맨 위 띠의 월드 픽셀 = 나무 픽셀 1, 2, 3칸. 세로 때림은 bend / 144 만큼 늘인다
+    static let swingPeriod: TimeInterval = 0.24
+    static let swingDecay: TimeInterval = 0.18
+    static let swingLength: TimeInterval = 0.8                     // 멈춤이 끝난 뒤. 그다음은 제자리
+    static let leaves: [Int] = [3, 5, 8]
+    static let leafScale: CGFloat = 3                              // 날씨 격자의 한 칸이 3 월드 픽셀: 나무의 픽셀과 같은 크기
+    static let leafPop: ClosedRange<CGFloat> = 30...60             // 월드 픽셀/초, 맞은 쪽과 위로
+    static let leafGravity: CGFloat = 160                          // 월드 픽셀/초², 그 종류의 `PlazaWeather` 낙하 속도가 될 때까지
+    static let leafRest: TimeInterval = 0.3                        // 땅에서 흐려지며 쉰다
+    static let leafLife: TimeInterval = 2.4                        // 땅에 닿았든 아니든 이때는 없다
+    static let dustSpread: [CGFloat] = [10, 12, 14]                // 월드 픽셀, 0.35초 동안(`puffDust` 처럼)
+    static let dustOffsetX: CGFloat = 26                           // 줄기 가운데에서 먼지 하나까지: 3배 그림에서 뿌리의 가장자리
+    static let impactScale: [CGFloat] = [1.4, 1.6, 1.9]            // 별은 0.6에서 자란다(태클은 1.4)
+    static let itemDelay: TimeInterval = 0.05                      // 멈춤이 끝난 뒤
+    static let itemFall: TimeInterval = 0.45
+    static let itemArc: CGFloat = 12
+    static let itemBounce: CGFloat = 2
+    static let itemBounceDuration: TimeInterval = 0.1
+    static let itemInset: CGFloat = 24                             // 아이템은 그림 가장자리에서 이만큼 안쪽에서 시작한다
+    static let itemClearance: CGFloat = 48                         // 뒤에서 때리면 발 위 이만큼에서 시작한다
+    static let itemStartRow = 30                                   // 자른 그림의 줄: 아이템이 시작하는 높이
+    static let cameraKick: CGFloat = 2                             // 월드 픽셀. 내 3단계 때림만. 0이면 꺼진다
+    static let cameraKickDuration: TimeInterval = 0.12
+
+    /// 1...3 으로 맞춘 표 번호.
+    private static func index(_ level: Int) -> Int { min(max(level, 1), bend.count) - 1 }
+
+    /// 위쪽 띠의 휨(월드 픽셀, 맞은 쪽으로 +). t 는 때림이 시작한 뒤의 초. 닿기 전 0, 멈춤 동안 최대, 그다음 `bend·e^(−t′/decay)·cos(2πt′/period)`, `swingLength` 뒤 0.
+    static func bendAmount(at t: TimeInterval, level: Int) -> CGFloat {
+        let l = index(level)
+        if t < contactAt { return 0 }
+        let after = t - (contactAt + hitStop[l])
+        if after < 0 { return bend[l] }
+        if after >= swingLength { return 0 }
+        return bend[l] * CGFloat(exp(-after / swingDecay) * cos(2 * .pi * after / swingPeriod))
+    }
+
+    /// 네 띠의 옆 이동: 나무 픽셀 단위(`scale`)로 반올림한 `bend × bandWeights`. 픽셀 하나가 두 띠에 걸치지 않는다.
+    static func bandOffsets(bend: CGFloat) -> [CGFloat] {
+        bandWeights.map { (bend / scale * $0).rounded() * scale }
+    }
+
+    /// 세로 때림이 뿌리 서 있는 나무를 늘이는 배율: 1 + 나무 픽셀로 반올림한 휨 / 그림 높이.
+    static func stretch(bend: CGFloat) -> CGFloat {
+        1 + (bend / scale).rounded() * scale / (CGFloat(PlazaResources.treeCrop.height) * scale)
+    }
+
+    private static func ease(_ u: Double) -> CGFloat { CGFloat(sin(u * .pi / 2)) }
+
+    /// 때린 쪽이 나무 쪽으로 나아간 거리(월드 픽셀): 0에서 `lungeDistance` 까지 부드럽게 닿고, 멈춤 동안 그대로, `-recoil` 까지 물러났다가 0으로 돌아온다.
+    static func lungeOffset(at t: TimeInterval, level: Int) -> CGFloat {
+        let l = index(level)
+        let holdEnd = contactAt + hitStop[l]
+        let recoilEnd = holdEnd + recoilDuration
+        if t <= 0 { return 0 }
+        if t < contactAt { return lungeDistance[l] * ease(t / contactAt) }
+        if t < holdEnd { return lungeDistance[l] }
+        if t < recoilEnd { return lungeDistance[l] + (-recoil[l] - lungeDistance[l]) * ease((t - holdEnd) / recoilDuration) }
+        if t < recoilEnd + returnDuration { return -recoil[l] * (1 - ease((t - recoilEnd) / returnDuration)) }
+        return 0
+    }
+
+    /// 돌진이 시작부터 제자리로 돌아올 때까지의 시간.
+    static func lungeLength(level: Int) -> TimeInterval {
+        contactAt + hitStop[index(level)] + recoilDuration + returnDuration
+    }
+
+    /// 내 화면의 카메라 한 번 흔들림(월드 픽셀, 때린 방향으로 +): 3단계에서만, 닿는 순간부터 `cameraKickDuration` 동안 0 → `cameraKick` → 0.
+    static func cameraKick(at t: TimeInterval, level: Int) -> CGFloat {
+        guard level == dropLevel, t > contactAt, t < contactAt + cameraKickDuration else { return 0 }
+        return cameraKick * CGFloat(sin((t - contactAt) / cameraKickDuration * .pi))
+    }
+
+    /// 충격 별의 자리(월드 픽셀, y 아래로): 때린 쪽의 발에서 나무 쪽으로 반 칸, 위로 `max(height, 24) · 0.55`(`showImpact` 의 높이).
+    static func impactPoint(tacklerFoot: CGPoint, direction: PlazaDirection, height: CGFloat) -> CGPoint {
+        let toward = CGFloat(PlazaMap.tileSize) / 2
+        let step: CGPoint = switch direction {
+        case .right: CGPoint(x: toward, y: 0)
+        case .left: CGPoint(x: -toward, y: 0)
+        case .down: CGPoint(x: 0, y: toward)
+        case .up: CGPoint(x: 0, y: -toward)
+        }
+        return CGPoint(x: tacklerFoot.x + step.x, y: tacklerFoot.y + step.y - max(height, 24) * 0.55)
+    }
+
+    /// 떨어지는 아이템이 시작하는 자리(월드 픽셀, y 아래로): 때린 쪽 위의 잎 속. x 는 때린 쪽의 x 를 그림 안쪽 `itemInset` 으로 맞추고,
+    /// y 는 자른 그림의 `itemStartRow` 줄, 뒤에서 때리면(그 줄이 발보다 아래) 발 위 `itemClearance`.
+    static func itemStart(artRect: CGRect, tacklerFoot: CGPoint) -> CGPoint {
+        CGPoint(x: min(max(tacklerFoot.x, artRect.minX + itemInset), artRect.maxX - itemInset),
+                y: min(tacklerFoot.y - itemClearance, artRect.minY + CGFloat(itemStartRow) * scale))
+    }
+}
+
+/// 나무에서 터진 잎 하나. 월드 픽셀과 픽셀/초(y 아래로).
+struct PlazaTreeLeaf: Equatable {
+    var x: CGFloat, y: CGFloat, vx: CGFloat, vy: CGFloat
+    var age: TimeInterval
+    /// 땅(`groundY`)에 닿은 때의 `age`.
+    var restedAt: TimeInterval?
+    let groundY: CGFloat
+    /// `PlazaTree.burstArt(season).grids` 중 하나.
+    let image: Int
+    let phase: CGFloat
+}
+
+/// 터진 잎들. 노드 없는 순수 규칙이다: 상한 `maxFallingLeaves` 안에서 터질 때마다 정해진 씨앗으로 같은 모양을 만든다.
+struct PlazaTreeLeaves {
+    private let spawnPoints: [CGPoint]
+    private let baseY: CGFloat
+    private(set) var leaves: [PlazaTreeLeaf] = []
+    /// 지금까지 터진 횟수. n 번째는 `fnv1a("plaza-tree-leaves-n")` 으로 씨를 뿌린다.
+    private(set) var bursts = 0
+
+    /// `spawnPoints` 는 `PlazaTree.canopySpawnPoints`, `baseY` 는 줄기 밑(그림 맨 아래)이다.
+    init(spawnPoints: [CGPoint], baseY: CGFloat) {
+        precondition(!spawnPoints.isEmpty, "a tree with no canopy has no leaves")
+        self.spawnPoints = spawnPoints
+        self.baseY = baseY
+    }
+
+    /// 잎 `count` 장을 잎 속 불투명 픽셀에서 `direction`(맞은 쪽)과 위로 쏜다. 빈 자리를 먼저 쓰고, 다 찼으면 가장 오래된 잎을 다시 시작한다.
+    mutating func burst(count: Int, direction: PlazaDirection, grids: [Int]) {
+        precondition(!grids.isEmpty, "a burst needs a leaf picture")
+        var rng = PlazaSplitMix64(seed: UInt64(PlazaNameColor.fnv1a("plaza-tree-leaves-\(bursts)")))
+        bursts += 1
+        for _ in 0..<max(0, count) {
+            let at = spawnPoints[Int(rng.next() % UInt64(spawnPoints.count))]
+            let pop = PlazaTree.leafPop
+            let speed = pop.lowerBound + CGFloat(rng.unit()) * (pop.upperBound - pop.lowerBound)
+            let side = CGFloat(rng.unit()), lift = CGFloat(rng.unit())
+            let vx: CGFloat = switch direction {
+            case .right: speed * (0.5 + 0.5 * side)
+            case .left: -speed * (0.5 + 0.5 * side)
+            case .up, .down: speed * 0.7 * (2 * side - 1)
+            }
+            let leaf = PlazaTreeLeaf(x: at.x, y: at.y, vx: vx, vy: -speed * (0.6 + 0.4 * lift), age: 0, restedAt: nil,
+                                     groundY: baseY + CGFloat(rng.unit()) * 18,
+                                     image: grids[Int(rng.next() % UInt64(grids.count))], phase: CGFloat(rng.unit()) * 2 * .pi)
+            if leaves.count < PlazaTree.maxFallingLeaves {
+                leaves.append(leaf)
+            } else {
+                leaves[leaves.enumerated().max { $0.element.age < $1.element.age }!.offset] = leaf
+            }
+        }
+    }
+
+    /// 시간을 흘린다(1/60초 이하로 나눠서). 쏘아 올림 → 중력 → 그 종류의 낙하 속도로 흔들리며 흘러내림 → 땅에서 쉼 → 사라짐.
+    mutating func advance(by dt: TimeInterval, kind: PlazaWeather.Kind) {
+        let motion = PlazaWeather.motion(kind)
+        var left = dt
+        while left > 1e-9 {
+            let h = min(left, 1.0 / 60)
+            left -= h
+            for i in leaves.indices {
+                leaves[i].age += h
+                if leaves[i].restedAt != nil { continue }
+                let g = CGFloat(h)
+                leaves[i].vy = min(leaves[i].vy + PlazaTree.leafGravity * g, CGFloat(motion.fall))
+                let sway = CGFloat(motion.drift) + CGFloat(motion.sway) * CGFloat(cos(motion.swayRate * leaves[i].age + Double(leaves[i].phase)))
+                leaves[i].vx += (sway - leaves[i].vx) * min(1, 2 * g)
+                leaves[i].x += leaves[i].vx * g
+                leaves[i].y += leaves[i].vy * g
+                if leaves[i].y >= leaves[i].groundY {
+                    leaves[i].y = leaves[i].groundY
+                    leaves[i].vx = 0
+                    leaves[i].vy = 0
+                    leaves[i].restedAt = leaves[i].age
+                }
+            }
+        }
+        // 다 흐려진 잎(땅에서 `leafRest` 를 쉬었거나 `leafLife` 에 이른 잎)을 치운다.
+        leaves.removeAll { Self.alpha($0) <= 0 }
+    }
+
+    /// 불투명도: 1, 땅에 닿은 뒤 `leafRest` 동안 0까지. 닿지 못한 잎도 `leafLife` 전 마지막 `leafRest` 동안 흐려져 하늘에서 툭 사라지지 않는다.
+    static func alpha(_ leaf: PlazaTreeLeaf) -> CGFloat {
+        let resting = leaf.restedAt.map { 1 - (leaf.age - $0) / PlazaTree.leafRest } ?? 1
+        let ending = 1 - (leaf.age - (PlazaTree.leafLife - PlazaTree.leafRest)) / PlazaTree.leafRest
+        return CGFloat(min(1, max(0, min(resting, ending))))
+    }
+}
+
+/// 떨어지는 아이템 한 번의 길: 잎 속에서 때린 쪽의 발까지 `itemArc` 만큼 위로 굽은 길로 `itemFall` 동안, 그다음 `itemBounce` 만큼 한 번 튄다.
+struct PlazaTreeItemFall: Equatable {
+    let from: CGPoint
+    let to: CGPoint
+
+    /// 월드 픽셀(y 아래로). `to` 는 때린 순간 때린 쪽의 발 자리다.
+    init(from: CGPoint, to: CGPoint) {
+        self.from = from
+        self.to = to
+    }
+
+    /// 떨어지기 시작한 뒤 t 초의 자리. 튐이 끝났거나 시작 전이면 nil.
+    func position(at t: TimeInterval) -> CGPoint? {
+        guard t >= 0, t < PlazaTree.itemFall + PlazaTree.itemBounceDuration else { return nil }
+        if t <= PlazaTree.itemFall {
+            let u = CGFloat(t / PlazaTree.itemFall)
+            return CGPoint(x: from.x * (1 - u) + to.x * u,
+                           y: from.y * (1 - u) + to.y * u - PlazaTree.itemArc * 4 * u * (1 - u))
+        }
+        let v = (t - PlazaTree.itemFall) / PlazaTree.itemBounceDuration
+        return CGPoint(x: to.x, y: to.y - PlazaTree.itemBounce * CGFloat(sin(v * .pi)))
+    }
 }
