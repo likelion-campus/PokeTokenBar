@@ -19,9 +19,9 @@ import XCTest
     func testTheTreeIsTheBRun() async throws {
         XCTAssertEqual(PlazaTile(rawValue: "B"), .bigTree)
         XCTAssertFalse(PlazaTile.bigTree.isWalkable)
-        XCTAssertEqual(PlazaTree.tiles(in: map), block(16...18, 9...10))
-        XCTAssertEqual(PlazaTree.artRect(in: map), CGRect(x: 518, y: 256, width: 84, height: 96))
-        XCTAssertEqual(PlazaTree.coveredTiles(in: map), block(16...18, 8...10))
+        XCTAssertEqual(PlazaTree.tiles(in: map), block(16...18, 8...10))
+        XCTAssertEqual(PlazaTree.artRect(in: map), CGRect(x: 497, y: 208, width: 126, height: 144))
+        XCTAssertEqual(PlazaTree.coveredTiles(in: map), block(16...18, 7...10))
         XCTAssertEqual(PlazaTree.z(in: map), 1.34375)
         let bare = try PlazaMap(rows: ["SN..", "...."])
         XCTAssertTrue(PlazaTree.tiles(in: bare).isEmpty)
@@ -33,7 +33,7 @@ import XCTest
     func testTheTreeAnswersLikeTheGrassItReplaced() async throws {
         let old = try oldMap()
         let trunk = PlazaTree.tiles(in: map)
-        XCTAssertEqual(trunk.count, 6)
+        XCTAssertEqual(trunk.count, 9)
         for y in -1...32 {
             for x in -1...48 {
                 let t = p(x, y)
@@ -79,8 +79,15 @@ import XCTest
                 if !trunk.contains(n) { XCTAssertTrue(map.isWalkable(n), "neighbour \(n) of \(t)") }
             }
         }
+        // The drawn box (x15...19 × y6...10) lies over open ground and flowers only.
+        let art = try XCTUnwrap(PlazaTree.artRect(in: map)), tile = CGFloat(PlazaMap.tileSize)
+        for y in Int(art.minY / tile)..<Int((art.maxY / tile).rounded(.up)) {
+            for x in Int(art.minX / tile)..<Int((art.maxX / tile).rounded(.up)) {
+                XCTAssertTrue([.grass, .flowers, .bigTree].contains(map.tile(at: p(x, y))), "\(p(x, y)) is \(map.tile(at: p(x, y)))")
+            }
+        }
         let features: [(String, [TilePoint])] = [
-            ("border tree", [p(9, 2), p(16, 2), p(0, 9)]),
+            ("border tree", [p(10, 2), p(16, 2), p(0, 9)]),
             ("bush", [p(15, 4)]), ("shelter", map.shelterTiles), ("board", [map.boardTile]),
             ("tall grass", [p(11, 5)]), ("left pond", [p(13, 13)]), ("hot spring", [p(32, 14)]),
             ("campfire", map.campfireTiles),

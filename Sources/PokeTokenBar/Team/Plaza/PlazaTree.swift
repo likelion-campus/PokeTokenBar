@@ -9,8 +9,8 @@ enum PlazaTree {
     static let dropItem: ItemKind = .mint     // 조정용 상수 (명세 13, 위임, R3)
     static let maxFallingLeaves = 12          // 조정용 상수 (명세 13, 설계자 판단·미확인)
 
-    // 그림 크기: 번들 시트에서 자른 소나무 42×48 을 2배로 그린다(지도의 밀도).
-    static let scale: CGFloat = 2
+    // 그림 크기: 번들 시트에서 자른 소나무 42×48 을 3배로 그린다(결정 (c). 지도는 2배).
+    static let scale: CGFloat = 3
 
     // 자리: 지도의 'B' (ruling 2)
 
@@ -34,14 +34,13 @@ enum PlazaTree {
         return CGRect(x: centerX - size.width / 2, y: bottom - size.height, width: size.width, height: size.height)
     }
 
-    /// 그림이 덮는 칸(명세 9.1의 3×3). 그 칸에 놓인 아이템은 보이지 않는다(ruling 10).
+    /// 잎이 아이템 자리를 덮는 칸: 'B' 줄과 그 뒤 한 줄(줄의 열 위). 그림 상자 전체가 아니다(ruling 10).
     static func coveredTiles(in map: PlazaMap) -> Set<TilePoint> {
-        guard let r = artRect(in: map) else { return [] }
-        let tile = CGFloat(PlazaMap.tileSize)
+        let run = tiles(in: map)
+        guard let minX = run.map(\.x).min(), let maxX = run.map(\.x).max(),
+              let minY = run.map(\.y).min(), let maxY = run.map(\.y).max() else { return [] }
         var out = Set<TilePoint>()
-        for y in Int((r.minY / tile).rounded(.down))..<Int((r.maxY / tile).rounded(.up)) {
-            for x in Int((r.minX / tile).rounded(.down))..<Int((r.maxX / tile).rounded(.up)) { out.insert(TilePoint(x: x, y: y)) }
-        }
+        for y in (minY - 1)...maxY { for x in minX...maxX { out.insert(TilePoint(x: x, y: y)) } }
         return out
     }
 

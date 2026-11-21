@@ -272,8 +272,8 @@ final class PlazaItemsTests: XCTestCase {
         func spawn(_ x: Int, _ y: Int) -> PlazaItems.Spawn {
             PlazaItems.Spawn(slot: 1, kind: .mint, tile: TilePoint(x: x, y: y), appearsAt: Date(), endsAt: Date())
         }
-        for y in 8...10 { for x in 16...18 { XCTAssertFalse(PlazaItems.isShown(spawn(x, y), openTiles: open), "(\(x),\(y))") } }
-        XCTAssertTrue(PlazaItems.isShown(spawn(15, 9), openTiles: open))
+        for y in 7...10 { for x in 16...18 { XCTAssertFalse(PlazaItems.isShown(spawn(x, y), openTiles: open), "(\(x),\(y))") } }
+        for (x, y) in [(15, 9), (17, 6), (19, 8)] { XCTAssertTrue(PlazaItems.isShown(spawn(x, y), openTiles: open), "(\(x),\(y)) stays pickable") }
     }
 
     func testSpawnCandidatesAreUnchanged() async throws {

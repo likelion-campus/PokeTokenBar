@@ -101,7 +101,8 @@ extension PlazaTreeTests {
     func testTheMinimapShowsTheTreeInEverySeason() async throws {
         let sheet = try XCTUnwrap(PlatformPlaza.tileSheet()), grass = try grassSheet()
         let rect = try XCTUnwrap(PlazaTree.artRect(in: PlazaMapData.map))
-        let (x0, y0) = (Int(rect.minX), Int(rect.minY))
+        let (x0, y0, k) = (Int(rect.minX), Int(rect.minY), Int(PlazaTree.scale))
+        let (rw, rh) = (Int(rect.width), Int(rect.height))
         for season in PlazaSeason.allCases {
             let mapImage = PlazaSeasonSheet.look(PlazaMapData.map, sheet: sheet, tallGrassSheet: grass, season: season).mapImage
             let tree = try treeImage(season)
@@ -111,9 +112,9 @@ extension PlazaTreeTests {
             let w = mapImage.width
             for y in 0..<mapImage.height { for x in 0..<w {
                 let i = (y * w + x) * 4
-                let inside = x >= x0 && x < x0 + 84 && y >= y0 && y < y0 + 96
+                let inside = x >= x0 && x < x0 + rw && y >= y0 && y < y0 + rh
                 if !inside { XCTAssertEqual(Array(o[i..<i + 4]), Array(m[i..<i + 4]), "outside (\(x),\(y)) \(season)"); continue }
-                let ti = (((y - y0) / 2) * 42 + (x - x0) / 2) * 4
+                let ti = (((y - y0) / k) * 42 + (x - x0) / k) * 4
                 if t[ti + 3] == 0 { XCTAssertEqual(Array(o[i..<i + 4]), Array(m[i..<i + 4]), "transparent (\(x),\(y)) \(season)") }
                 else { XCTAssertEqual(Array(o[i..<i + 4]), Array(t[ti..<ti + 4]), "tree (\(x),\(y)) \(season)") }
             } }

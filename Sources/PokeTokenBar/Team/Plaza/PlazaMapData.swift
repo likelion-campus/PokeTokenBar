@@ -12,7 +12,7 @@ enum PlazaMapData {
         "TTT..ggggggg..........SNNSf.......ggggg.f....TTT",
         "TTT..ggggggg.f...f...SSSSSS.......ggggg......TTT",
         "TTT..ggggggg.........SSSSSS...b.f............TTT",
-        "TTT..ggggggg.................................TTT",
+        "TTT..ggggggg....BBB..........................TTT",
         "TTT.....f.......BBBf............f....f.......TTT",
         "TTT.............BBB..........ggg.......b.....TTT",
         "TTT.f........................ggg.............TTT",
