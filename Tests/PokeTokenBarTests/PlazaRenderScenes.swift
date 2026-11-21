@@ -213,9 +213,10 @@ enum PlazaRenderScenes {
     }
 
     static func member(_ id: String, _ name: String? = nil, _ x: Int, _ y: Int, facing: PlazaDirection = .down, walking: Bool = false,
-                       idle: Bool = false, color: UInt32? = nil, nature: PokemonNature? = nil, diving: Bool = false) -> PlazaSceneMember {
+                       idle: Bool = false, color: UInt32? = nil, nature: PokemonNature? = nil, diving: Bool = false,
+                       flushed: Bool = false) -> PlazaSceneMember {
         var m = PlazaSceneMember(memberID: id, nickname: name ?? id, isAway: false, tile: TilePoint(x: x, y: y), facing: facing, isWalking: walking)
-        m.isIdle = idle; m.nameColor = color; m.nature = nature; m.isDiving = diving
+        m.isIdle = idle; m.nameColor = color; m.nature = nature; m.isDiving = diving; m.isFlushed = flushed
         return m
     }
 
@@ -362,7 +363,7 @@ enum PlazaRenderScenes {
         scene(name, captures: captures) { st in
             var o = Options(); o.season = choice; o.hour = hour; o.zoom = zoom; o.me = TilePoint(x: 35, y: 17)
             let s = stage(o, on: st)
-            s.put([member("ash", "Ash", 33, 16, facing: .right), member("misty", "Misty", 37, 18, facing: .left),
+            s.put([member("ash", "Ash", 33, 16, facing: .right, flushed: true), member("misty", "Misty", 37, 18, facing: .left),
                    member("brock", "Brock", 35, 21, facing: .up)], looks: crowdLooks)
             return setup(s, photo: photo)
         }
