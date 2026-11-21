@@ -842,6 +842,28 @@ final class PlazaMimicControllerTests: XCTestCase {
         XCTAssertEqual(w.scene.impactsShown, 1)
     }
 
+    func testADragRevealsMeInsteadOfMovingMe() async {
+        let (w, _, doyun, log) = await disguisedWorld()
+        let start = w.scene.walker.tile
+        w.c.showDrag(from: doyun.id, on: w.me.id, tiles: 2)
+        run(w, 1)
+        XCTAssertEqual(w.scene.walker.tile, start)
+        XCTAssertNil(w.c.mimicking)
+        await waitUntil { !self.founds(log).isEmpty }
+        XCTAssertEqual(founds(log).first?.targetMemberID, doyun.id)
+    }
+
+    func testADragFromAfarLeavesMyDisguise() async {
+        let (w, _, doyun, log) = await disguisedWorld(doyunAt: row(7))
+        let start = w.scene.walker.tile
+        w.c.showDrag(from: doyun.id, on: w.me.id, tiles: 2)
+        run(w, 1)
+        XCTAssertNotNil(w.c.mimicking)
+        XCTAssertEqual(w.scene.walker.tile, start)
+        await settle()
+        XCTAssertTrue(founds(log).isEmpty)
+    }
+
     func testATackleFromAfarOnlyShowsTheStar() async {
         let (w, _, doyun, log) = await disguisedWorld(doyunAt: row(7))
         let start = w.scene.walker.tile

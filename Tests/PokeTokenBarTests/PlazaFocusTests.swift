@@ -634,7 +634,7 @@ final class PlazaFocusTests: XCTestCase {
         await place(other, at: beside, in: c)
         c.scene!.face(.right)
         key(c.scene!, spaceKey)
-        XCTAssertEqual(menu(c)?.actions, [.greet, .tackle, .follow, .viewCard], "baseline: not focusing")
+        XCTAssertEqual(menu(c)?.actions, [.greet, .tackle, .drag, .follow, .viewCard], "baseline: not focusing")
         XCTAssertNil(menu(c)?.status)
         key(c.scene!, 53)
         c.startFocus(minutes: 25)
@@ -657,7 +657,7 @@ final class PlazaFocusTests: XCTestCase {
         c.scene!.face(.right)
         key(c.scene!, spaceKey)
         XCTAssertEqual(menu(c)?.memberID, other.settings.memberID)
-        XCTAssertEqual(menu(c)?.actions, [.greet, .tackle, .follow, .viewCard])
+        XCTAssertEqual(menu(c)?.actions, [.greet, .tackle, .drag, .follow, .viewCard])
         c.handleClose()
     }
 

@@ -452,6 +452,33 @@ final class TeamRuntimeTests: XCTestCase {
         XCTAssertEqual(scene.walker.tile, far, "exactly three tiles right")
     }
 
+    /// A drag reaches the plaza and slides me after the sender, at most three tiles however much the frame asks.
+    func testADragReachesThePlazaAndAsksForAtMostThreeTiles() async {
+        let (a, b) = connectedPair()
+        let suite = "ptb.test.team.runtime.dragpush.\(UUID().uuidString)"
+        let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: TestDefaults.make(suite: suite)),
+                                          loader: PlazaCharacterLoader(fetcher: NoSprites()),
+                                          nickname: { "나" }, memberID: { b.settings.memberID },
+                                          subject: { .init(speciesID: 25, isShiny: false) }, session: b.runtime.session,
+                                          dittoLoopSleep: ParkedDitto.loopSleep, dittoSeed: { ParkedDitto.seed })
+        b.runtime.plaza = plaza
+        plaza.prepareScene()
+        let scene = try! XCTUnwrap(plaza.scene)
+        let map = PlazaMapData.map, start = scene.walker.tile
+        let left = TilePoint(x: start.x - 1, y: start.y), far = TilePoint(x: start.x - 3, y: start.y)
+        XCTAssertTrue((1...4).allSatisfy { map.isWalkable(TilePoint(x: start.x - $0, y: start.y)) }, "test precondition")
+        let sender = a.settings.memberID
+        await settle { scene.memberTiles[sender] != nil }
+        a.runtime.session.updatePlazaPosition(inPlaza: true, tile: left, facing: .right, isWalking: false)
+        var t: TimeInterval = 0
+        for _ in 0..<200 where scene.memberTiles[sender] != left { await Task.yield(); t += 0.05; scene.update(t) }
+        XCTAssertEqual(scene.memberTiles[sender], left)
+        a.runtime.session.sendEmote(.drag, target: b.settings.memberID, pushTiles: 99)
+        await settle { scene.dustShown == 2 }
+        for _ in 0..<40 { t += 0.05; scene.update(t) }
+        XCTAssertEqual(scene.walker.tile, far, "I slid after the puller, to beside the tile three steps behind it")
+    }
+
     /// The plaza stops drawing while its window is hidden behind others, but a tackle still pushes me at once and
     /// teammates get my new tile. Before, the push waited for the next drawn frame, so the tackler saw nothing happen.
     func testTackleWhileMyPlazaIsHiddenStillPushesMe() async {

@@ -54,6 +54,7 @@ struct LegacyPlazaMemberMenuView: View {
         return switch action {
         case .greet: l.plazaMenuGreet
         case .tackle: l.plazaMenuTackle
+        case .drag: l.plazaMenuDrag
         case .follow: l.plazaMenuFollow
         case .viewCard: l.plazaMenuViewCard
         }

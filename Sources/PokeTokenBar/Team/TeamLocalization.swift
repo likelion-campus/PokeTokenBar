@@ -129,6 +129,7 @@ extension L {
     var plazaStartleManyHint: String { "Z를 눌러 옆에 있는 팀원 놀래키기" }
     var plazaMenuGreet: String { "인사하기" }
     var plazaMenuTackle: String { "몸통박치기" }
+    var plazaMenuDrag: String { "끌어당기기" }
     var plazaJump: String { "점프 · 물놀이" }
     var plazaShortcutsTitle: String { "단축키" }
     func plazaShortcutThrow(_ season: PlazaSeason) -> String {
@@ -287,6 +288,7 @@ extension L {
         case .mimicFound: "찾았다"
         case .dance: "춤"
         case .pray: "기도"
+        case .drag: "끌어당기기"
         }
     }
     /// `others`는 첫 사람을 뺀 서로 다른 닉네임 수. 0이면 한 사람이다.

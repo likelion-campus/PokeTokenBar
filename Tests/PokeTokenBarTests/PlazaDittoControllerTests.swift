@@ -941,17 +941,18 @@ final class PlazaDittoControllerTests: XCTestCase {
     }
 
     private func adjacentCopy(ofMe: Bool = false, nickname: String = "나", now: Date = Date(),
-                              myEntry: PlazaRosterEntry? = nil) async -> Adjacent {
+                              myEntry: PlazaRosterEntry? = nil, start: TilePoint? = nil) async -> Adjacent {
         let nodes = sorted(3)
         let (a, me, m) = (nodes[0], nodes[1], nodes[2])
         await connect(a, me); await connect(m, me)
-        let c = controller(me, nickname: nickname, start: meStart.me, myEntry: myEntry)
+        let c = controller(me, nickname: nickname, start: start ?? meStart.me, myEntry: myEntry)
         c.prepareScene()
         place(m, at: ground(-5, 0))
-        host(a, dittoForm(beside(), now: now).copying(ofMe ? me.id : m.id, now: now))
+        let copyTile = start.map { TilePoint(x: $0.x + 1, y: $0.y) } ?? beside()   // one tile to the right of the start
+        host(a, dittoForm(copyTile, now: now).copying(ofMe ? me.id : m.id, now: now))
         await settle()
         c.advanceDitto(now: now)
-        XCTAssertEqual(c.scene?.decoyTile, beside(), "test precondition")
+        XCTAssertEqual(c.scene?.decoyTile, copyTile, "test precondition")
         return Adjacent(c: c, a: a, me: me, m: m, since: now)
     }
 
@@ -1492,7 +1493,7 @@ final class PlazaDittoControllerTests: XCTestCase {
     }
 
     func testAMenuOnACopyThatTurnedBackDoesNothing() async {
-        for action in [PlazaMemberAction.follow, .greet, .tackle, .viewCard] {
+        for action in [PlazaMemberAction.follow, .greet, .tackle, .drag, .viewCard] {
             let t = await adjacentCopy()
             t.scene.onInteractKey?()
             guard case .memberMenu = t.c.overlayContent else { return XCTFail("\(t.c.overlayContent)") }
@@ -1508,6 +1509,38 @@ final class PlazaDittoControllerTests: XCTestCase {
             XCTAssertNil(t.scene.followingMember, "\(action)")
             XCTAssertTrue(log.items.isEmpty, "\(action)")
         }
+    }
+
+    /// A copy is not a member: nobody on this plaza can be pulled by standing there. The layout lets a member be dragged.
+    private func assertNoDragOnACopy(ofMe: Bool, nickname: String) async {
+        let start = TilePoint(x: 20, y: 12)
+        let t = await adjacentCopy(ofMe: ofMe, nickname: nickname, start: start)
+        let copy = TilePoint(x: 21, y: 12)
+        XCTAssertEqual(PlazaDrag.line(from: copy, to: start), .left, "test precondition")
+        XCTAssertEqual(PlazaDrag.stepBack(from: start, direction: .left, stage: 1, isOpen: { t.scene.isWalkableNow($0) }), 1, "test precondition: a member there could be pulled")
+        t.scene.face(.right)
+        t.scene.onInteractKey?()
+        guard case .memberMenu(let menu) = t.c.overlayContent else { return XCTFail("\(t.c.overlayContent)") }
+        XCTAssertTrue(menu.actions.contains(.tackle))
+        XCTAssertFalse(menu.actions.contains(.drag))
+    }
+
+    func testTheMenuOnACopyHasNoDrag() async {
+        await assertNoDragOnACopy(ofMe: false, nickname: "나")
+    }
+
+    func testTheMenuOnMyOwnCopyHasNoDrag() async {
+        await assertNoDragOnACopy(ofMe: true, nickname: "재헌")
+    }
+
+    func testChoosingDragOnTheDittoSendsNothing() async {
+        let t = await adjacentDittoForm()
+        let log = emotes(from: t.a)
+        let before = t.c.shownDitto
+        t.c.chooseMenu(.drag, memberID: key)
+        await settle()
+        XCTAssertFalse(log.items.contains { $0.kind == .drag })
+        XCTAssertEqual(t.c.shownDitto, before)
     }
 
     func testTheMenuOnMyOwnCopyHasNoCard() async {

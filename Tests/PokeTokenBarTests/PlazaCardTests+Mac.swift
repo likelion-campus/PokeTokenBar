@@ -88,7 +88,7 @@ extension PlazaCardTests {
         let frame = try menuFrame(.memberMenu(menu))
         XCTAssertEqual(frame.width, PlazaMenuText.width)
         let line = NSLayoutManager().defaultLineHeight(for: PlazaResources.font(.body))
-        // The name and four rows with four gaps; a wrapped line would add a whole line more.
-        XCTAssertLessThan(frame.height, 5.5 * line + 2 * (PlazaRosterMetrics.padding + 2) + 4 * 4, "five lines, none wrapped")
+        // The name and five rows with five gaps; a wrapped line would add a whole line more.
+        XCTAssertLessThan(frame.height, 6.5 * line + 2 * (PlazaRosterMetrics.padding + 2) + 5 * 4, "six lines, none wrapped")
     }
 }

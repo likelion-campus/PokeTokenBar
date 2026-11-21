@@ -989,6 +989,7 @@ import Observation
             // 물속에서는 따라갈 수 없다(내가 물속이어도 따라가기는 멈춘다). 몸통박치기는 헤엄치는 쪽끼리도 되지만 잠수한 쪽은 못 한다.
             if scene.isMeInWater || scene.memberIsInWater(id) == true { menu.actions.removeAll { $0 == .follow } }
             if scene.isDiving || scene.memberIsDiving(id) == true { menu.actions.removeAll { $0 == .tackle } }
+            if dragStep(scene, to: id) == nil { menu.actions.removeAll { $0 == .drag } }
             guard !menu.actions.isEmpty else { return }   // 집중 중이거나 잠수 중에 메타몽 모습을 보면 할 일이 없다
             if isDitto { menuDitto = shownDitto }
             menuLook = (id, shownMimics[id])
@@ -1053,6 +1054,9 @@ import Observation
         case .tackle:
             closeOverlay()
             tackle(id)
+        case .drag:
+            closeOverlay()
+            drag(id)
         case .follow:
             closeOverlay()
             scene?.follow(member: id)
@@ -1114,6 +1118,38 @@ import Observation
         session?.sendEmote(.tackle, target: id, pushTiles: TeamEmote.pushTiles(evolutionStage()))
     }
 
+    /// 끌어당길 수 있을 때 내가 물러날 방향과 칸 수. 메뉴 줄과 고른 일이 모두 이 조건을 읽는다.
+    /// 대상은 늘 광장에 있는 팀원이다(메타몽 모습이나 복사본은 `memberTiles`에 없고, 광장을 닫아 쉼터에 있는 팀원은 끌려올 수 없다. 몸통박치기
+    /// 줄에는 이 검사가 없다). 둘 다 집중 중이 아니고 알이 아니며 물속이 아니고(잠수도 물속이다), 두 몸이 닿는 같은 줄에 있어야 하고,
+    /// 내 뒤로 한 칸 이상 물러날 빈 땅(얼음 포함)이 있어야 하며, 그 팀원이 나만큼 미끄러져 올 길이 한 칸 이상 열려 있어야 한다(받는 쪽과 같은 계산).
+    private func dragStep(_ scene: PlazaScene, to id: String) -> (direction: PlazaDirection, tiles: Int)? {
+        guard let targetTile = scene.memberTiles[id], members[id]?.inPlaza == true, let target = scene.body(of: id), !isFocusing, focusRemaining(of: id) == nil,
+              scene.canWalk, !scene.isMeInWater, scene.memberIsInWater(id) != true,
+              let b = PlazaDrag.direction(puller: scene.myBody, target: target) else { return nil }
+        let occupied = scene.occupiedTiles()
+        let k = PlazaDrag.stepBack(from: scene.walker.tile, direction: b, stage: evolutionStage(),
+                                   isOpen: { scene.isWalkableNow($0) && !occupied.contains($0) })
+        guard k > 0 else { return nil }
+        let slides = PlazaDrag.slide(victim: targetTile, puller: scene.walker.tile, direction: b, pushTiles: k,
+                                     isOpen: { scene.isWalkableNow($0) && !occupied.contains($0) })
+        return slides > 0 ? (b, k) : nil
+    }
+
+    /// 끌어당기기: 먼저 보내고(받는 쪽이 아직 내 옛 칸을 본다) 뛰어드는 그림을 띄운 뒤 내가 물러난다. 팀원이 따라오는 것은 그 팀원의 Mac이 정한다.
+    /// 메뉴를 연 사이에 자리가 바뀌었으면 다시 따져 아무것도 하지 않는다. 몸통박치기와 같은 연타 제한을 쓰고 활동 기록은 남기지 않는다.
+    private func drag(_ id: String) {
+        guard let scene, let step = dragStep(scene, to: id) else { return }
+        let now = clock()
+        if let last = lastEmoteAt, now.timeIntervalSince(last) < Self.emoteInterval { return }
+        lastEmoteAt = now
+        scene.stopDance(memberID: nil)
+        // 따라가던 그 팀원을 끌면 따라가기가 나를 그 팀원이 미끄러져 들어올 칸으로 되돌려 보낸다.
+        if scene.followingMember == id { scene.stopWalkingToMember() }
+        session?.sendEmote(.drag, target: id, pushTiles: step.tiles)
+        scene.playDrag(by: nil, on: id, direction: step.direction)
+        scene.pushMe(step.direction, tiles: step.tiles)
+    }
+
     /// 런타임이 부른다. 누군가 몸통박치기를 했다. 맞은 게 나이고 민 팀원이 내 바로 옆(또는 같은 칸)이면 그 반대쪽으로 `tiles`칸
     /// 밀린다. 메뉴를 연 사이에 내가 걸어가 버렸으면 충격 그림만 보이고 밀리지 않는다. 창이 닫혀 있으면 아무것도 안 한다.
     /// 메타몽 모습이 맞았으면 아무도 밀리지 않고, 호스트가 민 팀원으로 바꾼다. 내 화면에서 이미 복사본이면 그리지 않는다.
@@ -1134,7 +1170,7 @@ import Observation
         guard isMe, touching else { return }
         // A disguised me is found instead of pushed.
         if myMimic != nil { return revealMe(by: sender) }
-        if canBePushed { scene.pushMe(direction, tiles: tiles) }
+        if canBePushed { shove(by: sender) { scene.pushMe(direction, tiles: tiles) } }
     }
 
     /// 런타임이 부른다. 메타몽 팀원의 몸통박치기. 아무도 밀리지 않고 충격 그림만 보이며, 맞은 게 변장한 나이고 옆에 있으면 들킨다.
@@ -1238,11 +1274,22 @@ import Observation
             if isMe {
                 guard self.scene?.myBody.covers(shot.endTile) == true else { return }
                 if self.myMimic != nil { self.revealMe(by: sender) }
-                else if self.canBePushed { self.scene?.pushMe(direction, tiles: pushed) }
+                else if self.canBePushed { self.shove(by: sender) { self.scene?.pushMe(direction, tiles: pushed) ?? false } }
             } else if isDitto, self.shownDitto?.isDecoy == false, self.scene?.body(of: PlazaDitto.sceneKey)?.covers(shot.endTile) == true {
                 self.dittoFormTackled(by: sender)
             }
         }
+    }
+
+    /// 나를 움직이는 이모트(몸통박치기·끌어당기기·물귀신·눈덩이)를 보낸 팀원마다 1초에 한 번만 움직인다. 별과 당기는 그림은 늘 보인다.
+    /// 모든 길에서 마지막 관문이다(변장 들킴 뒤, 움직이기 직전). 메타몽 복사본의 장난(`playDecoyTackle`)은 제 60초 규칙을 쓴다.
+    private var shoves = PlazaShove()
+
+    /// `sender`의 1초가 비어 있으면 `move`(나를 움직이는 일)를 하고, 실제로 움직였을 때만 그 1초를 시작한다.
+    /// 벽이나 사람에 막혀 0칸이면 1초를 쓰지 않는다(그 직후의 진짜 이동까지 막지 않게).
+    private func shove(by sender: String, _ move: () -> Bool) {
+        guard shoves.allows(sender, now: clock()) else { return }
+        if move() { shoves.record(sender, now: clock()) }
     }
 
     /// 집중 중이거나 모닥불 메뉴를 연 나는 밀리지 않는다.
@@ -1280,7 +1327,31 @@ import Observation
               let drag = PlazaPullUnder.drag(victim: scene.walker.tile, puller: from, isWater: { scene.isWaterNow($0) },
                                              isWalkable: { scene.isWalkableNow($0) }) else { return }
         // 끄는 팀원은 물러나는 중이라 그 칸이 비었는지 따지지 않는다
-        if drag.tiles == 1 { scene.plunge(drag.direction) } else { scene.pushMe(drag.direction, tiles: drag.tiles, pulledBy: sender) }
+        shove(by: sender) {
+            if drag.tiles == 1 { scene.plunge(drag.direction); return true }
+            return scene.pushMe(drag.direction, tiles: drag.tiles, pulledBy: sender)
+        }
+    }
+
+    /// 런타임이 부른다. 팀원이 뒤로 물러나며 `target`을 끌어당긴다. 그림(뛰어들기와 먼지)은 늘 보인다. 끌려가는 것은 나일 때만이고,
+    /// 그 팀원이 내 줄에서 몸이 닿는 거리에 있어야 하며, 변장한 나는 끌려가지 않고 들킨다. 내가 물속이거나 집중 중이면 움직이지 않는다.
+    /// 슬라이드는 그 팀원이 물러난 새 자리 바로 옆까지이고, 막힌 칸·물·다른 캐릭터 앞에서 멈춘다. 창이 닫혀 있으면 아무것도 안 한다.
+    func showDrag(from sender: String, on target: String?, tiles: Int) {
+        guard let scene, let target, let from = scene.memberTiles[sender] else { return }
+        let isMe = target == memberID()
+        guard let to = isMe ? scene.walker.tile : scene.memberTiles[target] else { return }
+        // 선 줄이 아니면(지연이나 거짓 송신) 끄는 쪽이 바라보는 쪽의 반대로 물러난다.
+        scene.playDrag(by: sender, on: isMe ? nil : target,
+                       direction: PlazaDrag.line(from: to, to: from) ?? (members[sender]?.facing ?? .down).opposite)
+        guard isMe, let b = PlazaDrag.direction(puller: PlazaBody(foot: from, size: scene.body(of: sender)?.size ?? 1), target: scene.myBody) else { return }
+        // A disguised me is found instead of dragged.
+        if myMimic != nil { return revealMe(by: sender) }
+        guard !scene.isMeInWater, canBePushed else { return }
+        let occupied = scene.occupiedTiles(except: sender)   // 끄는 쪽의 칸은 길을 막지 않는다(pushMe의 pulledBy와 같다)
+        let n = PlazaDrag.slide(victim: scene.walker.tile, puller: from, direction: b, pushTiles: tiles,
+                                isOpen: { scene.isWalkableNow($0) && !occupied.contains($0) })
+        guard n > 0 else { return }
+        shove(by: sender) { scene.pushMe(b, tiles: n, pulledBy: sender) }
     }
 
     /// 하트나 폭죽을 나와 그 팀원 머리 위에 함께 띄우고 팀원들에게 보낸다. 말풍선 키와 같은 연타 제한을 쓴다.

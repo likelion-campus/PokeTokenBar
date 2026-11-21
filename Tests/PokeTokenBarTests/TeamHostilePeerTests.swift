@@ -374,6 +374,7 @@ final class TeamHostilePeerTests: XCTestCase {
         for _ in 0..<50 {
             s.playJump(memberID: "A")
             s.playTackle(by: "A", on: nil, direction: .down)
+            s.playDrag(by: "A", on: nil, direction: .up)
             s.playSparkle(memberID: "A")
         }
         XCTAssertEqual(s.children.count, before)
@@ -394,7 +395,7 @@ final class TeamHostilePeerTests: XCTestCase {
     }
 
     func testEffectsStillPlayOnAVisibleScene() async {
-        let jump = scene(), tackle = scene(), sparkle = scene()
+        let jump = scene(), tackle = scene(), sparkle = scene(), drag = scene()
         let before = jump.children.count
         jump.playJump(memberID: "A")
         tackle.playTackle(by: "A", on: nil, direction: .down)
@@ -402,6 +403,8 @@ final class TeamHostilePeerTests: XCTestCase {
         XCTAssertGreaterThan(jump.children.count, before)
         XCTAssertGreaterThan(tackle.children.count, before)
         XCTAssertGreaterThan(sparkle.sparkleCount, 0)
+        drag.playDrag(by: "A", on: nil, direction: .up)
+        XCTAssertGreaterThan(drag.children.count, before)
     }
 
     func testTheAsleepListStopsGrowing() async {

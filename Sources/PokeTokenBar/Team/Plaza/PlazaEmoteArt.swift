@@ -128,6 +128,7 @@ enum PlazaEmoteArt {
         case .pull: drawGrid(exclaim, cell: dot, centeredAt: center, in: context)
         case .dance: drawText(L(.ko).plazaEmoteDance, size: large ? .body : .small, centeredAt: center, in: context, graphics: graphics)
         case .pray: drawGrid(pray, cell: dot, centeredAt: center, in: context)
+        case .drag: drawGrid(impact, cell: dot / 2, centeredAt: center, in: context)   // never shown as a bubble
         }
         return context.makeImage()!
     }
