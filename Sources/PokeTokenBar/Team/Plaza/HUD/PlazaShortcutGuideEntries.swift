@@ -11,7 +11,7 @@ enum PlazaShortcutGuide {
         var rows: [(key: String, label: String)] = [
             (l.plazaShortcutArrows, l.plazaShortcutWalk), ("Shift", l.plazaShortcutRun), ("Space", l.plazaShortcutTalk),
             ("Enter", l.plazaShortcutChat), ("1–5", l.plazaShortcutEmotes), ("Z", l.plazaJump),
-            ("X", l.plazaMenuGreet), ("C", l.plazaMenuTackle), ("D", l.plazaShortcutDance), ("F", l.plazaShortcutFirework), ("P", l.plazaShortcutPhoto), ("G", l.plazaShortcutGroupPhoto), ("M", l.plazaShortcutGame),
+            ("X", l.plazaMenuGreet), ("C", l.plazaMenuTackle), ("D", l.plazaShortcutDance), ("F", l.plazaShortcutFirework), ("P G", l.plazaShortcutPhotos), ("M", l.plazaShortcutGame),
             ("A", l.plazaShortcutPray), ("−/+", l.plazaShortcutZoom),
         ]
         if let c = rows.firstIndex(where: { $0.key == "C" }) { rows.insert(("V", l.plazaShortcutThrow(season)), at: c + 1) }

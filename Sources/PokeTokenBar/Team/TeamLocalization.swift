@@ -146,9 +146,7 @@ extension L {
     var plazaShortcutTalk: String { "말 걸기" }
     var plazaShortcutChat: String { "한마디" }
     var plazaShortcutEmotes: String { "말풍선" }
-    var plazaShortcutPhoto: String { "사진 모드" }
     var plazaShortcutZoom: String { "확대·축소" }
-    var plazaShortcutGroupPhoto: String { "단체 사진" }
     var plazaShortcutFirework: String { "불꽃놀이" }
     var plazaShortcutDance: String { "춤" }
     var plazaShortcutPray: String { "기도(알)" }
@@ -187,8 +185,10 @@ extension L {
         guard frontmost else { return head + "광장 창을 앞에 두면 함께 찍혀요" }
         return head + (starter == nil ? "모두 모여요!" : "함께 찍는 중")
     }
-    // 미니게임. 처음 하는 사람이 카드만 보고 바로 할 수 있게, 규칙은 두 줄로 초대 카드에 늘 같이 보인다.
+    // 미니게임. 처음 하는 사람이 카드만 보고 바로 할 수 있게, 규칙은 세 줄로 초대 카드에 늘 같이 보인다.
     var plazaShortcutGame: String { "미니게임" }
+    /// 안내판은 가장 작은 창에 꼭 맞는 줄 수라서, 미니게임 줄을 넣으며 사진 모드(P)와 단체 사진(G)을 한 줄로 합쳤다.
+    var plazaShortcutPhotos: String { "사진 · 단체" }
     var plazaGameMenuTitle: String { "미니게임" }
     func plazaGameName(_ kind: PlazaGameKind) -> String {
         switch kind {
@@ -198,7 +198,7 @@ extension L {
     var plazaGameUnknownName: String { "새 미니게임" }
     func plazaGameRules(_ kind: PlazaGameKind) -> [String] {
         switch kind {
-        case .bomb: ["폭탄을 들면 C(몸통박치기)나 V(던지기)로 맞혀서 넘겨요", "터질 때 들고 있으면 탈락! 마지막 한 명이 이겨요"]
+        case .bomb: ["폭탄을 들면 C(치기)나 V(던지기)로 넘겨요", "터질 때 들고 있으면 탈락!", "마지막 한 명이 이겨요"]
         }
     }
     func plazaGameMenuRow(_ kind: PlazaGameKind) -> String { "\(plazaGameName(kind)) 열기" }
@@ -222,11 +222,11 @@ extension L {
     var plazaGameNextBomb: String { "다음 폭탄!" }
     func plazaGameOut(nickname: String?) -> String { nickname.map { "\($0) 탈락!" } ?? "탈락!" }
     func plazaGameWin(nickname: String?) -> String { nickname.map { "\($0) 승리!" } ?? "승리!" }
-    var plazaGameHoldHint: String { "💣 폭탄을 들었어요! C로 치거나 V로 맞혀서 넘기세요" }
-    var plazaGameHoldSoonHint: String { "💣 다음 폭탄은 내 차례예요 · 시작하면 C나 V로 넘기세요" }
-    func plazaGameRunHint(nickname: String) -> String { "\(nickname)님이 폭탄을 들고 있어요 · 도망치세요!" }
-    func plazaGameWaitHint(nickname: String) -> String { "다음 폭탄은 \(nickname)님 차례 · 멀리 떨어지세요" }
-    func plazaGameOutHint(left: Int) -> String { "탈락했어요 · 남은 \(left)명을 구경하는 중" }
+    var plazaGameHoldHint: String { "💣 폭탄! C로 치거나 V로 맞혀 넘기세요" }
+    var plazaGameHoldSoonHint: String { "💣 다음 폭탄은 내 차례 · C나 V로 넘기세요" }
+    func plazaGameRunHint(nickname: String) -> String { "\(nickname)님이 폭탄을 들었어요 · 도망치세요!" }
+    func plazaGameWaitHint(nickname: String) -> String { "다음 폭탄은 \(nickname)님 · 멀리 떨어지세요" }
+    func plazaGameOutHint(left: Int) -> String { "탈락 · 남은 \(left)명 구경 중" }
     var plazaGameNoDive: String { "미니게임 중에는 잠수할 수 없어요" }
     func plazaGameStartedBanner(game: String, players: Int) -> String { "\(game) 시작 · \(players)명" }
     func plazaGameOutBanner(nickname: String) -> String { "💥 \(nickname)님 탈락!" }

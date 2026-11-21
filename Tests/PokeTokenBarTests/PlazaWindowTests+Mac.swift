@@ -90,14 +90,14 @@ private struct NoSprites: PlazaSpriteFetching {
         XCTAssertEqual(subs.map { String(describing: type(of: $0)) },
                        ["SKView", "PlazaPanelHostView", "PlazaPanelHostView", "PlazaPanelHostView", "PlazaPanelHostView", "PlazaPanelHostView",
                         "PlazaPanelHostView", "PlazaPanelHostView", "PlazaPanelHostView", "PlazaPanelHostView",
-                        "PlazaPanelHostView", "PlazaPanelHostView", "PlazaPanelHostView", "NSView"],
+                        "PlazaPanelHostView", "PlazaPanelHostView", "PlazaPanelHostView", "PlazaPanelHostView", "PlazaPanelHostView", "NSView"],
                        "bottom first, as show() added them; the photo frame's, the menu's and the pills' hosts right above the overlay, the minimap's, the clock's, the guide's, the toggle's and the picker's hosts where their hosting views were")
-        guard subs.count == 14 else { return }
+        guard subs.count == 16 else { return }
         XCTAssertEqual(subs.compactMap { ($0 as? PlazaPanelHostView)?.panelID },
-                       [.roster, .board, .card, .photoFrame, .menu, .pills, .chatLog, .minimap, .clock, .shortcuts, .backgroundToggle, .nameColorPicker])
-        XCTAssertTrue(subs[13] === chat.view, "the chat field's bar is on top")
+                       [.roster, .board, .card, .photoFrame, .menu, .gameTitle, .gameCard, .pills, .chatLog, .minimap, .clock, .shortcuts, .backgroundToggle, .nameColorPicker])
+        XCTAssertTrue(subs[15] === chat.view, "the chat field's bar is on top")
         for v in subs.dropFirst() { XCTAssertFalse(v.translatesAutoresizingMaskIntoConstraints) }
-        let named = ["roster", "board", "card", "photoFrame", "menu", "pills", "chatLog", "map", "clock", "shortcuts", "toggle", "colorPicker", "chatBar"]
+        let named = ["roster", "board", "card", "photoFrame", "menu", "gameTitle", "gameCard", "pills", "chatLog", "map", "clock", "shortcuts", "toggle", "colorPicker", "chatBar"]
         var names = [ObjectIdentifier(container): "container"]
         for (i, n) in named.enumerated() { names[ObjectIdentifier(subs[i + 1])] = n }
         func installed() -> (between: [String], own: Set<String>) {
@@ -126,6 +126,10 @@ private struct NoSprites: PlazaSpriteFetching {
             "map.leading = container.leading + 0", "map.trailing = container.trailing + 0",
             "photoFrame.top = container.top + 0", "photoFrame.bottom = container.bottom + 0",
             "photoFrame.leading = container.leading + 0", "photoFrame.trailing = container.trailing + 0",
+            "gameTitle.top = container.top + 0", "gameTitle.bottom = container.bottom + 0",
+            "gameTitle.leading = container.leading + 0", "gameTitle.trailing = container.trailing + 0",
+            "gameCard.top = container.top + 0", "gameCard.bottom = container.bottom + 0",
+            "gameCard.leading = container.leading + 0", "gameCard.trailing = container.trailing + 0",
             "shortcuts.top = container.top + 0", "shortcuts.bottom = container.bottom + 0",
             "shortcuts.leading = container.leading + 0", "shortcuts.trailing = container.trailing + 0",
             "toggle.top = container.top + 0", "toggle.bottom = container.bottom + 0",
@@ -145,10 +149,10 @@ private struct NoSprites: PlazaSpriteFetching {
 
         chat.open()
         shell.setHUDHidden(true)
-        XCTAssertEqual(subs.map(\.isHidden), [false, true, false, false, false, false, false, true, true, true, true, true, true, false],
-                       "photo mode hides the roster, chat log, map, clock, guide and both toggles; not the scene, the board, the card, the photo frame and pills or the open field")
+        XCTAssertEqual(subs.map(\.isHidden), [false, true, false, false, false, false, false, false, false, true, true, true, true, true, true, false],
+                       "photo mode hides the roster, chat log, map, clock, guide and both toggles; not the scene, the board, the card, the photo frame, the minigame panels and pills or the open field")
         shell.setHUDHidden(false)
-        XCTAssertEqual(subs.map(\.isHidden), Array(repeating: false, count: 14))
+        XCTAssertEqual(subs.map(\.isHidden), Array(repeating: false, count: 16))
         shell.focusChatInput()
         XCTAssertFalse(w.firstResponder === view, "the field takes the keys")
         shell.focusScene()
@@ -230,7 +234,7 @@ private struct NoSprites: PlazaSpriteFetching {
         let shell = PlazaMacWindow(autosaveName: name, front: { _ in XCTFail("this test never brings a window forward") })
         shell.open(stage: scene.stage, title: "t", overlays: c.overlayBindings)
         let subs = try XCTUnwrap(shell.windowForTesting?.contentView).subviews
-        guard subs.count == 14 else { return XCTFail("\(subs)") }
+        guard subs.count == 16 else { return XCTFail("\(subs)") }
         func state() -> [Bool] { [c.isChatLogExpanded, c.areShortcutsFolded, c.isBackgroundHidden, c.isNameColorPickerOpen] }
         func click(_ id: PlazaPanelID, _ point: (CGRect) -> CGPoint) throws {
             // A click on the panel's host view: the HUD's frame for the panel, the point in it, down and up through the host.

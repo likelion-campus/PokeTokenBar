@@ -160,7 +160,7 @@ final class PlazaGameControllerTests: XCTestCase {
         XCTAssertEqual(w.b.session.members[w.me.id]?.gameJoin, state?.id, "the host is in")
         let card = w.c.gameCard
         XCTAssertEqual(card?.title, L(.ko).plazaGameCardTitle(host: nil, game: L(.ko).plazaGameName(.bomb)))
-        XCTAssertEqual(Array(card?.lines.prefix(2) ?? []), L(.ko).plazaGameRules(.bomb), "the rules are on the card")
+        XCTAssertEqual(Array(card?.lines.prefix(3) ?? []), L(.ko).plazaGameRules(.bomb), "the rules are on the card")
         XCTAssertEqual(card?.buttons.map(\.action), ["start", "decline"])
         XCTAssertEqual(card?.buttons.first?.isEnabled, false, "alone, the host cannot start yet")
     }

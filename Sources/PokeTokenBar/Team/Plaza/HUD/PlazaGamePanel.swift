@@ -148,7 +148,7 @@ import Observation
     private let game: PlazaGameModel
     private var observer: PlazaChangeObserver?
 
-    static let magnify: CGFloat = 4
+    static let magnify: CGFloat = 6
     /// The outline, in the font's own (unmagnified) points.
     static let outline: CGFloat = 1
 
@@ -173,7 +173,7 @@ import Observation
         let font = PlazaFont.plaza(.body)
         let line = text.line(title.text, font: font)
         let m = text.metrics(font)
-        return (line, CGSize(width: line.width.rounded(.up) + 2 * Self.outline, height: (m.ascender - m.descender).rounded() + 2 * Self.outline), m)
+        return (line, CGSize(width: line.width.rounded(.up) + 1 + 2 * Self.outline, height: (m.ascender - m.descender).rounded() + 2 * Self.outline), m)
     }
 
     func size(in viewport: CGSize, scale: CGFloat, text: any PlazaTextEngine) -> CGSize {
@@ -194,10 +194,13 @@ import Observation
             for dx in [-1, 0, 1] as [CGFloat] {
                 for dy in [-1, 0, 1] as [CGFloat] where dx != 0 || dy != 0 {
                     canvas.draw(b.line, at: CGPoint(x: base.x + dx * Self.outline, y: base.y + dy * Self.outline))
+                    canvas.draw(b.line, at: CGPoint(x: base.x + 1 + dx * Self.outline, y: base.y + dy * Self.outline))
                 }
             }
+            // Twice, a point apart: the pixel font's one-point strokes would read as hollow between the outlines.
             canvas.setFillColor(Self.color(title.tone))
             canvas.draw(b.line, at: base)
+            canvas.draw(b.line, at: CGPoint(x: base.x + 1, y: base.y))
         }
         let frame = CGRect(origin: .zero, size: size)
         return PlazaPanelDrawing(layers: image.map { [.image($0, frame: frame)] } ?? [],
