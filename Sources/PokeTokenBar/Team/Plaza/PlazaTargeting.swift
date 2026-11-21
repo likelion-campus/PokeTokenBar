@@ -36,9 +36,14 @@ enum PlazaTargeting {
             }?.key
     }
 
-    /// 한 칸을 덮는 몸이 여럿이면 ID가 작은 쪽.
+    /// 한 칸을 덮는 몸이 여럿이면 그 칸에 발이 가장 가까운 쪽(앞에 선 작은 팀원이 뒤의 큰 팀원에 가려지지 않게), 같으면 ID가 작은 쪽.
+    /// 몸이 전부 등급 1이면 덮는 몸은 발이 그 칸에 있는 몸뿐이라 예전처럼 ID 순이다.
     static func covering(_ tile: TilePoint, members: [String: PlazaBody]) -> String? {
-        members.filter { $0.value.covers(tile) }.keys.min()
+        members.filter { $0.value.covers(tile) }.min { a, b in
+            let da = abs(a.value.foot.x - tile.x) + abs(a.value.foot.y - tile.y)
+            let db = abs(b.value.foot.x - tile.x) + abs(b.value.foot.y - tile.y)
+            return da != db ? da < db : a.key < b.key
+        }?.key
     }
 
     /// 돌아서기(내가 팀원 쪽으로)와 미는 방향(민 쪽에서 맞는 쪽으로)이 같이 쓰는 규칙: 발이 바로 옆이면 그 방향,

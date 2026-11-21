@@ -198,4 +198,19 @@ final class PlazaTargetingTests: XCTestCase {
         XCTAssertNil(PlazaTargeting.memberAhead(me: body(23, 14, 1), facing: .left, members: members), "not ahead: it only covers my tile")
         XCTAssertEqual(PlazaTargeting.memberAround(me: body(23, 14, 1), facing: .left, members: members), "m")
     }
+
+    /// A small teammate in front is not hidden by a big one behind it with a smaller ID.
+    func testASmallTeammateInFrontIsNotHiddenByABigOneBehind() {
+        let members = ["s": body(11, 10, 1), "b": body(12, 10, 3)]
+        XCTAssertEqual(PlazaTargeting.member(me: body(10, 10, 1), facing: .right, members: members), "s", "faced")
+        XCTAssertEqual(PlazaTargeting.member(me: body(10, 10, 1), facing: .up, members: members), "s", "beside me, whatever I face")
+        XCTAssertEqual(PlazaTargeting.member(me: body(10, 10, 1), facing: .down, members: members), "s")
+        XCTAssertEqual(PlazaTargeting.member(me: body(11, 9, 1), facing: .down, members: members), "s", "from above")
+        XCTAssertEqual(PlazaTargeting.member(me: body(11, 11, 1), facing: .up, members: members), "s", "from below")
+        XCTAssertEqual(PlazaInteraction.target(me: body(10, 10, 1), facing: .right, map: PlazaMapData.map, members: members)?.target, .member("s"))
+        // Two class-1 feet on one tile still fall back to the smaller ID.
+        XCTAssertEqual(PlazaTargeting.member(me: body(10, 10, 1), facing: .right, members: ["y": body(11, 10, 1), "x": body(11, 10, 1)]), "x")
+        // Equal distance, different feet: the smaller ID.
+        XCTAssertEqual(PlazaTargeting.member(me: body(10, 10, 1), facing: .right, members: ["q": body(12, 10, 3), "p": body(11, 11, 3)]), "p")
+    }
 }
