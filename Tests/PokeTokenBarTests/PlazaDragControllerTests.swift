@@ -654,4 +654,36 @@ final class PlazaDragControllerTests: XCTestCase {
         run(w.scene, 1)
         XCTAssertEqual(w.scene.walker.tile, p(15, 14))
     }
+
+    // MARK: - The row follows the Space target
+
+    /// The menu's drag row is judged for the teammate Space opened the menu on, and choosing it drags that same teammate.
+    func testTheDragRowIsForTheTeammateSpaceOpenedTheMenuOn() async {
+        let w = await world(me: p(20, 12), b: p(19, 12), facing: .left)
+        let c = await join(w, "다", at: p(20, 13))
+        press(w.scene, spaceKey)
+        XCTAssertEqual(menu(w)?.memberID, w.b.id)
+        XCTAssertTrue(menu(w)?.actions.contains(.drag) == true)
+        press(w.scene, 53)   // Esc closes the menu
+        w.scene.face(.down)
+        press(w.scene, spaceKey)
+        XCTAssertEqual(menu(w)?.memberID, c.id)
+        XCTAssertTrue(menu(w)?.actions.contains(.drag) == true)
+        w.c.chooseMenu(.drag, memberID: c.id)
+        await settle()
+        XCTAssertEqual(drags(c).count, 1)
+        XCTAssertTrue(drags(w.b).allSatisfy { $0.targetMemberID == c.id }, "b only overhears the drag aimed at c")
+        XCTAssertEqual(drags(c).first?.targetMemberID, c.id)
+    }
+
+    /// A big teammate whose body covers my tile is a Space target but is not on my line: the menu opens without the drag row.
+    func testABodyOnMyTileOffMyLineOpensTheMenuWithoutDrag() async {
+        let w = await world(me: p(20, 12), facing: .down)
+        await claim(w.b, size: 2, in: w)
+        await place(w.b, p(21, 13), in: w)
+        press(w.scene, spaceKey)
+        XCTAssertEqual(menu(w)?.memberID, w.b.id, "the reworked finder picks it")
+        XCTAssertTrue(menu(w)?.actions.contains(.tackle) == true)
+        XCTAssertFalse(menu(w)?.actions.contains(.drag) == true)
+    }
 }
