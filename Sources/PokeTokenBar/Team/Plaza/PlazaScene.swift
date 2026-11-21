@@ -939,8 +939,24 @@ struct PlazaSceneMember: Equatable, Sendable {
         refreshInteractionTarget()
     }
 
+    /// 테스트용: 대상을 실제로 다시 구한 횟수.
+    private(set) var interactionEvaluations = 0
+    private struct InteractionInput: Equatable {
+        var me: PlazaBody
+        var facing: PlazaDirection
+        var members: [String: PlazaBody]
+    }
+    private var interactionInput: InteractionInput?
+
+    /// 매 프레임 불린다. 내 칸·방향·크기와 모두의 칸·크기가 그대로면 다시 구하지 않는다. 입력은 한 번 훑어 만든다
+    /// (`interactionTiles` 와 같은 키: 팀원과 메타몽 모습, 그리고 복사본).
     func refreshInteractionTarget() {
-        let hit = PlazaInteraction.target(me: myBody, facing: walker.facing, map: map, members: bodies(interactionTiles))
+        let input = InteractionInput(me: myBody, facing: walker.facing,
+                                     members: remotes.mapValues { PlazaBody(foot: $0.motion.tile, size: $0.bodySize) })
+        guard input != interactionInput else { return }
+        interactionInput = input
+        interactionEvaluations &+= 1
+        let hit = PlazaInteraction.target(me: input.me, facing: input.facing, map: map, members: input.members)
         guard hit != interactionTarget else { return }
         interactionTarget = hit
         onInteractionTargetChange?(hit)

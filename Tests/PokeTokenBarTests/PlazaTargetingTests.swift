@@ -66,22 +66,30 @@ final class PlazaTargetingTests: XCTestCase {
     func testEveryTileRuleIsUnchangedWhenEveryoneIsClassOne() {
         var rng = PlazaSplitMix64(seed: 0x2B0D)
         let map = PlazaMapData.map
+        var foundMembers = 0, memberHits = 0, touchingPairs = 0
         for _ in 0..<20_000 {
             let l = layout(&rng, classes: 1...1)
             let tiles = l.members.mapValues(\.foot)
             let me = PlazaBody(foot: l.me, size: 1)
-            XCTAssertEqual(PlazaTargeting.member(me: me, facing: l.facing, members: l.members),
-                           LegacyPlazaTargeting.member(from: l.me, facing: l.facing, members: tiles))
-            XCTAssertEqual(PlazaInteraction.target(me: me, facing: l.facing, map: map, members: l.members),
-                           LegacyPlazaInteraction.target(from: l.me, facing: l.facing, map: map, members: tiles))
+            let found = PlazaTargeting.member(me: me, facing: l.facing, members: l.members)
+            XCTAssertEqual(found, LegacyPlazaTargeting.member(from: l.me, facing: l.facing, members: tiles))
+            if found != nil { foundMembers += 1 }
+            let hit = PlazaInteraction.target(me: me, facing: l.facing, map: map, members: l.members)
+            XCTAssertEqual(hit, LegacyPlazaInteraction.target(from: l.me, facing: l.facing, map: map, members: tiles))
+            if case .member? = hit?.target { memberHits += 1 }
             let other = p(l.me.x + Int(rng.next() % 7) - 3, l.me.y + Int(rng.next() % 7) - 3)
             for fallback in [PlazaDirection.up, .down, .left, .right] {
                 let o = PlazaBody(foot: other, size: 1)
+                if me.touches(o) { touchingPairs += 1 }
                 XCTAssertEqual(me.touches(o), LegacyPlazaTackle.pushes(from: l.me, to: other))
                 XCTAssertEqual(me.touches(o) ? PlazaTargeting.turn(from: l.me, to: other, facing: fallback) : fallback,
                                LegacyPlazaTackle.direction(from: l.me, to: other, fallback: fallback))
             }
         }
+        // The comparison must not go vacuous: layouts really find people, hit members and touch.
+        XCTAssertGreaterThan(foundMembers, 3000)
+        XCTAssertGreaterThan(memberHits, 3000)
+        XCTAssertGreaterThan(touchingPairs, 3000)
     }
 
     func testTheFoundMemberAlwaysTouchesMe() {

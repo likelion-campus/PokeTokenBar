@@ -209,4 +209,82 @@ final class PlazaSnowballTests: XCTestCase {
         }
         XCTAssertGreaterThan(hits, 200, "the layouts must actually hit")
     }
+
+    // MARK: - Sender/receiver agreement at the edges (review fixes)
+
+    /// 40x30 open ground (board (0,0), shelter (1,0)), with `blocked` tiles turned into trees.
+    private func openMap(trees blocked: [TilePoint] = []) throws -> PlazaMap {
+        var rows = ["NS" + String(repeating: ".", count: 38)] + Array(repeating: String(repeating: ".", count: 40), count: 29)
+        for t in blocked {
+            var row = Array(rows[t.y]); row[t.x] = "T"; rows[t.y] = String(row)
+        }
+        return try PlazaMap(rows: rows)
+    }
+
+    func testABlockedTileJustBeforeABigBodyStopsTheBallAndHitsNobody() throws {
+        let tree = try openMap(trees: [p(10, 12)])
+        let big = body(12, 13, 3)   // covers x 11-13, y 11-13: (11,12) is its first tile on the line
+        let stopped = PlazaSnowball.aim(from: p(5, 12), facing: .right, bodies: ["g": big], map: tree)
+        XCTAssertEqual(stopped?.end, .ground(p(9, 12)), "the ball stops before the tree; nobody is named")
+        // The same body with an open line is hit, so the tree is what stopped it.
+        XCTAssertEqual(PlazaSnowball.aim(from: p(5, 12), facing: .right, bodies: ["g": big], map: try openMap())?.end,
+                       .actor(id: "g", tile: p(11, 12)))
+        // A body that stands on the blocker itself is not reached either.
+        let onTree = try openMap(trees: [p(11, 12)])
+        XCTAssertEqual(PlazaSnowball.aim(from: p(5, 12), facing: .right, bodies: ["g": big], map: onTree)?.end, .ground(p(10, 12)))
+        // Directly in front: no throw at all.
+        XCTAssertNil(PlazaSnowball.aim(from: p(9, 12), facing: .right, bodies: ["g": big], map: tree))
+    }
+
+    func testTwoBodiesOnTheSameFirstTileTheSmallerIDIsTheTarget() throws {
+        let open = try openMap()
+        let bodies = ["b": body(12, 13, 3), "a": body(12, 12, 2), "c": body(12, 14, 3)]   // all three cover (11,12)
+        let shot = PlazaSnowball.aim(from: p(5, 12), facing: .right, bodies: bodies, map: open)
+        XCTAssertEqual(shot?.end, .actor(id: "a", tile: p(11, 12)), "the smaller ID is named in the emote")
+        // Each receiver, asked alone, finds the same entry tile; only the named one is ever asked to react.
+        for (_, b) in bodies { XCTAssertEqual(PlazaSnowball.hitTile(thrower: p(5, 12), target: b, direction: .right), p(11, 12)) }
+        // Without "a", the next smaller ID takes over.
+        var rest = bodies; rest["a"] = nil
+        XCTAssertEqual(PlazaSnowball.aim(from: p(5, 12), facing: .right, bodies: rest, map: open)?.end, .actor(id: "b", tile: p(11, 12)))
+    }
+
+    /// Class-3 feet on the top rows and the side edges, thrown at from every side, in all four directions. Whatever the
+    /// thrower's `aim` names, the receiver's `hitTile` agrees on the tile, and no tile off the map is ever the end.
+    func testEdgeBodiesAgreeInAllFourDirections() throws {
+        let open = try openMap()
+        let feet = [p(5, 0), p(5, 1), p(20, 0), p(39, 0), p(39, 1), p(39, 15), p(0, 1), p(0, 15), p(0, 29), p(39, 29), p(10, 29), p(2, 0)]
+        let dirs: [PlazaDirection] = [.up, .down, .left, .right]
+        var hits = 0, directions = Set<PlazaDirection>()
+        for foot in feet {
+            let target = PlazaBody(foot: foot, size: 3)
+            for dx in -12...12 { for dy in -12...12 {
+                let from = p(foot.x + dx, foot.y + dy)
+                guard open.isWalkable(from) else { continue }
+                for d in dirs {
+                    let shot = PlazaSnowball.aim(from: from, facing: d, bodies: ["t": target], map: open)
+                    if let shot { XCTAssertTrue((0..<open.width).contains(shot.endTile.x) && (0..<open.height).contains(shot.endTile.y), "\(from) \(d)") }
+                    guard case .actor(_, let tile)? = shot?.end else { continue }
+                    hits += 1; directions.insert(d)
+                    XCTAssertTrue((0..<open.width).contains(tile.x) && (0..<open.height).contains(tile.y), "off the map: \(tile)")
+                    XCTAssertEqual(PlazaSnowball.hitTile(thrower: from, target: target, direction: d), tile, "\(from) \(d) at \(foot)")
+                }
+            } }
+        }
+        XCTAssertGreaterThan(hits, 500)
+        XCTAssertEqual(directions, Set(dirs), "every direction must hit somewhere")
+    }
+
+    /// A body tile that lies off the map is never hit by a throw from the map: the ball stops at the edge first.
+    func testBodyTilesOffTheMapAreNeverHit() throws {
+        let open = try openMap()
+        let top = PlazaBody(foot: p(5, 0), size: 3)    // covers y -2...0
+        XCTAssertNil(PlazaSnowball.aim(from: p(5, 0), facing: .up, bodies: ["t": top], map: open), "the edge is directly ahead")
+        XCTAssertEqual(PlazaSnowball.aim(from: p(5, 5), facing: .up, bodies: ["t": top], map: open)?.end, .actor(id: "t", tile: p(5, 0)))
+        let left = PlazaBody(foot: p(0, 5), size: 3)   // covers x -1...1
+        XCTAssertNil(PlazaSnowball.aim(from: p(0, 5), facing: .left, bodies: ["t": left], map: open))
+        XCTAssertEqual(PlazaSnowball.aim(from: p(5, 5), facing: .left, bodies: ["t": left], map: open)?.end, .actor(id: "t", tile: p(1, 5)))
+        let right = PlazaBody(foot: p(39, 5), size: 3)
+        XCTAssertNil(PlazaSnowball.aim(from: p(39, 5), facing: .right, bodies: ["t": right], map: open))
+        XCTAssertEqual(PlazaSnowball.aim(from: p(30, 5), facing: .right, bodies: ["t": right], map: open)?.end, .actor(id: "t", tile: p(38, 5)))
+    }
 }

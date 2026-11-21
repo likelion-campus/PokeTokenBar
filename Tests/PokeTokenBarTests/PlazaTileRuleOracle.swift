@@ -1,8 +1,12 @@
 import Foundation
 @testable import PokeTokenBar
 
-// Verbatim copies of the one-tile rules at b93f25e2 (before PR 2), renamed. The class-1 oracle. Shared, so the Windows
-// test job compares too. Do not edit.
+// The one-tile rules at b93f25e2 (before PR 2). The class-1 oracle. Shared, so the Windows test job compares too. Do not edit.
+// Copies, line for line (checked against 2dd83d05 by script; only the type names and the `PlazaSnowball.` qualifier on
+// `blocksBall`/`range`/`reach` differ): `LegacyPlazaTargeting`, `LegacyPlazaInteraction.target`, `LegacyPlazaSnowball.aim`
+// and `.hits`, and `LegacyPlazaPathfinder.isAdjacent`/`.direction`.
+// Not copied: `LegacyPlazaTackle.pushes`/`.direction` compose the pathfinder copies in the same expressions the controller
+// used (`isAdjacent(from, to) || from == to` and `isAdjacent(from, to) ? direction(from:to:) : fallback`, showTackle at 2dd83d05).
 
 enum LegacyPlazaTargeting {
     static func facingTile(from: TilePoint, facing: PlazaDirection) -> TilePoint {
@@ -51,20 +55,27 @@ enum LegacyPlazaInteraction {
     }
 }
 
-enum LegacyPlazaTackle {
-    /// Today's `showTackle` guard: `PlazaPathfinder.isAdjacent(from, to) || from == to`.
-    static func pushes(from: TilePoint, to: TilePoint) -> Bool {
-        abs(from.x - to.x) + abs(from.y - to.y) == 1 || from == to
+enum LegacyPlazaPathfinder {
+    static func isAdjacent(_ a: TilePoint, _ b: TilePoint) -> Bool {
+        abs(a.x - b.x) + abs(a.y - b.y) == 1
     }
 
-    /// Today's `showTackle` direction expression (`:1120-1121`).
+    static func direction(from a: TilePoint, to b: TilePoint) -> PlazaDirection {
+        if b.x > a.x { return .right }
+        if b.x < a.x { return .left }
+        return b.y > a.y ? .down : .up
+    }
+}
+
+enum LegacyPlazaTackle {
+    /// Today's `showTackle` guard.
+    static func pushes(from: TilePoint, to: TilePoint) -> Bool {
+        LegacyPlazaPathfinder.isAdjacent(from, to) || from == to
+    }
+
+    /// Today's `showTackle` direction expression.
     static func direction(from: TilePoint, to: TilePoint, fallback: PlazaDirection) -> PlazaDirection {
-        if abs(from.x - to.x) + abs(from.y - to.y) == 1 {
-            if to.x > from.x { return .right }
-            if to.x < from.x { return .left }
-            return to.y > from.y ? .down : .up
-        }
-        return fallback
+        LegacyPlazaPathfinder.isAdjacent(from, to) ? LegacyPlazaPathfinder.direction(from: from, to: to) : fallback
     }
 }
 
