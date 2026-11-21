@@ -91,14 +91,16 @@ enum PlazaHotSpring {
         return PlazaSnowSheet.recolored(art, pieces: [(waterColors, cells)])
     }
 
-    /// 사진 전용: premultiplied rgb 에 `1 − f + f·c` 를 곱한다(Windows 렌더러의 colorBlendFactor 식). 알파는 그대로다.
-    static func tinted(_ image: PlazaImage, blend f: CGFloat, color: PlazaColor = flushColor) -> PlazaImage {
+    /// 붉은 기운용 사본: 불투명도는 그대로 두고 색만 `color` 로 바꾼 같은 모양의 그림(미리 곱한 색). 몸 위에 알파 `blend` 로
+    /// 겹쳐 그리면 모든 픽셀이 붉은 쪽으로 한 걸음씩 가는 보간이라 파랑·초록 몸도 붉어진다(곱하기 틴트는 어두워지기만 한다).
+    static func redSilhouette(_ image: PlazaImage, color: PlazaColor = flushColor) -> PlazaImage {
         var bitmap = PlazaBitmap(width: image.width, height: image.height)
         let source = image.pixels.bytes
-        let k = [1 - f + f * CGFloat(color.red), 1 - f + f * CGFloat(color.green), 1 - f + f * CGFloat(color.blue)]
+        let rgb = [color.red, color.green, color.blue].map { Double($0) * 255 }
         var out = source
         for i in stride(from: 0, to: source.count, by: 4) {
-            for c in 0..<3 { out[i + c] = UInt8(min(255, (CGFloat(source[i + c]) * k[c]).rounded())) }
+            let a = Double(source[i + 3]) / 255
+            for c in 0..<3 { out[i + c] = UInt8(min(255, (rgb[c] * a).rounded())) }
         }
         bitmap.bytes = out
         return PlazaImage(bitmap: bitmap)

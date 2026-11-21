@@ -694,6 +694,11 @@ struct PlazaSceneMember: Equatable, Sendable {
     /// 테스트용: 내 몸통과 팀원 몸통에 입힌 붉은 기운(`layout` 이 마지막으로 쓴 값).
     var myFlushBlend: CGFloat { me.flushBlend }
     func memberFlushBlend(_ id: String) -> CGFloat? { remotes[id]?.actor.flushBlend }
+    func memberHasFlushOverlay(_ id: String) -> Bool? { remotes[id]?.actor.hasFlushOverlay }
+    func memberRedTextureCount(_ id: String) -> Int? { remotes[id]?.actor.redTextureCount }
+    func memberBodyColorBlend(_ id: String) -> CGFloat? { remotes[id]?.actor.bodyColorBlend }
+    func memberCharacterSize(_ id: String) -> CGSize? { remotes[id]?.actor.characterSize }
+    func memberFlushOverlaySize(_ id: String) -> CGSize? { remotes[id]?.actor.flushOverlaySize }
 
     /// 광장 메타몽 한 마리. nil이면 지운다. 팀원이 아니라서 `applyMembers`가 건드리지 않고 `memberTiles`에도 없다.
     func applyDitto(_ shown: PlazaDittoShown?) {

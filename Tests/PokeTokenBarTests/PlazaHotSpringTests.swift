@@ -164,15 +164,17 @@ final class PlazaHotSpringTests: XCTestCase {
         XCTAssertTrue(stride(from: 0, to: ring.count, by: 4).contains { ring[$0] == 0x74 && ring[$0 + 1] == 0xC0 && ring[$0 + 2] == 0xB6 })
     }
 
-    func testTheTintIsTheSharedRenderersFormula() {
-        var bitmap = PlazaBitmap(width: 2, height: 1)
-        bitmap[0, 0] = PlazaRGBA(r: 255, g: 255, b: 255, a: 255)
-        let out = PlazaHotSpring.tinted(PlazaImage(bitmap: bitmap), blend: 0.45).pixels.bytes
-        XCTAssertEqual(Double(out[0]), 241, accuracy: 1)
-        XCTAssertEqual(Double(out[1]), 176, accuracy: 1)
-        XCTAssertEqual(Double(out[2]), 167, accuracy: 1)
-        XCTAssertEqual(out[3], 255)
-        XCTAssertEqual(Array(out[4..<8]), [0, 0, 0, 0], "transparent stays transparent")
+    func testTheRedSilhouetteReplacesRgbAndKeepsAlpha() {
+        var bitmap = PlazaBitmap(width: 3, height: 1)
+        bitmap[0, 0] = PlazaRGBA(r: 10, g: 200, b: 255, a: 255)
+        bitmap[1, 0] = PlazaRGBA(r: 50, g: 50, b: 50, a: 128)   // premultiplied half alpha
+        let out = PlazaHotSpring.redSilhouette(PlazaImage(bitmap: bitmap)).pixels.bytes
+        XCTAssertEqual(Array(out[0..<4]), [0xE0, 0x50, 0x3C, 255], "an opaque pixel is exactly the flush colour")
+        XCTAssertEqual(Double(out[4]), 0xE0 * 128.0 / 255, accuracy: 1)
+        XCTAssertEqual(Double(out[5]), 0x50 * 128.0 / 255, accuracy: 1)
+        XCTAssertEqual(Double(out[6]), 0x3C * 128.0 / 255, accuracy: 1)
+        XCTAssertEqual(out[7], 128, "alpha is kept")
+        XCTAssertEqual(Array(out[8..<12]), [0, 0, 0, 0], "transparent stays transparent")
     }
 
     // MARK: - The soak clock and the flush fade

@@ -92,6 +92,9 @@ struct PlazaActorContext {
     private var frameIndex = 0
     private var frameElapsed: TimeInterval = 0
     private var textureCache: [ObjectIdentifier: PlazaTexture] = [:]
+    /// 붉은 기운 사본(몸 위 자식 노드)과 프레임별 붉은 그림. 붉은 동안에만 만들고 끝나면 버린다.
+    private var flushNode: PlazaSprite?
+    private var redCache: [ObjectIdentifier: PlazaTexture] = [:]
 
     init(name: String, color: PlazaColor) {
         self.name = name
@@ -173,6 +176,7 @@ struct PlazaActorContext {
     func setFrames(_ f: PlazaCharacterFrames) {
         frames = f
         textureCache.removeAll()
+        redCache.removeAll()
         frameIndex = 0
         frameElapsed = 0
         characterNode.isHidden = false
@@ -455,15 +459,52 @@ struct PlazaActorContext {
                                waterColor: hotSpring ? PlazaHotSpring.waterColor : PlazaPondArt.waterColor, flush: flush)
     }
 
-    /// 온천의 붉은 기운. 몸통 노드에만 입히고(잠긴 아랫부분 `ghostNode` 의 물빛은 그대로) 알파와는 따로 적용된다.
+    /// 온천의 붉은 기운. 몸과 같은 그림을 `flushColor` 한 색으로 칠한 사본을 몸 위에 알파 `blend` 로 겹쳐 그린다(몸의 자식 노드라
+    /// 뒤집힘·배율·기울기·풀숲 흐려짐·숨김이 그대로 따르고, 헤엄칠 때는 몸과 같이 수면 위 부분만 잘린다. 잠긴 아랫부분 `ghostNode` 는 그대로).
+    /// 사본 노드와 그림은 붉은 동안에만 있고 0이 되면 버린다(안 붉은 캐릭터는 프레임마다 아무것도 하지 않는다).
     func setFlush(_ blend: CGFloat) {
-        guard characterNode.colorBlendFactor != blend else { return }
-        characterNode.color = PlazaHotSpring.flushColor
-        characterNode.colorBlendFactor = blend
+        if blend <= 0 {
+            guard let node = flushNode else { return }
+            node.removeFromParent()
+            flushNode = nil
+            redCache.removeAll()
+            return
+        }
+        if flushNode == nil {
+            let node = PlazaSprite()
+            node.anchorPoint = CGPoint(x: 0.5, y: 0)
+            node.zPosition = 0.00005   // 몸 바로 위, 잠긴 부분(+0.0001)과 이름표(카메라 공간) 아래
+            characterNode.addChild(node)
+            flushNode = node
+            applyFrame()
+        }
+        flushNode?.alpha = blend
     }
 
-    /// 테스트용: 몸통에 입힌 붉은 기운.
-    var flushBlend: CGFloat { characterNode.colorBlendFactor }
+    /// 몸의 현재 그림(자른 몸이면 같은 줄만)과 같은 크기로 붉은 사본을 맞춘다.
+    private func syncFlushNode(image: PlazaImage, cutFraction f: CGFloat?, size: CGSize) {
+        guard let node = flushNode else { return }
+        let red: PlazaTexture
+        if let cached = redCache[ObjectIdentifier(image)] {
+            red = cached
+        } else {
+            red = PlazaTexture(PlazaHotSpring.redSilhouette(image))
+            redCache[ObjectIdentifier(image)] = red
+        }
+        if let f {
+            node.texture = PlazaTexture(rect: CGRect(x: 0, y: f, width: 1, height: 1 - f), in: red)
+        } else {
+            node.texture = red
+        }
+        node.size = size
+    }
+
+    /// 테스트용: 붉은 사본이 있는지, 그 알파(= 붉은 정도), 크기, 만들어 둔 붉은 그림 수, 몸의 색 섞기(곱하기 틴트는 없어야 한다).
+    var hasFlushOverlay: Bool { flushNode != nil }
+    var flushBlend: CGFloat { flushNode?.alpha ?? 0 }
+    var flushOverlaySize: CGSize? { flushNode?.size }
+    var redTextureCount: Int { redCache.count }
+    var bodyColorBlend: CGFloat { characterNode.colorBlendFactor }
 
     // MARK: - 값 읽기
 
@@ -589,12 +630,14 @@ struct PlazaActorContext {
             let top = PlazaTexture(rect: CGRect(x: 0, y: f, width: 1, height: 1 - f), in: texture)
             characterNode.texture = top
             characterNode.size = CGSize(width: full.width, height: full.height - cut * Self.characterScale)
+            syncFlushNode(image: image, cutFraction: f, size: characterNode.size)
             let low = PlazaTexture(rect: CGRect(x: 0, y: 0, width: 1, height: f), in: texture)   // 잘려 나간 아래 줄
             ghostNode.texture = low
             ghostNode.size = CGSize(width: full.width, height: cut * Self.characterScale)
         } else {
             characterNode.texture = texture
             characterNode.size = full
+            syncFlushNode(image: image, cutFraction: nil, size: full)
             if eggSunk {   // 물에 든 알: 통째로 물빛 몸통 하나
                 ghostNode.texture = texture
                 ghostNode.size = full

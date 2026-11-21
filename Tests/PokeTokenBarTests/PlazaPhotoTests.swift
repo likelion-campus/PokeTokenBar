@@ -432,9 +432,54 @@ final class PlazaPhotoTests: XCTestCase {
         XCTAssertEqual(Int(px[4, 7].r), 241, accuracy: 1)
         XCTAssertEqual(Int(px[4, 7].g), 176, accuracy: 1)
         XCTAssertEqual(Int(px[4, 7].b), 167, accuracy: 1)
+        // A red copy at alpha, not a multiply: a blue body moves toward red instead of going dark (0 -> 101, 0 -> 36, 255 -> 167).
+        var blueBody = actor(solid(2, 2, blue), foot: CGPoint(x: 4, y: 8), scale: 1)
+        blueBody.flush = PlazaHotSpring.flushBlend
+        let bpx = Pixels(try XCTUnwrap(PlazaPhotoRenderer.renderBitmap(input(map: solid(8, 8, black), rect: CGRect(x: 0, y: 0, width: 8, height: 8), ppw: 1, [blueBody]))))
+        XCTAssertEqual(Int(bpx[4, 7].r), 101, accuracy: 1)
+        XCTAssertEqual(Int(bpx[4, 7].g), 36, accuracy: 1)
+        XCTAssertEqual(Int(bpx[4, 7].b), 167, accuracy: 1)
         let plain = actor(solid(2, 2, white), foot: CGPoint(x: 4, y: 8), scale: 1)
         let px2 = Pixels(try XCTUnwrap(PlazaPhotoRenderer.renderBitmap(input(map: solid(8, 8, black), rect: CGRect(x: 0, y: 0, width: 8, height: 8), ppw: 1, [plain]))))
         XCTAssertTrue(same(px2[4, 7], white))
+    }
+
+    /// The flush is a red copy of the body over the body (a plain alpha lerp toward red), built only while someone is
+    /// flushed: no node or texture for an unflushed member, and both are released when the fade ends.
+    func testTheFlushIsARedCopyOverTheBodyOnlyWhileFlushed() async {
+        var date = Calendar.current.date(from: DateComponents(year: 2026, month: 5, day: 10, hour: 12))!
+        let scene = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: map.spawn, zoom: 2, nickname: "나", pondVisuals: true)
+        scene.backingOverride = 2
+        scene.size = CGSize(width: 800, height: 600)
+        scene.now = { date }
+        let tall = PlazaCharacterFrames(front: [PlazaFrame(image: solid(24, 40, red), delay: 0.1)], back: [PlazaFrame(image: solid(24, 40, red), delay: 0.1)])
+        scene.setCharacter(frames())
+        func swimmer(_ flushed: Bool) -> PlazaSceneMember {
+            var m = PlazaSceneMember(memberID: "a", nickname: "a", isAway: false, tile: TilePoint(x: 34, y: 18), facing: .down, isWalking: false)
+            m.isFlushed = flushed
+            return m
+        }
+        scene.applyMembers([swimmer(false)])
+        scene.setMemberFrames("a", tall)
+        scene.update(0)
+        scene.update(0.05)
+        XCTAssertEqual(scene.memberHasFlushOverlay("a"), false, "nobody flushed: no node")
+        XCTAssertEqual(scene.memberRedTextureCount("a"), 0, "nobody flushed: no texture")
+        scene.applyMembers([swimmer(true)])
+        date += 2
+        scene.update(0.1)
+        XCTAssertEqual(scene.memberHasFlushOverlay("a"), true)
+        XCTAssertEqual(scene.memberFlushBlend("a") ?? -1, PlazaHotSpring.flushBlend, accuracy: 1e-6)
+        XCTAssertEqual(scene.memberBodyColorBlend("a") ?? -1, 0, accuracy: 1e-9, "no multiply tint on the body")
+        let body = scene.memberCharacterSize("a"), overlay = scene.memberFlushOverlaySize("a")
+        XCTAssertEqual(overlay, body, "the copy has the swimmer's cropped size: the part above the water only")
+        XCTAssertLessThan(body?.height ?? 99, 60, "test precondition: the swimmer is cut at the waterline")
+        XCTAssertGreaterThan(scene.memberRedTextureCount("a") ?? 0, 0)
+        scene.applyMembers([swimmer(false)])
+        date += 61
+        scene.update(0.15)
+        XCTAssertEqual(scene.memberHasFlushOverlay("a"), false, "released when the fade ends")
+        XCTAssertEqual(scene.memberRedTextureCount("a"), 0)
     }
 
     func testPhotoInputKeepsEggsAwayMembersAndSkipsMembersStillLoading() async throws {

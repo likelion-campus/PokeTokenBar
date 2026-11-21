@@ -225,7 +225,12 @@ enum PlazaPhotoRenderer {
                 context.scale(x: 1, y: a.squash)
                 context.translate(x: -pivot.x, y: -pivot.y)
             }
-            draw(a.flush > 0 ? PlazaHotSpring.tinted(a.image, blend: a.flush) : a.image, x: bodyX, top: bodyTop, w: w, h: h, mirrored: a.flipped)
+            draw(a.image, x: bodyX, top: bodyTop, w: w, h: h, mirrored: a.flipped)
+            if a.flush > 0 {   // 붉은 사본을 알파로 겹친다(화면과 같다). 같은 자름·기울임 안이라 수면 위 부분에만 얹힌다
+                context.setAlpha(a.opacity * a.flush)
+                draw(PlazaHotSpring.redSilhouette(a.image), x: bodyX, top: bodyTop, w: w, h: h, mirrored: a.flipped)
+                context.setAlpha(a.opacity)
+            }
             if tilted { context.restoreState() }
             if sunk { context.restoreState() }
             if let front = a.front, !sunk {
