@@ -885,7 +885,8 @@ enum WindowsSelftest {
         let c0 = (WinDefaultsSync.safetyFires, WinDefaultsSync.debounceFires, app.refreshCount, WinMainLoop.iterations)
         let sample = await IdleSampler.measure(seconds: seconds, mainThread: WindowsApp.mainThreadID)
         let safety = WinDefaultsSync.safetyFires - c0.0, debounce = WinDefaultsSync.debounceFires - c0.1
-        let refreshes = app.refreshCount - c0.2, iterations = WinMainLoop.iterations - c0.3
+        let refreshes = IdleBurstAttribution.refreshesInWindow(countBefore: c0.2, countAfter: app.refreshCount, runningAtEnd: app.store.isRefreshing)
+        let iterations = WinMainLoop.iterations - c0.3
         guard let sample else {
             r.add("idle.window", false, "measurement failed (NtQuerySystemInformation / QueryThreadCycleTime unavailable)")
             return

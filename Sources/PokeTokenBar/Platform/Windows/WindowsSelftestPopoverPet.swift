@@ -1178,9 +1178,9 @@ private struct PetGifFetcher: PlazaSpriteFetching {
                 let wakes1 = WindowsSelftest.selftestApp.map { WindowsSelftest.knownWakes($0) }
                 var extra = 0, known = "unknown (no app)", refreshed = false
                 if let a = wakes0, let b = wakes1 {
-                    extra = 5 * ((b.safety - a.safety) + (b.debounce - a.debounce) + (b.day - a.day)) + 60 * (b.refreshes - a.refreshes)
+                    extra = 5 * ((b.safety - a.safety) + (b.debounce - a.debounce) + (b.day - a.day)) + 60 * b.refreshesInWindow(since: a)
                     known = b.minus(a)
-                    refreshed = b.refreshes != a.refreshes
+                    refreshed = b.refreshesInWindow(since: a) != 0
                 }
                 last = IdleWindow(sample: s, known: known, extra: extra,
                                   pet: pet0.flatMap { a in pet1.map { b in (ticks: b.ticks - a.ticks, renders: b.renders - a.renders) } })

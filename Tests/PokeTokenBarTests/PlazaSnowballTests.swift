@@ -287,4 +287,45 @@ final class PlazaSnowballTests: XCTestCase {
         XCTAssertNil(PlazaSnowball.aim(from: p(39, 5), facing: .right, bodies: ["t": right], map: open))
         XCTAssertEqual(PlazaSnowball.aim(from: p(30, 5), facing: .right, bodies: ["t": right], map: open)?.end, .actor(id: "t", tile: p(38, 5)))
     }
+
+    /// A small teammate in front is the one the ball hits, even with a big one behind it that has a smaller ID.
+    func testTheBallHitsTheSmallOneInFrontNotTheBigOneBehind() throws {
+        let open = try openMap()
+        let s = body(11, 10, 1), b = body(12, 10, 3)   // "b" < "s", and b's body also covers (11,10)
+        let shot = PlazaSnowball.aim(from: p(5, 10), facing: .right, bodies: ["s": s, "b": b], map: open)
+        XCTAssertEqual(shot?.end, .actor(id: "s", tile: p(11, 10)))
+        // The receiver's rule is unchanged and agrees on the tile for the one named.
+        XCTAssertEqual(PlazaSnowball.hitTile(thrower: p(5, 10), target: s, direction: .right), p(11, 10))
+        XCTAssertEqual(PlazaSnowball.hitTile(thrower: p(5, 10), target: b, direction: .right), p(11, 10))
+        // Two class-1 feet on one tile: the smaller ID, as before.
+        XCTAssertEqual(PlazaSnowball.aim(from: p(5, 10), facing: .right, bodies: ["y": s, "x": s], map: open)?.end, .actor(id: "x", tile: p(11, 10)))
+        // Nothing in front: the big one is hit at its own first tile.
+        XCTAssertEqual(PlazaSnowball.aim(from: p(5, 9), facing: .right, bodies: ["b": b], map: open)?.end, .actor(id: "b", tile: p(11, 9)))
+    }
+
+    /// Random mixed layouts: whoever `aim` names is hit by their own `hitTile` on the same tile.
+    func testTheNamedBodyAgreesInMixedLayouts() throws {
+        let open = try openMap()
+        var rng = PlazaSplitMix64(seed: 0x71E5)
+        func r(_ n: Int) -> Int { Int(rng.next() % UInt64(n)) }
+        let dirs: [PlazaDirection] = [.up, .down, .left, .right]
+        var named = 0
+        for _ in 0..<10_000 {
+            let from = p(14 + r(12), 12 + r(6)), d = dirs[r(4)]
+            var bodies: [String: PlazaBody] = [:]
+            for id in ["a", "b", "c", "d"].prefix(1 + r(4)) {
+                bodies[id] = PlazaBody(foot: p(from.x + r(15) - 7, from.y + r(15) - 7), size: r(3) + 1)
+            }
+            if case .actor(let named_, let tile)? = PlazaSnowball.aim(from: from, facing: d, bodies: bodies, map: open)?.end, let id = named_ {
+                named += 1
+                XCTAssertEqual(PlazaSnowball.hitTile(thrower: from, target: bodies[id]!, direction: d), tile)
+                for (other, ob) in bodies where other != id && ob.covers(tile) {
+                    let mine = abs(bodies[id]!.foot.x - tile.x) + abs(bodies[id]!.foot.y - tile.y)
+                    let theirs = abs(ob.foot.x - tile.x) + abs(ob.foot.y - tile.y)
+                    XCTAssertTrue(mine < theirs || (mine == theirs && id < other), "\(id) must be the nearest foot, then the smaller ID")
+                }
+            }
+        }
+        XCTAssertGreaterThan(named, 500)
+    }
 }

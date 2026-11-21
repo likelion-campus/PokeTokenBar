@@ -40,6 +40,14 @@ enum IdleBurstAttribution {
 
     static func name(_ message: UInt32) -> String { broadcastNames[message] ?? "0x" + String(message, radix: 16) }
 
+    /// The store refreshes an idle window budgets (60 main switches each): the ones that finished in it, and one more when a refresh is
+    /// still running at the window's end. The app counts a refresh only when it finishes (`UsageStore.onRefresh`), so a refresh that
+    /// started in the window and ended after it did its work there uncounted: `ui.kit.idle` measured 39 switches against a budget of 11
+    /// (v2.5.636 release run 44868486165), where every run before it took 37–40 with the refresh counted (budget 71).
+    static func refreshesInWindow(countBefore: Int, countAfter: Int, runningAtEnd: Bool) -> Int {
+        countAfter - countBefore + (runningAtEnd ? 1 : 0)
+    }
+
     /// Within budget: ok. Over it: the largest sample is a tolerated burst only when every message that arrived in it (its 100 ms,
     /// `slack` either side) was SENT from another thread and either reached at least two of our top-level windows (the shape of a
     /// broadcast: our code never sends one) or is a known system broadcast; then the rest must fit the budget. A burst with no message,

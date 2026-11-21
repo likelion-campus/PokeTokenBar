@@ -74,9 +74,12 @@ private struct RigNoSprites: PlazaSpriteFetching {
 
     /// Waits for `condition`, up to `seconds`. A hosted runner renders several times slower than a Mac, so a fade that ends 1.1 s after the
     /// last scroll there ends later here; a test about "it does end" waits for the end instead of sleeping for the Mac's duration.
+    /// Then it flushes: a clock's last beat stops the clock and only schedules its render (`PlazaHUD.setNeedsRender` runs it in a later
+    /// main-actor task), so a caller that reads `renderCounts` right after the condition holds could miss that render and see it land later.
     func wait(upTo seconds: Double = 10, until condition: () -> Bool) async throws {
         let deadline = ContinuousClock.now + .seconds(seconds)
         while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        await flush()
     }
 
     /// The window follows the system's scroller style, and a Mac with no trackpad (a CI runner) answers "always show scroll bars":

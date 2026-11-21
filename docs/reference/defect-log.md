@@ -3371,7 +3371,7 @@ read_when:
 - **직접 원인:** 리포터를 시작하는 조건이 `TeamSettings.isReady` 하나뿐이었다. "이 인스턴스가 진짜 설치인가"를 묻는 조건이 없었다.
 - **왜 못 걸렀나:** 리포터 테스트는 가짜 전송을 주입하므로 실제 전송이 나가는 경로를 한 번도 밟지 않았다. 셀프테스트는 팀 설정을 건드리는 검사와 리포터가 같은 앱 안에 산다는 사실을 아무도 겹쳐 보지 않았다 — 태스크별 리뷰는 각자 파일 안에서만 봤고, 최종 전체 브랜치 리뷰에서 처음 드러났다.
 - **부류 스윕:** 앱의 바깥 쓰기는 이것 하나다. `UpdateChecker`·PokeAPI·한도 조회·팀 연결은 읽기이거나 팀원 사이 로컬 통신이다. 시트 리다이렉트 확인(`WindowsSelftestUsageReport`)은 지원하지 않는 버전으로 보내 시트가 거절하고 아무것도 쓰지 않는다.
-- **고침:** `UsageReporter.shouldRun(stateDirectory:defaultDirectory:isSelftest:)` — 상태 폴더가 기본이고 셀프테스트 실행이 아닐 때만 리포터를 만든다(맥·윈도 공통). 아니면 리포터가 nil 이라 설정 줄은 "아직 보내지 않았어요" 로 읽힌다.
+- **고침:** `UsageReporter.shouldRun(stateDirectory:defaultDirectory:isSelftest:)` — 상태 폴더가 기본이고 셀프테스트 실행이 아닐 때만 리포터를 만든다(맥·윈도 공통). 아니면 리포터가 nil 이라 설정 줄은 "아직 안 보냄" 으로 읽힌다.
 - **영구 캡처:** `UsageReporterTests.testOnlyARealInstallOutsideASelftestReports`(네 분기), `windows-app.yml` 의 "No usage report from selftests" 단계 — 수집한 앱 로그에 `usage report sent|rejected|failed` 줄이 있으면 실패한다.
 - **규칙:** 셀프테스트·CI·개발 인스턴스는 운영 서비스에 쓰지 않는다. 바깥으로 쓰는 코드를 더할 때는 그것을 켜는 조건에 "진짜 설치인가"를 넣고, 그 조건을 CI 가 로그로 한 번 더 확인하게 한다.
 
@@ -3399,3 +3399,22 @@ read_when:
 - **고침:** 보고 줄을 일정 캡션과 **같은 힌트**의 둘째 줄로 넣는다(`SettingsModel.teamCaptionLines`, `WinTeamSection.caption` 이 CR LF 로 잇는다). 창 수는 다시 164 개이고, 맥처럼 두 줄 사이에 구분선이 없다(전의 별도 행은 맥에 없는 구분선을 그렸다).
 - **영구 캡처:** `SettingsModelTests.testTheReportLineFollowsTheScheduleCaptionOnlyWhileTheTeamIsReady`. 예산 자체는 `settings.openCost` 가 이미 지킨다 — 릴리스 모드가 막는다.
 - **규칙:** 윈도 팝오버 페이지에 행을 더하기 전에, 기존 행의 힌트나 라벨에 넣을 수 있는지 먼저 본다. 행을 더했다면 PR 의 windows-app 실행에서 `settings.openCost`·`popover.swapCost` 줄의 `frames with a paint`·`windows made` 를 직접 읽는다(잡이 초록이어도).
+- **후속(같은 날, 두 번째 릴리스 실행 44764713785):** 창이 164 개로 돌아온 뒤에도 설치된 앱의 셀프테스트가 5 프레임을 두 번 쟀다. 둘째 줄이 두 줄로 감겨 설정 페이지가 v2.5.635 보다 32 px 컸고(2356 → 2388), 전환이 3 프레임 위주에서 4 프레임 위주로 옮겨 느린 러너에서 5 가 됐다. 사용자 결정으로 문구를 한 줄로 줄였다: "회사 대시보드로 보내는 중 · 11월 20일 16:05" / "… · 아직 안 보냄"(맥·윈도 같은 문구). 예산(4)은 그대로 둔다.
+
+## 광장 패널의 "쉴 때 렌더 없음" 검사가 가끔 하나를 더 셌다 (#319 CI, v2.5.636 세 번째 릴리스 실행, 2026-11-21)
+- **증상:** `PlazaBoardWindowTests.testOpeningAndClosingNeverRelayoutsTheHostAndTheIndicatorEndsItsTimers` 가 "idle and visible: no renders" 에서 36 ≠ 35 로 실패했다. #319 의 맥 CI 에서 한 번(재실행은 통과), 같은 날 릴리스 맥 게이트에서 한 번. 앞선 릴리스 게이트 두 번은 통과했다. 바뀐 코드는 광장과 무관한 문구뿐이었다.
+- **직접 원인:** 스크롤 표시의 마지막 사라짐 박자(`PlazaScrollIndicator` 의 fade `onTick`)는 시계를 먼저 멈추고(`isTimerRunning == false`) 렌더는 `PlazaHUD.setNeedsRender` 가 **다음 메인 액터 Task** 로 미룬다. 시계는 메인 런루프의 `Timer` 라, 테스트의 `rig.wait`(20 ms 마다 조건 확인) 가 그 사이에 깨면 조건이 참이 된 채 렌더 전 수를 `idle` 로 읽고, 미뤄 둔 렌더는 이어지는 1 초 안에 들어와 하나가 더 세진다. 부하가 큰 맥(전체 스위트)·러너에서 그 틈이 넓어진다.
+- **왜 못 걸렀나:** 테스트는 "타이머가 멈췄다 = 렌더도 끝났다" 를 가정했고, 보통은 Task 가 깨어난 wait 보다 먼저 돌아 통과했다. `rig.wait` 의 주석이 느린 러너를 다뤘지만(고정 sleep 대신 조건 대기) 조건 뒤에 남은 일은 다루지 않았다.
+- **부류 스윕:** `rig.wait` 호출 3곳(보드 1, 채팅 기록 2 — 하나는 렌더를 끈 상태라 무관)과, 같은 "타이머 끝난 뒤 렌더 수 읽기" 를 고정 1.6 s sleep 으로 하던 카드 테스트 하나. 로스터 테스트는 시계가 처음부터 없는 상태를 재서 해당 없다. 윈도 셀프테스트(`WindowsSelftestPlazaPanels`)는 0.5 s 펌프 뒤 1–5 범위로 재서 해당 없다. 제품 코드는 바꾸지 않는다 — 마지막 박자의 렌더(투명도 0)는 맞는 동작이다.
+- **고침:** `PlazaWindowRig.wait` 가 조건이 참이 된 뒤 `flush()`(20 번 yield)로 미뤄 둔 렌더를 끝내고 돌아온다. 카드 테스트의 1.6 s sleep 을 `rig.wait { !isTimerRunning }` 로 바꿨다.
+- **영구 캡처:** `PlazaBoardWindowTests.testTheRigsWaitReturnsAfterAScheduledRenderLands` — `setNeedsRender` 직후 `wait { true }` 가 렌더 수 +1 을 보여야 한다. `flush()` 를 빼면 매번 실패한다(결정적).
+- **규칙:** 광장 HUD 의 렌더 수를 읽기 전에는 `rig.flush()` 나 `rig.wait` 를 거친다. 시계·타이머 상태가 바뀐 직후라도 렌더는 아직 예약만 된 상태일 수 있다.
+
+## 창 끝에 걸친 저장소 갱신이 유휴 예산에서 빠졌다 (v2.5.636 네 번째 릴리스 실행, windows-app 44868486165, 2026-11-21)
+- **증상:** 번들 셀프테스트("Selftest with a stripped Path")의 `ui.kit.idle` 이 `main_thread_cs=39 (budget 11 … refresh:0)` 으로 실패해 릴리스가 5단계에서 멈췄다. 같은 셀프테스트의 앞선 실행 넷(44748321973·44758347740·44764713785·44864690889)은 37–40 회로 **같은 일**(주 스레드 약 40, `com.apple.root.user-initiated-qos` 일꾼 셋)을 했고, 그때마다 `refresh:1` 이라 예산이 71 이었다.
+- **직접 원인:** 앱은 갱신을 **끝날 때만** 센다(`UsageStore.refresh` 끝의 `onRefresh` → `refreshCount += 1`). 이번에는 갱신이 10 s 창 안에서 시작해 창이 끝난 뒤 끝났다 — 일(파싱 스레드, 주 스레드 전환)은 창 안에, 셈은 창 밖에 떨어져 예산에 60 이 빠졌다.
+- **왜 못 걸렀나:** 갱신(120 s 마다)이 창 안에서 끝나는 경우와 창 밖에 있는 경우만 겪었다. 걸친 경우는 위상이 맞아야 나와 처음이었다. `team.idle` 은 같은 구멍을 이미 막았지만(`refreshStarted` 관찰) 그 방법이 공용 셈으로 올라가지 않아 다른 유휴 검사 넷은 옛 셈(끝난 수의 차이)을 그대로 썼다.
+- **부류 스윕:** 갱신을 예산에 넣는 유휴 검사 다섯 — `ui.kit.idle`(`WindowsSelftestPopover`), `modalPump.idle`(`WindowsSelftestModal`), `pet.idle` 의 창(`WindowsSelftestPopoverPet`, 갱신이 든 창은 한 번 더 잰다 — 걸친 갱신은 그 재측정도 못 불렀다), `idle.window`(`WindowsSelftest`), `team.idle`(이미 막음). `popover.idleAttribution` 은 예산 없이 적기만 해서 해당 없다.
+- **고침(셀프테스트만, 앱 동작은 그대로):** `IdleBurstAttribution.refreshesInWindow(countBefore:countAfter:runningAtEnd:)` — 창 안에서 끝난 수 + 창 끝에 아직 도는 갱신 하나. `onRefresh` 는 `isRefreshing` 이 내려가기 전에 불리므로 "끝에 도는 중" 이면 아직 안 센 갱신이다. `KnownWakes` 가 `refreshing` 을 담고 `refreshesInWindow(since:)` 로 네 검사가 같은 셈을 쓴다. 기록 줄은 `refresh:0+running` 처럼 보인다.
+- **영구 캡처:** `IdleBurstAttributionTests.testARefreshStillRunningAtTheWindowsEndIsBudgeted`(도는 중만·끝난 것만·둘 다·없음).
+- **규칙:** 유휴 창에서 앱의 일을 셀 때는 "끝난 수의 차이" 만 쓰지 않는다 — 창 끝에 진행 중인 일도 센다. 같은 셈이 둘 이상의 검사에 있으면 공용 함수 하나로 모은다.
