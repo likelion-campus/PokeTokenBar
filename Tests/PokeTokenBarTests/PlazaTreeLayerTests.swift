@@ -360,7 +360,7 @@ import XCTest
         XCTAssertLessThanOrEqual(last.y, foot.y + 0.6)
         XCTAssertTrue(positions.contains { abs($0.x - foot.x) < 0.6 && abs($0.y - foot.y) < 0.6 }, "it reached the feet")
         XCTAssertNil(s.treeItemPosition, "hidden after the bounce")
-        // A second hit 0.2 s into a fall restarts it: only its own landing sparkles.
+        // A second drop 0.2 s into a fall does not replace it: the first keeps falling and the one landing sparkles once.
         let s2 = hitScene()
         s2.playTreeHit(by: nil, direction: .up, level: 3, drop: .mint)
         var t = run(s2, from: 1.0 / 60, seconds: PlazaTree.contactAt + PlazaTree.hitStop[2] + PlazaTree.itemDelay + 0.2)
@@ -370,7 +370,46 @@ import XCTest
             if s2.sparkleCount > last2 { burst += 1 }
             last2 = s2.sparkleCount
         }
-        XCTAssertEqual(burst, 1, "the cancelled fall never sparkled")
+        XCTAssertEqual(burst, 1, "one landing, one sparkle")
+    }
+
+    /// Another hit restarts the shake, the leaves and the dust, but my mint's fall and its sparkle play to the end, even when a teammate's drop arrives.
+    func testAnotherHitDuringMyMintsFallDoesNotCancelIt() async throws {
+        for other in [(drop: ItemKind?.none, level: 2), (.mint, 3)] {
+            let s = hitScene()
+            let foot = s.walker.footPoint
+            s.playTreeHit(by: nil, direction: .up, level: 3, drop: .mint)
+            let t = run(s, from: 1.0 / 60, seconds: PlazaTree.contactAt + PlazaTree.hitStop[2] + PlazaTree.itemDelay + 0.2)
+            XCTAssertNotNil(s.treeItemPosition, "test precondition: my mint is in the air")
+            s.playTreeHit(by: "a", direction: .right, level: other.level, drop: other.drop)
+            var seen: [CGPoint] = [], jumps = 0, previous = 0
+            run(s, from: t, seconds: 1.2) { _ in
+                if let p = s.treeItemPosition { seen.append(p) }
+                if s.sparkleCount > previous { jumps += 1 }
+                previous = s.sparkleCount
+            }
+            XCTAssertEqual(jumps, 1, "\(other): one sparkle")
+            XCTAssertTrue(seen.contains { abs($0.x - foot.x) < 0.6 && abs($0.y - foot.y) < 0.6 }, "\(other): my mint still reaches my feet")
+            XCTAssertNil(s.treeItemPosition)
+        }
+    }
+
+    /// A photo taken in the middle of a bend: the bands stack without a gap or an overlap and the tree is as tall as the stretch says.
+    func testTheBandRectsFollowTheStretchOnce() async throws {
+        for (id, direction) in [("d", PlazaDirection.up), ("c", .down)] {
+            let s = hitScene()
+            let layer = try XCTUnwrap(s.treeLayer)
+            let art = try XCTUnwrap(PlazaTree.artRect(in: map))
+            s.playTreeHit(by: id, direction: direction, level: 3, drop: nil)
+            run(s, from: 1.0 / 60, seconds: 0.15)
+            XCTAssertNotEqual(s.treeStretch, 1, "test precondition: mid-bend")
+            let rects = layer.bandWorldRects
+            XCTAssertEqual(rects.last?.maxY ?? 0, art.maxY, accuracy: 1e-3, "the trunk base stays put")
+            for (upper, lower) in zip(rects, rects.dropFirst()) { XCTAssertEqual(upper.maxY, lower.minY, accuracy: 1e-3, "\(direction): no gap, no overlap") }
+            XCTAssertEqual(rects[0].minY, art.maxY - art.height * s.treeStretch, accuracy: 1e-3, "\(direction): as tall as the stretch")
+            let props = try XCTUnwrap(s.photoInput()).props.filter { $0.baseY == art.maxY }.prefix(4)
+            XCTAssertEqual(props.map(\.particle.size.height), rects.map(\.height), "the photo draws the same bands")
+        }
     }
 
     func testOnlyMyDropKicksTheCamera() async throws {

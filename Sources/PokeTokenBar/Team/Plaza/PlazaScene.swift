@@ -1534,8 +1534,10 @@ struct PlazaSceneMember: Equatable, Sendable {
         let level = min(max(level, 1), PlazaTree.bend.count)
         actor.treeLunge(toward: direction, level: level)
         let foot = tackler.flatMap { remotes[$0]?.motion.footPoint } ?? walker.footPoint
-        treeLayer?.hit(direction: direction, level: level, tacklerFoot: foot, tacklerHeight: actor.characterSize.height, drop: drop)
-        treeDropFor = drop == nil ? nil : .some(tackler)
+        // 새 아이템을 받아들였을 때만 그 반짝임의 주인을 바꾼다(떨어지는 아이템이 있으면 그것이 먼저다).
+        if treeLayer?.hit(direction: direction, level: level, tacklerFoot: foot, tacklerHeight: actor.characterSize.height, drop: drop) == true {
+            treeDropFor = .some(tackler)
+        }
         if tackler == nil, level == PlazaTree.bend.count, PlazaTree.cameraKick != 0 { treeKick = (direction, 0) }
     }
 

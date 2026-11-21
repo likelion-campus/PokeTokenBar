@@ -119,7 +119,7 @@ enum PlazaTree {
         return out
     }
 
-    /// 작은 지도 그림: 지도 위에 나무를 2배로 얹는다(`Canvas.plot` 의 선분 공식, 미리 곱한 색). `rect` 밖은 그대로다.
+    /// 작은 지도 그림: 지도 위에 나무를 `scale`(3)배로 얹는다(`Canvas.plot` 의 선분 공식, 미리 곱한 색). `rect` 밖은 그대로다.
     static func baked(_ mapImage: PlazaImage, tree: PlazaImage, at rect: CGRect) -> PlazaImage {
         let w = mapImage.width, h = mapImage.height
         var data = mapImage.pixels.bytes

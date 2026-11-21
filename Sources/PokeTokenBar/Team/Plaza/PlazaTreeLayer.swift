@@ -1,6 +1,6 @@
 import Foundation
 
-/// 큰 나무의 노드: 뿌리 둘과 스프라이트 스무 장(띠 4, 잎 12, 먼지 2, 별 1, 떨어지는 아이템 1). 장면을 만들 때 모두 만들고 그 뒤로 노드를 더하지 않는다.
+/// 큰 나무의 노드: 뿌리 둘과 스프라이트 스물여덟 장(띠 4, 잎 20, 먼지 2, 별 1, 떨어지는 아이템 1). 장면을 만들 때 모두 만들고 그 뒤로 노드를 더하지 않는다.
 /// 시간은 `update(dt:visible:step:)` 로만 흐른다(타이머 없음). 가만히 있을 때는 아무 노드 속성도 쓰지 않고, 화면 밖에서는 시계만 가고 아무것도 쓰지 않는다.
 ///
 /// `root` 는 줄기 밑(그림의 가운데 아래)에 놓인다. 띠와 낙엽·먼지 위치가 줄기 밑 기준이다. 띠는 위에서부터 `PlazaTree.bandRows` 의 네 장이다.
@@ -8,7 +8,7 @@ import Foundation
 @MainActor final class PlazaTreeLayer {
     /// 나무 본체(띠·낙엽·먼지). 깊이는 모닥불과 같은 식(`PlazaTree.z`). 배경을 숨기면 같이 숨는다.
     let root = PlazaNode()
-    /// 타격 효과(별, 떨어지는 아이템). 배경을 숨겨도 그린다. 이름표(10) 아래, 낮밤 곱하기(5) 위.
+    /// 타격 효과(별, 떨어지는 아이템). 배경을 숨겨도 그린다. 깊이 20: 태클의 별·반짝임과 같이 이름표(10)와 낮밤 곱하기(5) 위라 늘 보인다(잎과 먼지는 `root` 안이라 나무 깊이로 이름표 아래).
     let fxRoot = PlazaNode()
 
     private let artRect: CGRect
@@ -21,7 +21,7 @@ import Foundation
     private let bandRest: [CGPoint]
     private(set) var season = PlazaSeason.summer
 
-    // 풀: 잎 12, 먼지 2, 별, 떨어지는 아이템. 계절이 정하는 잎 그림은 날씨 격자(`PlazaTree.burstArt`)다.
+    // 풀: 잎 20, 먼지 2, 별, 떨어지는 아이템. 계절이 정하는 잎 그림은 날씨 격자(`PlazaTree.burstArt`)다.
     private let leafSprites: [PlazaSprite]
     private let dustSprites: [PlazaSprite]
     private let impactSprite: PlazaSprite
@@ -39,19 +39,25 @@ import Foundation
         var elapsed: TimeInterval = 0
         var foot: CGPoint
         var height: CGFloat
-        var item: (kind: ItemKind, fall: PlazaTreeItemFall)?
         var burstDone = false
-        var landed = false
         var end: TimeInterval {
             let hold = PlazaTree.contactAt + PlazaTree.hitStop[level - 1]
             var e = hold + PlazaTree.swingLength
             e = max(e, PlazaTree.contactAt + PlazaTree.impactGrow + PlazaTree.impactHold + PlazaTree.impactFade)
             e = max(e, hold + PlazaTree.dustLife)
-            if item != nil { e = max(e, hold + PlazaTree.itemDelay + PlazaTree.itemFall + PlazaTree.itemBounceDuration) }
             return e
         }
     }
     private var shake: Shake?
+    /// 떨어지는 아이템 하나. 때림(`Shake`)과 따로 흐르므로 다른 때림이 흔들림을 다시 시작해도 이어 떨어지고, 땅에 닿으면 한 번 반짝인다.
+    /// `age` 는 음수에서 시작해(떨어지기 전 기다림) 0에서 떨어지기 시작한다.
+    private struct Flight {
+        let kind: ItemKind
+        let fall: PlazaTreeItemFall
+        var age: TimeInterval
+        var landed = false
+    }
+    private var flight: Flight?
     /// 마지막 쓰기가 쉬는 모습이었다(그리지 못한 채 끝난 때림은 다시 화면에 오면 쉬는 모습을 한 번 쓴다).
     private var restWritten = true
 
@@ -130,16 +136,22 @@ import Foundation
 
     // MARK: 타격
 
-    /// 한 번 때린다. 진행 중이던 때림(흔들림·별·먼지·떨어지는 아이템)은 처음부터 다시 시작하고, 잎은 풀의 빈 자리를 먼저 쓴다.
+    /// 한 번 때린다. 진행 중이던 때림(흔들림·별·먼지)은 처음부터 다시 시작하고, 잎은 풀의 빈 자리를 먼저 쓴다.
     /// `tacklerFoot` 는 때린 쪽의 발 자리(월드 픽셀, y 아래로). `level` 은 1...3 으로 맞춘다.
-    func hit(direction: PlazaDirection, level: Int, tacklerFoot: CGPoint, tacklerHeight: CGFloat, drop: ItemKind?) {
+    /// 아이템(`drop`)은 떨어지는 것이 없을 때만 새로 떨어뜨린다: 이미 떨어지는 아이템은 끝까지 이어 떨어지고 반짝인다(내 민트가 팀원의 때림에 사라지지 않게).
+    /// 새 아이템을 받아들였으면 true.
+    @discardableResult
+    func hit(direction: PlazaDirection, level: Int, tacklerFoot: CGPoint, tacklerHeight: CGFloat, drop: ItemKind?) -> Bool {
         let level = min(max(level, 1), PlazaTree.bend.count)
-        let item = drop.map { ($0, PlazaTreeItemFall(from: PlazaTree.itemStart(artRect: artRect, tacklerFoot: tacklerFoot), to: tacklerFoot)) }
-        shake = Shake(direction: direction, level: level, foot: tacklerFoot, height: tacklerHeight, item: item)
+        shake = Shake(direction: direction, level: level, foot: tacklerFoot, height: tacklerHeight)
+        guard let drop, flight == nil else { return false }
+        flight = Flight(kind: drop, fall: PlazaTreeItemFall(from: PlazaTree.itemStart(artRect: artRect, tacklerFoot: tacklerFoot), to: tacklerFoot),
+                        age: -(PlazaTree.contactAt + PlazaTree.hitStop[level - 1] + PlazaTree.itemDelay))
+        return true
     }
 
     /// 지금 움직이는 것이 있다(때림 진행 중이거나 잎이 남아 있다).
-    var isBusy: Bool { shake != nil || !leafField.leaves.isEmpty }
+    var isBusy: Bool { shake != nil || flight != nil || !leafField.leaves.isEmpty }
 
     /// 시간을 `dt` 흘린다. 움직이는 것도, 쉬는 모습으로 되돌릴 것도 없으면 노드를 하나도 건드리지 않고 돌아온다.
     /// 그림 사각형에서 `PlazaTree.cullMargin` 안에 `visible`(월드 좌표, y 아래로)이 닿지 않으면 시계와 잎만 가고 쓰지 않는다.
@@ -161,14 +173,17 @@ import Foundation
             } else {
                 leafField.advance(by: dt, kind: kind)
             }
-            if let item = sh.item, !sh.landed, sh.elapsed >= hold + PlazaTree.itemDelay + PlazaTree.itemFall {
-                sh.landed = true
-                landed = true
-                _ = item
-            }
             shake = sh.elapsed >= sh.end ? nil : sh
         } else {
             leafField.advance(by: dt, kind: kind)
+        }
+        if var f = flight {
+            f.age += dt
+            if !f.landed, f.age >= PlazaTree.itemFall {
+                f.landed = true
+                landed = true
+            }
+            flight = f.age >= PlazaTree.itemFall + PlazaTree.itemBounceDuration ? nil : f
         }
         let near = artRect.insetBy(dx: -PlazaTree.cullMargin, dy: -PlazaTree.cullMargin)
         if visible.maxX > near.minX && visible.minX < near.maxX && visible.maxY > near.minY && visible.minY < near.maxY {
@@ -240,12 +255,11 @@ import Foundation
         }
 
         // 떨어지는 아이템: 잎 속에서 때린 쪽의 발까지.
-        if let sh, let item = sh.item,
-           let at = item.fall.position(at: sh.elapsed - (PlazaTree.contactAt + PlazaTree.hitStop[sh.level - 1] + PlazaTree.itemDelay)) {
-            let texture = itemTextures[item.kind]!
+        if let f = flight, let at = f.fall.position(at: f.age) {
+            let texture = itemTextures[f.kind]!
             if itemSprite.texture !== texture {
                 itemSprite.texture = texture
-                itemSprite.size = PlazaEmoteArt.itemSize(item.kind)
+                itemSprite.size = PlazaEmoteArt.itemSize(f.kind)
             }
             itemSprite.position = CGPoint(x: snap(at.x, step), y: snap(worldHeight - at.y, step))
             if itemSprite.isHidden { itemSprite.isHidden = false }
@@ -276,7 +290,7 @@ import Foundation
         bands.map { node in
             let left = root.position.x + node.position.x
             let bottom = worldHeight - (root.position.y + node.position.y)
-            let height = node.size.height * node.yScale
+            let height = node.size.height   // `size` already includes `yScale`
             return CGRect(x: left, y: bottom - height, width: node.size.width, height: height)
         }
     }
@@ -297,7 +311,7 @@ import Foundation
     /// 떨어지는 아이템의 지금 자리(월드 픽셀, y 아래로). 안 보이면 nil.
     var itemPosition: CGPoint? { itemSprite.isHidden ? nil : CGPoint(x: itemSprite.position.x, y: worldHeight - itemSprite.position.y) }
     struct SpriteState: Equatable { let x: CGFloat, y: CGFloat, alpha: CGFloat, hidden: Bool, texture: ObjectIdentifier?, xScale: CGFloat, yScale: CGFloat, w: CGFloat, h: CGFloat }
-    /// 스무 장 전부의 모습. 가만히 있을 때 변하지 않아야 한다.
+    /// 스물여덟 장 전부의 모습. 가만히 있을 때 변하지 않아야 한다.
     var spriteStates: [SpriteState] {
         (bands + leafSprites + dustSprites + [impactSprite, itemSprite]).map {
             SpriteState(x: $0.position.x, y: $0.position.y, alpha: $0.alpha, hidden: $0.isHidden, texture: $0.texture.map(ObjectIdentifier.init),
