@@ -117,8 +117,7 @@ import SwiftUI
 
     private func seasonImage(_ season: PlazaSeason) -> PlazaImage? {
         guard season != .summer, let sheet = PlatformPlaza.tileSheet() else { return nil }
-        let art = PlatformPlaza.tallGrassSheet().map { PlazaSeasonSheet.tallGrass($0, season: season) }.flatMap(PlazaTallGrassArt.init(sheet:))
-        return PlazaTileArt.mapImage(PlazaMapData.map, sheet: PlazaSeasonSheet.tiles(sheet, season: season), tallGrass: art)
+        return PlazaSeasonSheet.look(PlazaMapData.map, sheet: sheet, tallGrassSheet: PlatformPlaza.tallGrassSheet(), season: season).mapImage
     }
 
     private func baseMap() -> PlazaImage {
