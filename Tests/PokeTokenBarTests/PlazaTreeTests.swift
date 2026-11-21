@@ -494,4 +494,44 @@ import XCTest
         XCTAssertEqual(L(.ko).plazaTreeDropped(.rareCandy), "나무에서 이상한 사탕이 떨어졌어요! 가방에 넣었어요")
         XCTAssertEqual(L(.ko).plazaTreeDropped(.shinyCharm), "나무에서 이로치 부적이 떨어졌어요! 가방에 넣었어요")
     }
+
+    /// The tuned look (the user found the first bend barely visible and the burst thin): top-band travel 6/12/18 world px, 8/12/20 leaves,
+    /// and a pool of 20. Every band offset stays a whole tree pixel, so the bands move as solid slabs.
+    func testTheTunedBendAndBurst() async {
+        XCTAssertEqual(PlazaTree.bend, [6, 12, 18])
+        XCTAssertEqual(PlazaTree.leaves, [8, 12, 20])
+        XCTAssertEqual(PlazaTree.maxFallingLeaves, 20)
+        XCTAssertEqual(PlazaTree.leaves.last, PlazaTree.maxFallingLeaves, "level 3 uses the whole pool")
+        XCTAssertEqual(PlazaTree.bend.map { PlazaTree.bandOffsets(bend: $0) }, [[6, 3, 3, 0], [12, 9, 3, 0], [18, 12, 6, 0]])
+        for b in PlazaTree.bend {
+            let offsets = PlazaTree.bandOffsets(bend: b)
+            for o in offsets { XCTAssertEqual(o.truncatingRemainder(dividingBy: PlazaTree.scale), 0) }
+            for (upper, lower) in zip(offsets, offsets.dropFirst()) {
+                XCTAssertLessThanOrEqual(upper - lower, 3 * PlazaTree.scale, "the step between two bands stays small: the seam shows as a stair, not a tear")
+            }
+        }
+    }
+
+    /// A burst takes one leaf from each equal-sized slice of the canopy (the opaque pixels sorted by x), so it spreads across the whole width.
+    func testABurstSpreadsAcrossTheWholeCanopy() async throws {
+        let (points, rect) = try canopyPoints()
+        let xs = points.map(\.x).sorted()
+        for count in PlazaTree.leaves {
+            var field = PlazaTreeLeaves(spawnPoints: points, baseY: rect.maxY)
+            field.burst(count: count, direction: .up, grids: [0])
+            func check(_ leaves: ArraySlice<PlazaTreeLeaf>, _ n: Int, _ what: String) {
+                for (k, leaf) in leaves.enumerated() {
+                    let lo = xs[k * xs.count / n], hi = xs[(k + 1) * xs.count / n - 1]
+                    XCTAssertTrue((lo...hi).contains(leaf.x), "\(what) leaf \(k) of \(n): \(leaf.x) not in \(lo)...\(hi)")
+                }
+            }
+            check(field.leaves[...], count, "first burst")
+            XCTAssertLessThan(field.leaves.map(\.x).min()!, rect.minX + rect.width * 0.2)
+            XCTAssertGreaterThan(field.leaves.map(\.x).max()!, rect.maxX - rect.width * 0.2)
+            if count + 8 <= PlazaTree.maxFallingLeaves {
+                field.burst(count: 8, direction: .up, grids: [0])
+                check(field.leaves[count...], 8, "second burst")
+            }
+        }
+    }
 }

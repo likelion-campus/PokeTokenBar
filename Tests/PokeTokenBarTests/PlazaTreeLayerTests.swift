@@ -60,7 +60,7 @@ import XCTest
         let union = layer.bandWorldRects.dropFirst().reduce(layer.bandWorldRects[0]) { $0.union($1) }
         XCTAssertEqual(union, try XCTUnwrap(PlazaTree.artRect(in: map)))
         XCTAssertEqual(layer.bandWorldRects.map(\.height), [30, 30, 30, 54])
-        XCTAssertEqual(s.treeNodeCount, 22, "two roots, four bands, twelve leaves, two dust puffs, the star and the item")
+        XCTAssertEqual(s.treeNodeCount, 30, "two roots, four bands, twenty leaves, two dust puffs, the star and the item")
     }
 
     func testTeammatesInFrontAndBehind() async throws {
@@ -210,7 +210,7 @@ import XCTest
     func testThePoolIsMadeOnceAndNeverGrows() async throws {
         let s = hitScene()
         let layer = try XCTUnwrap(s.treeLayer)
-        XCTAssertEqual(s.treeNodeCount, 22, "2 roots + 20 sprites, from the first frame")
+        XCTAssertEqual(s.treeNodeCount, 30, "2 roots + 28 sprites, from the first frame")
         XCTAssertTrue(s.root.children.contains { $0 === layer.root } && s.root.children.contains { $0 === layer.fxRoot })
         var t = run(s, from: 1.0 / 60, seconds: 0.2)
         let others = s.root.children.count
@@ -218,10 +218,10 @@ import XCTest
             s.playTreeHit(by: i % 3 == 0 ? nil : ["a", "b", "c", "d"][i % 4], direction: PlazaDirection.allCases[i % 4], level: i % 3 + 1,
                           drop: i % 5 == 0 ? .mint : nil)
             if i % 20 == 0 { t = run(s, from: t, seconds: 0.05) }
-            XCTAssertEqual(s.treeNodeCount, 22)
+            XCTAssertEqual(s.treeNodeCount, 30)
         }
         t = run(s, from: t, seconds: 10)   // the sparkles and the star are gone, the pool is the same
-        XCTAssertEqual(s.treeNodeCount, 22)
+        XCTAssertEqual(s.treeNodeCount, 30)
         XCTAssertEqual(s.root.children.count, others, "no other node of the scene grew either")
         XCTAssertFalse(s.isTreeBusy)
     }
@@ -287,13 +287,13 @@ import XCTest
         var peak: [CGFloat] = []
         var t = run(s, from: 1.0 / 60, seconds: 0.133) { _ in }
         peak = s.treeBandOffsets
-        XCTAssertEqual(peak, [6, 3, 3, 0], "at the hold: away from a hit that moves right")
+        XCTAssertEqual(peak, [12, 9, 3, 0], "at the hold: away from a hit that moves right")
         t = run(s, from: t, seconds: 1.0) { _ in XCTAssertEqual(s.treeBandOffsets.last, 0, "the trunk never moves") }
         XCTAssertEqual(s.treeBandOffsets, [0, 0, 0, 0], "settled")
         XCTAssertEqual(s.treeStretch, 1)
         s.playTreeHit(by: "b", direction: .left, level: 2, drop: nil)
         t = run(s, from: t, seconds: 0.133)
-        XCTAssertEqual(s.treeBandOffsets, [-6, -3, -3, 0], ".left mirrors it")
+        XCTAssertEqual(s.treeBandOffsets, [-12, -9, -3, 0], ".left mirrors it")
     }
 
     func testAVerticalHitStretchesOrSquashes() async throws {
@@ -335,11 +335,11 @@ import XCTest
         let s = hitScene()
         s.playTreeHit(by: "a", direction: .right, level: 3, drop: nil)
         var t = run(s, from: 1.0 / 60, seconds: 0.4)
-        XCTAssertEqual(s.treeLeafCount, 8)
+        XCTAssertEqual(s.treeLeafCount, PlazaTree.leaves[2], "level 3 uses the whole pool")
+        XCTAssertEqual(s.treeLeafCount, PlazaTree.maxFallingLeaves)
         s.playTreeHit(by: "b", direction: .left, level: 3, drop: nil)
         t = run(s, from: t, seconds: 0.4)
-        XCTAssertLessThanOrEqual(s.treeLeafCount, PlazaTree.maxFallingLeaves)
-        XCTAssertGreaterThan(s.treeLeafCount, 8)
+        XCTAssertEqual(s.treeLeafCount, PlazaTree.maxFallingLeaves, "a new hit recycles the pool, it never grows")
     }
 
     func testTheDropFallsToTheTacklersFeetAndSparklesOnce() async throws {

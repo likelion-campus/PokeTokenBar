@@ -7,7 +7,7 @@ enum PlazaTree {
     static let hitsPerDrop = 3                // 조정용 상수 (명세 13, 위임)
     static let dropsPerDay = 1                // 조정용 상수 (명세 13, 위임)
     static let dropItem: ItemKind = .mint     // 조정용 상수 (명세 13, 위임, R3)
-    static let maxFallingLeaves = 12          // 조정용 상수 (명세 13, 설계자 판단·미확인)
+    static let maxFallingLeaves = 20          // 조정용 상수 (명세 13, 설계자 판단·미확인). 3단계 때림이 풀 전체를 쓴다
 
     // 그림 크기: 번들 시트에서 자른 소나무 42×48 을 3배로 그린다(결정 (c). 지도는 2배).
     static let scale: CGFloat = 3
@@ -191,11 +191,11 @@ enum PlazaTree {
     static let recoil: [CGFloat] = [2, 3, 4]                       // 출발점 너머로 물러나는 월드 픽셀
     static let recoilDuration: TimeInterval = 0.08
     static let returnDuration: TimeInterval = 0.14
-    static let bend: [CGFloat] = [3, 6, 9]                         // 맨 위 띠의 월드 픽셀 = 나무 픽셀 1, 2, 3칸. 세로 때림은 bend / 144 만큼 늘인다
+    static let bend: [CGFloat] = [6, 12, 18]                       // 맨 위 띠의 월드 픽셀 = 나무 픽셀 2, 4, 6칸(처음 3, 6, 9는 잘 안 보인다고 두 배로). 세로 때림은 bend / 144 만큼 늘인다
     static let swingPeriod: TimeInterval = 0.24
     static let swingDecay: TimeInterval = 0.18
     static let swingLength: TimeInterval = 0.8                     // 멈춤이 끝난 뒤. 그다음은 제자리
-    static let leaves: [Int] = [3, 5, 8]
+    static let leaves: [Int] = [8, 12, 20]                         // 한 번에 터지는 잎. 3단계는 풀 전체
     static let leafScale: CGFloat = 3                              // 날씨 격자의 한 칸이 3 월드 픽셀: 나무의 픽셀과 같은 크기
     static let leafPop: ClosedRange<CGFloat> = 30...60             // 월드 픽셀/초, 맞은 쪽과 위로
     static let leafGravity: CGFloat = 160                          // 월드 픽셀/초², `leafFall` 이 될 때까지
@@ -305,6 +305,7 @@ struct PlazaTreeLeaf: Equatable {
 
 /// 터진 잎들. 노드 없는 순수 규칙이다: 상한 `maxFallingLeaves` 안에서 터질 때마다 정해진 씨앗으로 같은 모양을 만든다.
 struct PlazaTreeLeaves {
+    /// x 로 정렬한 잎 속 픽셀. 한 번에 터지는 잎은 이것을 같은 크기로 나눈 조각마다 하나씩 가져가 나무 너비 전체에 퍼진다.
     private let spawnPoints: [CGPoint]
     private let baseY: CGFloat
     private(set) var leaves: [PlazaTreeLeaf] = []
@@ -314,7 +315,7 @@ struct PlazaTreeLeaves {
     /// `spawnPoints` 는 `PlazaTree.canopySpawnPoints`, `baseY` 는 줄기 밑(그림 맨 아래)이다.
     init(spawnPoints: [CGPoint], baseY: CGFloat) {
         precondition(!spawnPoints.isEmpty, "a tree with no canopy has no leaves")
-        self.spawnPoints = spawnPoints
+        self.spawnPoints = spawnPoints.sorted { ($0.x, $0.y) < ($1.x, $1.y) }
         self.baseY = baseY
     }
 
@@ -323,8 +324,11 @@ struct PlazaTreeLeaves {
         precondition(!grids.isEmpty, "a burst needs a leaf picture")
         var rng = PlazaSplitMix64(seed: UInt64(PlazaNameColor.fnv1a("plaza-tree-leaves-\(bursts)")))
         bursts += 1
-        for _ in 0..<max(0, count) {
-            let at = spawnPoints[Int(rng.next() % UInt64(spawnPoints.count))]
+        for k in 0..<max(0, count) {
+            // k 번째 잎은 정렬한 픽셀을 `count` 조각으로 나눈 k 번째 조각 안에서 고른다.
+            let lo = min(k * spawnPoints.count / count, spawnPoints.count - 1)
+            let hi = max((k + 1) * spawnPoints.count / count, lo + 1)
+            let at = spawnPoints[lo + Int(rng.next() % UInt64(hi - lo))]
             let pop = PlazaTree.leafPop
             let speed = pop.lowerBound + CGFloat(rng.unit()) * (pop.upperBound - pop.lowerBound)
             let side = CGFloat(rng.unit()), lift = CGFloat(rng.unit())
