@@ -31,4 +31,30 @@ final class PlazaPondSweepTests: XCTestCase {
         XCTAssertEqual(hits, Self.allowed,
                        "classify it as water (use isWater) or pond-only and list it here. new: \(hits.subtracting(Self.allowed).sorted()) gone: \(Self.allowed.subtracting(hits).sorted())")
     }
+
+    /// Sweep A of the big-tree plan: every direct `.tree`/`.bigTree` tile check in the plaza sources is classified here.
+    static let allowedTree: Set<String> = [
+        "PlazaMap.swift|case .tree, .bush, .board, .campfire, .pond, .hotSpring: false",
+        "PlazaMap.swift|guard p.x >= 0, p.y >= 0, p.x < width, p.y < height else { return .tree }",
+        "PlazaSnow.swift|case .tallGrass, .tree, .bush, .board, .campfire, .pond, .hotSpring: false",
+        "PlazaTileArt.swift|if map.tile(at: TilePoint(x: x, y: y)) == .tree { covers = true } else { allTrees = false }",
+    ]
+
+    func testEveryDirectTreeTileCheckIsClassified() throws {
+        let root = SharedSources.sourcesRoot.appendingPathComponent("Team/Plaza")
+        let regex = try NSRegularExpression(pattern: #"(^|[^A-Za-z0-9_)\]?!])\.(tree|bigTree)\b"#)
+        var hits = Set<String>()
+        for url in SharedSources.allSwiftFiles(root: root) {
+            let rel = SharedSources.relativePath(url, root: root)
+            let text = try String(contentsOf: url, encoding: .utf8)
+            for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
+                let s = String(line)
+                if regex.firstMatch(in: s, range: NSRange(s.startIndex..., in: s)) != nil {
+                    hits.insert("\(rel)|\(s.trimmingCharacters(in: .whitespaces))")
+                }
+            }
+        }
+        XCTAssertEqual(hits, Self.allowedTree,
+                       "a blocked tile is asked through isWalkable/blocksBall; the tree through PlazaMap.isBigTree; list a real exception here. new: \(hits.subtracting(Self.allowedTree).sorted()) gone: \(Self.allowedTree.subtracting(hits).sorted())")
+    }
 }

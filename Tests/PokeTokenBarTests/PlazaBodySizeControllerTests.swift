@@ -142,7 +142,7 @@ final class PlazaBodySizeControllerTests: XCTestCase {
     // MARK: - What I send
 
     func testMySizeIsSentWhenMyPictureArrivesAndAgainWhenItChanges() async {
-        let w = await world(me: p(17, 9), species: 130)
+        let w = await world(me: p(20, 9), species: 130)
         XCTAssertEqual(w.c.myBodySize, 3)
         XCTAssertEqual(w.scene.myBody.size, 3)
         XCTAssertEqual(lastSentSize(w.me), 3)
@@ -162,16 +162,16 @@ final class PlazaBodySizeControllerTests: XCTestCase {
     }
 
     func testAPlaceholderOrAnEggSendsNoSize() async {
-        let w = await world(me: p(17, 9), species: 25, fetcher: EmptyFetcher())
+        let w = await world(me: p(20, 9), species: 25, fetcher: EmptyFetcher())
         XCTAssertEqual(w.c.myBodySize, 1)
         XCTAssertNil(lastSentSize(w.me))
-        let e = await world(me: p(17, 9), species: nil)
+        let e = await world(me: p(20, 9), species: nil)
         XCTAssertEqual(e.c.myBodySize, 1)
         XCTAssertNil(lastSentSize(e.me))
     }
 
     func testMyDisguiseSendsTheSizeOfTheLookIShow() async {
-        let w = await world(me: p(17, 9), species: 132, b: p(17, 8), theirs: 130, facing: .up)
+        let w = await world(me: p(20, 9), species: 132, b: p(20, 8), theirs: 130, facing: .up)
         XCTAssertEqual(w.c.myBodySize, 1, "a Ditto is class 1 before it copies")
         w.scene.handleKeyDown(keyCode: 8, characters: "ㅊ", isRepeat: false)   // C
         await settle()
@@ -191,7 +191,7 @@ final class PlazaBodySizeControllerTests: XCTestCase {
     // MARK: - What the scene knows
 
     func testATeammatesSizeIsWhatTheySentNeverTheirPictureHere() async {
-        let w = await world(me: p(17, 9), b: p(17, 12), theirs: 130)
+        let w = await world(me: p(20, 9), b: p(20, 12), theirs: 130)
         XCTAssertEqual(w.scene.body(of: w.b.id)?.size, 1, "my fetcher draws them 102×90, but they sent nothing")
         w.b.session.updateBodySize(2)
         await settle()
@@ -200,7 +200,7 @@ final class PlazaBodySizeControllerTests: XCTestCase {
     }
 
     func testANewSceneStartsFromMyLastSize() async {
-        let w = await world(me: p(17, 9), species: 130)
+        let w = await world(me: p(20, 9), species: 130)
         XCTAssertEqual(w.c.myBodySize, 3)
         w.c.handleClose()
         w.c.prepareScene()
@@ -214,29 +214,29 @@ final class PlazaBodySizeControllerTests: XCTestCase {
     }
 
     func testABigTacklerPushesMeFromThreeBelowButNotFour() async {
-        let w = await world(me: p(17, 9), b: p(17, 12), bSize: 3)
+        let w = await world(me: p(20, 9), b: p(20, 12), bSize: 3)
         w.c.showTackle(from: w.b.id, on: w.me.id, tiles: 1)
         run(w.scene, 1)
-        XCTAssertEqual(w.scene.walker.tile, p(17, 8))
+        XCTAssertEqual(w.scene.walker.tile, p(20, 8))
 
-        let f = await world(me: p(17, 9), b: p(17, 13), bSize: 3)
+        let f = await world(me: p(20, 9), b: p(20, 13), bSize: 3)
         let before = f.scene.impactsShown
         f.c.showTackle(from: f.b.id, on: f.me.id, tiles: 1)
         run(f.scene, 1)
-        XCTAssertEqual(f.scene.walker.tile, p(17, 9))
+        XCTAssertEqual(f.scene.walker.tile, p(20, 9))
         XCTAssertEqual(f.scene.impactsShown, before + 1)
     }
 
     func testMyBigBodyIsTackledFromThreeAbove() async {
-        let w = await world(me: p(17, 12), species: 130, b: p(17, 9))
+        let w = await world(me: p(20, 12), species: 130, b: p(20, 9))
         XCTAssertEqual(w.c.myBodySize, 3, "test precondition")
         w.c.showTackle(from: w.b.id, on: w.me.id, tiles: 1)
         run(w.scene, 1)
-        XCTAssertEqual(w.scene.walker.tile, p(17, 13))
+        XCTAssertEqual(w.scene.walker.tile, p(20, 13))
     }
 
     func testTheHintSpaceXAndCAllPickTheBigReach() async {
-        let w = await world(me: p(17, 12), species: 130, b: p(17, 9), facing: .down)
+        let w = await world(me: p(20, 12), species: 130, b: p(20, 9), facing: .down)
         XCTAssertEqual(w.c.hint, L(.ko).plazaMemberHint(nickname: "가"))
         press(w, 49, " ")
         await settle()
@@ -256,14 +256,14 @@ final class PlazaBodySizeControllerTests: XCTestCase {
     }
 
     func testATeammatesNewSizeMovesTheHintWithoutAStep() async {
-        let w = await world(me: p(17, 9), b: p(17, 12), facing: .up)
+        let w = await world(me: p(20, 9), b: p(20, 12), facing: .up)
         let hint = L(.ko).plazaMemberHint(nickname: "가")
         XCTAssertNotEqual(w.c.hint, hint)
         w.b.session.updateBodySize(3)
         await settle()
         run(w.scene, 0.1)
         XCTAssertEqual(w.c.hint, hint)
-        XCTAssertEqual(w.scene.walker.tile, p(17, 9))
+        XCTAssertEqual(w.scene.walker.tile, p(20, 9))
     }
 
     // MARK: - Throws

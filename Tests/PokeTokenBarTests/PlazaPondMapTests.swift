@@ -76,11 +76,11 @@ final class PlazaPondMapTests: XCTestCase {
         "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
     ]
 
-    /// SHA-256 of today's rows (v2.5.635; `git diff v2.5.635 -- PlazaMapData.swift` is empty) joined by "\n", with `'h'` read as `'w'`.
+    /// SHA-256 of today's rows (v2.5.635; `git diff v2.5.635 -- PlazaMapData.swift` is empty) joined by "\n", with `'h'` read as `'w'` and the big tree's `'B'` read as `'.'`.
     static let v2_5_635RowsSHA256 = "aa5fea86e544ac47c92365888065a8e152c5aba568eb37e1c15e691241b64847"
 
-    func testTheMapIsV2_5_635sWithOnlyTheRightPondRenamed() {
-        let joined = PlazaMapData.rows.map { $0.replacingOccurrences(of: "h", with: "w") }.joined(separator: "\n")
+    func testTheMapIsV2_5_635sWithOnlyTheSpringAndTheTreeAdded() {
+        let joined = PlazaMapData.rows.map { $0.replacingOccurrences(of: "h", with: "w").replacingOccurrences(of: "B", with: ".") }.joined(separator: "\n")
         XCTAssertEqual(PlazaParityGoldens.sha256Hex(Array(joined.utf8)), Self.v2_5_635RowsSHA256)
     }
 

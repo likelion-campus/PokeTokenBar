@@ -369,6 +369,30 @@ enum PlazaRenderScenes {
         }
     }
 
+    /// 큰 나무(x16–18, y9–10): 앞에 선 나, 왼쪽·오른쪽 이웃, 잎 뒤(17,8)에 선 Misty. 계절마다 한 장.
+    private static func bigTree(_ name: String, _ choice: PlazaSeasonChoice, photo: Bool = false) -> PlazaRenderScene {
+        scene(name, captures: [10]) { st in
+            var o = Options(); o.season = choice; o.zoom = 2; o.me = TilePoint(x: 17, y: 12)
+            let s = stage(o, on: st)
+            s.scene.face(.up)
+            s.put([member("ash", "Ash", 15, 10, facing: .right), member("misty", "Misty", 17, 8, facing: .down),
+                   member("brock", "Brock", 19, 11, facing: .left), member("dawn", "Dawn", 20, 9)], looks: crowdLooks)
+            return setup(s, photo: photo)
+        }
+    }
+
+    /// 큰 나무를 치는 장면. 모두 줄기에 닿는 자리에 서 있다. 타격 호출은 나무가 화면에 그려지는 작업(Task 6)에서 붙는다.
+    private static func bigTreeHit(_ name: String, captures: [Int]) -> PlazaRenderScene {
+        scene(name, captures: captures) { st in
+            var o = Options(); o.season = .summer; o.zoom = 2; o.me = TilePoint(x: 17, y: 11)
+            let s = stage(o, on: st)
+            s.scene.face(.up)
+            s.put([member("ash", "Ash", 15, 10, facing: .right), member("brock", "Brock", 19, 10, facing: .left),
+                   member("misty", "Misty", 17, 8, facing: .down), member("dawn", "Dawn", 20, 12)], looks: crowdLooks)
+            return setup(s)
+        }
+    }
+
     private static func ice(_ name: String, _ script: @escaping @MainActor (Stage, Int) -> Void) -> PlazaRenderScene {
         scene(name, captures: [5, 20, 40]) { st in
             var o = Options(); o.season = .winter; o.me = TilePoint(x: 10, y: 12)
@@ -391,7 +415,7 @@ enum PlazaRenderScenes {
         scene(name, backing: backing, captures: [10]) { st in
             var o = Options(); o.backing = backing
             let s = stage(o, on: st)
-            row(s, [member("a", "Ash", 16, 9), member("b", "Brock", 19, 8), member("c", "Misty", 22, 9),
+            row(s, [member("a", "Ash", 15, 9), member("b", "Brock", 19, 8), member("c", "Misty", 22, 9),
                     member("d", "Dawn", 14, 11), member("e", "Eve", 18, 12), member("f", "Fay", 23, 12)])
             return setup(s) { f in
                 guard f == 1 else { return }
@@ -410,7 +434,7 @@ enum PlazaRenderScenes {
         scene(name, backing: backing, captures: [10]) { st in
             var o = Options(); o.backing = backing; o.nickname = "Me"
             let s = stage(o, on: st)
-            row(s, [member("a", "Titled", 16, 9, nature: .adamant), member("b", "Sleepy", 19, 8, idle: true),
+            row(s, [member("a", "Titled", 15, 9, nature: .adamant), member("b", "Sleepy", 19, 8, idle: true),
                     member("c", "A very long nickname that must be truncated somewhere", 22, 9),
                     member("d", "한글이름", 14, 11, color: 0xFF8800), member("e", "", 18, 12), member("f", "🔥Fire", 23, 12, color: 0x22CC88)])
             return setup(s)
@@ -550,6 +574,11 @@ enum PlazaRenderScenes {
             hotSpring("hot-spring-spring", .spring, zoom: 1, captures: [10]),
             hotSpring("hot-spring-autumn", .autumn, zoom: 1, captures: [10]),
             hotSpring("hot-spring-winter", .winter, zoom: 1, captures: [10], photo: true),
+            bigTree("big-tree-summer", .summer), bigTree("big-tree-spring", .spring), bigTree("big-tree-autumn", .autumn),
+            bigTree("big-tree-winter", .winter, photo: true),
+            bigTreeHit("big-tree-hit-1", captures: [6, 9, 21, 72]),
+            bigTreeHit("big-tree-hit-2", captures: [6, 10, 22, 72]),
+            bigTreeHit("big-tree-hit-3", captures: [6, 12, 28, 44, 90]),
             ice("ice-frozen") { _, _ in },
             ice("ice-breaking") { s, f in if f == 1 { s.scene.setIceBreak(iceBreak(s), hit: TilePoint(x: 9, y: 14)) } },
             ice("ice-refreeze") { s, f in
@@ -583,12 +612,12 @@ enum PlazaRenderScenes {
             scene("pray-wobble", captures: [7, 23, 41]) { st in
                 var o = Options(); o.meLook = .egg
                 let s = stage(o, on: st)
-                s.put([member("e1", "Egg1", 21, 10), member("ash", "Ash", 17, 10)], looks: ["e1": .egg, "ash": .ash])
+                s.put([member("e1", "Egg1", 21, 10), member("ash", "Ash", 17, 12)], looks: ["e1": .egg, "ash": .ash])
                 return setup(s) { f in if f == 1 { s.scene.playPray(memberID: nil); s.scene.playPray(memberID: "e1") } }
             },
             scene("emotes", captures: [10]) { st in
                 let s = stage(on: st)
-                row(s, [member("a", "Ash", 16, 9), member("b", "Brock", 18, 8), member("c", "Misty", 21, 8),
+                row(s, [member("a", "Ash", 15, 9), member("b", "Brock", 19, 8), member("c", "Misty", 21, 8),
                         member("d", "Dawn", 22, 10), member("e", "Eve", 16, 12), member("f", "Fay", 22, 12)])
                 return setup(s) { f in
                     guard f == 1 else { return }
@@ -689,7 +718,7 @@ enum PlazaRenderScenes {
             // Lunges to the right, up and down (the effect scenes only lunge left), and frames of three sizes walking.
             scene("lunges", captures: [3, 9, 15, 24]) { st in
                 let s = stage(on: st)
-                s.put([member("ash", "Ash", 17, 10, facing: .right), member("misty", "Misty", 21, 9),
+                s.put([member("ash", "Ash", 16, 11, facing: .right), member("misty", "Misty", 21, 9),
                        member("dawn", "Dawn", 21, 11, facing: .up), member("mix", "Mix", 16, 12)],
                       looks: ["ash": .ash, "misty": .misty, "dawn": .dawn, "mix": .mixed])
                 return setup(s) { f in
