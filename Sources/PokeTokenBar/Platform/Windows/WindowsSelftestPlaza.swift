@@ -235,13 +235,13 @@ extension WindowsSelftest {
         // Judged: every draw is presented once and no more (ZERO presents when nothing changed is plaza.idleStatic). The rate
         // itself is the shared scene's animation (the list below): reported against D19's <= 20/s, not judged.
         r.add("plaza.idleVisible", i1.presents - i0.presents == i1.draws - i0.draws && q1.presents - q0.presents == q1.draws - q0.draws
-                && i1.draws - i0.draws <= i1.ticks - i0.ticks && scene?.isSteamShown != true,
+                && i1.draws - i0.draws <= i1.ticks - i0.ticks && scene?.isSteamShown != true && scene?.isTreeBusy != true,
               "visible, me alone (placeholder), nobody walking, 10 s: ticks=\(i1.ticks - i0.ticks) draws=\(i1.draws - i0.draws) "
                 + "(\(pf2(Double(i1.draws - i0.draws) / 10))/s, D19 <= 20/s) presents=\(i1.presents - i0.presents) clean=\(i1.cleanTicks - i0.cleanTicks) "
                 + "clock thread cs=\(clockCs) main cs=\(idleSample?.mainContextSwitches ?? -1) main cycles=\(idleSample?.mainCycles ?? 0) "
                 + "process cycles=\(idleSample?.processCycles ?? 0); with 6 FIXTURE teammates standing (5 s): draws=\(standing1.draws - standing0.draws) "
                 + "(\(pf2(Double(standing1.draws - standing0.draws) / 5))/s); me alone in summer (no weather, 5 s): draws=\(q1.draws - q0.draws) "
-                + "(\(pf2(summerRate))/s; D19 assumed <= 20/s); ditto host=\(c.isDittoHost); season \(season.rawValue) snow shown=\(scene?.isSnowShown ?? false) steamShown=\(scene?.isSteamShown ?? false); "
+                + "(\(pf2(summerRate))/s; D19 assumed <= 20/s); ditto host=\(c.isDittoHost); season \(season.rawValue) snow shown=\(scene?.isSnowShown ?? false) steamShown=\(scene?.isSteamShown ?? false) treeBusy=\(scene?.isTreeBusy ?? false); "
                 + "what changed over 60 samples: \(season.rawValue) [\(winterChanges)], summer [\(summerChanges)]")
         scene?.applyMembers(members)
 
