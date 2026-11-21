@@ -59,7 +59,7 @@ final class PlazaTackleReachTests: XCTestCase {
 
     private func body(_ x: Int, _ y: Int, _ c: Int) -> PlazaBody { PlazaBody(foot: TilePoint(x: x, y: y), size: c) }
 
-    func testATackleReachesAsFarAsTheBodiesTouch() {
+    func testATackleReachesAsFarAsTheBodiesTouch() async {
         XCTAssertTrue(body(5, 8, 3).touches(body(5, 5, 1)))
         XCTAssertFalse(body(5, 9, 3).touches(body(5, 5, 1)))
         XCTAssertTrue(body(5, 2, 1).touches(body(5, 5, 3)))
@@ -67,7 +67,7 @@ final class PlazaTackleReachTests: XCTestCase {
     }
 
     /// Spec 6.6: a tackler on an earlier version still pushes.
-    func testEveryOldReachStillReaches() {
+    func testEveryOldReachStillReaches() async {
         for ca in 1...3 { for cb in 1...3 {
             for dx in -4...4 { for dy in -4...4 {
                 let from = TilePoint(x: 10, y: 10), to = TilePoint(x: 10 + dx, y: 10 + dy)
@@ -78,7 +78,7 @@ final class PlazaTackleReachTests: XCTestCase {
         } }
     }
 
-    func testThePushGoesFromTheTacklerElseAlongTheLongerAxisElseTheirFacing() {
+    func testThePushGoesFromTheTacklerElseAlongTheLongerAxisElseTheirFacing() async {
         let me = TilePoint(x: 5, y: 5)
         func dir(_ x: Int, _ y: Int, _ f: PlazaDirection = .down) -> PlazaDirection {
             PlazaTargeting.turn(from: TilePoint(x: x, y: y), to: me, facing: f)
