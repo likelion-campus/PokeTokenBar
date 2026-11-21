@@ -375,7 +375,7 @@ enum PlazaRenderScenes {
             var o = Options(); o.season = choice; o.zoom = 2; o.me = TilePoint(x: 17, y: 12)
             let s = stage(o, on: st)
             s.scene.face(.up)
-            s.put([member("ash", "Ash", 15, 10, facing: .right), member("misty", "Misty", 17, 8, facing: .down),
+            s.put([member("ash", "Ash", 15, 10, facing: .right), member("misty", "Misty", 17, 7, facing: .down),
                    member("brock", "Brock", 19, 11, facing: .left), member("dawn", "Dawn", 20, 9)], looks: crowdLooks)
             return setup(s, photo: photo)
         }
@@ -388,7 +388,7 @@ enum PlazaRenderScenes {
             let s = stage(o, on: st)
             s.scene.face(.up)
             s.put([member("ash", "Ash", 15, 10, facing: .right), member("brock", "Brock", 19, 10, facing: .left),
-                   member("misty", "Misty", 17, 8, facing: .down), member("dawn", "Dawn", 20, 12)], looks: crowdLooks)
+                   member("misty", "Misty", 17, 7, facing: .down), member("dawn", "Dawn", 20, 12)], looks: crowdLooks)
             return setup(s)
         }
     }
@@ -415,7 +415,7 @@ enum PlazaRenderScenes {
         scene(name, backing: backing, captures: [10]) { st in
             var o = Options(); o.backing = backing
             let s = stage(o, on: st)
-            row(s, [member("a", "Ash", 15, 9), member("b", "Brock", 19, 8), member("c", "Misty", 22, 9),
+            row(s, [member("a", "Ash", 14, 9), member("b", "Brock", 20, 8), member("c", "Misty", 22, 9),
                     member("d", "Dawn", 14, 11), member("e", "Eve", 18, 12), member("f", "Fay", 23, 12)])
             return setup(s) { f in
                 guard f == 1 else { return }
@@ -434,7 +434,7 @@ enum PlazaRenderScenes {
         scene(name, backing: backing, captures: [10]) { st in
             var o = Options(); o.backing = backing; o.nickname = "Me"
             let s = stage(o, on: st)
-            row(s, [member("a", "Titled", 15, 9, nature: .adamant), member("b", "Sleepy", 19, 8, idle: true),
+            row(s, [member("a", "Titled", 14, 9, nature: .adamant), member("b", "Sleepy", 20, 8, idle: true),
                     member("c", "A very long nickname that must be truncated somewhere", 22, 9),
                     member("d", "한글이름", 14, 11, color: 0xFF8800), member("e", "", 18, 12), member("f", "🔥Fire", 23, 12, color: 0x22CC88)])
             return setup(s)
@@ -617,7 +617,7 @@ enum PlazaRenderScenes {
             },
             scene("emotes", captures: [10]) { st in
                 let s = stage(on: st)
-                row(s, [member("a", "Ash", 15, 9), member("b", "Brock", 19, 8), member("c", "Misty", 21, 8),
+                row(s, [member("a", "Ash", 14, 9), member("b", "Brock", 20, 8), member("c", "Misty", 21, 8),
                         member("d", "Dawn", 22, 10), member("e", "Eve", 16, 12), member("f", "Fay", 22, 12)])
                 return setup(s) { f in
                     guard f == 1 else { return }
