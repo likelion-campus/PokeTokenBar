@@ -3,6 +3,31 @@ import XCTest
 @testable import PokeTokenBar
 
 extension PlazaSeasonTests {
+    /// 지금 앱이 여름·겨울·봄에 그리는 지도와 풀숲(PlazaWindowController.seasonLook 과 같은 조립).
+    func bundledLook(_ season: PlazaSeason) throws -> (map: PlazaImage, grass: PlazaImage) {
+        let sheet = try XCTUnwrap(PlatformPlaza.tileSheet()), grassSheet = try XCTUnwrap(PlatformPlaza.tallGrassSheet())
+        if season == .summer {
+            return (PlazaTileArt.mapImage(PlazaMapData.map, sheet: sheet, tallGrass: PlatformPlaza.tallGrassArt()), grassSheet)
+        }
+        let grass = PlazaSeasonSheet.tallGrass(grassSheet, season: season)
+        let art = PlazaTallGrassArt(sheet: grass)
+        return (PlazaTileArt.mapImage(PlazaMapData.map, sheet: PlazaSeasonSheet.tiles(sheet, season: season), tallGrass: art), grass)
+    }
+
+    static let pinnedLooks: [PlazaSeason: (map: String, grass: String)] = [
+        .summer: (map: "949e959dca07032e73fc0843305a40c4bca7514195ffdf201dba83371c2f9ffb", grass: "6a3c1c6329d9029f65e6303e24b00c537686505d6dc52eb9cdd4434a094824de"),
+        .winter: (map: "d889e407fd03342b2e9aa0ddf860e01d907b42a057a3c3e3406974486f5e0ee5", grass: "fede76052d863a299d449e9167dded7865c4df4d464999a3ea3ff67dd6144a8a"),
+        .spring: (map: "7fcc5153081c42df66328ce4884fe5cbcfe0b0c1409e1c918f60372de0ac86f5", grass: "6a3c1c6329d9029f65e6303e24b00c537686505d6dc52eb9cdd4434a094824de"),
+    ]
+
+    func testSummerWinterAndSpringLooksAreUnchanged() async throws {
+        for season in [PlazaSeason.summer, .winter, .spring] {
+            let look = try bundledLook(season)
+            let map = PlazaParityGoldens.sha256Hex(look.map.pixels.bytes), grass = PlazaParityGoldens.sha256Hex(look.grass.pixels.bytes)
+            XCTAssertEqual(map, Self.pinnedLooks[season]?.map, "\(season) map \(map)")
+            XCTAssertEqual(grass, Self.pinnedLooks[season]?.grass, "\(season) grass \(grass)")
+        }
+    }
     func testSummerThrowsTheWaterBalloonPictureAsItIsAndOnlyInSummer() async throws {
         let balloon = try XCTUnwrap(BundledArt.image(PlazaResources.waterBalloonName), "the bundled picture loads")
         XCTAssertEqual([balloon.width, balloon.height], [14, 18])
