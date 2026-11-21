@@ -3418,3 +3418,16 @@ read_when:
 - **고침(셀프테스트만, 앱 동작은 그대로):** `IdleBurstAttribution.refreshesInWindow(countBefore:countAfter:runningAtEnd:)` — 창 안에서 끝난 수 + 창 끝에 아직 도는 갱신 하나. `onRefresh` 는 `isRefreshing` 이 내려가기 전에 불리므로 "끝에 도는 중" 이면 아직 안 센 갱신이다. `KnownWakes` 가 `refreshing` 을 담고 `refreshesInWindow(since:)` 로 네 검사가 같은 셈을 쓴다. 기록 줄은 `refresh:0+running` 처럼 보인다.
 - **영구 캡처:** `IdleBurstAttributionTests.testARefreshStillRunningAtTheWindowsEndIsBudgeted`(도는 중만·끝난 것만·둘 다·없음).
 - **규칙:** 유휴 창에서 앱의 일을 셀 때는 "끝난 수의 차이" 만 쓰지 않는다 — 창 끝에 진행 중인 일도 센다. 같은 셈이 둘 이상의 검사에 있으면 공용 함수 하나로 모은다.
+
+## 큰 나무가 윈도에서 처음 돌았더니 사진 골든·한낮·2.5배 가장자리가 틀렸다 (#327 윈도 CI 44913341032, 2026-11-21)
+- **증상:** 윈도 CI 가 세 가지로 실패했다. ① `WindowsPlazaClipboardTests.testPhotoBytesLookLikeTheMacs` 가 나무가 든 사진마다 맥과 3만~21만 픽셀 달랐다(윈도가 나무의 윤곽색 `#222034` 를 그렸는데 맥 골든에는 풀밭). ② `PlazaTreeLayerTests.testThePhotoCarriesTheTree` 가 "눈 잎 색이 사진에 없다". ③ 교차 렌더 비교가 6건 실패: `base-noon-1.25x@10/40/90`, `big-tree-hit-3@6/12`(1 픽셀 줄이 27 픽셀마다), `chat-bubbles-1x@10`(말풍선이 113 pt 다른 자리).
+- **직접 원인(셋 다 다르다):**
+  1. 맥 사진 골든(`Tests/PlazaParityGoldens/photos`)이 나무 이전 것이었다. 맥 검사 `testPhotoGoldensStillHoldOnThisMac` 는 `TimeZone` 이 UTC 가 아니면 **건너뛴다**: 개발 맥(KST)과 맥 CI 는 건너뛰고, UTC 러너인 윈도 CI 에서만 처음 비교됐다. 윈도 사진은 맞았다(새 골든과 나무 영역이 같다: 눈 잎 색 11,484 픽셀이 맥과 같다).
+  2. 테스트 시계(`PlazaFixtureTime`)는 KST 한낮 12:00 이고 장면은 `Calendar.current` 로 낮밤을 읽는다. UTC 러너에서는 그것이 03:00 이라 사진에 밤 색조가 곱해져 눈 잎이 제 색이 아니었다.
+  3. 나무는 3배로 그려서(`scale` 3) 나무 픽셀 가장자리가 3 월드 픽셀 간격인데, 기기 배율이 2.5(줌 2 × 배율 1.25)면 가장자리가 두 개 걸러 하나씩 기기 픽셀 **한가운데**에 놓인다. 거기서 최근접 표집은 SpriteKit 과 Direct2D 가 서로 다른 쪽을 고른다(수학적으로 동점). 세로 때림(`yScale` 1.125)에서는 나무 픽셀 높이가 13.5 기기 픽셀이라 같은 일이 때림 장면마다 났다. 말풍선은 별개다: 장면의 Ash 를 (14,9) 로 옮기자 그 이름표가 화면 가장자리(`|plate.x| = halfW`)에 정확히 걸려 `chatBubbleOrigin` 의 "이름표가 화면 밖이면 그대로" 판정이 OS 마다 갈렸다(옛 위치에서는 가장자리가 아니었다).
+- **왜 못 걸렀나:** ① 맥 골든 검사의 건너뛰기(UTC 아님) — 맥에서는 아무도 그 비교를 돌리지 않았다. ② 같은 시간대 가정: 맥(KST)에서는 한낮이 한낮이다. ③ `swiftc -parse` 와 맥 테스트는 윈도 코드(`#if os(Windows)`)와 윈도의 샘플링을 볼 수 없다; 맥 교차 기준은 "맥이 맥과 같다" 만 증명하고, 윈도와의 비교는 윈도 CI 만 한다. 옛 장면은 모두 정수 배율(2배)이거나 비교가 허용 오차로 흡수한 크기(1.25배는 0.5 %)였고, 나무는 처음으로 7.5 픽셀 덩어리를 만들었다.
+- **고침:** ① 골든 다시 만들기(`TZ=UTC PTB_PLAZA_GOLDENS_WRITE=1`)와, 맥 골든 검사가 건너뛰는 대신 프로세스 시간대를 UTC 로 잠시 두고 돌게 했다(이제 어디서나 비교한다. 옛 골든을 되돌리면 실패하는 것을 확인했다). ② `treeScene` 이 `PlazaFixtureTime.pin()` 으로 시간대를 고정한다. ③ `PlazaTreeLayer.nudge(step:)`: 나무 전체를 기기 픽셀의 1/64 만큼 비껴 놓아 어떤 가장자리도 픽셀 한가운데에 놓이지 않게 했다. 정수 배율에서는 가장자리가 픽셀 경계에 있어 그림이 바이트까지 그대로다(맥 교차 기준에서 정수 배율 장면의 픽셀은 하나도 안 바뀌었다). 비용: 노드 값 하나(루트 위치)가 배율이 바뀔 때만 쓰인다. 말풍선은 장면의 Ash 를 (15,12) 로 옮겼다.
+- **부류 스윕:** 윈도 CI 에서만 비교되는 것: 사진 골든(맥 쪽 검사를 이제 항상 돈다), 교차 렌더(맥 기준 187장). 비정수 배율로 그려지는 새 그림: 나무 띠·잎(루트 아래라 같은 비킴을 받는다), 별(0.6→1.9 배, 효과가 짧고 기존 태클 별과 같다), 김(`PlazaSteam.scale` 2 → 1.25 배율에서 5 픽셀 정수), 온천 몸통 붉은 복사본(원본 크기). 1.25·1.5배 장면은 `base-noon` 만이라 온천·김은 비정수 배율에서 윈도와 비교되지 않는다 — 열려 있다(`hot-spring` 장면을 1.25배로 더하면 닫힌다). 시간대 가정: `PlazaFixtureTime.date` 를 쓰는 장면 테스트는 이 나무 테스트뿐이다.
+- **영구 캡처:** `PlazaTreeLayerTests.testNoTreePixelEdgeSitsOnADevicePixelCentre`(줌 1·2·3 × 배율 1·1.25·1.5·2, 쉴 때와 늘어난 때: 가장자리가 기기 픽셀 중심과 0.005 이상 떨어져야 한다. 비킴을 빼면 838건 실패), `PlazaPhotoGoldensMacTests.testPhotoGoldensStillHoldOnThisMac`(이제 건너뛰지 않는다).
+- **규칙:** 3배 이상 확대해 그리는 새 그림은 비정수 기기 배율(2.5, 7.5)의 동점 표집을 피하게 비껴 놓는다. 시간대나 환경 때문에 건너뛰는 맥 검사는 만들지 않는다(환경을 고정해서 돌린다). 윈도 CI 첫 실행에서 "윈도에서만" 실패가 나오면 맥 골든·고정 시계·샘플링 동점부터 본다.
+

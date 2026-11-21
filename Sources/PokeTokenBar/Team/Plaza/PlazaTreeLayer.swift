@@ -12,6 +12,9 @@ import Foundation
     let fxRoot = PlazaNode()
 
     private let artRect: CGRect
+    /// `root` 의 자리(줄기 밑, 장면 좌표)와 거기에 더한 작은 편향. 편향은 `update` 가 화면 배율에 맞춰 정한다.
+    private let origin: CGPoint
+    private var bias: CGFloat = 0
     private let worldHeight: CGFloat
     /// 계절마다 네 띠의 그림과 그 텍스처. 장면을 만들 때 한 번에 만든다(나중에 만드는 것이 없다).
     private let bandArt: [PlazaSeason: [PlazaImage]]
@@ -72,7 +75,8 @@ import Foundation
         self.worldHeight = worldHeight
         root.zPosition = PlazaTree.z(in: map)!
         // 줄기 밑: 그림의 가운데 아래(장면 좌표, y 위로).
-        root.position = CGPoint(x: rect.midX, y: worldHeight - rect.maxY)
+        origin = CGPoint(x: rect.midX, y: worldHeight - rect.maxY)
+        root.position = origin
         fxRoot.zPosition = 20
         let scale = PlazaTree.scale
         let rows = PlazaTree.bandRows
@@ -157,6 +161,7 @@ import Foundation
     /// 그림 사각형에서 `PlazaTree.cullMargin` 안에 `visible`(월드 좌표, y 아래로)이 닿지 않으면 시계와 잎만 가고 쓰지 않는다.
     /// 아이템이 땅에 닿는 프레임에 한 번 true.
     func update(dt: TimeInterval, visible: CGRect, step: CGFloat) -> Bool {
+        nudge(step: step)
         guard isBusy || !restWritten else { return false }
         var landed = false
         let kind = PlazaTree.burstArt(season).kind
@@ -195,6 +200,16 @@ import Foundation
         return landed
     }
 
+    /// 나무 전체를 기기 픽셀의 64분의 1만큼 비킨다. 나무 픽셀(3 월드 픽셀)의 가장자리가 기기 픽셀 한가운데에 정확히 놓이면(배율 2.5 같은 때)
+    /// SpriteKit 과 Direct2D 의 최근접 표집이 서로 다른 쪽을 골라 한 줄씩 어긋난다. 비껴 놓으면 어느 쪽도 같은 쪽을 고른다.
+    /// 정수 배율에서는 가장자리가 기기 픽셀 경계에 있어 비껴도 같은 칸을 고르므로 그림은 그대로다.
+    private func nudge(step: CGFloat) {
+        let b = step / 64
+        guard b != bias else { return }
+        bias = b
+        root.position = CGPoint(x: origin.x + b, y: origin.y + b)
+    }
+
     private func snap(_ v: CGFloat, _ step: CGFloat) -> CGFloat { (v / step).rounded() * step }
 
     /// 지금 시계에 맞는 모습을 쓴다(때림이 없으면 쉬는 모습).
@@ -222,7 +237,7 @@ import Foundation
             node.texture = textures[grid]
             node.size = CGSize(width: CGFloat(images[grid].width) * PlazaTree.leafScale, height: CGFloat(images[grid].height) * PlazaTree.leafScale)
             node.alpha = PlazaTreeLeaves.alpha(leaf)
-            node.position = CGPoint(x: snap(leaf.x, step) - root.position.x, y: artRect.maxY - snap(leaf.y, step))
+            node.position = CGPoint(x: snap(leaf.x, step) - origin.x, y: artRect.maxY - snap(leaf.y, step))
             if node.isHidden { node.isHidden = false }
         }
 
@@ -277,7 +292,7 @@ import Foundation
         let images = leafImages[PlazaTree.burstArt(season).kind]!
         for (node, leaf) in zip(leafSprites, leafField.leaves) where !node.isHidden {
             props.append(PlazaPhotoProp(particle: PlazaPhotoParticle(image: images[leaf.image % images.count],
-                                                                    origin: CGPoint(x: node.position.x + root.position.x - node.size.width / 2,
+                                                                    origin: CGPoint(x: node.position.x + origin.x - node.size.width / 2,
                                                                                     y: artRect.maxY - node.position.y - node.size.height / 2),
                                                                     size: node.size, alpha: node.alpha),
                                         baseY: artRect.maxY))
@@ -285,11 +300,11 @@ import Foundation
         return props
     }
 
-    /// 띠마다 월드 사각형(y 아래로).
-    private func bandRects() -> [CGRect] {
+    /// 띠마다 월드 사각형(y 아래로). `bias` 는 실제로 그려지는 자리를 볼 때만 준다(사진은 편향 없는 자리를 쓴다).
+    private func bandRects(bias: CGFloat = 0) -> [CGRect] {
         bands.map { node in
-            let left = root.position.x + node.position.x
-            let bottom = worldHeight - (root.position.y + node.position.y)
+            let left = origin.x + bias + node.position.x
+            let bottom = worldHeight - (origin.y + bias + node.position.y)
             let height = node.size.height   // `size` already includes `yScale`
             return CGRect(x: left, y: bottom - height, width: node.size.width, height: height)
         }
@@ -301,6 +316,8 @@ import Foundation
     /// 두 뿌리와 모든 자손. 만든 뒤 늘지 않아야 한다.
     var nodeCount: Int { 2 + root.children.count + fxRoot.children.count }
     var bandWorldRects: [CGRect] { bandRects() }
+    /// 띠가 실제로 그려지는 월드 사각형(앞쪽 반올림 방지 편향 포함, y 아래로).
+    var bandDrawRects: [CGRect] { bandRects(bias: bias) }
     var bandImages: [PlazaImage?] { bands.map { $0.texture?.image } }
     /// 띠마다 지금 옆으로 민 만큼(월드 픽셀).
     var bandOffsets: [CGFloat] { zip(bands, bandRest).map { $0.position.x - $1.x } }

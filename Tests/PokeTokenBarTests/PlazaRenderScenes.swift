@@ -417,7 +417,7 @@ enum PlazaRenderScenes {
         scene(name, backing: backing, captures: [10]) { st in
             var o = Options(); o.backing = backing
             let s = stage(o, on: st)
-            row(s, [member("a", "Ash", 14, 9), member("b", "Brock", 20, 8), member("c", "Misty", 22, 9),
+            row(s, [member("a", "Ash", 15, 12), member("b", "Brock", 20, 8), member("c", "Misty", 22, 9),   // Ash: not at (14,9), whose plate sits on the view's edge (|plate.x| = halfW) and flips the bubble clamp between OSes
                     member("d", "Dawn", 14, 11), member("e", "Eve", 18, 12), member("f", "Fay", 23, 12)])
             return setup(s) { f in
                 guard f == 1 else { return }

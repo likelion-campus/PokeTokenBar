@@ -15,6 +15,10 @@ import XCTest
 
     /// The real map with the tree layer (it needs `pondVisuals`), in a season, at rest.
     private func treeScene(start: TilePoint = TilePoint(x: 17, y: 12), season: PlazaSeasonChoice = .summer) -> PlazaScene {
+        // The fixture clock is KST; the scene reads the hour through Calendar.current. Pin the process zone to the fixture's, or noon here is
+        // 03:00 on a UTC runner (Windows CI) and the photo gets the night tint (the snow leaf was never its own colour there).
+        let pin = PlazaFixtureTime.pin()
+        addTeardownBlock { pin.restore() }
         let s = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: start, zoom: 2, nickname: "me", pondVisuals: true)
         s.size = CGSize(width: 800, height: 600)
         s.backingOverride = 2
@@ -469,5 +473,39 @@ import XCTest
         XCTAssertEqual(zip(bands, rest).map { $0 - $1 }, s.treeBandOffsets, "the photo's bands carry the offsets of the screen")
         XCTAssertEqual(props.count, 4 + s.treeLeafCount, "shown leaves are props too")
         XCTAssertGreaterThan(s.treeLeafCount, 0)
+    }
+
+    /// Direct2D and SpriteKit pick different texels when a nearest-neighbour sample lands exactly on a texel edge (a pixel centre on a tree-pixel
+    /// boundary). At 3x the tree's pixel edges are 3 world px apart, so at a device scale of 2.5 px per world px (zoom 2, backing 1.25) every second
+    /// edge is on a pixel centre: Windows CI saw 1-px seams on every such row. The layer nudges the whole tree by a sixty-fourth of a device pixel so no edge
+    /// sits on a centre, in the rest pose and in a stretched one, at every zoom and backing scale.
+    func testNoTreePixelEdgeSitsOnADevicePixelCentre() async throws {
+        for zoom in [1, 2, 3] {
+            for backing in [1.0, 1.25, 1.5, 2.0] {
+                for stretched in [false, true] {
+                    let s = treeScene(start: p(17, 11))
+                    s.zoom = zoom
+                    s.backingOverride = CGFloat(backing)
+                    s.applyMembers([member("d", 17, 11, facing: .up)])
+                    s.setMemberFrames("d", solidFrames())
+                    if stretched { s.playTreeHit(by: "d", direction: .up, level: 3, drop: nil) }
+                    run(s, from: 1.0 / 60, seconds: stretched ? 0.15 : 0.05)
+                    let layer = try XCTUnwrap(s.treeLayer)
+                    let view = s.visibleWorldRect
+                    let k = CGFloat(zoom) * CGFloat(backing)
+                    func centreDistance(_ v: CGFloat) -> CGFloat { abs((v * k).truncatingRemainder(dividingBy: 1) - 0.5) }
+                    for r in layer.bandDrawRects {
+                        let columns = Int((r.width / PlazaTree.scale).rounded()), rows = Int((r.height / (PlazaTree.scale * s.treeStretch)).rounded())
+                        for c in 0...columns {
+                            XCTAssertGreaterThan(centreDistance(r.minX + CGFloat(c) * r.width / CGFloat(columns) - view.minX), 0.005, "x edge \(c): zoom \(zoom) backing \(backing) stretched \(stretched)")
+                        }
+                        for row in 0...rows {
+                            XCTAssertGreaterThan(centreDistance(r.minY + CGFloat(row) * r.height / CGFloat(rows) - view.minY), 0.005, "y edge \(row): zoom \(zoom) backing \(backing) stretched \(stretched)")
+                        }
+                    }
+                    s.isPaused = false
+                }
+            }
+        }
     }
 }
