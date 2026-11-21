@@ -60,8 +60,15 @@ extension PlazaSeasonTests {
             }
             XCTAssertEqual(s.shownSeason, season)
             s.playSnowball(by: nil, shot: PlazaSnowballShot(from: map.spawn, direction: .up, end: .ground(TilePoint(x: map.spawn.x, y: map.spawn.y - 3)))) {}
-            let source = PlazaResources.ballSource(season)
-            let file = source.flatMap { src in BundledArt.image(src.name).map { img in src.crop.flatMap { img.cropping(to: $0) } ?? img } }
+            // 기대하는 공은 ballSource 를 거치지 않고, 시험이 적은 파일 이름과 자를 영역으로 직접 만든다.
+            // 겨울은 파일이 없다: 번들에 눈뭉치 파일이 있어도 격자 공이 그대로여야 한다.
+            let leaf = BundledArt.image("plaza-leaf-sheet")
+            let file: PlazaImage? = switch season {
+            case .winter: nil
+            case .spring: leaf?.cropping(to: PlazaPixelRect(x: 33, y: 129, width: 17, height: 15))
+            case .summer: BundledArt.image("plaza-water-balloon")
+            case .autumn: leaf?.cropping(to: PlazaPixelRect(x: 33, y: 33, width: 17, height: 15))
+            }
             let want = PlazaSnowballArt.art(season, ball: file).ball
             XCTAssertEqual(s.snowballBallImages.last?.pixels.bytes, want.image.pixels.bytes, "\(season)")
             XCTAssertEqual(s.snowballBallSizes.last, CGSize(width: CGFloat(want.image.width) * want.scale, height: CGFloat(want.image.height) * want.scale), "\(season)")
@@ -72,7 +79,7 @@ extension PlazaSeasonTests {
         let sheet = try XCTUnwrap(PlatformPlaza.tileSheet())
         XCTAssertTrue(PlazaSeasonSheet.tiles(sheet, season: .summer) === sheet)
         let spring = PlazaSeasonSheet.tiles(sheet, season: .spring), autumn = PlazaSeasonSheet.tiles(sheet, season: .autumn)
-        XCTAssertTrue(SnowPixels.contains(spring, rgb: [0xF8BBCF, 0xFDDCE6, 0xE88DAC]), "pink trees")
+        XCTAssertTrue(SnowPixels.containsAll(spring, rgb: [0xF8BBCF, 0xFDDCE6, 0xE88DAC]), "pink trees")
         XCTAssertTrue(SnowPixels.contains(spring, rgb: [0xF2A0BC]), "pink flowers")
         XCTAssertTrue(SnowPixels.contains(autumn, rgb: [0x8E9A44]), "olive ground")
         XCTAssertTrue(SnowPixels.contains(autumn, rgb: [0xB4462A]), "rust bushes")
@@ -100,7 +107,7 @@ extension PlazaSeasonTests {
         XCTAssertTrue(PlazaSeasonSheet.tallGrass(sheet, season: .spring) === sheet)
         XCTAssertTrue(PlazaSeasonSheet.tallGrass(sheet, season: .summer) === sheet)
         let autumn = PlazaSeasonSheet.tallGrass(sheet, season: .autumn)
-        XCTAssertTrue(SnowPixels.contains(autumn, rgb: [0xC8A050, 0x9A6A2C, 0x5E4220]))
+        XCTAssertTrue(SnowPixels.containsAll(autumn, rgb: [0xC8A050, 0x9A6A2C, 0x5E4220]))
         XCTAssertFalse(SnowPixels.contains(autumn, rgb: [0x99E550, 0x6ABE30, 0x4B692F]))
         XCTAssertFalse(SnowPixels.contains(PlazaSeasonSheet.tallGrass(sheet, season: .winter), rgb: [0x99E550, 0x6ABE30]))
     }
@@ -196,6 +203,28 @@ extension PlazaSeasonTests {
             let region = (c.col * 16, c.row * 16, 16, 16)
             XCTAssertEqual(greens(grass, region).intersection(greens(grassSheet, region)), [], "tall grass \(c) keeps summer green")
         }
+    }
+
+    /// 여름 초록의 정의(스펙 5.4): g > r, g > b 이고 (g − min(r, b)) × 10 ≥ g × 3.
+    private func summerGreens(_ image: PlazaImage) -> Set<UInt32> {
+        let b = image.pixels.bytes
+        var out = Set<UInt32>()
+        for i in stride(from: 0, to: b.count, by: 4) where b[i + 3] == 255 {
+            let (r, g, bl) = (Int(b[i]), Int(b[i + 1]), Int(b[i + 2]))
+            if g > r, g > bl, (g - min(r, bl)) * 10 >= g * 3 { out.insert(rgb(b, i)) }
+        }
+        return out
+    }
+
+    /// 지도 전체 점검: 여름 지도가 그리는 초록이 가을 지도와 가을 풀숲 그림에 하나도 남지 않는다.
+    /// 칸 목록에 없는데 `mapImage` 가 그리는 초록(목록 누락)이 여기서 걸린다. 허용 예외는 아래 `allowed` 에 칸과 이유를 적는다.
+    func testTheWholeAutumnMapHasNoSummerGreen() async throws {
+        let grassSheet = try XCTUnwrap(PlatformPlaza.tallGrassSheet())
+        let allowed: Set<UInt32> = []
+        let summer = try bundledLook(.summer), autumn = try bundledLook(.autumn)
+        XCTAssertGreaterThan(summerGreens(summer.map).count, 5, "the summer map has greens to look for")
+        XCTAssertEqual(summerGreens(autumn.map).intersection(summerGreens(summer.map)).subtracting(allowed).map { String($0, radix: 16) }.sorted(), [], "map")
+        XCTAssertEqual(summerGreens(autumn.grass).intersection(summerGreens(grassSheet)).subtracting(allowed).map { String($0, radix: 16) }.sorted(), [], "tall grass sheet")
     }
 
     func testTheRealAutumnMapMixesAllThreeTrees() async throws {
