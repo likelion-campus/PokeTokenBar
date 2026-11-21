@@ -67,6 +67,32 @@ final class PlazaResourcesTests: XCTestCase {
         XCTAssertTrue(frames.allSatisfy { $0.width == 32 && $0.height == 32 })
     }
 
+    func testSteamSheetLoads() throws {
+        let steam = try XCTUnwrap(BundledArt.image(PlazaResources.steamSheetName))
+        XCTAssertEqual([steam.width, steam.height], [224, 32])
+    }
+
+    func testTheSixFramesAreTheFirstSixCellsAndTheSeventhIsEmpty() throws {
+        let steam = try XCTUnwrap(BundledArt.image(PlazaResources.steamSheetName))
+        XCTAssertEqual(PlazaResources.steamFrames.count, 6)
+        for (i, f) in PlazaResources.steamFrames.enumerated() {
+            XCTAssertEqual([f.x, f.y, f.width, f.height], [32 * i, 0, 32, 32])
+        }
+        func opaque(_ rect: PlazaPixelRect) throws -> Int {
+            let crop = try XCTUnwrap(steam.cropping(to: rect)).pixels.bytes
+            return stride(from: 3, to: crop.count, by: 4).filter { crop[$0] != 0 }.count
+        }
+        XCTAssertEqual(try PlazaResources.steamFrames.map(opaque), [327, 321, 215, 80, 18, 4])
+        XCTAssertEqual(try opaque(PlazaPixelRect(x: 192, y: 0, width: 32, height: 32)), 0, "the seventh cell is empty")
+    }
+
+    func testCreditsNameTheSteamArtist() throws {
+        let credits = try text("CREDITS", "md")
+        for needle in ["Aidan_Walker", "Smoke Puff", "https://opengameart.org/content/smoke-puff", "plaza-steam.png", "CC0"] {
+            XCTAssertTrue(credits.contains(needle), needle)
+        }
+    }
+
     func testCreditsNameTheIceArtists() throws {
         let credits = try text("CREDITS", "md")
         for needle in ["Ice Mountains Tileset", "CookieEfedu", "CC-BY 4.0", "https://creativecommons.org/licenses/by/4.0/",

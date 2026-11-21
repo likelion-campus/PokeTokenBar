@@ -104,6 +104,14 @@ extension PlazaResourcesTests {
         ("plaza-ice-shatter", "gif", "b5907dd9b03aec03bd4a26acb48b125d8af528a7170dbc1326562d88b54587db")
     ]
 
+    /// `plaza-steam.png` is `smoke_5.png` from https://opengameart.org/content/smoke-puff, byte for byte.
+    func testSteamSheetIsTheUnmodifiedOriginal() throws {
+        let bundle = try XCTUnwrap(PlazaResources.resourceBundle())
+        let url = try XCTUnwrap(PlazaResources.resourceURL("plaza-steam", "png", in: bundle))
+        let digest = SHA256.hash(data: try Data(contentsOf: url)).map { String(format: "%02x", $0) }.joined()
+        XCTAssertEqual(digest, "246e0f333142c5d388dab36d50caf19fe508e8274ad4ecf7c7b96c0b92b0b8f8")
+    }
+
     func testIceFilesAreTheUnmodifiedOriginals() throws {
         let bundle = try XCTUnwrap(PlazaResources.resourceBundle())
         for file in Self.iceDigests {

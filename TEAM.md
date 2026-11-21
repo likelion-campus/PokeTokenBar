@@ -298,3 +298,4 @@ Windows 팝오버는 Mac의 화면을 그대로 따라 만든 별도 구현입�
 - 얼음 금 그림: CookieEfedu, "Ice Mountains Tileset" (CC-BY 4.0, 실행 중에 금 픽셀만 남기고 색을 바꿈)
 - 얼음 윤기 그림: ChikenwingJJA, "Some 16x16 floor tiles" (CC0)
 - 얼음 파편 그림: Spring Spring, "Shattering Boulder" (CC0)
+- 김 그림: Aidan_Walker, "Smoke Puff" (CC0, 앞 여섯 칸을 잘라 씀)

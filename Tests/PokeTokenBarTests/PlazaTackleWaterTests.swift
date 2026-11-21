@@ -132,7 +132,7 @@ final class PlazaTackleWaterTests: XCTestCase {
     }
 
     /// The water these tests use is the hot spring (32...38 x 14...20): moving it must not quietly turn them into pond tests.
-    func testThisSuitePushesIntoTheHotSpring() {
+    func testThisSuitePushesIntoTheHotSpring() async {
         for tile in [p(32, 16), p(33, 16), p(35, 16), p(36, 16)] { XCTAssertTrue(PlazaMapData.map.isHotSpring(tile), "\(tile)") }
     }
 }
