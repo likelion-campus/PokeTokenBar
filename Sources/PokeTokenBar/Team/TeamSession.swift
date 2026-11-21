@@ -42,6 +42,10 @@ struct TeamMemberState: Equatable, Sendable {
     var bodySize = 1
     /// They claim the hot-spring flush (a literal true on the wire). The plaza draws it only on a spring tile.
     var isFlushed = false
+    /// The minigame they know, kept only if it passed `PlazaGame.accepted` on receipt.
+    var game: PlazaGameState?
+    /// The game they said yes to, at most `TeamWire.maxFieldBytes` bytes.
+    var gameJoin: String?
 }
 
 /// Sits on a `TeamTransporting`: syncs news and reactions, keeps the member table, passes presence and
@@ -132,6 +136,8 @@ final class TeamSession {
     @ObservationIgnored private var mimicOf: String?
     @ObservationIgnored private var iceBreak: PlazaIceBreak?
     @ObservationIgnored private var campfire: PlazaCampfireSwitch?
+    @ObservationIgnored private var game: PlazaGameState?
+    @ObservationIgnored private var gameJoin: String?
     /// My plaza activity as last handed over; teammates get it with every presence.
     @ObservationIgnored private(set) var activity: PlazaActivity?
     @ObservationIgnored private var activitySentAt: Date?
@@ -328,6 +334,14 @@ final class TeamSession {
         broadcast(.presence(makePresence()))
     }
 
+    /// The plaza minigame as I know it (nil: none) and the game I said yes to, told to teammates in my presence.
+    func updateGame(_ state: PlazaGameState?, join: String?) {
+        guard state != game || join != gameJoin else { return }
+        game = state
+        gameJoin = join
+        broadcast(.presence(makePresence()))
+    }
+
     /// My plaza activity, told to teammates in my presence. A new count or day goes out at once; a change in time alone
     /// waits until a minute has passed since the last one sent here.
     func updateActivity(_ new: PlazaActivity) {
@@ -450,6 +464,8 @@ final class TeamSession {
             member.activity = presence.activity?.bounded
             member.bodySize = PlazaBodySize.clamped(presence.bodySize)
             member.isFlushed = presence.isFlushed == true
+            member.game = PlazaGame.accepted(presence.game, now: clock())
+            member.gameJoin = presence.gameJoin.flatMap { $0.utf8.count <= TeamWire.maxFieldBytes ? $0 : nil }
             members[memberID] = member
             // 코드가 막 바뀌어 이전 팀 링크가 아직 살아 있는 동안에는 받은 일정을 새 팀 몫으로 저장하지 않는다.
             if let schedule = presence.schedule, settings.code == knownCode,
@@ -561,7 +577,7 @@ final class TeamSession {
                      schedule: settings.code == knownCode ? settings.schedule : nil,
                      ditto: dittoState, dittoReady: dittoReady ? true : nil, mimicOf: mimicOf, iceBreak: iceBreak, campfire: campfire,
                      activity: activity, bodySize: bodySize,
-                     isFlushed: isFlushed ? true : nil)
+                     isFlushed: isFlushed ? true : nil, game: game, gameJoin: gameJoin)
     }
 
     private func send(_ message: TeamMessage, to peer: TeamPeerID) {

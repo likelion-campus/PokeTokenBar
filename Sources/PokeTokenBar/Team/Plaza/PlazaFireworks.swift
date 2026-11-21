@@ -99,6 +99,10 @@ enum PlazaFireworks {
             + ring(8, radius: 26, color: .red, center: CGVector(dx: 0, dy: -24), delay: 0.7)),
     ]
 
+    /// 미니게임 폭탄이 터지는 불꽃. 쏘는 불꽃이 아니라 `styles`에 없고 팀원에게 이름으로 보내지도 않는다.
+    static let blast = PlazaFireworkStyle(id: "blast", shell: .red, pieces: ring(12, radius: 44, color: .red)
+        + ring(8, radius: 24, color: .gold, rotation: 0.4) + ring(12, radius: 66, color: .gold, rotation: 0.26, delay: 0.12))
+
     /// 그 이름의 종류. 나중 버전이 보낸 모르는 이름이면 기본 불꽃이다.
     static func style(id: String?) -> PlazaFireworkStyle {
         styles.first { $0.id == id } ?? styles[0]

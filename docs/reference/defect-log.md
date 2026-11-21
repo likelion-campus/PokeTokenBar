@@ -3431,3 +3431,11 @@ read_when:
 - **영구 캡처:** `PlazaTreeLayerTests.testNoTreePixelEdgeSitsOnADevicePixelCentre`(줌 1·2·3 × 배율 1·1.25·1.5·2, 쉴 때와 늘어난 때: 가장자리가 기기 픽셀 중심과 0.005 이상 떨어져야 한다. 비킴을 빼면 838건 실패), `PlazaPhotoGoldensMacTests.testPhotoGoldensStillHoldOnThisMac`(이제 건너뛰지 않는다).
 - **규칙:** 3배 이상 확대해 그리는 새 그림은 비정수 기기 배율(2.5, 7.5)의 동점 표집을 피하게 비껴 놓는다. 시간대나 환경 때문에 건너뛰는 맥 검사는 만들지 않는다(환경을 고정해서 돌린다). 윈도 CI 첫 실행에서 "윈도에서만" 실패가 나오면 맥 골든·고정 시계·샘플링 동점부터 본다.
 
+
+## 2026-11-22 — A plaza PR passed `Plaza|Team` locally and failed CI on tests that pin the plaza's structure under other names (#330)
+
+- **Symptom:** the minigame PR (#330) ran 2,965 `Plaza|Team|…` tests green on the Mac and failed CI three ways: `SpriteKitMirrorParityTests` (the new actor against the frozen legacy actor: one more camera node, a changed sprite colour), and the Windows-only `WindowsPlazaPanelsTests` (the pinned panel list and counts).
+- **Cause:** a new always-attached actor node and a default sprite colour changed what every actor is, also outside a game; two new HUD panels changed the pinned panel order.
+- **Why the tests did not stop it locally:** the filter `Plaza|Team` does not match `SpriteKitMirrorParityTests` (the plaza's render-parity suites have names without "Plaza"), and Windows-only test files do not compile on the Mac at all.
+- **Fix:** the bomb node joins the camera only while an actor holds a bomb and the soot colour is set only by a blast, so an actor outside a game is node-for-node what it was (no reference regenerated); the Windows panel expectations were updated.
+- **Class rule:** a plaza change that adds a node, a panel or a default node property must (1) run `swift test --filter "Plaza|Team|SpriteKit|Mirror"` plus the guard suites, and (2) grep `Tests/PokeTokenBarTests/Windows*.swift` and `Platform/Windows` for the pinned lists it touches (`zOrder`, `drawList.count`, panel ID lists) before pushing. Prefer mounting optional nodes on demand over growing every actor.

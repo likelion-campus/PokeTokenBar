@@ -16,6 +16,7 @@ final class TeamNotifier {
     private var didRequestAuthorization = false
     /// The last megaphone notice per member. A modified app could send them back to back.
     private var lastMegaphone: [String: Date] = [:]
+    private var lastGameInvite: [String: Date] = [:]
     static let megaphoneInterval: TimeInterval = 60
     /// Big news skips the batch, so a modified app could post one banner per frame. The board keeps what this drops.
     static let bigNoticeBurst = 3
@@ -79,6 +80,16 @@ final class TeamNotifier {
         if let last = lastMegaphone[member.memberID], now.timeIntervalSince(last) < Self.megaphoneInterval { return }
         lastMegaphone[member.memberID] = now
         show(L(.ko).teamMegaphoneNotice(nickname: member.nickname, text: text))
+    }
+
+    /// A teammate opened a minigame: one notification for those not looking at the plaza (the plaza shows its own
+    /// invitation), never during a focus. One per member a minute, like the megaphone: a modified app could open them back to back.
+    func gameInvite(from member: TeamMemberState, game: String) {
+        guard settings.notificationsEnabled, !isPlazaFrontmost(), !isFocusing() else { return }
+        let now = clock()
+        if let last = lastGameInvite[member.memberID], now.timeIntervalSince(last) < Self.megaphoneInterval { return }
+        lastGameInvite[member.memberID] = now
+        post(L(.ko).teamGameInviteNotice(nickname: member.nickname, game: game))
     }
 
     /// The focus is over: one line with what was held. Bypasses the batcher.

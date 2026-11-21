@@ -45,7 +45,10 @@ enum PlazaKeyCode {
     static let three: UInt16 = 20
     static let four: UInt16 = 21
     static let five: UInt16 = 23
+    static let y: UInt16 = 16
     static let p: UInt16 = 35
+    static let n: UInt16 = 45
+    static let m: UInt16 = 46
     static let returnKey: UInt16 = 36
     static let space: UInt16 = 49
     static let escape: UInt16 = 53

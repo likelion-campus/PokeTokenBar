@@ -39,7 +39,7 @@ import Observation
 
     var isVisible: Bool {
         switch model.content {
-        case .memberMenu, .campfireMenu: true
+        case .memberMenu, .campfireMenu, .gameMenu: true
         default: false
         }
     }
@@ -87,6 +87,20 @@ import Observation
             var out = [make(.title, L(.ko).plazaCampfireMenuTitle(isJoin: menu.isJoin), Self.gold, shadow: true)]
             if let notice = PlazaMenuText.notice(menu) { out.append(make(.notice, notice, .white)) }
             for (i, row) in PlazaMenuText.rows(menu).enumerated() { out.append(make(.row(i), row, .white, marked: i == menu.selection)) }
+            return out
+        case .gameMenu(let menu):
+            // 고른 게임의 규칙이 늘 같이 보인다: 처음 하는 사람이 열기 전에 읽는다.
+            let l = L(.ko)
+            var out = [make(.title, l.plazaGameMenuTitle, Self.gold, shadow: true)]
+            if menu.kinds.indices.contains(menu.selection) {
+                for rule in l.plazaGameRules(menu.kinds[menu.selection]) { out.append(make(.notice, rule, .white)) }
+            }
+            if let blocked = menu.blocked {
+                out.append(make(.notice, blocked, Self.gold))
+            } else {
+                out.append(make(.notice, l.plazaGameMenuHowTo, .white))
+                for (i, kind) in menu.kinds.enumerated() { out.append(make(.row(i), l.plazaGameMenuRow(kind), .white, marked: i == menu.selection)) }
+            }
             return out
         default: return []
         }

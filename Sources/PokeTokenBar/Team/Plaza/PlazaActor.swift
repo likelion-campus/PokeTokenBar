@@ -45,6 +45,26 @@ struct PlazaActorContext {
     private var wetRemaining: TimeInterval = 0
     private static let wetSize = CGSize(width: 16, height: 16)
     private static let wetTexture = PlazaTexture(PlazaPondArt.wetImage(scale: 4))
+    /// 미니게임 폭탄. 들고 있는 캐릭터의 이름표 위(말풍선이 떠 있으면 그 위)에 뜬다. 말풍선과 별개의 노드다.
+    private let bombNode = PlazaSprite()
+    static let bombSize = CGSize(width: 48, height: 48)   // 16px 시트 × 3
+    private static let bombTextures: [PlazaTexture] = {
+        guard let sheet = PlatformPlaza.graphics.assetURL(PlazaResources.bombSheetName, ext: "png").flatMap({ PlatformPlaza.graphics.decodeImage(at: $0) }) else { return [] }
+        return PlazaResources.bombFrames.compactMap { sheet.cropping(to: $0) }.map { PlazaTexture($0) }
+    }()
+    /// 폭탄을 든 뒤 흐른 시간. nil이면 폭탄이 없다.
+    private var bombElapsed: TimeInterval?
+    private(set) var isBombUrgent = false
+    var hasBomb: Bool { bombElapsed != nil }
+    /// 불꽃이 깜빡이는 간격. 곧 터질 때는 빨라진다.
+    static let bombFrameDuration: TimeInterval = 0.14, bombUrgentFrameDuration: TimeInterval = 0.05
+    /// 폭발에 날아가는 시간과 높이, 도는 바퀴 수. 그 뒤 `sootDuration` 동안 그을려 있다가 마지막 `sootFade` 동안 돌아온다.
+    static let blastDuration: TimeInterval = 0.9, blastHeight: CGFloat = 56, blastTurns: CGFloat = 2
+    static let sootDuration: TimeInterval = 60, sootFade: TimeInterval = 10, sootBlend: CGFloat = 0.8
+    private static let sootColor = PlazaColor(hex: 0x1A1A1E)
+    private var blastElapsed: TimeInterval?
+    private(set) var sootRemaining: TimeInterval = 0
+    var isBlasting: Bool { blastElapsed != nil }
     /// 그림자 텍스처는 크기가 바뀔 때만 다시 만든다.
     private var shadowTextureSize: (width: Int, height: Int)?
     /// 발밑 그림: 그림자나 알의 둥지. 기념사진도 같은 그림을 쓴다.
@@ -128,17 +148,26 @@ struct PlazaActorContext {
         wetNode.anchorPoint = CGPoint(x: 0, y: 0.5)
         wetNode.zPosition = 11
         wetNode.isHidden = true
+        bombNode.size = Self.bombSize
+        bombNode.anchorPoint = CGPoint(x: 0.5, y: 0)
+        bombNode.zPosition = 12
+        bombNode.color = PlazaColor(hex: 0xE8402A)
+        bombNode.isHidden = true
     }
 
     func attach(world: PlazaNode, camera: PlazaNode) {
         for node in worldNodes { world.addChild(node) }
         for node in cameraNodes { camera.addChild(node) }
+        cameraParent = camera
+        if hasBomb { camera.addChild(bombNode) }
     }
 
     /// What `attach` adds to the world, in this order: shadow, character, swim ring, submerged ghost (in its crop), nest rim.
     var worldNodes: [PlazaNode] { [shadowNode, characterNode, swimRingNode, ghostCrop, nestFrontNode] }
-    /// What `attach` adds to the camera, in this order: name plate, bubble, 💧.
+    /// What `attach` adds to the camera, in this order: name plate, bubble, 💧. The minigame bomb joins the camera only
+    /// while this actor holds one (`setBomb`), so an actor outside a game has the same nodes as before.
     var cameraNodes: [PlazaNode] { [plateNode, emoteNode, wetNode] }
+    private weak var cameraParent: PlazaNode?
 
     func detach() {
         shadowNode.removeFromParent()
@@ -149,6 +178,7 @@ struct PlazaActorContext {
         plateNode.removeFromParent()
         emoteNode.removeFromParent()
         wetNode.removeFromParent()
+        bombNode.removeFromParent()
     }
 
     /// 💧를 `PlazaPond.wetDuration`초 동안 이름표 옆에 띄운다. 다시 젖으면 시간을 처음부터 잰다.
@@ -213,6 +243,37 @@ struct PlazaActorContext {
 
     func wobble() {
         wobbleElapsed = 0
+    }
+
+    /// 미니게임 폭탄을 머리 위에 띄우거나 지운다. `urgent`면 곧 터진다: 불꽃이 빨리 깜빡이고 폭탄이 붉게 부푼다.
+    func setBomb(_ on: Bool, urgent: Bool = false) {
+        isBombUrgent = on && urgent
+        if on == hasBomb { return }
+        bombElapsed = on ? 0 : nil
+        bombNode.isHidden = !on || Self.bombTextures.isEmpty
+        if on { cameraParent?.addChild(bombNode) } else { bombNode.removeFromParent() }
+    }
+
+    /// 폭발에 맞았다: 빙글 돌며 솟았다 떨어지고, 한동안 그을린다.
+    func blast() {
+        characterNode.color = Self.sootColor
+        blastElapsed = 0
+        sootRemaining = Self.sootDuration
+    }
+
+    /// 폭발로 솟은 높이와 도는 각도.
+    private var blastLift: CGFloat {
+        guard let blastElapsed else { return 0 }
+        return (sin(.pi * min(blastElapsed / Self.blastDuration, 1)) * Self.blastHeight).rounded()
+    }
+    private var blastSpin: CGFloat {
+        guard let blastElapsed else { return 0 }
+        return min(blastElapsed / Self.blastDuration, 1) * Self.blastTurns * 2 * .pi
+    }
+    /// 그을린 정도(0...`sootBlend`).
+    var sootAmount: CGFloat {
+        guard sootRemaining > 0 else { return 0 }
+        return Self.sootBlend * min(1, sootRemaining / Self.sootFade)
     }
 
     /// 지금 흔들려 기운 각도(라디안). 흔들리지 않으면 0. 뒤로 갈수록 작아진다.
@@ -312,6 +373,12 @@ struct PlazaActorContext {
         if let e = wobbleElapsed {
             wobbleElapsed = e + dt >= Self.wobbleDuration ? nil : e + dt
         }
+        if let e = blastElapsed {
+            blastElapsed = e + dt >= Self.blastDuration ? nil : e + dt
+        }
+        if sootRemaining > 0 { sootRemaining = max(0, sootRemaining - dt) }
+        if characterNode.colorBlendFactor != sootAmount { characterNode.colorBlendFactor = sootAmount }
+        if let e = bombElapsed { bombElapsed = e + dt }
         if wetRemaining > 0 {
             wetRemaining -= dt
             if wetRemaining <= 0 { wetNode.isHidden = true }
@@ -377,7 +444,7 @@ struct PlazaActorContext {
 
         characterNode.xScale = (pose.flipped != dancePose.flipped) ? -1 : 1
         characterNode.yScale = dancePose.squash
-        characterNode.zRotation = dancePose.tilt + wobbleTilt
+        characterNode.zRotation = dancePose.tilt + wobbleTilt + blastSpin
         characterNode.zPosition = 1 + foot.y / context.worldHeight   // 화면 아래쪽이 앞
         // 그림자는 발보다 조금 위(높이의 0.12)에 가운데를 두어 발 뒤에 깔리게 하고, 아래·왼쪽 모서리를 기기 픽셀에 맞춘다. 통통 튐은 받지 않는다.
         let shadowSize = shadowNode.size
@@ -386,7 +453,7 @@ struct PlazaActorContext {
         nestFrontNode.position = shadowNode.position
         // 내 알 바로 앞. 더 아래(앞)에 선 캐릭터보다는 뒤다(한 칸 차이가 이 값보다 훨씬 크다).
         nestFrontNode.zPosition = characterNode.zPosition + 0.0001
-        let footScene = CGPoint(x: snap(foot.x), y: snap(context.worldHeight - foot.y + CGFloat(pose.bob) + jumpLift + dancePose.lift))
+        let footScene = CGPoint(x: snap(foot.x), y: snap(context.worldHeight - foot.y + CGFloat(pose.bob) + jumpLift + blastLift + dancePose.lift))
         characterNode.position = CGPoint(x: PlazaPixelSnap.centerX(footX: foot.x, width: characterNode.size.width, backing: backing, zoom: zoom),
                                          y: footScene.y)
 
@@ -425,6 +492,7 @@ struct PlazaActorContext {
         placeEmote(backing: labelBacking, viewport: context.viewport)
         wetNode.position = CGPoint(x: plateNode.position.x + plateNode.size.width / 2 + 1,
                                    y: plateNode.position.y + plateNode.size.height / 2)
+        placeBomb()
     }
 
     /// 기념사진에 찍을 값. 그림을 아직 못 받았으면 nil이다. 이름표와 말풍선은 화면 배율과 상관없이 배율 2로 새로 만든다.
@@ -593,6 +661,20 @@ struct PlazaActorContext {
         let margin: CGFloat = 4
         return CGPoint(x: min(max(origin.x, -halfW + margin), halfW - size.width - margin),
                        y: min(origin.y, halfH - size.height - margin))
+    }
+
+    /// 폭탄은 이름표 바로 위, 말풍선이 떠 있으면 그 위에 둔다. 살짝 까딱이고, 곧 터질 때는 붉게 부풀었다 줄어든다.
+    private func placeBomb() {
+        guard let elapsed = bombElapsed, !Self.bombTextures.isEmpty else { return }
+        let frame = Int(elapsed / (isBombUrgent ? Self.bombUrgentFrameDuration : Self.bombFrameDuration)) % Self.bombTextures.count
+        let texture = Self.bombTextures[frame]
+        if bombNode.texture !== texture { bombNode.texture = texture }
+        let base = isBubbleShown ? emoteNode.position.y + emoteNode.size.height : namePlateTop
+        let bob = (sin(elapsed * 6) * 2).rounded()
+        bombNode.position = CGPoint(x: plateNode.position.x, y: base + 2 + bob)
+        let pulse = isBombUrgent ? 1 + 0.25 * abs(sin(elapsed * 14)) : 1
+        bombNode.setScale(pulse)
+        bombNode.colorBlendFactor = isBombUrgent ? 0.55 * abs(sin(elapsed * 14)) : 0
     }
 
     private func setBubble(_ image: PlazaImage, backing: CGFloat) {

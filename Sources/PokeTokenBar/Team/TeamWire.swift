@@ -57,6 +57,12 @@ struct TeamPresence: Codable, Equatable, Sendable {
     /// Flushed red from three minutes in the plaza hot spring. Left out when false; a receiver draws it only while the
     /// sender's tile is a hot-spring tile; unreadable values become nil; earlier versions ignore it.
     @LossyOptional var isFlushed: Bool?
+    /// The plaza minigame as this member knows it (`PlazaGameState`). Every member passes it on. Left out when none;
+    /// a receiver keeps it only inside `PlazaGame.accepted`'s bounds; unreadable values become nil; earlier versions ignore it.
+    @LossyOptional var game: PlazaGameState?
+    /// The `PlazaGameState.id` this member said yes to while it recruits. Left out otherwise; a receiver keeps at most
+    /// `TeamWire.maxFieldBytes` bytes; earlier versions ignore it.
+    @LossyOptional var gameJoin: String?
 }
 
 /// 읽을 수 없는 값(나중 버전의 모양, 잘못된 값)을 nil 로 읽는 선택값. 이 필드만 너그럽고 나머지 필드는 합성 Codable 그대로라,

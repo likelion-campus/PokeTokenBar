@@ -2,13 +2,13 @@ import Foundation
 
 /// The overlay panels the plaza draws through the canvas (Track A Tasks 14–17w): the Mac and Windows both show them.
 /// `chatBar` is Windows' chat line chrome (`PlazaChatBarPanel`, around the native field); the Mac's chat bar is the AppKit `PlazaChatInput`.
-enum PlazaPanelID: Hashable, Sendable { case pills, clock, shortcuts, backgroundToggle, nameColorPicker, photoFrame, menu, minimap, chatLog, roster, board, card, chatBar }
+enum PlazaPanelID: Hashable, Sendable { case pills, clock, shortcuts, backgroundToggle, nameColorPicker, photoFrame, menu, minimap, chatLog, roster, board, card, chatBar, gameCard, gameTitle }
 
 extension PlazaPanelID {
     /// The order the windows stack the panels in, bottom first (the Mac's subview order; the Windows window draws and routes in it): the
     /// roster over the scene, the board over it, the card over that, the photo frame, the menu, the pills right over the scene's top lines,
     /// then the chat log, the minimap, the clock, the guide, the toggle and the colour picker. A click goes to the top-most panel with a hit.
-    static let stackOrder: [PlazaPanelID] = [.roster, .board, .card, .photoFrame, .menu, .pills, .chatLog, .minimap, .clock, .shortcuts, .backgroundToggle,
+    static let stackOrder: [PlazaPanelID] = [.roster, .board, .card, .photoFrame, .menu, .gameTitle, .gameCard, .pills, .chatLog, .minimap, .clock, .shortcuts, .backgroundToggle,
                                              .nameColorPicker]
     /// The panels that take every click, hover and scroll over the whole window while shown (the full-window overlays: board and card).
     static let swallowingWholeWindow: Set<PlazaPanelID> = [.board, .card]

@@ -338,7 +338,7 @@ import CoreText
         let cardIndex = try XCTUnwrap(subs.firstIndex { ($0 as? PlazaPanelHostView)?.panelID == .card })
         let pills = try XCTUnwrap(subs.firstIndex { ($0 as? PlazaPanelHostView)?.panelID == .pills })
         let clock = try XCTUnwrap(subs.firstIndex { ($0 as? PlazaPanelHostView)?.panelID == .clock })
-        XCTAssertEqual(pills, try XCTUnwrap(cardIndex) + 3, "above the menu's host and the photo frame's, which are right above the overlay")
+        XCTAssertEqual(pills, try XCTUnwrap(cardIndex) + 5, "above the minigame hosts, the menu's host and the photo frame's, which are right above the overlay")
         XCTAssertEqual(subs.firstIndex { ($0 as? PlazaPanelHostView)?.panelID == .menu }, try XCTUnwrap(cardIndex) + 2)
         XCTAssertEqual(subs.firstIndex { ($0 as? PlazaPanelHostView)?.panelID == .photoFrame }, try XCTUnwrap(cardIndex) + 1)
         XCTAssertLessThan(pills, try XCTUnwrap(subs.firstIndex { ($0 as? PlazaPanelHostView)?.panelID == .chatLog }), "below the chat log")
@@ -390,7 +390,7 @@ import CoreText
         let container = try XCTUnwrap(shell.windowForTesting?.contentView)
         container.layoutSubtreeIfNeeded()
         let hosts = container.subviews.compactMap { $0 as? PlazaPanelHostView }
-        XCTAssertEqual(hosts.map(\.panelID), [.roster, .board, .card, .photoFrame, .menu, .pills, .chatLog, .minimap, .clock, .shortcuts, .backgroundToggle, .nameColorPicker])
+        XCTAssertEqual(hosts.map(\.panelID), [.roster, .board, .card, .photoFrame, .menu, .gameTitle, .gameCard, .pills, .chatLog, .minimap, .clock, .shortcuts, .backgroundToggle, .nameColorPicker])
         let clock = try XCTUnwrap(c.hud.panels.first { $0.id == .clock } as? PlazaClockPanel)
         for host in hosts {
             XCTAssertEqual(host.intrinsicContentSize, NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric))

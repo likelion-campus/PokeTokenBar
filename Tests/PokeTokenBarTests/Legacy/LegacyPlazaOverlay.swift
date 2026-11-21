@@ -33,7 +33,7 @@ struct LegacyPlazaOverlayView: View {
             }
         case .card(let state):
             panel(PlazaCardMetrics.panelSize) { LegacyPlazaCardView(state: state) }
-        case .memberMenu, .campfireMenu:
+        case .memberMenu, .campfireMenu, .gameMenu:
             Color.clear   // the menus and their tap-outside area are the shared `PlazaMenuPanel`
         }
     }
@@ -61,7 +61,7 @@ final class LegacyPlazaOverlayHostingView: NSHostingView<LegacyPlazaOverlayView>
     override func hitTest(_ point: NSPoint) -> NSView? {
         MainActor.assumeIsolated {
             switch model.content {
-            case .none, .memberMenu, .campfireMenu: nil   // menus are panels (their own host takes the clicks)
+            case .none, .memberMenu, .campfireMenu, .gameMenu: nil   // menus are panels (their own host takes the clicks)
             case .board, .card: super.hitTest(point)
             }
         }

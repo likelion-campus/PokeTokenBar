@@ -101,6 +101,36 @@ final class TeamNotificationsTests: XCTestCase {
         XCTAssertTrue(inPlaza.isEmpty)
     }
 
+    func testAGameInvitationNotifiesOnlyOutsideThePlazaAndNeverDuringAFocus() {
+        let text = L(.ko).teamGameInviteNotice(nickname: "민수", game: L(.ko).plazaGameName(.bomb))
+        notifier.gameInvite(from: memberState("민수"), game: L(.ko).plazaGameName(.bomb))
+        XCTAssertEqual(poster.posts.map(\.body), [text])
+        // The plaza in front shows its own invitation card: no notification and no banner.
+        frontmost = true
+        now = now.addingTimeInterval(TeamNotifier.megaphoneInterval)
+        notifier.gameInvite(from: memberState("민수"), game: L(.ko).plazaGameName(.bomb))
+        XCTAssertEqual(poster.posts.count, 1)
+        XCTAssertTrue(inPlaza.isEmpty)
+        frontmost = false
+        notifier.isFocusing = { true }
+        notifier.gameInvite(from: memberState("민수"), game: L(.ko).plazaGameName(.bomb))
+        XCTAssertEqual(poster.posts.count, 1, "a focus is not interrupted")
+        notifier.isFocusing = { false }
+        notifier.gameInvite(from: memberState("민수"), game: L(.ko).plazaGameName(.bomb))
+        XCTAssertEqual(poster.posts.count, 2)
+    }
+
+    func testGameInvitationsAreLimitedPerMemberAndFollowTheSwitch() {
+        notifier.gameInvite(from: memberState("민수"), game: "x")
+        now = now.addingTimeInterval(TeamNotifier.megaphoneInterval - 1)
+        notifier.gameInvite(from: memberState("민수"), game: "x")
+        XCTAssertEqual(poster.posts.count, 1, "a second invitation within a minute is dropped")
+        settings.notificationsEnabled = false
+        now = now.addingTimeInterval(120)
+        notifier.gameInvite(from: memberState("민수"), game: "x")
+        XCTAssertEqual(poster.posts.count, 1)
+    }
+
     func testOthersBigEventPosts() {
         notifier.bigEvent(bigEvent())
         XCTAssertEqual(poster.posts.count, 1)
