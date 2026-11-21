@@ -2,11 +2,15 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Each plaza season throws its own open-licence ball picture, a burst never scatters the ball picture, and autumn turns olive, red, orange and yellow instead of "just yellow", while the summer, winter and spring maps stay pixel for pixel the same.
+**Goal:** Spring and autumn throw open-licence ball pictures, summer keeps its water balloon, and winter keeps its approved grid snowball. A burst never scatters the ball picture. Autumn turns olive, red, orange and yellow instead of "just yellow", while the summer, winter and spring maps stay pixel for pixel the same.
 
 **Architecture:**
-- **Ball and burst split** (`PlazaSnowball.swift`, pure). `PlazaSnowballArt.art(season, ball:)` returns `Art { ball, burst }`. `burstPieces` glyph numbers index `burst` only, so a burst can no longer draw the ball (spec R4).
-- **Ball files.** The scene loads one file per season once per process (`PlazaResources.ballName`). A missing file falls back to that season's grid ball, so all code lands before the art does.
+- **Ball and burst split** (`PlazaSnowball.swift`, pure). `PlazaSnowballArt.art(season, ball:)` returns `Art { ball, burst }`. `burstPieces` glyph numbers index `burst` only, so a burst can no longer draw the ball (spec R4). This applies to every season, winter included.
+- **Ball sources** (`PlazaResources.ballSource`). The scene loads each season's source once per process:
+  - summer: the water balloon file;
+  - spring and autumn: one cell of the bundled, unmodified LPC leaf sheet, cut at runtime;
+  - winter: none.
+- A season with no source, or a missing file, falls back to that season's grid ball, so all code lands before the art does.
 - **Autumn** (`PlazaSeasonSheet.swift`, `PlazaTileArt.swift`):
   - a new exact-colour table, with lily pads added;
   - three tree colourings, picked per tree by the existing `Noise` (salt 3);
@@ -32,6 +36,8 @@ The pixel counts come from reading `plaza-tiles.png` / `plaza-tallgrass.png` wit
      - add `summer` (the centre view, for "beside summer");
      - add `summer-edge`, `spring-edge` and `autumn-edge` (zoom 1 at the top-left corner, where trees, tall grass, flowers and the left pond's lily pad are).
    - The edge scenes also pin the tree mix across systems.
+5. **Winter keeps today's grid snowball.** Spec 4.2 and R4 say an open-licence snowball file replaces it. Art sourcing found none that fits: the best CC0 snowball is 30×30, outside 12–20 px at an integer scale, and the others are a magenta-keyed mound or a Game Boy palette. **Ruling (team lead, 2026-11-21):** winter keeps the user-approved grid snowball unchanged. Its burst still goes through the split, and its pixels stay the same (the three snow grids).
+6. **Spring and autumn come from one sheet, which ships unmodified.** Both picks are exact 17×15 crops of `lpc leaf recolors.png` (128×160). The lead's note named two pre-cut files. Spec 3.2 says files go in exactly as downloaded, with only runtime crops and exact recolours, and 4.3 allows cutting a cell from a small sheet. That is also how the repo's credits stay "unmodified" with a sha256 test. **Ruling:** ship the sheet once, byte for byte, as `plaza-leaf-sheet.png`, and cut the two cells at runtime. The rects were checked to give exactly `cut/spring-1.png` and `cut/autumn-1.png`. One file instead of two. To switch to two pre-cut files instead, change three things: the two `ballSource` entries (a file name each, crop nil), Task 4's file list, and the line in its test that loads the cut. Everything else stays.
 
 Found and **not** changed. These are out of PR 1's scope, so report them to the user with the Task 5 renders:
 - The tall-grass rustle leaves (`PlazaTallGrassArt.leaves`) are code-drawn in fixed `#99E550` and `#6ABE30`, so they are green in autumn and winter too.
@@ -80,11 +86,14 @@ Found and **not** changed. These are out of PR 1's scope, so report them to the 
 
 ```swift
 // PlazaResources
-static let snowballName = "plaza-snowball", petalBallName = "plaza-petal-ball", leafBallName = "plaza-leaf-ball"   // png
-static func ballName(_ season: PlazaSeason) -> String   // winter snowball, spring petal ball, summer waterBalloonName, autumn leaf ball
+static let leafSheetName = "plaza-leaf-sheet"   // png, 128×160: "[LPC] Leaf Recolor" sheet, byte for byte (sha256 4ad08bd5…4c17)
+static func ballSource(_ season: PlazaSeason) -> (name: String, crop: PlazaPixelRect?)?
+//   winter nil (grid ball, ruling 5) · summer (waterBalloonName, nil)
+//   spring (leafSheetName, PlazaPixelRect(x: 33, y: 129, width: 17, height: 15))   pink petal clump
+//   autumn (leafSheetName, PlazaPixelRect(x: 33, y: 33, width: 17, height: 15))    red/orange leaf clump
 
 // PlazaSnowballArt
-static func ballScale(_ image: PlazaImage) -> CGFloat  // image.height <= 10 ? 2 : 1  (spec 4.2: 12–20 world px, 1 or 2 px a pixel)
+static func ballScale(_ image: PlazaImage) -> CGFloat  // image.height <= 10 ? 2 : 1  (spec 4.2: 12–20 world px, 1 or 2 px a pixel); the 17×15 cells fly at 1 → 15 px
 // burst: always 3 pieces at PlazaSnowball.cell (4) world px a pixel:
 //   winter, summer: the three snow grids, shaded, in palette(season)   (today's pieces, unchanged)
 //   spring: images(.petals) -> [p[0], p[1], p[0]]   autumn: images(.leaves) -> [l[0] orange, l[2] red, l[4] yellow]
@@ -114,8 +123,8 @@ From the driver (launch in `step(f)`, age `(f − launch + 1)/60` s, 0.1 s a fra
 ## Review Focus
 
 1. **The season flips while a ball flies or bursts.** This happens at midnight on `auto`, or when a teammate changes the season. The ball and the pieces switch to the new season's art on the next frame, with no crash and no index past the new burst list. Covered by Task 2, `testASeasonChangeMidBurstRedrawsWithTheNewPieces`.
-2. **Windows decodes a new ball file differently, or not at all.** It must draw the Mac's pixels, not quietly fall back to the grid ball. Covered by Task 4 (the files join `PlazaDecodeGoldens.art`, which the Windows decoder tests and selftest compare) and Task 6 (the Windows `render` job).
-3. **A delivered file is outside the 12–20 px band, or is a sheet.** It must still fly 12–20 world px high at an integer scale and show one cell. Covered by Task 4, `testEverySeasonThrowsItsOwnBundledPicture`, and the conditional crop step.
+2. **Windows decodes the leaf sheet differently, or not at all.** It must draw the Mac's pixels, not quietly fall back to the grid ball. Covered by Task 4 (the sheet joins `PlazaDecodeGoldens.art`, which the Windows decoder tests and selftest compare) and Task 6 (the Windows `render` job).
+3. **A crop rect picks the wrong cell, or the sheet is swapped for another.** The ball must still be the reviewed 17×15 clump, 12–20 world px high at an integer scale. Covered by Task 4, `testEverySeasonThrowsItsOwnBundledPicture` (size, band and a pinned pixel hash of each cut) and the sheet's sha256 test.
 4. **Tall grass drawn over a character in autumn.** The front and top slices come from `look.tallGrass`, so they must be the dried art with no green blade. Covered by Task 3, `testAutumnLeavesNoSummerGreen`, which includes the used tall-grass cells.
 5. **A plaza opened straight into a season other than summer**, with no season change after open. The scene starts with summer art, so the first ball thrown must already be that season's. Covered by Task 2, `testEachSeasonThrowsItsBundledPictureOrItsGrid`: its first round is the never-chosen winter.
 
@@ -192,7 +201,7 @@ func testSummerWinterAndSpringLooksAreUnchanged() async throws {
   - In `PlazaSnowballLayer`:
     - `func setArt(_ art: PlazaSnowballArt.Art)`;
     - test accessors `var ballImages: [PlazaImage]` (flying balls) and `var burstImages: [PlazaImage]` (shown burst sprites), both read from `texture.image`.
-  - `PlazaResources.snowballName`, `.petalBallName`, `.leafBallName` and `ballName(_:)`.
+  - `PlazaResources.leafSheetName` and `ballSource(_:)`, with the values in Pinned values. Task 4 only adds the file.
   - `PlazaScene.snowballBallImages: [PlazaImage]`.
   - `PlazaSnowball.burstPieces` is unchanged; its glyph now indexes `Art.burst`.
 
@@ -242,12 +251,15 @@ func testSummerWinterAndSpringLooksAreUnchanged() async throws {
       - `art(.summer, ball: balloon).ball.image === balloon`, at scale 1;
       - no burst image is `=== balloon`;
       - the burst bytes equal `art(.summer).burst`;
-      - `PlazaResources.ballName(.summer) == PlazaResources.waterBalloonName`.
-    - `testEachSeasonNamesItsOwnBallFile`: the four names from Pinned values, all distinct.
+      - `PlazaResources.ballSource(.summer)` is `(waterBalloonName, nil)`.
+    - `testEachSeasonHasItsBallSource`: the four sources from Pinned values (winter nil, both crops 17×15).
     - `testEachSeasonThrowsItsBundledPictureOrItsGrid` (scene, Review Focus 5). Start with `scene()`, then `refreshSnowDay()` and `update(0)`, which gives winter, never chosen. Then for `[.winter, .spring, .summer, .autumn]`:
       - set `seasonChoice` (skip the set on the first round);
       - `playSnowball(by: nil, shot:)` up three tiles;
-      - `want = PlazaSnowballArt.art(season, ball: BundledArt.image(PlazaResources.ballName(season))).ball`;
+      - work out the expected ball independently of the scene:
+        `let source = PlazaResources.ballSource(season)`,
+        `let file = source.flatMap { s in BundledArt.image(s.name).map { img in s.crop.flatMap { img.cropping(to: $0) } ?? img } }`,
+        `want = PlazaSnowballArt.art(season, ball: file).ball`;
       - assert `s.snowballBallImages.last?.pixels.bytes == want.image.pixels.bytes`;
       - assert the last ball size is the image size × `want.scale`.
       - This passes both before and after Task 4.
@@ -255,13 +267,13 @@ func testSummerWinterAndSpringLooksAreUnchanged() async throws {
     - `[0]` against `art(season).ball` for every season;
     - all three against `art(season).burst` for winter and summer;
     - keep the identity check `art(.summer, ball: PlazaImage(cgImage: balloon)).ball.image.cgImage === balloon`.
-- [ ] **Step 2: Run** `swift test --filter 'PlazaSnowballTests|PlazaSeasonTests'`. Expected: the build fails (`art`, `Art`, `ballScale`, `ballName`, `burstImages` and `snowballBallImages` are undefined).
+- [ ] **Step 2: Run** `swift test --filter 'PlazaSnowballTests|PlazaSeasonTests'`. Expected: the build fails (`art`, `Art`, `ballScale`, `ballSource`, `burstImages` and `snowballBallImages` are undefined).
 - [ ] **Step 3: Implement.**
   - The layer keeps one ball texture and scale, and three burst textures and scales:
     - `launch` and `setArt` resize balls from the ball texture;
     - `place` resizes piece `i` from `burst[glyph]`.
   - The scene replaces `waterBalloon` with `private static let ballImages: [PlazaSeason: PlazaImage]`:
-    - every season's `ballName` goes through `PlatformPlaza.graphics.assetURL(_, ext: "png")` and `decodeImage`, and missing files are left out;
+    - every season with a `ballSource` goes through `PlatformPlaza.graphics.assetURL(name, ext: "png")` and `decodeImage`, then `cropping(to:)` when it has a crop. Missing files and winter are left out;
     - init and `refreshSnowDay` call `snowballLayer.setArt(PlazaSnowballArt.art(s, ball: Self.ballImages[s]))`.
   - Update the `PlazaSnowballArt` and `burstPieces` doc comments.
 - [ ] **Step 4: Run** `swift test --filter 'PlazaSnowballTests|PlazaSeasonTests|PlazaSnowballSceneTests|PlazaSnowballControllerTests|PlazaArtParityPixelArtTests'`. Expected: PASS.
@@ -352,18 +364,15 @@ LLVM_COV="$(dirname "$(realpath "$(command -v swift)")")/llvm-cov"; [ -x "$LLVM_
   Expected: no `^0` inside code that Tasks 2–3 added or changed.
 - [ ] **Step 10: Commit** `feat(team): retune the plaza autumn and mix three autumn trees`.
 
-### Task 4: Drop in the three ball files
+### Task 4: Drop in the leaf sheet (spring and autumn balls)
 
 **Files:**
-- Create in `Sources/PokeTokenBar/Resources/Plaza/`: `plaza-snowball.png`, `plaza-petal-ball.png` and `plaza-leaf-ball.png`, byte for byte as downloaded.
+- Create: `Sources/PokeTokenBar/Resources/Plaza/plaza-leaf-sheet.png`, byte for byte the downloaded `lpc leaf recolors.png` (128×160, SHA-256 `4ad08bd59fbd202e7193befe3c40cd19a144a87ce30b06e5171a89753a874c17`).
 - Modify:
   - `Sources/PokeTokenBar/Resources/Plaza/CREDITS.md`
   - `windows/licenses/map.txt:24`
   - `Sources/PokeTokenBar/Team/Plaza/Draw/PlazaDecodeGoldens.swift:15-26`
   - `TEAM.md:169` (V row), the end of `## 알려진 한계`, and `## 출처`
-- Modify, **only if a delivered file is a sheet:**
-  - `PlazaResources.swift`: add `static func ballCrop(_ season: PlazaSeason) -> PlazaPixelRect?`, nil = the whole file;
-  - `PlazaScene.swift`: the loader applies `cropping(to:)`.
 - Test:
   - `PlazaSeasonTests+Bundled.swift`
   - `PlazaResourcesTests.swift`
@@ -371,45 +380,56 @@ LLVM_COV="$(dirname "$(realpath "$(command -v swift)")")/llvm-cov"; [ -x "$LLVM_
   - `MacPlazaGraphicsTests.swift:12-25`, `:83-95`
 
 **Interfaces:**
-- Consumes: the season-art-source handoff. For each file it needs:
-  - the PNG;
-  - the work title, author, licence and licence URL;
-  - the source page URL and the file's name inside the download;
-  - the committed file's SHA-256 and its pixel size;
-  - whether it is a sheet, and if so the cell rect.
-- Consumes from Task 2: `ballName`, `ballScale`, `art(_:ball:)` and `snowballBallImages`.
+- Consumes the art-sourcing report: `<session scratchpad>/season-art/report.md` (this session: `/private/tmp/claude-501/-Users-simu-Documents-GitHub-PokeTokenBar/91160cc1-46af-46c5-90bf-69dfeff21416/scratchpad/season-art/report.md`). Use its "Spring" and "Autumn" picks (spring-1 and autumn-1).
+  - The source file is `season-art/downloads/oga-lpc-leaf-recolor/lpc%20leaf%20recolors.png`.
+  - The scratchpad gets pruned after a few days. If the file is gone, download it again from `https://opengameart.org/sites/default/files/lpc%20leaf%20recolors.png` and check its SHA-256 against the value above before you commit it.
+  - The facts the docs need, also in the report:
+    - work: "[LPC] Leaf Recolor" by William Thompson (OpenGameArt `williamthompsonj`), a recolour of leaves by Johann Charlot (Liberated Pixel Cup, "Shoot'em up graphic kit");
+    - page: `https://opengameart.org/content/lpc-leaf-recolor`;
+    - licence: dual CC-BY-SA 3.0 / GPL 3.0. Use CC-BY-SA 3.0.
+- Consumes from Task 2: `ballSource` (the two crop rects are already there), `ballScale`, `art(_:ball:)` and `snowballBallImages`.
 
 - [ ] **Step 1: Write the failing tests.**
-  - `PlazaSeasonTests+Bundled.testEverySeasonThrowsItsOwnBundledPicture` (spec 4.4, Review Focus 3). For each season, `file = BundledArt.image(PlazaResources.ballName(season))`, cropped by `ballCrop` if that exists:
-    - `file` is non-nil;
-    - `(12...20).contains(CGFloat(file.height) * ballScale(file))`;
-    - `art(season, ball: file).ball.image === file`;
-    - no burst piece of any season is byte-equal to any of the four files;
-    - the four files' bytes are distinct.
-  - Update `testTheFlyingThingChangesWithTheSeason`. The expected sizes are each season's file size × `ballScale`, not 16×16.
+  - `PlazaSeasonTests+Bundled.testEverySeasonThrowsItsOwnBundledPicture` (spec 4.4, Review Focus 3):
+    - `ballSource(.winter) == nil`, and `art(.winter).ball` is the grid ball (ruling 5);
+    - the summer balloon loads;
+    - for spring and autumn, `cut = BundledArt.image(PlazaResources.leafSheetName)?.cropping(to: ballSource(season)!.crop!)`:
+      - it is non-nil and 17×15;
+      - `(12...20).contains(15 * ballScale(cut))`;
+      - its pixel SHA-256 equals `pinnedCuts[season]`, filled from the first run in Step 3;
+      - `art(season, ball: cut).ball.image === cut`;
+    - the two cuts' bytes differ;
+    - no burst piece of any season is byte-equal to any season's ball.
+  - Update `testTheFlyingThingChangesWithTheSeason`: winter stays 16×16, summer 14×18, autumn becomes 17×15. The ball already in the air turns too.
   - `PlazaResourcesTests`:
-    - `testSeasonBallFilesLoad`: `[width, height]` from the handoff;
-    - `testCreditsNameTheSeasonBallArtists`: for each file, the needles are the author, the title, the URL and the file name.
-  - `PlazaResourcesTests+Mac.testSeasonBallsAreTheUnmodifiedOriginals`: the handoff SHA-256s of the file bytes.
+    - `testLeafSheetLoads`: `[128, 160]`;
+    - `testCreditsNameTheLeafSheetArtists`: the needles are `William Thompson`, `Johann Charlot`, `[LPC] Leaf Recolor`, `https://opengameart.org/content/lpc-leaf-recolor`, `plaza-leaf-sheet.png` and `CC-BY-SA 3.0`.
+  - `PlazaResourcesTests+Mac.testLeafSheetIsTheUnmodifiedOriginal`: the file bytes' SHA-256 is the one above.
   - `MacPlazaGraphicsTests`:
-    - `bundledImages()` adds the three files, through `PlazaResources.resourceURL(name, "png", in: bundle)` and `CGImageSourceCreateImageAtIndex`;
-    - `expectedColourSpaces` gets three placeholder lines.
-  - Add three `PlazaDecodeGoldens.art` entries with `sha256: ""`.
-- [ ] **Step 2: Run** `swift test --filter 'PlazaSeasonTests|PlazaResourcesTests|MacPlazaGraphicsTests|PlazaDecodeGoldensMacTests'`. Expected: FAIL (the files are missing).
-- [ ] **Step 3: Add the files.**
-  - Copy the three PNGs in.
+    - `bundledImages()` adds `plaza-leaf-sheet.png`, through `PlazaResources.resourceURL(name, "png", in: bundle)` and `CGImageSourceCreateImageAtIndex`;
+    - `expectedColourSpaces` gets one placeholder line.
+  - Add one `PlazaDecodeGoldens.art` entry (`plaza-leaf-sheet`, 128×160, `sha256: ""`).
+- [ ] **Step 2: Run** `swift test --filter 'PlazaSeasonTests|PlazaResourcesTests|MacPlazaGraphicsTests|PlazaDecodeGoldensMacTests'`. Expected: FAIL (the file is missing).
+- [ ] **Step 3: Add the file.**
+  - Copy the sheet in as `plaza-leaf-sheet.png`, then check its SHA-256.
   - Paste the measured values:
-    - the `PLAZA-COLOURSPACE:` lines into `expectedColourSpaces`;
-    - the `PlazaDecodeGoldensMacTests` "new value above" hashes into `PlazaDecodeGoldens.art`.
-  - Add the crop step only if a file is a sheet.
-  - Write the `CREDITS.md` sections in the Water balloon section's shape: a `## Snowball (plaza-snowball.png)` heading, then the work and source-file line, the licence, the source, `SHA-256: …`, and `Thrown in the plaza's winter. The app draws it as it is.` Say "cropped to one cell" if it was a sheet. Do the same for `Petal clump` (spring) and `Leaf clump` (autumn).
-  - Add the `map.txt` lines after `plaza-water-balloon.png`, in the existing shape. The licence file is `CC-BY-SA-3.0.txt` for CC-BY-SA 3.0 and `-` otherwise; the note is `(CC0)` or `(CC-BY x.0; credit in CREDITS.md)`.
+    - the two cut hashes into `pinnedCuts`;
+    - the `PLAZA-COLOURSPACE:` line into `expectedColourSpaces`;
+    - the `PlazaDecodeGoldensMacTests` "new value above" hash into `PlazaDecodeGoldens.art`.
+  - Add a `CREDITS.md` section after `Water balloon`, in its shape:
+    - heading `## Leaf clumps (plaza-leaf-sheet.png)`;
+    - the work line: `"[LPC] Leaf Recolor" (`lpc leaf recolors.png`, unmodified) by William Thompson, recolouring leaves by Johann Charlot (Liberated Pixel Cup)`;
+    - the licence line, as the balloon's, plus "(chosen from the work's CC-BY-SA 3.0 / GPL 3.0 dual licence)";
+    - `Source:` the page URL;
+    - `SHA-256:` the value above;
+    - the use: spring throws the pink clump at (33, 129) and autumn the red and orange clump at (33, 33), each 17×15, cut at runtime and drawn as they are; the cut cells are a derivative and stay under CC-BY-SA 3.0.
+  - Add a `map.txt` line after `plaza-water-balloon.png`: `plaza-leaf-sheet.png<TAB>CC-BY-SA-3.0.txt<TAB>"[LPC] Leaf Recolor" by William Thompson, leaves by Johann Charlot (CC-BY-SA 3.0; not under the app licence)`.
 - [ ] **Step 4: Edit `TEAM.md`.**
   - V row: after `(규칙은 모두 같고 그림만 다릅니다).` insert `터지면 그 계절에 날리는 것이 흩어집니다: 겨울은 눈 알갱이, 봄은 벚꽃잎, 여름은 물방울, 가을은 낙엽입니다.`
-  - End of `알려진 한계`: add `- v2.5.636 이하를 쓰는 팀원의 광장에서는 던지는 것과 가을 지도가 예전 그림입니다(눈 알갱이를 뭉친 공, 누런 땅과 주황 나무). 맞고 밀리는 규칙은 같습니다. 업데이트하면 바로잡힙니다.` Re-check the version at release; it is the last version without this PR.
-  - `출처`: three lines in the shape `- 눈뭉치 그림: <지은이>, "<작품>" (<라이선스>, 변경 없이 사용)`, with `꽃잎 뭉치 그림` and `낙엽 뭉치 그림` for the others. Use `한 칸을 잘라 씀` for a sheet.
-- [ ] **Step 5: Run** the Step 2 filter again, plus `PlazaSnowballTests|PlazaSnowballSceneTests` and `scripts/shared-check.sh`. Expected: PASS, and it builds.
-- [ ] **Step 6: Commit** `feat(team): add the winter, spring and autumn plaza ball art`. Put each source URL and SHA-256 in the body.
+  - End of `알려진 한계`: add `- v2.5.636 이하를 쓰는 팀원의 광장에서는 봄과 가을에 던지는 것과 가을 지도가 예전 그림입니다(색 알갱이를 뭉친 공, 누런 땅과 주황 나무). 맞고 밀리는 규칙은 같습니다. 업데이트하면 바로잡힙니다.` Re-check the version at release; it is the last version without this PR.
+  - `출처`: after the balloon line, add `- 꽃잎·낙엽 뭉치 그림: William Thompson, "[LPC] Leaf Recolor", 원본 잎 Johann Charlot(Liberated Pixel Cup) (CC-BY-SA 3.0, 시트에서 한 칸씩 잘라 씀)`.
+- [ ] **Step 5: Run** the Step 2 filter again, plus `PlazaSnowballTests|PlazaSnowballSceneTests|PlazaArtParityPixelArtTests` and `scripts/shared-check.sh`. Expected: PASS, and it builds.
+- [ ] **Step 6: Commit** `feat(team): throw a petal clump in spring and a leaf clump in autumn`. Put the source URL and SHA-256 in the body.
 
 ### Task 5: Before/after renders for the user's approval
 
@@ -428,8 +448,8 @@ PTB_PLAZA_RENDER_ONLY=summer,spring,autumn,summer-edge,spring-edge,autumn-edge,s
 ```
   Expected:
   - exit 1, with `RENDER: <k> differ: …`;
-  - the list covers `autumn@*`, `autumn-edge@10`, `snowballs@*`, `petal-balls@*`, `leaf-balls@*`, `water-balloon@26` and `water-balloon@32`;
-  - it does not list `summer*`, `spring*`, `water-balloon@5/12/20` or `summer-edge`/`spring-edge`. Those are byte-identical.
+  - the list covers `autumn@*`, `autumn-edge@10`, `petal-balls@*`, `leaf-balls@*`, `water-balloon@26` and `water-balloon@32`;
+  - it does not list `snowballs@*` (winter keeps its ball and burst, ruling 5), `summer*`, `spring*`, `water-balloon@5/12/20` or `summer-edge`/`spring-edge`. Those are byte-identical.
   - Ignore the `FRAMECOST` lines (one run).
   - The PNGs are `$S/plaza-renders/base/<scene>@<frame>.png` and `$S/plaza-renders/head/…`, with diffs in `head/diff-*.png`.
 - [ ] **Step 2: Contact sheets.**
@@ -438,7 +458,7 @@ PTB_PLAZA_RENDER_ONLY=summer,spring,autumn,summer-edge,spring-edge,autumn-edge,s
     - row 1 (centre @10): `summer`, `spring`, `autumn` before, `autumn` after;
     - row 2 (edge @10): `summer-edge`, `spring-edge`, `autumn-edge` before, `autumn-edge` after.
   - `$S/approval/throws.png`:
-    - rows: winter `snowballs`, spring `petal-balls`, summer `water-balloon`, autumn `leaf-balls`;
+    - rows: spring `petal-balls`, summer `water-balloon`, autumn `leaf-balls`, and winter `snowballs` after only, captioned "unchanged";
     - columns: before/after at 12, before/after at 26, before/after at 32.
 - [ ] **Step 3: Check by eye.**
   - `water-balloon` before@26 shows balloon pictures inside the bursts; after@26 shows droplets only.
@@ -447,7 +467,7 @@ PTB_PLAZA_RENDER_ONLY=summer,spring,autumn,summer-edge,spring-edge,autumn-edge,s
 - [ ] **Step 4: Send for approval.** Send both paths to the lead, labelled "Sample-data render, offscreen (SKRenderer), not the live app", with the three "found, not changed" items from the top of this plan.
   - **Stop until the user approves.**
   - If the user changes values, edit Task 3's tables and their test oracle, then re-run Task 3's Step 4 and this task.
-  - If the art files are late, this task may run once for the map rows alone, and again after Task 4.
+  - If Task 4 is not done yet, this task may run once for the map rows alone, and again after Task 4.
 
 ### Task 6: Cross-render reference
 
@@ -457,9 +477,9 @@ PTB_PLAZA_RENDER_ONLY=summer,spring,autumn,summer-edge,spring-edge,autumn-edge,s
 
 - [ ] **Step 1: Check against the old reference** (the spec 5.4 `--check`): `env -u PTB_PLAZA_RENDER_ONLY scripts/plaza-render-cross.sh --check --scratch "$S/cross"`.
   - Expected: exit 1, with `CROSS-MAC: reference is STALE:` listing exactly:
-    - `autumn@10 pixels`, `autumn@60 pixels`, `snowballs@5 pixels`, `snowballs@12 pixels`, `snowballs@20 pixels`;
+    - `autumn@10 pixels` and `autumn@60 pixels`;
     - the 19 Task 1 stems marked `(not in the reference)`.
-  - `spring@*`, `winter-snow@*`, `photo-winter-snow`, `water-balloon@5/12/20` and every other scene must not appear.
+  - `snowballs@5/12/20`, `spring@*`, `winter-snow@*`, `photo-winter-snow`, `water-balloon@5/12/20` and every other scene must not appear.
   - If any other stem appears, run the same `--check` at Task 1's parent in a scratch worktree. A stem that is stale there too is pre-existing; say so in the PR.
 - [ ] **Step 2: Write.** Run `env -u PTB_PLAZA_RENDER_ONLY scripts/plaza-render-cross.sh --write --scratch "$S/cross"`. Expected: `wrote …/mac-reference.tar.gz (<bytes> bytes, 148 captures)` (129 today + 19).
 - [ ] **Step 3: Verify.**
