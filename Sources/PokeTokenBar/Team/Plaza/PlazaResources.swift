@@ -48,6 +48,9 @@ enum PlazaResources {
     /// 김 시트의 앞 여섯 칸(32×32). 일곱째 칸은 비어 있다.
     static let steamFrames: [PlazaPixelRect] = (0..<6).map { PlazaPixelRect(x: 32 * $0, y: 0, width: 32, height: 32) }
 
+    /// 큰 나무: `plaza-tallgrass.png` 안의 RedVoxel 소나무. 새 파일 없이 실행 중에 잘라 쓴다.
+    static let treeCrop = PlazaPixelRect(x: 83, y: 48, width: 42, height: 48)
+
     /// 계절이 던지는 공 그림의 파일과 자를 영역(nil이면 파일 전체). 겨울은 파일이 없어 격자 눈뭉치다.
     static func ballSource(_ season: PlazaSeason) -> (name: String, crop: PlazaPixelRect?)? {
         switch season {

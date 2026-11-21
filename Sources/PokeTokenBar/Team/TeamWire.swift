@@ -130,11 +130,14 @@ enum TeamEmoteKind: String, Codable, CaseIterable, Sendable {
     /// `targetMemberID`, sent before that step. The target's app slides the target after it, to stand beside the sender's new
     /// tile. Earlier versions skip it.
     case drag
+    /// 큰 나무 흔들기 (C facing the plaza's big tree): the sender's lunge, star, shake, leaves and dust, drawn only where the sender's body
+    /// touches the tree. `pushTiles` is the hit's strength (1-3, 3 only with `treeDrop`). Nobody is moved. Earlier versions skip it.
+    case treeShake
 
     var notifiesTarget: Bool {
         switch self {
         case .heart, .lol, .party: true
-        case .exclaim, .question, .tackle, .jump, .groupPhoto, .pickup, .firework, .dance, .decoyFound, .decoyJump, .decoyTackle, .pull, .snowball, .mimicTackle, .mimicFound, .pray, .drag: false
+        case .exclaim, .question, .tackle, .jump, .groupPhoto, .pickup, .firework, .dance, .decoyFound, .decoyJump, .decoyTackle, .pull, .snowball, .mimicTackle, .mimicFound, .pray, .drag, .treeShake: false
         }
     }
 
@@ -143,7 +146,7 @@ enum TeamEmoteKind: String, Codable, CaseIterable, Sendable {
     /// A new kind must choose.
     var endsSendersDance: Bool {
         switch self {
-        case .heart, .lol, .party, .exclaim, .question, .tackle, .jump, .firework, .decoyFound, .snowball, .mimicTackle, .pray, .drag: true
+        case .heart, .lol, .party, .exclaim, .question, .tackle, .jump, .firework, .decoyFound, .snowball, .mimicTackle, .pray, .drag, .treeShake: true
         case .groupPhoto, .pickup, .dance, .decoyJump, .decoyTackle, .pull, .mimicFound: false
         }
     }
@@ -177,6 +180,9 @@ struct TeamEmote: Codable, Equatable, Sendable {
     /// A jump that breaks the plaza ice: the broken pond and the breaker's wall clock (§6). Left out by every other jump and kind; earlier
     /// versions see a plain jump. Unreadable values become nil.
     @LossyOptional var iceBreak: PlazaIceBreak?
+    /// A tree shake that dropped an item into the sender's bag: drawn falling to the sender. Left out by every other shake and kind.
+    /// Unreadable values and unknown kinds become nil; earlier versions skip the frame.
+    @LossyOptional var treeDrop: ItemKind?
 
     /// A tackle pushes one to three tiles, like the three evolution stages.
     static let pushTileRange = 1...3

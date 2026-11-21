@@ -6,6 +6,8 @@ import Foundation
 /// `plaza.renderCost` fails when the main thread's scene update + flatten + command building takes more than D19's 4 ms per
 /// frame (median); recording + EndDraw and WARP's raster time are reported, not judged. The teammates' pictures are a
 /// FIXTURE (a plain block of bytes standing in for a sprite: the cost does not depend on what the texels show).
+/// `plaza.renderCostTree` is the same busy case at the big tree with it shaking: a hit from me (levels 1 to 3, the third dropping a
+/// mint) and one from a teammate at (15,10) every 20 frames, so the leaves, dust, star and falling item are all in play.
 /// Runs after the idle window: it loads Direct3D and WARP's worker threads.
 extension WindowsSelftest {
     @MainActor static func plazaRenderChecks(_ r: Recorder) async {
@@ -15,6 +17,7 @@ extension WindowsSelftest {
         case .failure(let e):
             r.add("plaza.renderCost", false, "\(e)")
             r.add("plaza.renderCostSpring", false, "\(e)")
+            r.add("plaza.renderCostTree", false, "\(e)")
             return
         }
         // The busy case at the first campfire seat, then the same busy case with the hot spring in view (steam up, every
@@ -33,6 +36,7 @@ extension WindowsSelftest {
             return m
         }
         await measure(r, device: device, name: "plaza.renderCostSpring", me: TilePoint(x: 31, y: 17), sit: nil, members: springMembers)
+<<<<<<< HEAD
         // The documentation captures: the same offscreen renderer on a summer noon, each written next to the other captures.
         let shotMembers: [PlazaSceneMember] = [
             PlazaSceneMember(memberID: "a", nickname: "Ash", isAway: false, tile: TilePoint(x: 33, y: 16), facing: .right, isWalking: false),
@@ -86,6 +90,16 @@ extension WindowsSelftest {
         }
         guard let rgba = surface.readRGBA() else { r.add(name, false, "no frame readback"); return }
         r.add(name, writeFrame(rgba, 1280, 960, file) == 0, "\(file) 1280x960, summer noon, a FIXTURE block per person for sprites, steam=\(scene.isSteamShown)")
+=======
+        // The big tree under me, shaking: eleven teammates around it (x 13...24 on rows 12 and 7; none on a tree tile, those on row 7
+        // behind the narrow top stand behind it) and one standing at (15,10) who hits it.
+        var treeMembers: [PlazaSceneMember] = (0..<11).map { i in
+            PlazaSceneMember(memberID: "m\(i)", nickname: "Member \(i)", isAway: false,
+                             tile: TilePoint(x: 13 + i, y: i % 2 == 0 ? 12 : 7), facing: .down, isWalking: true)
+        }
+        treeMembers.append(PlazaSceneMember(memberID: "m11", nickname: "Member 11", isAway: false, tile: TilePoint(x: 15, y: 10), facing: .right, isWalking: false))
+        await measure(r, device: device, name: "plaza.renderCostTree", me: TilePoint(x: 17, y: 12), sit: nil, members: treeMembers)
+>>>>>>> origin/main
     }
 
     /// One render-cost case: `me` (sitting at `sit` when given) and `members` on the winter night, 60 warm-up frames, then
@@ -99,6 +113,7 @@ extension WindowsSelftest {
             return
         }
         let renderer = WinPlazaRenderer(surface: surface)
+        let spring = name == "plaza.renderCostSpring", tree = name == "plaza.renderCostTree"
         let map = PlazaMapData.map
         let grass = PlatformPlaza.tallGrassArt()
         let mapImage = PlatformPlaza.tileSheet().map { PlazaTileArt.mapImage(map, sheet: $0, tallGrass: grass) } ?? PlazaTileArt.plainGrassImage(map)
@@ -132,7 +147,7 @@ extension WindowsSelftest {
             now = base.addingTimeInterval(Double(f) / 60)
             if f % 20 == 1 {
                 for i in members.indices {
-                    guard let tile = members[i].tile else { continue }
+                    guard let tile = members[i].tile, members[i].isWalking else { continue }   // a standing teammate (the tree's hitter) stays
                     var moved = PlazaSceneMember(memberID: members[i].memberID, nickname: members[i].nickname, isAway: false,
                                                  tile: TilePoint(x: tile.x + ((f / 20 + i) % 2 == 0 ? 1 : -1), y: tile.y),
                                                  facing: members[i].facing, isWalking: true)
@@ -140,6 +155,11 @@ extension WindowsSelftest {
                     members[i] = moved
                 }
                 scene.applyMembers(members)
+            }
+            if tree, f % 20 == 1 {
+                let n = f / 20
+                scene.playTreeHit(by: nil, direction: .up, level: 1 + n % 3, drop: n % 3 == 2 ? .mint : nil)
+                scene.playTreeHit(by: "m11", direction: .right, level: 1 + (n + 1) % 3, drop: nil)
             }
             if f % 45 == 1 { _ = scene.playFirework(memberID: "m\((f / 45) % 12)", style: ["ring", "willow", "heartShape"][(f / 45) % 3]) }
             let t0 = seconds()
@@ -161,9 +181,8 @@ extension WindowsSelftest {
         }
         let median = cpu.isEmpty ? Double.infinity : cpu.sorted()[cpu.count / 2] * 1000
         let st = renderer.stats
-        let spring = name == "plaza.renderCostSpring"
-        r.add(name, median <= 4 && st.failedFrames == 0 && (!spring || scene.isSteamShown),
-              (spring ? "hot spring in view steam=\(scene.isSteamShown) " : "") + "rush-hour, release, offscreen WARP 1280x960 (\(device.adapter)): update+flatten+build p50=\(ms(cpu, 0.5)) p95=\(ms(cpu, 0.95)) ms "
+        r.add(name, median <= 4 && st.failedFrames == 0 && (!spring || scene.isSteamShown) && (!tree || scene.isTreeShown),
+              (spring ? "hot spring in view steam=\(scene.isSteamShown) " : "") + (tree ? "tree=\(scene.isTreeShown) leaves=\(scene.treeLeafCount) " : "") + "rush-hour, release, offscreen WARP 1280x960 (\(device.adapter)): update+flatten+build p50=\(ms(cpu, 0.5)) p95=\(ms(cpu, 0.95)) ms "
                 + "(D19 budget 4 ms, median judged); record+EndDraw p50=\(ms(submit, 0.5)) ms; WARP raster p50=\(ms(raster, 0.5)) p95=\(ms(raster, 0.95)) ms; "
                 + "drawn=\(cpu.count) clean=\(clean) of \(measured); commands=\(st.commands) bitmaps=\(st.bitmapDraws) colours=\(st.colorDraws) "
                 + "effects=\(st.effectDraws) failedFrames=\(st.failedFrames) liveBitmaps=\(device.stats.liveBitmaps) (\(device.stats.liveBitmapBytes / 1024) KB)")

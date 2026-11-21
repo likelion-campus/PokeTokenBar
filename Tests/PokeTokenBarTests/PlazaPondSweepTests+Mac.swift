@@ -16,7 +16,7 @@ final class PlazaPondSweepTests: XCTestCase {
             "lily pads float on ponds only, not on the spring",
         "Team/Plaza/PlazaTileArt.swift|for single in lilySingleTiles where map.tile(at: single) == .pond {":
             "lily pads float on ponds only, not on the spring",
-        "Team/Plaza/PlazaMap.swift|case .tree, .bush, .board, .campfire, .pond, .hotSpring: false":
+        "Team/Plaza/PlazaMap.swift|case .tree, .bush, .board, .campfire, .pond, .hotSpring, .bigTree: false":
             "isWalkable's exhaustive switch (no default): the compiler forces every new tile kind to answer",
         "Team/Plaza/PlazaMap.swift|func isWater(_ p: TilePoint) -> Bool { tile(at: p) == .pond || tile(at: p) == .hotSpring }":
             "the one water rule",
@@ -24,7 +24,7 @@ final class PlazaPondSweepTests: XCTestCase {
             "the one hot-spring rule (art, steam, flush)",
         "Team/Plaza/PlazaMap.swift|guard let tile = PlazaTile(rawValue: ch) else { throw .unknown(ch) }":
             "parses the map rows",
-        "Team/Plaza/PlazaSnow.swift|case .tallGrass, .tree, .bush, .board, .campfire, .pond, .hotSpring: false":
+        "Team/Plaza/PlazaSnow.swift|case .tallGrass, .tree, .bush, .board, .campfire, .pond, .hotSpring, .bigTree: false":
             "isSnowGround's exhaustive switch (no default): water takes no snow prints",
         "Team/Plaza/PlazaHotSpring.swift|for x in 0..<map.width where map.tile(at: TilePoint(x: x, y: y)) == .hotSpring { out.append(TilePoint(x: x, y: y)) }":
             "lists the spring's tiles",
@@ -92,5 +92,32 @@ final class PlazaPondSweepTests: XCTestCase {
         XCTAssertTrue(try Self.hits(in: "let b = iceBreak.pond\nvar x = PlazaIceBreak(at: 0, pond: p).pond\n", rel: "x.swift").isEmpty,
                       "a property named pond on an ice break is not the tile")
         XCTAssertTrue(try Self.hits(in: "default: break\n", rel: "x.swift").isEmpty, "a default: in a file with no tiles is not a tile decision")
+    }
+
+    /// Sweep A of the big-tree plan: every direct `.tree`/`.bigTree` tile check in the plaza sources is classified here.
+    static let allowedTree: Set<String> = [
+        "PlazaMap.swift|case .tree, .bush, .board, .campfire, .pond, .hotSpring, .bigTree: false",
+        "PlazaMap.swift|guard p.x >= 0, p.y >= 0, p.x < width, p.y < height else { return .tree }",
+        "PlazaMap.swift|func isBigTree(_ p: TilePoint) -> Bool { tile(at: p) == .bigTree }",
+        "PlazaSnow.swift|case .tallGrass, .tree, .bush, .board, .campfire, .pond, .hotSpring, .bigTree: false",
+        "PlazaTileArt.swift|if map.tile(at: TilePoint(x: x, y: y)) == .tree { covers = true } else { allTrees = false }",
+    ]
+
+    func testEveryDirectTreeTileCheckIsClassified() throws {
+        let root = SharedSources.sourcesRoot.appendingPathComponent("Team/Plaza")
+        let regex = try NSRegularExpression(pattern: #"(^|[^A-Za-z0-9_)\]?!])\.(tree|bigTree)\b"#)
+        var hits = Set<String>()
+        for url in SharedSources.allSwiftFiles(root: root) {
+            let rel = SharedSources.relativePath(url, root: root)
+            let text = try String(contentsOf: url, encoding: .utf8)
+            for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
+                let s = String(line)
+                if regex.firstMatch(in: s, range: NSRange(s.startIndex..., in: s)) != nil {
+                    hits.insert("\(rel)|\(s.trimmingCharacters(in: .whitespaces))")
+                }
+            }
+        }
+        XCTAssertEqual(hits, Self.allowedTree,
+                       "a blocked tile is asked through isWalkable/blocksBall; the tree through PlazaMap.isBigTree; list a real exception here. new: \(hits.subtracting(Self.allowedTree).sorted()) gone: \(Self.allowedTree.subtracting(hits).sorted())")
     }
 }

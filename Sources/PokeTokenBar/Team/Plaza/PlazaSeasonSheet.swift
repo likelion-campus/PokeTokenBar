@@ -55,6 +55,16 @@ enum PlazaSeasonSheet {
         }
     }
 
+    /// 땅(풀 칸 `PlazaTileArt.grassCells`)에 그 계절이 입히는 색 표. 여름과 봄(봄은 여름 땅 그대로, 명세 5.3)은 비어 있다.
+    /// 큰 나무 밑의 그늘이 계절의 땅에 앉도록 같은 표를 쓴다. 시트의 어떤 출력도 바꾸지 않는다.
+    static func groundColors(_ season: PlazaSeason) -> PlazaSnowSheet.Colors {
+        switch season {
+        case .summer, .spring: [:]
+        case .autumn: autumnGround
+        case .winter: PlazaSnowSheet.groundColors
+        }
+    }
+
     /// 풀숲 색. 봄과 여름은 원본 그대로라 비어 있다.
     static func tallGrassColors(_ season: PlazaSeason) -> PlazaSnowSheet.Colors {
         switch season {

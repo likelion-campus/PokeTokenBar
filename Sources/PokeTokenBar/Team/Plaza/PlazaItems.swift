@@ -55,13 +55,15 @@ enum PlazaItems {
     static func isShown(_ spawn: Spawn, openTiles: Set<TilePoint>) -> Bool { openTiles.contains(spawn.tile) }
 
     /// 떨어질 수 있는 칸: 걸을 수 있고, 쉼터가 아니고, 소식판 바로 옆이 아닌 칸(스페이스로 말 걸기와 겹치지 않게).
+    /// 큰 나무 밑동과 잎 아래 칸(그림이 덮는 칸)에는 놓지 않는다.
     static func candidates(in map: PlazaMap) -> [TilePoint] {
         let shelter = Set(map.shelterTiles)
+        let underTree = PlazaTree.coveredTiles(in: map)
         var out: [TilePoint] = []
         for y in 0..<map.height {
             for x in 0..<map.width {
                 let t = TilePoint(x: x, y: y)
-                guard map.isWalkable(t), !shelter.contains(t) else { continue }
+                guard map.isWalkable(t), !shelter.contains(t), !underTree.contains(t) else { continue }
                 let nearBoard = [PlazaDirection.up, .down, .left, .right].contains { map.tile(at: PlazaWalker.offset(t, $0)) == .board }
                 if !nearBoard { out.append(t) }
             }

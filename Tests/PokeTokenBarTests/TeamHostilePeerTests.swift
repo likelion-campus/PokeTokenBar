@@ -216,6 +216,27 @@ final class TeamHostilePeerTests: XCTestCase {
                        [0, PlazaActivity.maxCount, 0, PlazaActivity.maxCount, 5, 0])
     }
 
+    /// A modified app can send any `treeDrop`. An unreadable value or an unknown kind becomes nil, and the frame lives with a level in range.
+    func testAbsurdTreeShakesBecomeHarmless() async throws {
+        let peer = join("hostile")
+        var got: [TeamEmote] = []
+        session.onEmote = { _, e in got.append(e) }
+        for bad in [#""banana""#, "5", "{}", "null", #""MINT""#] {
+            let json = #"{"emote":{"_0":{"kind":"treeShake","pushTiles":2,"treeDrop":\#(bad)}}}"#
+            say(try JSONDecoder().decode(TeamMessage.self, from: Data(json.utf8)), from: peer)
+            XCTAssertEqual(got.last?.kind, .treeShake, bad)
+            XCTAssertNil(got.last?.treeDrop, bad)
+        }
+        for (raw, level) in [("99", 3), ("-1", 1), ("0", 1)] {
+            let json = #"{"emote":{"_0":{"kind":"treeShake","pushTiles":\#(raw)}}}"#
+            say(try JSONDecoder().decode(TeamMessage.self, from: Data(json.utf8)), from: peer)
+            XCTAssertEqual(TeamEmote.pushTiles(got.last?.pushTiles), level, raw)
+        }
+        say(try JSONDecoder().decode(TeamMessage.self, from: Data(#"{"emote":{"_0":{"kind":"treeShake","pushTiles":3,"treeDrop":"mint"}}}"#.utf8)), from: peer)
+        XCTAssertEqual(got.last?.treeDrop, .mint, "control: a known kind is kept")
+        XCTAssertEqual(got.count, 9, "every frame lived")
+    }
+
     func testAnOverlongMimicIsDropped() async {
         let peer = join("hostile")
         for length in [TeamWire.maxFieldBytes + 1, 10_000] {
@@ -437,6 +458,31 @@ final class TeamHostilePeerTests: XCTestCase {
             XCTAssertEqual(s.iceLayerNodeCount, ice)
             XCTAssertLessThanOrEqual(biggest, frames.front.count * PlazaHotSpring.flushSteps, "paused \(paused): baked pictures are bounded by frames x steps")
             if !paused { XCTAssertGreaterThan(biggest, 1, "test precondition: the flood did bake pictures") }
+        }
+    }
+
+    /// A teammate who sends a thousand tree shakes in one frame (a modified app can) adds no node, and one landing makes at most one sparkle burst.
+    func testATreeShakeFloodAddsNoNode() async throws {
+        func count(_ nodes: [PlazaNode]) -> Int { nodes.reduce(0) { $0 + 1 + count($1.children) } }
+        for paused in [false, true] {
+            let map = PlazaMapData.map
+            let s = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: map.spawn, zoom: 2, nickname: "나", pondVisuals: true)
+            s.applyMembers([PlazaSceneMember(memberID: "A", nickname: "A", isAway: false, tile: TilePoint(x: 17, y: 11), facing: .up, isWalking: false)])
+            s.update(0)
+            XCTAssertEqual(s.treeNodeCount, 30, "precondition: the tree layer exists, so this cannot pass vacuously")
+            s.isPaused = paused
+            let nodes = count(s.children), tree = s.treeNodeCount
+            for _ in 0..<1000 { s.playTreeHit(by: "A", direction: .up, level: 3, drop: .mint) }
+            var peak = 0
+            if !paused {
+                for i in 1...120 {   // 2 s
+                    s.update(Double(i) / 60)
+                    peak = max(peak, s.sparkleCount)
+                }
+            }
+            XCTAssertEqual(s.treeNodeCount, tree, "paused \(paused)")
+            XCTAssertLessThanOrEqual(peak, 7, "paused \(paused): at most one sparkle burst")
+            if paused { XCTAssertEqual(count(s.children), nodes) }
         }
     }
 

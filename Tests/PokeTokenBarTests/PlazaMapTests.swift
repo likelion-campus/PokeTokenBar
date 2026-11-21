@@ -46,7 +46,7 @@ final class PlazaMapTests: XCTestCase {
     func testOnlySimpleKinds() {
         var counts: [Character: Int] = [:]
         for ch in PlazaMapData.rows.joined() { counts[ch, default: 0] += 1 }
-        XCTAssertTrue(Set(counts.keys).isSubset(of: [".", "f", "S", "T", "b", "N", "F", "g", "w", "h"]))
+        XCTAssertTrue(Set(counts.keys).isSubset(of: [".", "f", "S", "T", "b", "N", "F", "g", "w", "h", "B"]))
         XCTAssertTrue((30...50).contains(counts["f", default: 0]), "flowers \(counts["f", default: 0])")
         XCTAssertTrue((6...10).contains(counts["b", default: 0]), "bushes \(counts["b", default: 0])")
     }
@@ -120,5 +120,15 @@ final class PlazaMapTests: XCTestCase {
         XCTAssertEqual(m.tile(at: TilePoint(x: 0, y: 1)), .hotSpring)
         XCTAssertTrue(m.isWater(TilePoint(x: 1, y: 1)))
         XCTAssertFalse(m.isWalkable(TilePoint(x: 1, y: 1)))
+    }
+
+    func testAMapWithABParses() throws {
+        let m = try PlazaMap(rows: ["SN..", "BB.."])
+        XCTAssertEqual(m.tile(at: TilePoint(x: 0, y: 1)), .bigTree)
+        XCTAssertTrue(m.isBigTree(TilePoint(x: 1, y: 1)))
+        XCTAssertFalse(m.isBigTree(TilePoint(x: 2, y: 1)))
+        XCTAssertFalse(m.isBigTree(TilePoint(x: -1, y: 1)))
+        XCTAssertFalse(m.isWalkable(TilePoint(x: 1, y: 1)))
+        XCTAssertFalse(m.isWater(TilePoint(x: 1, y: 1)))
     }
 }

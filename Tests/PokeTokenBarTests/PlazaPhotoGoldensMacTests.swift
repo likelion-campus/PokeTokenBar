@@ -5,8 +5,12 @@ import XCTest
 /// Writes and re-checks the Mac's photo goldens (`PlazaPhotoGoldens`). Mac only: the goldens are by definition what this Mac makes.
 @MainActor
 final class PlazaPhotoGoldensMacTests: XCTestCase {
+    /// The goldens are made in UTC. Instead of skipping on any other zone (which let a stale golden pass every local run and fail only on
+    /// Windows CI, whose runner is UTC), this test run puts the process in UTC and puts the zone back afterwards.
     private func requireUTC() throws {
-        try XCTSkipUnless(TimeZone.current.secondsFromGMT() == 0, "the photo goldens are made and checked with TZ=UTC")
+        let before = NSTimeZone.default
+        NSTimeZone.default = try XCTUnwrap(TimeZone(identifier: "UTC"))
+        addTeardownBlock { NSTimeZone.default = before }
     }
 
     func testWritePhotoGoldens() async throws {
