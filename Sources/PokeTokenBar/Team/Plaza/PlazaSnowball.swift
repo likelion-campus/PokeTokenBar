@@ -76,7 +76,7 @@ enum PlazaSnowball {
         min(max(spriteHeight, 28) * 0.5, maxBodyHeight)
     }
 
-    /// 터짐 `step` 프레임의 조각들(중심 기준, 장면 픽셀, y 위쪽). glyph는 `PlazaSnowballArt.pieces` 색인.
+    /// 터짐 `step` 프레임의 조각들(중심 기준, 장면 픽셀, y 위쪽). glyph는 `PlazaSnowballArt.Art.burst` 색인(공 그림은 들어 있지 않다).
     static func burstPieces(step: Int, onGround: Bool) -> [(offset: CGVector, glyph: Int)] {
         let radius: [CGFloat] = [18, 22, 28, 32], drop: [CGFloat] = [0, 2, 8, 16], glyph = [1, 0, 1, 2]
         let angles: [Double] = step == 0 ? (onGround ? [0, 45, 135, 180] : [45, 135, 225, 315])
@@ -94,8 +94,8 @@ enum PlazaSnowball {
     }
 }
 
-/// 던지는 것과 터짐 그림. 눈 입자 격자에 그림자 한 칸을 계산으로 덧붙이고, 계절마다 색만 바꾼다:
-/// 겨울 눈뭉치, 봄 꽃잎 뭉치, 가을 낙엽 뭉치. 여름은 공만 물풍선 그림이고 터짐은 물방울 색이다.
+/// 던지는 것과 터짐 그림. 공은 계절마다 번들 파일 그림이고, 파일이 없으면 눈 입자 격자에 그림자 한 칸을 덧붙인 공이다.
+/// 터짐 조각은 겨울 눈 알갱이, 봄 꽃잎, 여름 물방울 색 알갱이, 가을 낙엽이다.
 enum PlazaSnowballArt {
     typealias Palette = [Character: (r: UInt8, g: UInt8, b: UInt8)]
     /// 그림과, 그림 한 픽셀의 월드 픽셀 수.
@@ -126,13 +126,32 @@ enum PlazaSnowballArt {
         }
     }
 
-    /// `PlazaWeatherArt.grids(.snow)`의 눈송이 셋을 그림자와 함께 그 계절 색으로 그린다. [0]이 공이다.
-    /// 여름에 `balloon`이 있으면 공은 그 그림 그대로다(월드 픽셀당 한 픽셀).
-    static func pieces(_ season: PlazaSeason = .winter, balloon: PlazaImage? = nil) -> [Piece] {
-        var pieces: [Piece] = PlazaWeatherArt.grids(.snow).map {
-            (PlazaWeatherArt.image(shaded($0), palette: palette(season)), PlazaSnowball.cell)
+    /// 던지는 공 하나와 터질 때 흩어지는 조각 셋. 둘은 따로다: 터짐 조각이 공 그림을 그릴 수 없다.
+    struct Art {
+        let ball: Piece
+        /// 항상 셋. `PlazaSnowball.burstPieces`의 glyph가 이 목록의 색인이다.
+        let burst: [Piece]
+    }
+
+    /// 그림 한 픽셀의 월드 픽셀 수. 파일 그림은 높이 12~20 월드 픽셀로 날도록 10픽셀 이하면 2배다.
+    static func ballScale(_ image: PlazaImage) -> CGFloat { image.height <= 10 ? 2 : 1 }
+
+    /// `ball`(그 계절의 파일 그림)이 있으면 공은 그 그림 그대로, 없으면 그 계절 색의 눈 격자 공이다.
+    /// 터짐 조각: 겨울·여름은 눈 격자 셋(그림자 포함, 그 계절 색), 봄은 꽃잎, 가을은 낙엽.
+    static func art(_ season: PlazaSeason = .winter, ball: PlazaImage? = nil) -> Art {
+        let snow = PlazaWeatherArt.grids(.snow).map {
+            (image: PlazaWeatherArt.image(shaded($0), palette: palette(season)), scale: PlazaSnowball.cell)
         }
-        if season == .summer, let balloon { pieces[0] = (balloon, 1) }
-        return pieces
+        let burst: [Piece]
+        switch season {
+        case .winter, .summer: burst = snow
+        case .spring:
+            let p = PlazaWeatherArt.images(.petals)
+            burst = [p[0], p[1], p[0]].map { ($0, PlazaSnowball.cell) }
+        case .autumn:
+            let l = PlazaWeatherArt.images(.leaves)
+            burst = [l[0], l[2], l[4]].map { ($0, PlazaSnowball.cell) }
+        }
+        return Art(ball: ball.map { ($0, ballScale($0)) } ?? snow[0], burst: burst)
     }
 }

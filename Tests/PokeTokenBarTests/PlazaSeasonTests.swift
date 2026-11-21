@@ -87,16 +87,21 @@ final class PlazaSeasonTests: XCTestCase {
         return found
     }
 
-    func testEachSeasonThrowsItsOwnColoursInTheSnowballsShapes() async {
-        let snow = PlazaSnowballArt.pieces(.winter)
-        let want: [PlazaSeason: Set<UInt32>] = [.spring: [0xFDDCE6, 0xF2A0BC, 0xB85A80], .summer: [0xD6F0FF, 0x6CB8F0, 0x2E78C0],
-                                                .autumn: [0xF2A63C, 0xC4521E, 0x6E3A10], .winter: [0xF6FAFF, 0xC6DAF0, 0x8DA3BF]]
+    func testEachSeasonsGridBallAndBurstUseOnlyArtThePlazaHas() async {
+        let snow = PlazaWeatherArt.grids(.snow)
+        let petals = PlazaWeatherArt.images(.petals), leaves = PlazaWeatherArt.images(.leaves)
         for season in PlazaSeason.allCases {
-            let pieces = PlazaSnowballArt.pieces(season)
-            XCTAssertEqual(pieces.map(\.scale), [4, 4, 4])
-            XCTAssertEqual(pieces.map(\.image.width), snow.map(\.image.width), "\(season)")
-            XCTAssertEqual(pieces.map(\.image.height), snow.map(\.image.height), "\(season)")
-            XCTAssertEqual(pieces.map { colours($0.image) }.reduce(Set()) { $0.union($1) }, want[season], "\(season)")
+            let art = PlazaSnowballArt.art(season)
+            let grid = PlazaWeatherArt.image(PlazaSnowballArt.shaded(snow[0]), palette: PlazaSnowballArt.palette(season))
+            XCTAssertEqual(art.ball.image.pixels.bytes, grid.pixels.bytes, "\(season) ball")
+            XCTAssertEqual(art.ball.scale, 4)
+            let want: [PlazaImage] = switch season {
+            case .winter, .summer: snow.map { PlazaWeatherArt.image(PlazaSnowballArt.shaded($0), palette: PlazaSnowballArt.palette(season)) }
+            case .spring: [petals[0], petals[1], petals[0]]
+            case .autumn: [leaves[0], leaves[2], leaves[4]]
+            }
+            XCTAssertEqual(art.burst.map { $0.image.pixels.bytes }, want.map { $0.pixels.bytes }, "\(season) burst")
+            XCTAssertEqual(art.burst.map(\.scale), [4, 4, 4])
         }
     }
 

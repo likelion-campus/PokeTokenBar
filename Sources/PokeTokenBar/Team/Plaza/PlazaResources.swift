@@ -39,8 +39,19 @@ enum PlazaResources {
 
     static let tileSheetName = "plaza-tiles"           // png
     static let waterBalloonName = "plaza-water-balloon" // png
+    static let leafSheetName = "plaza-leaf-sheet"       // png, 128×160, 받은 그대로. 봄·가을 공은 여기서 한 칸씩 자른다
     static let tallGrassSheetName = "plaza-tallgrass"   // png
     static let iceCrackSheetName = "plaza-ice-cracks"   // png
     static let iceGlossSheetName = "plaza-ice-gloss"    // png
     static let iceShatterName = "plaza-ice-shatter"     // gif
+
+    /// 계절이 던지는 공 그림의 파일과 자를 영역(nil이면 파일 전체). 겨울은 파일이 없어 격자 눈뭉치다.
+    static func ballSource(_ season: PlazaSeason) -> (name: String, crop: PlazaPixelRect?)? {
+        switch season {
+        case .winter: nil
+        case .spring: (leafSheetName, PlazaPixelRect(x: 33, y: 129, width: 17, height: 15))
+        case .summer: (waterBalloonName, nil)
+        case .autumn: (leafSheetName, PlazaPixelRect(x: 33, y: 33, width: 17, height: 15))
+        }
+    }
 }

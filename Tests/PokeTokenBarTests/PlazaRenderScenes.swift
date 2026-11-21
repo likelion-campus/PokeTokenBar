@@ -153,8 +153,7 @@ enum PlazaRenderScenes {
         if let built = looks[season] { return built }
         var look: PlazaSnowLook?
         if season != .summer, let sheet = PlatformPlaza.tileSheet() {
-            let art = PlatformPlaza.tallGrassSheet().map { PlazaSeasonSheet.tallGrass($0, season: season) }.flatMap(PlazaTallGrassArt.init(sheet:))
-            look = PlazaSnowLook(mapImage: PlazaTileArt.mapImage(map, sheet: PlazaSeasonSheet.tiles(sheet, season: season), tallGrass: art), tallGrass: art)
+            look = PlazaSeasonSheet.look(map, sheet: sheet, tallGrassSheet: PlatformPlaza.tallGrassSheet(), season: season)
         }
         looks[season] = .some(look)
         return look
@@ -305,6 +304,14 @@ enum PlazaRenderScenes {
         }
     }
 
+    /// 왼쪽 위 모서리(나무·풀숲·꽃·왼쪽 연못의 연잎)를 줌 1로 본다. 가운데 시점에는 나무가 안 들어온다.
+    private static func edge(_ name: String, _ choice: PlazaSeasonChoice) -> PlazaRenderScene {
+        scene(name, captures: [10]) { st in
+            var o = Options(); o.season = choice; o.zoom = 1; o.me = TilePoint(x: 4, y: 4)
+            return setup(stage(o, on: st))
+        }
+    }
+
     private static func campfire(_ name: String, hour: Int, lit: Bool, smoke: Bool = false, photo: Bool = false) -> PlazaRenderScene {
         scene(name, captures: [10, 37, 64]) { st in
             var o = Options(); o.hour = hour
@@ -438,7 +445,7 @@ enum PlazaRenderScenes {
     }
 
     private static func throwing(_ name: String, choice: PlazaSeasonChoice) -> PlazaRenderScene {
-        scene(name, captures: [5, 12, 20]) { st in
+        scene(name, captures: [5, 12, 20, 26, 32]) { st in
             var o = Options(); o.season = choice
             let s = stage(o, on: st)
             s.put([member("ash", "Ash", 15, 10, facing: .right), member("brock", "Brock", 24, 10, facing: .left),
@@ -506,7 +513,8 @@ enum PlazaRenderScenes {
             base("base-noon", backing: 1, zoom: 2, photo: true), base("base-noon-2x", backing: 2, zoom: 2),
             base("zoom-1", backing: 2, zoom: 1), base("zoom-4", backing: 2, zoom: 4),
             daylight("dusk", hour: 18, minute: 40), daylight("night", hour: 23, photo: true),
-            season("spring", .spring), season("autumn", .autumn), season("winter-snow", .winter, photo: true),
+            season("summer", .summer), season("spring", .spring), season("autumn", .autumn), season("winter-snow", .winter, photo: true),
+            edge("summer-edge", .summer), edge("spring-edge", .spring), edge("autumn-edge", .autumn),
             scene("winter-footprints", captures: [30, 120, 400]) { st in
                 var o = Options(); o.season = .winter; o.me = TilePoint(x: 8, y: 10)
                 let s = stage(o, on: st)
@@ -577,6 +585,7 @@ enum PlazaRenderScenes {
             ditto("ditto", decoy: false, poof: false), ditto("ditto-decoy", decoy: true, poof: false), ditto("ditto-poof", decoy: false, poof: true),
             fireworks("fireworks-night", hour: 23, photo: true), fireworks("fireworks-day", hour: 12),
             throwing("snowballs", choice: .winter), throwing("water-balloon", choice: .summer),
+            throwing("petal-balls", choice: .spring), throwing("leaf-balls", choice: .autumn),
             effect("jump-dust") { s in s.scene.playJump(memberID: nil); s.scene.playJump(memberID: "ash") },
             effect("tackle-impact") { s in s.scene.playTackle(by: "ash", on: nil, direction: .right) },
             effect("shutter") { s in s.scene.playShutterFlash() },

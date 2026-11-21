@@ -33,6 +33,13 @@
 - Source: https://opengameart.org/content/water-gun-fight-art
 - Thrown in the plaza's summer. The app draws it as it is.
 
+## Leaf clumps (plaza-leaf-sheet.png)
+- "[LPC] Leaf Recolor" (`lpc leaf recolors.png`, unmodified) by William Thompson, leaves recoloured from Johann Charlot's "Shoot'em up graphic kit", a Liberated Pixel Cup work
+- License: CC-BY-SA 3.0 (https://creativecommons.org/licenses/by-sa/3.0/), chosen from the work's CC-BY-SA 3.0 / GPL 3.0 dual licence. This file is not under the app's MIT license. — full text: CC-BY-SA-3.0.txt
+- Source: https://opengameart.org/content/lpc-leaf-recolor
+- SHA-256: 4ad08bd59fbd202e7193befe3c40cd19a144a87ce30b06e5171a89753a874c17
+- Spring throws the pink clump at (33, 129) and autumn the red and orange clump at (33, 33), each 17×15, cut from the sheet at runtime and drawn as they are. The cut cells are a derivative and stay under CC-BY-SA 3.0.
+
 ## Ice cracks (plaza-ice-cracks.png)
 - "Ice Mountains Tileset" (`ice_mountain_tileset.png`, unmodified) by CookieEfedu
 - License: CC-BY 4.0 (https://creativecommons.org/licenses/by/4.0/). This file is not under the app's MIT license.

@@ -61,4 +61,19 @@ final class PlazaTileArtTests: XCTestCase {
         let px = image.pixels.bytes
         for i in stride(from: 0, to: px.count, by: 4) { XCTAssertEqual(Array(px[i..<i + 4]), [0x6D, 0xB9, 0x55, 255]) }
     }
+
+    func testATreesKindDependsOnlyOnItsTopLeftTile() throws {
+        let want: [(TilePoint, Int)] = [(TilePoint(x: -1, y: 1), 1), (TilePoint(x: 0, y: 0), 0), (TilePoint(x: 1, y: 1), 1),
+                                        (TilePoint(x: 2, y: 0), 2), (TilePoint(x: 3, y: 1), 1), (TilePoint(x: 4, y: 0), 0)]
+        for (p, kind) in want { XCTAssertEqual(PlazaTileArt.treeVariant(at: p, count: 3), kind, "\(p)") }
+        func solid(_ r: UInt8, _ g: UInt8, _ b: UInt8) -> PlazaImage {
+            PlazaImage(bitmap: PlazaBitmap(width: 32, height: 32, fill: PlazaRGBA(r: r, g: g, b: b, a: 255)))
+        }
+        let map = try PlazaMap(rows: ["TTTTTT", "TTTTTT", "NN.S.."])
+        let img = PlazaTileArt.mapImage(map, sheet: Self.sheet, trees: [solid(255, 0, 0), solid(0, 255, 0), solid(0, 0, 255)])
+        let px = img.pixels.bytes, w = 6 * 32
+        XCTAssertEqual(pixel(px, 0, 0, width: w), [255, 0, 0, 255], "tree origin (0,0)")
+        XCTAssertEqual(pixel(px, 64, 0, width: w), [0, 0, 255, 255], "tree origin (2,0)")
+        XCTAssertEqual(pixel(px, 128, 0, width: w), [255, 0, 0, 255], "tree origin (4,0)")
+    }
 }

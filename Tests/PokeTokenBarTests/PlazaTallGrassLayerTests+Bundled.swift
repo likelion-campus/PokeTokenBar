@@ -22,6 +22,11 @@ extension PlazaTallGrassLayerTests {
 
 /// Test helper: does an image hold a fully opaque pixel of one of these colours?
 enum SnowPixels {
+    /// 모두 들어 있는가(`contains` 는 하나만 있어도 true 다).
+    static func containsAll(_ image: PlazaImage, rgb: Set<UInt32>) -> Bool {
+        rgb.allSatisfy { contains(image, rgb: [$0]) }
+    }
+
     static func contains(_ image: PlazaImage, rgb: Set<UInt32>) -> Bool {
         let raw = image.pixels.bytes
         for i in stride(from: 0, to: raw.count, by: 4) where raw[i + 3] == 255 {

@@ -180,9 +180,7 @@ import Observation
         if let built = cachedSeasonLooks[season] { return built }
         var look: PlazaSnowLook?
         if season != .summer, let sheet = PlatformPlaza.tileSheet() {
-            let art = PlatformPlaza.tallGrassSheet().map { PlazaSeasonSheet.tallGrass($0, season: season) }.flatMap(PlazaTallGrassArt.init(sheet:))
-            look = PlazaSnowLook(mapImage: PlazaTileArt.mapImage(map, sheet: PlazaSeasonSheet.tiles(sheet, season: season), tallGrass: art),
-                                 tallGrass: art)
+            look = PlazaSeasonSheet.look(map, sheet: sheet, tallGrassSheet: PlatformPlaza.tallGrassSheet(), season: season)
         }
         cachedSeasonLooks[season] = .some(look)
         return look

@@ -36,6 +36,19 @@ final class PlazaResourcesTests: XCTestCase {
         }
     }
 
+    func testLeafSheetLoads() throws {
+        let sheet = try XCTUnwrap(BundledArt.image(PlazaResources.leafSheetName))
+        XCTAssertEqual([sheet.width, sheet.height], [128, 160])
+    }
+
+    func testCreditsNameTheLeafSheetArtists() throws {
+        let credits = try text("CREDITS", "md")
+        for needle in ["William Thompson", "Johann Charlot", "[LPC] Leaf Recolor", "https://opengameart.org/content/lpc-leaf-recolor",
+                       "plaza-leaf-sheet.png", "CC-BY-SA 3.0"] {
+            XCTAssertTrue(credits.contains(needle), needle)
+        }
+    }
+
     func testLicenseAndCreditsShipWithResources() {
         let graphics = PlatformPlaza.graphics
         XCTAssertNotNil(graphics.assetURL("Galmuri-OFL", ext: "txt"))

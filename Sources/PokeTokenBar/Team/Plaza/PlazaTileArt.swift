@@ -15,6 +15,8 @@ enum PlazaTileArt {
     private static let waterCell: Cell = (3, 7)
     private static let lilySingle: Cell = (2, 0)
     private static let lilyPair: [Cell] = [(4, 0), (5, 0)]
+    /// 연잎 칸 모두(가을에 땅과 같이 바랜다).
+    static let lilyCells: [Cell] = [lilySingle] + lilyPair
     private static let lilySingleTiles = [TilePoint(x: 33, y: 18), TilePoint(x: 14, y: 13), TilePoint(x: 21, y: 25)]
     private static let lilyPairTiles = [TilePoint(x: 35, y: 16), TilePoint(x: 16, y: 11)]
     /// 2x2 칸 둥근 나무.
@@ -40,7 +42,8 @@ enum PlazaTileArt {
     }
 
     /// 지도 전체를 한 장으로(width*32 × height*32). 광장을 열 때 한 번 만든다.
-    static func mapImage(_ map: PlazaMap, sheet: PlazaImage, tallGrass: PlazaTallGrassArt? = nil) -> PlazaImage {
+    /// `trees` 가 있으면 나무마다 `treeVariant` 가 고른 32×32 그림을 놓고, nil이면 시트의 나무 칸을 쓴다. 있다면 비어 있지 않다.
+    static func mapImage(_ map: PlazaMap, sheet: PlazaImage, tallGrass: PlazaTallGrassArt? = nil, trees: [PlazaImage]? = nil) -> PlazaImage {
         var canvas = Canvas(width: map.width * tile, height: map.height * tile, sheet: SheetPixels(sheet))
         for y in 0..<map.height {
             for x in 0..<map.width {
@@ -66,7 +69,7 @@ enum PlazaTileArt {
         }
         drawLilyPads(map, &canvas)
         if let tallGrass { drawTallGrass(map, tallGrass, &canvas) }
-        drawTrees(map, &canvas)
+        drawTrees(map, &canvas, trees: trees)
         let b = map.boardTile
         for sy in 0..<signSize {
             for sx in 0..<signSize {
@@ -112,7 +115,8 @@ enum PlazaTileArt {
 
     /// 나무는 2x2 칸이며 (x + y)가 짝수인 자리에 놓아 줄마다 한 칸씩 엇갈린다.
     /// 위쪽부터 그려 아래 나무가 위를 덮는다. 덮는 칸이 모두 나무일 때만 놓는다(지도 밖은 무시).
-    private static func drawTrees(_ map: PlazaMap, _ canvas: inout Canvas) {
+    private static func drawTrees(_ map: PlazaMap, _ canvas: inout Canvas, trees: [PlazaImage]?) {
+        let sources = trees?.map { SheetPixels($0) }
         guard map.height >= 2 else { return }
         for oy in 0..<(map.height - 1) {
             for ox in -1..<map.width where (ox + oy) % 2 == 0 {
@@ -125,11 +129,23 @@ enum PlazaTileArt {
                     }
                 }
                 if covers && allTrees {
-                    canvas.blit(treeCell, cols: 2, rows: 2, x: ox * tile, y: oy * tile)
+                    if let sources {
+                        let source = sources[treeVariant(at: TilePoint(x: ox, y: oy), count: sources.count)]
+                        for sy in 0..<(2 * cell) {
+                            for sx in 0..<(2 * cell) {
+                                canvas.plot(from: source, sheetX: sx, sheetY: sy, x: ox * tile + sx * scale, y: oy * tile + sy * scale)
+                            }
+                        }
+                    } else {
+                        canvas.blit(treeCell, cols: 2, rows: 2, x: ox * tile, y: oy * tile)
+                    }
                 }
             }
         }
     }
+
+    /// 나무의 종류: 왼쪽 위 칸의 위치만으로 정한다(0..<count).
+    static func treeVariant(at origin: TilePoint, count: Int) -> Int { Noise(origin).below(count, 3) }
 
     /// 칸 위치로 만드는 결정적 난수(splitmix64).
     private struct Noise {
