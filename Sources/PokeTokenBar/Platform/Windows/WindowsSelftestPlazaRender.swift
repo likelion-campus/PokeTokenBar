@@ -14,20 +14,41 @@ extension WindowsSelftest {
         case .success(let d): device = d
         case .failure(let e):
             r.add("plaza.renderCost", false, "\(e)")
+            r.add("plaza.renderCostSpring", false, "\(e)")
             return
         }
+        // The busy case at the first campfire seat, then the same busy case with the hot spring in view (steam up, every
+        // second swimmer red).
+        let seat = PlazaCampfire.seats.first
+        let campfireMe = seat?.tile ?? TilePoint(x: 19, y: 10)
+        let campfireMembers: [PlazaSceneMember] = (0..<12).map { i in
+            PlazaSceneMember(memberID: "m\(i)", nickname: "Member \(i)", isAway: false,
+                             tile: TilePoint(x: campfireMe.x - 4 + (i % 6) * 2, y: campfireMe.y - 3 + (i / 6) * 5), facing: .down, isWalking: true)
+        }
+        await measure(r, device: device, name: "plaza.renderCost", me: campfireMe, sit: seat, members: campfireMembers)
+        let springMembers: [PlazaSceneMember] = (0..<12).map { i in
+            var m = PlazaSceneMember(memberID: "m\(i)", nickname: "Member \(i)", isAway: false,
+                                     tile: TilePoint(x: 32 + i % 6, y: i < 6 ? 15 : 18), facing: .down, isWalking: true)
+            m.isFlushed = i % 2 == 1
+            return m
+        }
+        await measure(r, device: device, name: "plaza.renderCostSpring", me: TilePoint(x: 31, y: 17), sit: nil, members: springMembers)
+    }
+
+    /// One render-cost case: `me` (sitting at `sit` when given) and `members` on the winter night, 60 warm-up frames, then
+    /// 240 measured. Members step one tile sideways every 20 frames (into or out of the spring, both are fine).
+    @MainActor private static func measure(_ r: Recorder, device: WinGfxDevice, name: String, me: TilePoint,
+                                            sit seat: PlazaCampfire.Seat?, members start: [PlazaSceneMember]) async {
         let stage = WinPlazaStage(size: CGSize(width: 960, height: 640))
         stage.setBackingScale(2)
         guard case .success(let surface) = WinGfxSurface.offscreen(device: device, width: 1280, height: 960) else {
-            r.add("plaza.renderCost", false, "no offscreen surface: \(WinPlazaCodecs.lastError())")
+            r.add(name, false, "no offscreen surface: \(WinPlazaCodecs.lastError())")
             return
         }
         let renderer = WinPlazaRenderer(surface: surface)
         let map = PlazaMapData.map
         let grass = PlatformPlaza.tallGrassArt()
         let mapImage = PlatformPlaza.tileSheet().map { PlazaTileArt.mapImage(map, sheet: $0, tallGrass: grass) } ?? PlazaTileArt.plainGrassImage(map)
-        let seat = PlazaCampfire.seats.first
-        let me = seat?.tile ?? TilePoint(x: 19, y: 10)
         let scene = PlazaScene(map: map, mapImage: mapImage, start: me, zoom: 2, nickname: "Me", tallGrass: grass, pondVisuals: true,
                                iceArt: PlatformPlaza.iceArt(), stage: stage)
         scene.size = CGSize(width: 640, height: 480)
@@ -43,10 +64,7 @@ extension WindowsSelftest {
                                           back: [PlazaFrame(image: PlazaImage(bitmap: block), delay: 0.2)])
         scene.setCharacter(frames)
         if let seat { scene.sit(at: seat) }
-        var members: [PlazaSceneMember] = (0..<12).map { i in
-            PlazaSceneMember(memberID: "m\(i)", nickname: "Member \(i)", isAway: false,
-                             tile: TilePoint(x: me.x - 4 + (i % 6) * 2, y: me.y - 3 + (i / 6) * 5), facing: .down, isWalking: true)
-        }
+        var members = start
         scene.applyMembers(members)
         for m in members { scene.setMemberFrames(m.memberID, frames) }
         scene.campfireLit = true
@@ -62,9 +80,11 @@ extension WindowsSelftest {
             if f % 20 == 1 {
                 for i in members.indices {
                     guard let tile = members[i].tile else { continue }
-                    members[i] = PlazaSceneMember(memberID: members[i].memberID, nickname: members[i].nickname, isAway: false,
-                                                  tile: TilePoint(x: tile.x + ((f / 20 + i) % 2 == 0 ? 1 : -1), y: tile.y),
-                                                  facing: members[i].facing, isWalking: true)
+                    var moved = PlazaSceneMember(memberID: members[i].memberID, nickname: members[i].nickname, isAway: false,
+                                                 tile: TilePoint(x: tile.x + ((f / 20 + i) % 2 == 0 ? 1 : -1), y: tile.y),
+                                                 facing: members[i].facing, isWalking: true)
+                    moved.isFlushed = members[i].isFlushed
+                    members[i] = moved
                 }
                 scene.applyMembers(members)
             }
@@ -88,8 +108,9 @@ extension WindowsSelftest {
         }
         let median = cpu.isEmpty ? Double.infinity : cpu.sorted()[cpu.count / 2] * 1000
         let st = renderer.stats
-        r.add("plaza.renderCost", median <= 4 && st.failedFrames == 0,
-              "rush-hour, release, offscreen WARP 1280x960 (\(device.adapter)): update+flatten+build p50=\(ms(cpu, 0.5)) p95=\(ms(cpu, 0.95)) ms "
+        let spring = name == "plaza.renderCostSpring"
+        r.add(name, median <= 4 && st.failedFrames == 0 && (!spring || scene.isSteamShown),
+              (spring ? "hot spring in view steam=\(scene.isSteamShown) " : "") + "rush-hour, release, offscreen WARP 1280x960 (\(device.adapter)): update+flatten+build p50=\(ms(cpu, 0.5)) p95=\(ms(cpu, 0.95)) ms "
                 + "(D19 budget 4 ms, median judged); record+EndDraw p50=\(ms(submit, 0.5)) ms; WARP raster p50=\(ms(raster, 0.5)) p95=\(ms(raster, 0.95)) ms; "
                 + "drawn=\(cpu.count) clean=\(clean) of \(measured); commands=\(st.commands) bitmaps=\(st.bitmapDraws) colours=\(st.colorDraws) "
                 + "effects=\(st.effectDraws) failedFrames=\(st.failedFrames) liveBitmaps=\(device.stats.liveBitmaps) (\(device.stats.liveBitmapBytes / 1024) KB)")
