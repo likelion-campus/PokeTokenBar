@@ -174,6 +174,9 @@ struct PlazaSceneMember: Equatable, Sendable {
     let weatherLayer = PlazaWeatherLayer()
     /// 온천 위의 김. 연못 그림을 쓰는 장면(`pondVisuals`)에 온천 칸과 김 그림이 있을 때만 있다. 만든 뒤 노드가 늘지 않는다.
     private(set) var steamLayer: PlazaSteamLayer?
+    /// 큰 나무의 'B' 칸. 나무 없는 지도는 비어 있다.
+    let treeTiles: Set<TilePoint>
+    private(set) var treeLayer: PlazaTreeLayer?
     /// 불꽃. 빛이라 낮밤 곱하기(5)와 모닥불빛(6) 위, 이름표(10) 아래.
     let fireworkLayer = PlazaFireworkLayer()
     /// 지금 지도에서 아이템이 놓일 수 있는 칸. 지도가 바뀌지 않으니 한 번만 센다.
@@ -459,6 +462,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         self.zoom = PlazaCamera.clampedZoom(zoom)
         self.mapNode = PlazaSprite(texture: PlazaTexture(mapImage), size: map.pixelSize)
         self.campfireNode = Self.makeCampfireNode(map: map)
+        self.treeTiles = PlazaTree.tiles(in: map)
         self.stage = stage
         self.tweens = PlazaTweens(root: stage.root)
         stage.delegate = self
@@ -485,6 +489,13 @@ struct PlazaSceneMember: Equatable, Sendable {
             let layer = PlazaSteamLayer(springTiles: springTiles, worldHeight: map.pixelSize.height, frames: Self.steamFrames)
             root.addChild(layer.root)
             steamLayer = layer
+        }
+        if pondVisuals, !treeTiles.isEmpty, Self.treeImages.count == PlazaSeason.allCases.count {
+            // 모닥불과 같은 앞뒤 식. 날씨(3) 아래, 캐릭터는 발 줄에 따라 앞뒤. 타격 효과는 따로(20).
+            let layer = PlazaTreeLayer(map: map, images: Self.treeImages, worldHeight: map.pixelSize.height)
+            root.addChild(layer.root)
+            root.addChild(layer.fxRoot)
+            treeLayer = layer
         }
         if let iceArt {
             let layer = PlazaIceLayer(ponds: icePonds, art: iceArt, mapImage: mapImage, worldHeight: map.pixelSize.height)
@@ -573,6 +584,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         mapNode.isHidden = hidden
         tallGrassLayer?.setHidden(hidden)
         pondLayer?.setHidden(hidden)
+        treeLayer?.setHidden(hidden)
         iceLayer?.setConcealed(hidden)
         footprintLayer.root.isHidden = hidden
         if hidden { footprintLayer.removeAll() }
@@ -1400,7 +1412,7 @@ struct PlazaSceneMember: Equatable, Sendable {
                                items: itemPhotoParticles,
                                ice: iceLayer?.photoParticles() ?? [],
                                bands: tallGrassLayer?.photoBands(in: rect) ?? [],
-                               props: campfirePhotoProps, light: campfirePhotoLight(tint: tint),
+                               props: campfirePhotoProps + (treeLayer?.photoProps() ?? []), light: campfirePhotoLight(tint: tint),
                                fireworks: fireworkLayer.photoParticles(worldHeight: worldSize.height),
                                fireworkLight: fireworkLayer.photoLight(tint: tint, worldHeight: worldSize.height))
     }
@@ -2082,6 +2094,14 @@ struct PlazaSceneMember: Equatable, Sendable {
         return PlazaResources.steamFrames.compactMap { sheet.cropping(to: $0) }
     }()
 
+    /// 계절마다 큰 나무 그림. 번들 풀숲 시트에서 한 번 만든다(프로세스당). 시트가 없거나 크기가 다르면 비어 있어 나무 층을 만들지 않는다.
+    private static let treeImages: [PlazaSeason: PlazaImage] = {
+        guard let sheet = PlatformPlaza.tallGrassSheet() else { return [:] }
+        var out: [PlazaSeason: PlazaImage] = [:]
+        for season in PlazaSeason.allCases { out[season] = PlazaTree.image(sheet, season: season) }
+        return out
+    }()
+
     /// 그 계절의 지도와 풀숲 그림. 컨트롤러가 넣고, 원본 그대로인 계절(여름)이거나 그림을 못 만들면 nil이라 원본을 쓴다.
     var seasonLook: (PlazaSeason) -> PlazaSnowLook? = { _ in nil }
     /// 보이는 계절이 바뀌었다.
@@ -2121,6 +2141,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         iceLayer?.setMapImage(image)
         if let grass { tallGrassLayer?.setArt(grass) }
         shownSeason = s
+        treeLayer?.setSeason(s)
         snowballLayer.setArt(PlazaSnowballArt.art(s, ball: PlazaScene.ballImages[s]))
         if s != .winter { footprintLayer.removeAll() }
         refreshIce(hit: nil)
@@ -2132,6 +2153,9 @@ struct PlazaSceneMember: Equatable, Sendable {
     var weatherParticleCount: Int { weatherLayer.particleCount }
     var weatherParticlePositions: [CGPoint] { weatherLayer.particlePositions }
     var isSteamShown: Bool { steamLayer?.isShown ?? false }
+    var isTreeShown: Bool { treeLayer?.isShown ?? false }
+    var treeZ: CGFloat? { treeLayer?.root.zPosition }
+    var treeNodeCount: Int { treeLayer?.nodeCount ?? 0 }
     var steamNodeCount: Int { steamLayer?.nodeCount ?? 0 }
     var steamWisps: [PlazaSteamWisp] { steamLayer?.wisps ?? [] }
     var steamSpriteStates: [PlazaSteamLayer.SpriteState] { steamLayer?.spriteStates ?? [] }
