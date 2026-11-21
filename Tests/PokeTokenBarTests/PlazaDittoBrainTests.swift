@@ -67,6 +67,21 @@ final class PlazaDittoBrainTests: XCTestCase {
         XCTAssertEqual(fresh.state.since, t0)
     }
 
+    func testTheDittoWalksAroundTheBigTree() {
+        let w = world()
+        let trunk = PlazaTree.tiles(in: map)
+        XCTAssertFalse(trunk.isEmpty)
+        for seed in UInt64(1)...6 {
+            var brain = PlazaDittoBrain(resuming: dittoState(at: TilePoint(x: 15, y: 10)), world: w, now: t0, seed: seed)
+            var now = t0
+            while now.timeIntervalSince(t0) < 600 {
+                now = now.addingTimeInterval(dt)
+                _ = brain.tick(now: now, world: w)
+                XCTAssertFalse(trunk.contains(brain.state.tile), "seed \(seed): \(brain.state.tile)")
+            }
+        }
+    }
+
     func testItResumesAGivenState() {
         let p = openTile()
         let since = t0.addingTimeInterval(-100)

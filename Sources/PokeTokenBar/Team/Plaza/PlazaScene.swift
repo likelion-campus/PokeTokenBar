@@ -174,6 +174,14 @@ struct PlazaSceneMember: Equatable, Sendable {
     let weatherLayer = PlazaWeatherLayer()
     /// 온천 위의 김. 연못 그림을 쓰는 장면(`pondVisuals`)에 온천 칸과 김 그림이 있을 때만 있다. 만든 뒤 노드가 늘지 않는다.
     private(set) var steamLayer: PlazaSteamLayer?
+    /// 큰 나무의 'B' 칸. 나무 없는 지도는 비어 있다.
+    let treeTiles: Set<TilePoint>
+    private(set) var treeLayer: PlazaTreeLayer?
+    /// 떨어지는 아이템이 땅에 닿을 때 반짝일 쪽(안쪽 nil = 나, 바깥 nil = 떨어지는 것 없음).
+    private var treeDropFor: String??
+    private var treeKick: (direction: PlazaDirection, elapsed: TimeInterval)?
+    /// 내 3단계 때림의 카메라 흔들림(장면 좌표, y 위로). 보이는 영역(`visibleRect`)은 따라 움직이지 않는다.
+    private(set) var cameraKickOffset = CGPoint.zero
     /// 불꽃. 빛이라 낮밤 곱하기(5)와 모닥불빛(6) 위, 이름표(10) 아래.
     let fireworkLayer = PlazaFireworkLayer()
     /// 지금 지도에서 아이템이 놓일 수 있는 칸. 지도가 바뀌지 않으니 한 번만 센다.
@@ -459,6 +467,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         self.zoom = PlazaCamera.clampedZoom(zoom)
         self.mapNode = PlazaSprite(texture: PlazaTexture(mapImage), size: map.pixelSize)
         self.campfireNode = Self.makeCampfireNode(map: map)
+        self.treeTiles = PlazaTree.tiles(in: map)
         self.stage = stage
         self.tweens = PlazaTweens(root: stage.root)
         stage.delegate = self
@@ -485,6 +494,13 @@ struct PlazaSceneMember: Equatable, Sendable {
             let layer = PlazaSteamLayer(springTiles: springTiles, worldHeight: map.pixelSize.height, frames: Self.steamFrames)
             root.addChild(layer.root)
             steamLayer = layer
+        }
+        if pondVisuals, !treeTiles.isEmpty, Self.treeImages.count == PlazaSeason.allCases.count {
+            // 모닥불과 같은 앞뒤 식. 날씨(3) 아래, 캐릭터는 발 줄에 따라 앞뒤. 타격 효과는 따로(20).
+            let layer = PlazaTreeLayer(map: map, images: Self.treeImages, worldHeight: map.pixelSize.height)
+            root.addChild(layer.root)
+            root.addChild(layer.fxRoot)
+            treeLayer = layer
         }
         if let iceArt {
             let layer = PlazaIceLayer(ponds: icePonds, art: iceArt, mapImage: mapImage, worldHeight: map.pixelSize.height)
@@ -573,6 +589,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         mapNode.isHidden = hidden
         tallGrassLayer?.setHidden(hidden)
         pondLayer?.setHidden(hidden)
+        treeLayer?.setHidden(hidden)
         iceLayer?.setConcealed(hidden)
         footprintLayer.root.isHidden = hidden
         if hidden { footprintLayer.removeAll() }
@@ -785,8 +802,9 @@ struct PlazaSceneMember: Equatable, Sendable {
     }
 
     /// 받은 칸이 지도 밖이거나 걸을 수 없으면 쉼터 칸. 다른 버전의 지도나 잘못된 값에도 나무 위에 서지 않는다.
+    /// 구버전 팀원은 큰 나무 칸을 걸어 지나간다. 쉼터로 튀지 않고 그 칸(나무 뒤)에 그린다.
     private func resolvedTile(_ m: PlazaSceneMember) -> TilePoint {
-        if let t = m.tile, map.isWalkable(t) || map.isWater(t) { return t }
+        if let t = m.tile, map.isWalkable(t) || map.isWater(t) || map.isBigTree(t) { return t }
         return shelterWanderer(m.memberID).tile
     }
 
@@ -1400,7 +1418,7 @@ struct PlazaSceneMember: Equatable, Sendable {
                                items: itemPhotoParticles,
                                ice: iceLayer?.photoParticles() ?? [],
                                bands: tallGrassLayer?.photoBands(in: rect) ?? [],
-                               props: campfirePhotoProps, light: campfirePhotoLight(tint: tint),
+                               props: campfirePhotoProps + (treeLayer?.photoProps() ?? []), light: campfirePhotoLight(tint: tint),
                                fireworks: fireworkLayer.photoParticles(worldHeight: worldSize.height),
                                fireworkLight: fireworkLayer.photoLight(tint: tint, worldHeight: worldSize.height))
     }
@@ -1506,6 +1524,21 @@ struct PlazaSceneMember: Equatable, Sendable {
         actor(puller)?.lunge(toward: direction)
         guard !isPaused else { return }
         puffDust(under: target)
+    }
+
+    /// 큰 나무 치기: 때린 쪽(nil이면 나)이 나무 쪽으로 뛰어들어 닿는 순간 멈췄다가 물러나고, 나무가 맞은 반대쪽으로 휘며 별·잎·먼지가 터지고,
+    /// `drop` 이 있으면 잎 속에서 아이템이 때린 쪽 발밑으로 떨어져 한 번 반짝인다. 내 3단계 때림만 카메라가 한 번 흔들린다.
+    /// 멈춘 장면에서는 아무것도 하지 않는다(노드는 장면을 만들 때 다 만들어 둔 풀이라 더 만들지도 않는다).
+    func playTreeHit(by tackler: String?, direction: PlazaDirection, level: Int, drop: ItemKind?) {
+        guard !isPaused, let actor = actor(tackler) else { return }
+        let level = min(max(level, 1), PlazaTree.bend.count)
+        actor.treeLunge(toward: direction, level: level)
+        let foot = tackler.flatMap { remotes[$0]?.motion.footPoint } ?? walker.footPoint
+        // 새 아이템을 받아들였을 때만 그 반짝임의 주인을 바꾼다(떨어지는 아이템이 있으면 그것이 먼저다).
+        if treeLayer?.hit(direction: direction, level: level, tacklerFoot: foot, tacklerHeight: actor.characterSize.height, drop: drop) == true {
+            treeDropFor = .some(tackler)
+        }
+        if tackler == nil, level == PlazaTree.bend.count, PlazaTree.cameraKick != 0 { treeKick = (direction, 0) }
     }
 
     /// 맞은 쪽 몸 가운데에서 민 쪽으로 조금 나온 곳에 터졌다 사라지는 충격 그림. 멈춘 장면에서는 그리지 않는다.
@@ -1990,9 +2023,11 @@ struct PlazaSceneMember: Equatable, Sendable {
         fireworkLayer.advance(by: dt, tint: appliedTint, firelight: firelight(at:))
         applyDaylight()
         advanceCampfire(by: dt)
+        advanceTreeKick(by: dt)
         layout()
         advanceWeather(by: dt)
         advanceSteam(by: dt)
+        advanceTree(by: dt)
         refreshSnowDay()
         advanceItem()
         reportLocalPosition()
@@ -2075,11 +2110,41 @@ struct PlazaSceneMember: Equatable, Sendable {
         steamLayer?.update(dt: dt, visible: visibleRect, isHidden: isBackgroundHidden, step: PlazaPixelSnap.step(backing: backing, zoom: zoom))
     }
 
+    /// 큰 나무의 시계. 보이는 영역을 그대로 넘기고 층이 알아서 화면 밖이면 아무것도 쓰지 않는다. 아이템이 땅에 닿는 프레임에 떨어진 쪽에서 한 번 반짝인다.
+    private func advanceTree(by dt: TimeInterval) {
+        guard let layer = treeLayer else { return }
+        let backing = backingOverride ?? stage.backingScale ?? 2
+        if layer.update(dt: dt, visible: visibleRect, step: PlazaPixelSnap.step(backing: backing, zoom: zoom)), let owner = treeDropFor {
+            treeDropFor = nil
+            playSparkle(memberID: owner)
+        }
+    }
+
+    /// 내 3단계 때림의 카메라 흔들림을 흘린다. 끝나면 지운다.
+    private func advanceTreeKick(by dt: TimeInterval) {
+        guard var kick = treeKick else { return }
+        kick.elapsed += dt
+        let amount = PlazaTree.cameraKick(at: kick.elapsed, level: PlazaTree.bend.count).rounded()
+        let sign: CGFloat = (kick.direction == .right || kick.direction == .up) ? 1 : -1
+        let horizontal = kick.direction == .left || kick.direction == .right
+        cameraKickOffset = horizontal ? CGPoint(x: sign * amount, y: 0) : CGPoint(x: 0, y: sign * amount)   // 장면 좌표(y 위로)
+        treeKick = kick.elapsed >= PlazaTree.contactAt + PlazaTree.cameraKickDuration ? nil : kick
+        if treeKick == nil { cameraKickOffset = .zero }
+    }
+
     /// 김의 여섯 칸. 프로세스당 한 번 읽는다. 파일이 없으면 비어 있어 김 층을 만들지 않는다.
     static let steamFrames: [PlazaImage] = {
         guard let sheet = PlatformPlaza.graphics.assetURL(PlazaResources.steamSheetName, ext: "png").flatMap({ PlatformPlaza.graphics.decodeImage(at: $0) })
         else { return [] }
         return PlazaResources.steamFrames.compactMap { sheet.cropping(to: $0) }
+    }()
+
+    /// 계절마다 큰 나무 그림. 번들 풀숲 시트에서 한 번 만든다(프로세스당). 시트가 없거나 크기가 다르면 비어 있어 나무 층을 만들지 않는다.
+    private static let treeImages: [PlazaSeason: PlazaImage] = {
+        guard let sheet = PlatformPlaza.tallGrassSheet() else { return [:] }
+        var out: [PlazaSeason: PlazaImage] = [:]
+        for season in PlazaSeason.allCases { out[season] = PlazaTree.image(sheet, season: season) }
+        return out
     }()
 
     /// 그 계절의 지도와 풀숲 그림. 컨트롤러가 넣고, 원본 그대로인 계절(여름)이거나 그림을 못 만들면 nil이라 원본을 쓴다.
@@ -2121,6 +2186,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         iceLayer?.setMapImage(image)
         if let grass { tallGrassLayer?.setArt(grass) }
         shownSeason = s
+        treeLayer?.setSeason(s)
         snowballLayer.setArt(PlazaSnowballArt.art(s, ball: PlazaScene.ballImages[s]))
         if s != .winter { footprintLayer.removeAll() }
         refreshIce(hit: nil)
@@ -2132,6 +2198,14 @@ struct PlazaSceneMember: Equatable, Sendable {
     var weatherParticleCount: Int { weatherLayer.particleCount }
     var weatherParticlePositions: [CGPoint] { weatherLayer.particlePositions }
     var isSteamShown: Bool { steamLayer?.isShown ?? false }
+    var isTreeShown: Bool { treeLayer?.isShown ?? false }
+    var treeZ: CGFloat? { treeLayer?.root.zPosition }
+    var treeNodeCount: Int { treeLayer?.nodeCount ?? 0 }
+    var isTreeBusy: Bool { treeLayer?.isBusy ?? false }
+    var treeBandOffsets: [CGFloat] { treeLayer?.bandOffsets ?? [] }
+    var treeStretch: CGFloat { treeLayer?.stretch ?? 1 }
+    var treeLeafCount: Int { treeLayer?.shownLeafCount ?? 0 }
+    var treeItemPosition: CGPoint? { treeLayer?.itemPosition }
     var steamNodeCount: Int { steamLayer?.nodeCount ?? 0 }
     var steamWisps: [PlazaSteamWisp] { steamLayer?.wisps ?? [] }
     var steamSpriteStates: [PlazaSteamLayer.SpriteState] { steamLayer?.spriteStates ?? [] }
@@ -2221,11 +2295,13 @@ struct PlazaSceneMember: Equatable, Sendable {
         }
         visibleRect = rect
         let cameraPos = CGPoint(x: rect.midX, y: worldSize.height - rect.midY)   // 원점은 visibleRect가 이미 기기 격자에 맞췄다
-        cameraNode.position = cameraPos
+        // 내 3단계 때림의 한 번 흔들림은 격자 맞춤 뒤에 더한다. 사진 틀에서는 없다(C 가 꺼져 있다).
+        let kicked = photoFrame == nil ? CGPoint(x: cameraPos.x + cameraKickOffset.x, y: cameraPos.y + cameraKickOffset.y) : cameraPos
+        cameraNode.position = kicked
         cameraNode.setScale(1 / z)
 
         let pose = PlazaPose.choice(facing: walker.facing, isWalking: walker.isWalking, clock: clock)
-        let context = PlazaActorContext(worldHeight: worldSize.height, cameraPosition: cameraPos,
+        let context = PlazaActorContext(worldHeight: worldSize.height, cameraPosition: kicked,
                                         zoom: zoom, backing: backing, viewport: size)
         let date = now()
         me.setFlush(myFlush.blend(at: date))

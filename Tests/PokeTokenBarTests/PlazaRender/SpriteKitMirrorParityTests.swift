@@ -853,7 +853,7 @@ final class SpriteKitMirrorParityTests: XCTestCase {
         let s = PlazaRenderScenes.stage()
         s.put([PlazaRenderScenes.member("ash", "Ash", 21, 10), PlazaRenderScenes.member("swim", "Swim", 9, 14)],
               looks: ["ash": .ash, "swim": .misty])
-        s.scene.applyDitto(PlazaDittoShown(tile: TilePoint(x: 17, y: 10), facing: .down, isWalking: false, isRunning: false,
+        s.scene.applyDitto(PlazaDittoShown(tile: TilePoint(x: 17, y: 11), facing: .down, isWalking: false, isRunning: false,
                                            name: "Ditto", nameColor: PlazaNameColor.palette[1], title: nil, isDecoy: false))
         s.scene.setMemberFrames(PlazaDitto.sceneKey, PlazaRenderScenes.frames(.ditto))
         s.scene.showChat(memberID: "swim", text: "bye")

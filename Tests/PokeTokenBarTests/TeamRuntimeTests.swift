@@ -271,6 +271,27 @@ final class TeamRuntimeTests: XCTestCase {
         plaza.handleClose()
     }
 
+    /// A received tree shake goes to the tree (drawn only where the sender touches it), never to a bubble over the sender.
+    func testATreeShakeGoesToTheTreeNotABubble() async {
+        let (a, b) = connectedPair()
+        let suite = "ptb.test.team.runtime.tree.\(UUID().uuidString)"
+        let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: TestDefaults.make(suite: suite)),
+                                          loader: PlazaCharacterLoader(fetcher: NoSprites()),
+                                          nickname: { "나" }, memberID: { b.settings.memberID },
+                                          subject: { .init(speciesID: 25, isShiny: false) }, session: b.runtime.session)
+        b.runtime.plaza = plaza
+        plaza.prepareScene()
+        let sender = a.settings.memberID
+        await settle { plaza.scene?.memberTiles[sender] != nil }
+        a.runtime.session.sendEmote(.dance, target: nil, danceStyle: "sway")
+        await settle { plaza.scene?.isDancing(memberID: sender) == true }
+        a.runtime.session.sendEmote(.treeShake, target: nil, pushTiles: 2)
+        await settle { plaza.scene?.isDancing(memberID: sender) == false }
+        XCTAssertNil(plaza.scene?.shownEmote(memberID: sender), "no bubble over the sender")
+        XCTAssertEqual(plaza.scene?.isTreeBusy, false, "the sender does not touch the tree on my screen: nothing is drawn")
+        plaza.handleClose()
+    }
+
     /// A teammate who does something else stops dancing on my screen; the shared moments and the Ditto copy's jump do not.
     func testARemotesActionEmoteOrChatStopsItsDance() async {
         let (a, b) = connectedPair()

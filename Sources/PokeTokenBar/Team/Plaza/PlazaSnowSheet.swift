@@ -47,18 +47,39 @@ enum PlazaSnowSheet {
             for c in piece.cells {
                 for y in max(0, c.row * cell)..<min(h, (c.row + 1) * cell) {
                     for x in max(0, c.col * cell)..<min(w, (c.col + 1) * cell) {
-                        let i = (y * w + x) * 4
-                        guard source[i + 3] == 255 else { continue }
-                        let key = (UInt32(source[i]) << 16) | (UInt32(source[i + 1]) << 8) | UInt32(source[i + 2])
-                        guard let to = piece.colors[key] else { continue }
-                        data[i] = UInt8(to >> 16 & 0xFF)
-                        data[i + 1] = UInt8(to >> 8 & 0xFF)
-                        data[i + 2] = UInt8(to & 0xFF)
+                        swapPixel(&data, source: source, at: (y * w + x) * 4, colors: piece.colors)
                     }
                 }
             }
         }
-        var bitmap = PlazaBitmap(width: w, height: h)
+        return made(data, width: w, height: h)
+    }
+
+    /// 위와 같은 정확한 색 바꿈을 16칸 대신 이미지의 픽셀 줄 띠에 한다. 이미지 밖의 줄은 잘라 낸다.
+    static func recolored(_ image: PlazaImage, rows pieces: [(colors: Colors, rows: Range<Int>)]) -> PlazaImage {
+        let (w, h) = (image.width, image.height)
+        var data = image.pixels.bytes
+        let source = data
+        for piece in pieces {
+            let lo = max(0, piece.rows.lowerBound), hi = min(h, piece.rows.upperBound)
+            guard lo < hi else { continue }
+            for y in lo..<hi { for x in 0..<w { swapPixel(&data, source: source, at: (y * w + x) * 4, colors: piece.colors) } }
+        }
+        return made(data, width: w, height: h)
+    }
+
+    /// 픽셀 하나: 알파 255 이고 색이 표에 있으면 그 색으로. 모양·알파·나머지는 그대로.
+    private static func swapPixel(_ data: inout [UInt8], source: [UInt8], at i: Int, colors: Colors) {
+        guard source[i + 3] == 255 else { return }
+        let key = (UInt32(source[i]) << 16) | (UInt32(source[i + 1]) << 8) | UInt32(source[i + 2])
+        guard let to = colors[key] else { return }
+        data[i] = UInt8(to >> 16 & 0xFF)
+        data[i + 1] = UInt8(to >> 8 & 0xFF)
+        data[i + 2] = UInt8(to & 0xFF)
+    }
+
+    private static func made(_ data: [UInt8], width: Int, height: Int) -> PlazaImage {
+        var bitmap = PlazaBitmap(width: width, height: height)
         bitmap.bytes = data
         return PlazaImage(bitmap: bitmap)
     }

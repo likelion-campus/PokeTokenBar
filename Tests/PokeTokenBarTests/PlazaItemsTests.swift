@@ -265,4 +265,19 @@ final class PlazaItemsTests: XCTestCase {
         let item = try slotWhere { self.map.tile(at: $0) == .tallGrass }
         XCTAssertTrue(PlazaItems.isShown(item, openTiles: openTiles))
     }
+
+    func testItemsUnderTheBigTreeAreHidden() async throws {
+        let map = PlazaMapData.map
+        let open = PlazaItems.openTiles(in: map)
+        func spawn(_ x: Int, _ y: Int) -> PlazaItems.Spawn {
+            PlazaItems.Spawn(slot: 1, kind: .mint, tile: TilePoint(x: x, y: y), appearsAt: Date(), endsAt: Date())
+        }
+        for y in 7...10 { for x in 16...18 { XCTAssertFalse(PlazaItems.isShown(spawn(x, y), openTiles: open), "(\(x),\(y))") } }
+        for (x, y) in [(15, 9), (17, 6), (19, 8)] { XCTAssertTrue(PlazaItems.isShown(spawn(x, y), openTiles: open), "(\(x),\(y)) stays pickable") }
+    }
+
+    func testSpawnCandidatesAreUnchanged() async throws {
+        XCTAssertEqual(PlazaItems.spawnCandidates, PlazaItems.candidates(in: PlazaMapData.itemLayoutMap))
+        XCTAssertEqual(PlazaItems.spawnCandidates.count, 1062)   // pinned from the first run
+    }
 }

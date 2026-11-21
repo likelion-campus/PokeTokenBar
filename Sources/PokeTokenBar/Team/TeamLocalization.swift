@@ -167,6 +167,15 @@ extension L {
         }
     }
     func plazaPickedUp(_ kind: ItemKind) -> String { "\(plazaItemObject(kind)) 주웠어요! 가방에 넣었어요" }
+    /// 나무 세 번째 때림에서 떨어진 아이템을 가방에 넣었다(받은 것이라 주울 것이 남지 않으니 "주웠어요" 대신).
+    func plazaTreeDropped(_ kind: ItemKind) -> String {
+        let subject = switch kind {
+        case .rareCandy: "이상한 사탕이"
+        case .mint: "민트가"
+        case .shinyCharm: "이로치 부적이"
+        }
+        return "나무에서 \(subject) 떨어졌어요! 가방에 넣었어요"
+    }
     func plazaMemberPickedUp(nickname: String, kind: ItemKind) -> String { "\(nickname)님이 \(plazaItemObject(kind)) 주웠어요" }
     /// 이름을 아직 모르는 팀원.
     var plazaGroupPhotoSomeone: String { "팀원" }
@@ -289,6 +298,7 @@ extension L {
         case .dance: "춤"
         case .pray: "기도"
         case .drag: "끌어당기기"
+        case .treeShake: "나무 흔들기"
         }
     }
     /// `others`는 첫 사람을 뺀 서로 다른 닉네임 수. 0이면 한 사람이다.
