@@ -51,6 +51,9 @@ struct TeamPresence: Codable, Equatable, Sendable {
     @LossyOptional var campfire: PlazaCampfireSwitch?
     /// What the sender did in the plaza today (their `day`). Left out by earlier versions, which a reader shows as no record.
     @LossyOptional var activity: PlazaActivity?
+    /// The plaza size class (1...3) of the picture the sender shows. Left out at 1; a receiver keeps it within 1...3;
+    /// unreadable values become nil; earlier versions ignore it.
+    @LossyOptional var bodySize: Int?
 }
 
 /// 읽을 수 없는 값(나중 버전의 모양, 잘못된 값)을 nil 로 읽는 선택값. 이 필드만 너그럽고 나머지 필드는 합성 Codable 그대로라,

@@ -116,6 +116,37 @@ final class TeamHostilePeerTests: XCTestCase {
 
     // MARK: - Sizes
 
+    /// A modified app can send any size. It is kept within 1...3 and the rest of the frame applies.
+    func testAbsurdBodySizesAreKeptInRangeAndTheFrameLives() async throws {
+        let peer = join("hostile")
+        var got: [Int?] = []
+        for bad in ["0", "-1", "4", "999", #""3""#, "true"] {
+            let json = #"{"presence":{"_0":{"nickname":"x","character":{"speciesID":25,"isShiny":false,"speciesName":"P"},"inPlaza":true,"tile":{"x":7,"y":8},"facing":"left","isWalking":true,"bodySize":\#(bad)}}}"#
+            say(try JSONDecoder().decode(TeamMessage.self, from: Data(json.utf8)), from: peer)
+            got.append(session.members["hostile"]?.bodySize)
+            XCTAssertEqual(session.members["hostile"]?.tile, TilePoint(x: 7, y: 8), bad)
+        }
+        XCTAssertEqual(got, [1, 1, 3, 3, 1, 1])
+    }
+
+    /// A claimed class 3 reaches at most two tiles farther than an honest class 1 would.
+    func testAClaimedClassThreeReachesAtMostTwoTilesFarther() async {
+        let peer = join("hostile")
+        var p = TeamPresence(nickname: "x", character: Self.mon, inPlaza: true, tile: TilePoint(x: 7, y: 8), facing: .left, isWalking: true)
+        p.bodySize = 999
+        say(.presence(p), from: peer)
+        let c = session.members["hostile"]!.bodySize
+        XCTAssertEqual(c, 3)
+        func touches(_ x: Int, _ y: Int) -> Bool {
+            PlazaBody(foot: TilePoint(x: x, y: y), size: c).touches(PlazaBody(foot: TilePoint(x: 5, y: 5), size: 1))
+        }
+        XCTAssertTrue(touches(5, 8))
+        XCTAssertFalse(touches(5, 9))
+        XCTAssertTrue(touches(7, 5))
+        XCTAssertFalse(touches(8, 5))
+        XCTAssertFalse(touches(5, 3))
+    }
+
     func testAMemberIDTooLongToBeRealIsRefused() async {
         _ = join(String(repeating: "x", count: TeamWire.maxFieldBytes + 1))
         XCTAssertTrue(session.members.isEmpty)

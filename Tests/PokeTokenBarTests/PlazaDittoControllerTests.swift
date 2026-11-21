@@ -454,6 +454,29 @@ final class PlazaDittoControllerTests: XCTestCase {
         XCTAssertEqual(c.appliedMemberSpecies(key).last, 4, "a species change starts a load under the Ditto key")
     }
 
+    func testTheCopyHasTheCopiedMembersSize() async {
+        let (c, a, m) = await copyScene()
+        let scene = c.scene!
+        m.session.updateBodySize(3)
+        await settle()
+        c.advanceDitto(now: Date())
+        XCTAssertEqual(scene.body(of: key)?.size, 3)
+        m.session.updateBodySize(1)
+        await settle()
+        c.advanceDitto(now: Date())
+        XCTAssertEqual(scene.body(of: key)?.size, 1)
+        m.session.updateBodySize(3)
+        await settle()
+        c.advanceDitto(now: Date())
+        XCTAssertEqual(scene.body(of: key)?.size, 3, "test precondition")
+        let now = Date().addingTimeInterval(1)
+        host(a, dittoForm(ground(5, 3), now: now))
+        await settle()
+        c.advanceDitto(now: now)
+        XCTAssertNil(c.shownDitto?.decoyOf, "test precondition: back in the Ditto form")
+        XCTAssertEqual(scene.body(of: key)?.size, 1)
+    }
+
     func testDittoFormHasNoMinimapDot() async {
         let pair = sorted(2)
         let (a, me) = (pair[0], pair[1])

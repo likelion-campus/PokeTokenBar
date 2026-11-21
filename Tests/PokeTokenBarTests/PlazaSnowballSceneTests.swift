@@ -121,6 +121,51 @@ final class PlazaSnowballSceneTests: XCTestCase {
         XCTAssertEqual(s.impactsShown, 0)
     }
 
+    func testAStarShowsWhenTheBallReachesABigBodyAboveItsFoot() async {
+        func star(_ size: Int) -> Int {
+            let s = scene()
+            addAll(s, [member("a", p(10, 12)), { var g = member("g", p(16, 13)); g.bodySize = size; return g }()])
+            s.update(0)
+            s.playSnowball(by: "a", shot: PlazaSnowballShot(from: p(10, 12), direction: .right, end: .actor(id: "g", tile: p(15, 12)))) {}
+            run(s, 0.9)
+            return s.impactsShown
+        }
+        XCTAssertEqual(star(3), 1)
+        XCTAssertEqual(star(1), 0)
+        let s = scene(start: p(16, 13))
+        addAll(s, [member("a", p(10, 12))])
+        s.myBodySize = 3
+        s.update(0)
+        s.playSnowball(by: "a", shot: PlazaSnowballShot(from: p(10, 12), direction: .right, end: .actor(id: nil, tile: p(15, 12)))) {}
+        run(s, 0.9)
+        XCTAssertEqual(s.impactsShown, 1)
+    }
+
+    /// `update` asks for the interaction target every frame. With nothing moved it must not search again; any change of
+    /// my tile, facing or size, or of a member's tile or size, searches once.
+    func testTheInteractionTargetIsNotSearchedAgainWhileNothingChanges() async {
+        let s = scene()
+        addAll(s, [member("a", p(10, 12)), member("b", p(15, 12))])
+        s.update(0)
+        run(s, 1)
+        let settled = s.interactionEvaluations
+        run(s, 2, from: 1)
+        XCTAssertEqual(s.interactionEvaluations, settled, "two idle seconds (120 frames) search nothing")
+        s.myBodySize = 3
+        XCTAssertGreaterThan(s.interactionEvaluations, settled, "a new size searches")
+        let afterSize = s.interactionEvaluations
+        s.face(.up)
+        XCTAssertGreaterThan(s.interactionEvaluations, afterSize, "a new facing searches")
+        let afterFace = s.interactionEvaluations
+        var moved = member("a", p(11, 12)); moved.bodySize = 2
+        s.applyMembers([moved, member("b", p(15, 12))])
+        XCTAssertGreaterThan(s.interactionEvaluations, afterFace, "a member's new tile and size search")
+        let end = run(s, 2, from: 3)   // the member's step to its new tile finishes, searching as the tile changes
+        let afterMove = s.interactionEvaluations
+        run(s, 2, from: end)
+        XCTAssertEqual(s.interactionEvaluations, afterMove, "and then it is idle again")
+    }
+
     func testPausingMidFlightLandsEveryBallAtOnce() async {
         let s = scene()
         addAll(s, [member("a", p(10, 12))])

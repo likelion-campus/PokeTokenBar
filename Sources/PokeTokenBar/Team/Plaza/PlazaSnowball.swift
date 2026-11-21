@@ -36,15 +36,15 @@ enum PlazaSnowball {
         !map.isWalkable(t) && !map.isWater(t)
     }
 
-    /// 앞쪽 1...range칸. 막는 칸 앞에서 멈춘다. 대상이 있는 첫 칸이 맞는 곳(같은 칸이면 작은 ID)이고,
-    /// 없으면 마지막 열린 칸이 땅 끝이다. 바로 앞 칸이 막혀 있으면 nil.
-    static func aim(from: TilePoint, facing: PlazaDirection, targets: [String: TilePoint], map: PlazaMap) -> PlazaSnowballShot? {
+    /// 앞쪽 1...range칸. 막는 칸 앞에서 멈춘다. 몸이 덮은 첫 칸이 맞는 곳(그 칸을 덮는 몸이 여럿이면 발이 가장 가까운 쪽, 같으면 작은 ID)이고,
+    /// 없으면 마지막 열린 칸이 땅 끝이다. 바로 앞 칸이 막혀 있으면 nil. 던지는 쪽의 등급은 상관없다.
+    static func aim(from: TilePoint, facing: PlazaDirection, bodies: [String: PlazaBody], map: PlazaMap) -> PlazaSnowballShot? {
         var tile = from
         var last: TilePoint?
         for _ in 1...range {
             tile = PlazaWalker.offset(tile, facing)
             if blocksBall(tile, in: map) { break }
-            if let id = targets.filter({ $0.value == tile }).keys.min() {
+            if let id = PlazaTargeting.covering(tile, members: bodies) {
                 return PlazaSnowballShot(from: from, direction: facing, end: .actor(id: id, tile: tile))
             }
             last = tile
@@ -53,17 +53,15 @@ enum PlazaSnowball {
         return PlazaSnowballShot(from: from, direction: facing, end: .ground(last))
     }
 
-    /// 받는 쪽 확인: 같은 행이나 열, 대상이 던진 쪽 `direction`에 있고, 거리 1...reach.
-    static func hits(thrower: TilePoint, target: TilePoint, direction: PlazaDirection) -> Bool {
-        let dx = target.x - thrower.x, dy = target.y - thrower.y
-        let along: Int, across: Int
-        switch direction {
-        case .right: (along, across) = (dx, dy)
-        case .left: (along, across) = (-dx, dy)
-        case .down: (along, across) = (dy, dx)
-        case .up: (along, across) = (-dy, dx)
+    /// 받는 쪽 확인: 던진 쪽 `direction`으로 1...reach칸 안에서 `target`의 몸이 덮은 첫 칸. 던진 쪽 `aim`이 끝낸 칸과 같다.
+    /// 가로 던지기는 던진 쪽 줄이 몸의 발 위 `h`줄 안이어야 하고, 세로 던지기는 몸의 옆 `w`칸 안이어야 한다.
+    static func hitTile(thrower: TilePoint, target: PlazaBody, direction: PlazaDirection) -> TilePoint? {
+        var tile = thrower
+        for _ in 1...reach {
+            tile = PlazaWalker.offset(tile, direction)
+            if target.covers(tile) { return tile }
         }
-        return across == 0 && (1...reach).contains(along)
+        return nil
     }
 
     /// handHeight + (endHeight - handHeight)·u + 4·peak·u·(1 - u).

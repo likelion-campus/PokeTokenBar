@@ -11,16 +11,20 @@ struct PlazaInteractionHit: Equatable {
 
 /// 스페이스로 말을 걸 대상을 찾는 규칙. SpriteKit과 무관한 순수 함수다.
 enum PlazaInteraction {
-    /// 바로 옆이면 바라보지 않아도 말을 건다. 순서: 바라보는 소식판, 바라보는 칸의 팀원, 같은 칸의 팀원,
-    /// 옆 칸의 소식판, 옆 칸의 팀원. 쉼터가 소식판을 둘러싸 자리 비움 팀원이 늘 옆을 지나므로 옆이면 판이 먼저다.
-    static func target(from: TilePoint, facing: PlazaDirection, map: PlazaMap,
-                       members: [String: TilePoint]) -> PlazaInteractionHit? {
+    /// 바로 옆이면 바라보지 않아도 말을 건다. 순서: 바라보는 소식판, 바라보는 모닥불, 바라보는 칸·내 칸을 덮는 팀원,
+    /// 옆 칸의 소식판, 옆 칸의 모닥불, 옆 칸을 덮거나 몸이 닿는 팀원. 쉼터가 소식판을 둘러싸 자리 비움 팀원이 늘 옆을 지나므로
+    /// 옆이면 판이 먼저다. 팀원에게 돌아서는 방향은 `PlazaTargeting.turn`. 몸이 전부 등급 1이면 예전 한 칸 규칙과 똑같다.
+    static func target(me: PlazaBody, facing: PlazaDirection, map: PlazaMap,
+                       members: [String: PlazaBody]) -> PlazaInteractionHit? {
+        let from = me.foot
         let ahead = PlazaTargeting.facingTile(from: from, facing: facing)
         if map.tile(at: ahead) == .board { return .init(target: .board, facing: facing) }
         if map.tile(at: ahead) == .campfire { return .init(target: .campfire, facing: facing) }
-        for tile in [ahead, from] {
-            if let id = PlazaTargeting.member(on: tile, members: members) { return .init(target: .member(id), facing: facing) }
+        func member(_ id: String) -> PlazaInteractionHit {
+            let foot = members[id]?.foot ?? from
+            return .init(target: .member(id), facing: PlazaTargeting.turn(from: from, to: foot, facing: facing))
         }
+        if let id = PlazaTargeting.memberAhead(me: me, facing: facing, members: members) { return member(id) }
         let sides = PlazaTargeting.otherSides(facing)
         if let d = sides.first(where: { map.tile(at: PlazaWalker.offset(from, $0)) == .board }) {
             return .init(target: .board, facing: d)
@@ -28,11 +32,7 @@ enum PlazaInteraction {
         if let d = sides.first(where: { map.tile(at: PlazaWalker.offset(from, $0)) == .campfire }) {
             return .init(target: .campfire, facing: d)
         }
-        for d in sides {
-            if let id = PlazaTargeting.member(on: PlazaWalker.offset(from, d), members: members) {
-                return .init(target: .member(id), facing: d)
-            }
-        }
+        if let id = PlazaTargeting.memberAround(me: me, facing: facing, members: members) { return member(id) }
         return nil
     }
 }

@@ -798,6 +798,30 @@ final class PlazaMimicControllerTests: XCTestCase {
         XCTAssertEqual(w.scene.walker.tile, start)
     }
 
+    /// A big Ditto teammate's body reaches a disguised me from two tiles beside: its body spans x 7-9 at row(8).
+    func testABigDittosTackleFindsMeFromTwoTilesBeside() async {
+        let (w, _, _, _) = await disguisedWorld()
+        let a = await join(w, "에이", Self.ditto, at: row(8))
+        a.session.updateBodySize(3)
+        await waitUntil { w.c.scene?.body(of: a.id)?.size == 3 }
+        let log = emotes(from: a)
+        w.c.showMimicTackle(from: a.id, on: w.me.id)
+        run(w, 1)
+        XCTAssertNil(w.c.mimicking)
+        await waitUntil { !self.founds(log).isEmpty }
+        XCTAssertEqual(founds(log).first?.targetMemberID, a.id)
+
+        let (w2, _, _, _) = await disguisedWorld()
+        let far = await join(w2, "비", Self.ditto, at: row(7))
+        far.session.updateBodySize(3)
+        await waitUntil { w2.c.scene?.body(of: far.id)?.size == 3 }
+        let log2 = emotes(from: far)
+        w2.c.showMimicTackle(from: far.id, on: w2.me.id)
+        run(w2, 1)
+        XCTAssertNotNil(w2.c.mimicking)
+        XCTAssertTrue(founds(log2).isEmpty)
+    }
+
     func testADittoOnMyOwnTileStillFindsMe() async {
         let (w, _, _, _) = await disguisedWorld()
         let a = await join(w, "에이", Self.ditto, at: w.scene.walker.tile)

@@ -71,12 +71,15 @@ import Observation
     /// `shownDitto`에 입힌 이름·색·칭호·그림. 둘 다 그대로면 0.05초 틱마다 장면과 지도를 다시 건드리지 않는다.
     private var shownDittoLook: DittoLook?
     private let dittoSeed: () -> UInt64
+    /// 마지막으로 잰 내 몸 크기 등급. 광장이 닫힌 동안에는 그대로 두고, 새 장면에 심고 열 때 다시 잰다.
+    private(set) var myBodySize = 1
 
     private struct DittoLook: Equatable {
         var name: String
         var color: PlazaColor
         var title: String?
         var subject: CompanionStore.RepresentativeSubject
+        var bodySize: Int
     }
     /// 지금 모닥불에 앉아 집중 중인 나. 앉으면 저장하고, 끝나거나 일어서면 지운다.
     private(set) var focus: PlazaFocus?
@@ -376,6 +379,7 @@ import Observation
         nameColorModel.isOpen = false
         s.canWalk = subject().speciesID != nil
         s.myEvolutionStage = evolutionStage()
+        s.myBodySize = myBodySize   // 닫힌 동안 바뀐 크기는 열 때 다시 잰다
         s.onDivingChange = { [weak self] in self?.session?.updateDiving($0); self?.refreshHint() }
         s.onZoomChange = { [weak self, preferences] in
             preferences.zoom = $0
@@ -461,7 +465,7 @@ import Observation
         scene.stopDance(memberID: nil)
         scene.showEmote(memberID: nil, kind: kind)
         var target = kind.notifiesTarget
-            ? PlazaTargeting.member(from: scene.walker.tile, facing: scene.walker.facing, members: targetTiles) : nil
+            ? PlazaTargeting.member(me: scene.myBody, facing: scene.walker.facing, members: scene.bodies(targetTiles)) : nil
         if target == PlazaDitto.sceneKey { target = nil }   // 복사본에게 보낸 마음은 진짜 팀원에게 가지 않는다
         session?.sendEmote(kind, target: target)
     }
@@ -639,9 +643,9 @@ import Observation
         guard let scene else { return nil }
         let me = scene.walker.tile
         let tiles = tiles ?? targetTiles
-        guard let id = PlazaTargeting.member(from: me, facing: scene.walker.facing, members: tiles),
+        guard let id = PlazaTargeting.member(me: scene.myBody, facing: scene.walker.facing, members: scene.bodies(tiles)),
               let tile = tiles[id] else { return nil }
-        if PlazaPathfinder.isAdjacent(me, tile) { scene.face(PlazaPathfinder.direction(from: me, to: tile)) }
+        scene.face(PlazaTargeting.turn(from: me, to: tile, facing: scene.walker.facing))
         return id
     }
 
@@ -937,8 +941,8 @@ import Observation
     /// 팀원이면 인사하기와 포켓몬 보기 메뉴를 띄운다.
     private func handleInteractKey() {
         guard let scene else { return }
-        guard let hit = PlazaInteraction.target(from: scene.walker.tile, facing: scene.walker.facing, map: map,
-                                                members: scene.interactionTiles) else {
+        guard let hit = PlazaInteraction.target(me: scene.myBody, facing: scene.walker.facing, map: map,
+                                                members: scene.bodies(scene.interactionTiles)) else {
             // 자리는 불에서 떨어져 있어 말을 걸 대상이 없다. 앉은 채로는 불을 켜고 끄는 줄만 있는 모닥불 메뉴를 연다.
             if isFocusing {
                 openOverlay(.campfireMenu(PlazaCampfireMenu(isJoin: true, minutes: [], selection: 0, isLit: isCampfireLit, isSeated: true)))
@@ -1079,7 +1083,9 @@ import Observation
         lastEmoteAt = now
         scene.stopDance(memberID: nil)
         let me = scene.walker.tile
-        let direction = PlazaPathfinder.isAdjacent(me, target) ? PlazaPathfinder.direction(from: me, to: target) : scene.walker.facing
+        let facing = scene.walker.facing
+        let touching = scene.myBody.touches(scene.body(of: id) ?? PlazaBody(foot: target, size: 1))
+        let direction = touching ? PlazaTargeting.turn(from: me, to: target, facing: facing) : facing
         scene.playTackle(by: nil, on: id, direction: direction)
         record(.tackle)
         if let copied {
@@ -1116,13 +1122,16 @@ import Observation
         let isMe = target == memberID()
         let isDitto = target == PlazaDitto.sceneKey
         if isDitto, shownDitto?.isDecoy != false { return }
-        guard let to = isMe ? scene.walker.tile : isDitto ? scene.dittoTile : scene.memberTiles[target] else { return }
-        let direction = PlazaPathfinder.isAdjacent(from, to) ? PlazaPathfinder.direction(from: from, to: to)
-            : members[sender]?.facing ?? .down
+        guard let to = isMe ? scene.walker.tile : isDitto ? scene.dittoTile : scene.memberTiles[target],
+              let targetBody = scene.body(of: isMe ? nil : target) else { return }
+        // 몸이 닿으면 민 쪽에서 맞는 쪽으로, 아니면 민 쪽이 바라보던 쪽으로. 등급 1이면 예전 옆 칸 규칙과 같다.
+        let senderFacing = members[sender]?.facing ?? .down
+        let touching = PlazaBody(foot: from, size: scene.body(of: sender)?.size ?? 1).touches(targetBody)
+        let direction = touching ? PlazaTargeting.turn(from: from, to: to, facing: senderFacing) : senderFacing
         scene.playTackle(by: sender, on: isMe ? nil : target, direction: direction)
         if isDitto { return dittoFormTackled(by: sender) }
         // 집중 중이거나 모닥불 메뉴를 연 내 Mac은 밀지 않는다(옛 버전이 보낸 몸통박치기도 같다). 충격 그림만 보인다.
-        guard isMe, PlazaPathfinder.isAdjacent(from, to) || from == to else { return }
+        guard isMe, touching else { return }
         // A disguised me is found instead of pushed.
         if myMimic != nil { return revealMe(by: sender) }
         if canBePushed { scene.pushMe(direction, tiles: tiles) }
@@ -1133,11 +1142,13 @@ import Observation
     func showMimicTackle(from sender: String, on target: String?) {
         guard let scene, let target, let from = scene.memberTiles[sender] else { return }
         let isMe = target == memberID()
-        guard let to = isMe ? scene.walker.tile : scene.memberTiles[target] else { return }
-        let direction = PlazaPathfinder.isAdjacent(from, to) ? PlazaPathfinder.direction(from: from, to: to)
-            : members[sender]?.facing ?? .down
+        guard let to = isMe ? scene.walker.tile : scene.memberTiles[target],
+              let targetBody = scene.body(of: isMe ? nil : target) else { return }
+        let senderFacing = members[sender]?.facing ?? .down
+        let touching = PlazaBody(foot: from, size: scene.body(of: sender)?.size ?? 1).touches(targetBody)
+        let direction = touching ? PlazaTargeting.turn(from: from, to: to, facing: senderFacing) : senderFacing
         scene.playTackle(by: sender, on: isMe ? nil : target, direction: direction)
-        if isMe, myMimic != nil, PlazaPathfinder.isAdjacent(from, to) || from == to { revealMe(by: sender) }
+        if isMe, myMimic != nil, touching { revealMe(by: sender) }
     }
 
     /// 런타임이 부른다. 변장한 팀원이 들켰다. 변장 중이라고 그리고 있는 팀원의 소식만 믿는다.
@@ -1166,7 +1177,7 @@ import Observation
     private func handleSnowballKey() {
         guard let scene, !isFocusing, scene.canWalk, !scene.isMeInWater else { return }
         let facing = scene.walker.facing
-        guard let shot = PlazaSnowball.aim(from: scene.walker.tile, facing: facing, targets: scene.snowballTargets, map: map) else { return }
+        guard let shot = PlazaSnowball.aim(from: scene.walker.tile, facing: facing, bodies: scene.bodies(scene.snowballTargets), map: map) else { return }
         let now = clock()
         if let last = lastEmoteAt, now.timeIntervalSince(last) < Self.emoteInterval { return }
         lastEmoteAt = now
@@ -1178,11 +1189,9 @@ import Observation
         scene.playSnowball(by: nil, shot: shot) { [weak self] in
             guard let self else { return }
             // 닿을 때 겨눈 칸에 그 팀원(또는 메타몽)이 아직 있어야 맞힌 것이다. 비켜섰으면 빗나간 것이다.
-            if let target, (target == PlazaDitto.sceneKey ? self.scene?.dittoTile : self.scene?.memberTiles[target]) == shot.endTile {
-                self.record(.snowballHit)
-            }
+            if let target, self.scene?.body(of: target)?.covers(shot.endTile) == true { self.record(.snowballHit) }
             // 복사본이 닿기 전에 비켜섰으면 빗나간 것이다.
-            guard target == PlazaDitto.sceneKey, self.scene?.dittoTile == shot.endTile else { return }
+            guard target == PlazaDitto.sceneKey, self.scene?.body(of: PlazaDitto.sceneKey)?.covers(shot.endTile) == true else { return }
             if let copied {
                 // 복사본은 닿는 순간 정체를 드러낸다. 몸통박치기와 같이 따라 한 팀원을 알려 모두가 같은 복사본을 찾았다고 안다.
                 guard self.shownDitto?.decoyOf == copied else { return }
@@ -1201,34 +1210,36 @@ import Observation
         guard let scene, let direction, let from = scene.memberTiles[sender] else { return }
         let isMe = target == memberID()
         let isDitto = target == PlazaDitto.sceneKey
-        let resolved: (id: String?, tile: TilePoint)?
+        let resolved: (id: String?, body: PlazaBody)?
         if isMe {
-            resolved = scene.isDiving ? nil : (nil, scene.walker.tile)
+            resolved = scene.isDiving ? nil : (nil, scene.myBody)
         } else if isDitto {
-            resolved = scene.dittoTile.map { (PlazaDitto.sceneKey, $0) }
-        } else if let target, let tile = scene.memberTiles[target], scene.memberIsDiving(target) != true {
-            resolved = (target, tile)
+            resolved = scene.body(of: PlazaDitto.sceneKey).map { (PlazaDitto.sceneKey, $0) }
+        } else if let target, let body = scene.body(of: target), scene.memberIsDiving(target) != true {
+            resolved = (target, body)
         } else {
             resolved = nil
         }
+        // 몸에 맞으면 던진 쪽 `aim`이 끝낸 칸에서 끝난다. 아니면 예전처럼 그 팀원의 발 칸까지 날아가 빗나간다.
+        let entry = resolved.flatMap { PlazaSnowball.hitTile(thrower: from, target: $0.body, direction: direction) }
         let shot: PlazaSnowballShot
         if let resolved {
-            shot = PlazaSnowballShot(from: from, direction: direction, end: .actor(id: resolved.id, tile: resolved.tile))
-        } else if let miss = PlazaSnowball.aim(from: from, facing: direction, targets: [:], map: map) {
+            shot = PlazaSnowballShot(from: from, direction: direction, end: .actor(id: resolved.id, tile: entry ?? resolved.body.foot))
+        } else if let miss = PlazaSnowball.aim(from: from, facing: direction, bodies: [:], map: map) {
             shot = miss
         } else {
             return
         }
-        let hit = resolved.map { PlazaSnowball.hits(thrower: from, target: $0.tile, direction: direction) } ?? false
+        let hit = entry != nil
         let pushed = TeamEmote.pushTiles(tiles)
         scene.playSnowball(by: sender, shot: shot) { [weak self] in
             guard let self, hit else { return }
             // 닿을 때 겨눈 칸에 더는 없으면 빗나간 것이다(걸어서 피했다).
             if isMe {
-                guard self.scene?.walker.tile == shot.endTile else { return }
+                guard self.scene?.myBody.covers(shot.endTile) == true else { return }
                 if self.myMimic != nil { self.revealMe(by: sender) }
                 else if self.canBePushed { self.scene?.pushMe(direction, tiles: pushed) }
-            } else if isDitto, self.shownDitto?.isDecoy == false, self.scene?.dittoTile == shot.endTile {
+            } else if isDitto, self.shownDitto?.isDecoy == false, self.scene?.body(of: PlazaDitto.sceneKey)?.covers(shot.endTile) == true {
                 self.dittoFormTackled(by: sender)
             }
         }
@@ -1721,18 +1732,20 @@ import Observation
             if id == memberID() {
                 // 내 칸은 창을 열 때 `refreshRoster` 가 이미 캐시해 두었다. 틱마다 도감을 훑지 않는다.
                 look = DittoLook(name: nickname(), color: scene.nameColor,
-                                 title: (myEntryCache ?? nil)?.nature.map(L(.ko).plazaNatureTitle), subject: subject())
+                                 title: (myEntryCache ?? nil)?.nature.map(L(.ko).plazaNatureTitle), subject: subject(),
+                                 bodySize: myBodySize)
             } else if let m = members[id], m.inPlaza {
                 look = DittoLook(name: m.nickname, color: PlazaNameColor.color(forMemberID: id, chosen: m.nameColor),
                                  title: m.character.nature.map(L(.ko).plazaNatureTitle),
-                                 subject: .init(speciesID: m.character.speciesID, isShiny: m.character.isShiny, form: m.character.form))
+                                 subject: .init(speciesID: m.character.speciesID, isShiny: m.character.isShiny, form: m.character.form),
+                                 bodySize: m.bodySize)
             } else {
                 return
             }
         } else {
             look = DittoLook(name: L(.ko).plazaDittoName,
                              color: PlazaNameColor.color(forMemberID: PlazaDitto.sceneKey, chosen: PlazaDitto.nameHex), title: nil,
-                             subject: .init(speciesID: PlazaDitto.speciesID, isShiny: false, form: nil))
+                             subject: .init(speciesID: PlazaDitto.speciesID, isShiny: false, form: nil), bodySize: 1)
         }
         if state == shownDitto, look == shownDittoLook, change == .none { return }
         shownDitto = state
@@ -1740,7 +1753,7 @@ import Observation
         scene.applyDitto(PlazaDittoShown(tile: state.tile, facing: state.facing, isWalking: state.isWalking ?? false,
                                          isRunning: state.isRunning ?? false,
                                          isBouncing: state.isBouncing == true && !state.isDecoy, name: look.name, nameColor: look.color,
-                                         title: look.title, isDecoy: state.isDecoy))
+                                         title: look.title, isDecoy: state.isDecoy, bodySize: look.bodySize))
         if memberSubjects[PlazaDitto.sceneKey] != look.subject {
             memberSubjects[PlazaDitto.sceneKey] = look.subject
             startMemberLoad(PlazaDitto.sceneKey, subject: look.subject)
@@ -1962,7 +1975,7 @@ import Observation
                                     facing: $0.facing ?? .down, isWalking: $0.isWalking, isIdle: $0.isIdle,
                                     nameColor: look?.nameHex ?? $0.nameColor,
                                     isRunning: $0.isRunning, isDiving: $0.isDiving, evolutionStage: $0.evolutionStage,
-                                    nature: look != nil ? look?.nature : $0.character.nature)
+                                    nature: look != nil ? look?.nature : $0.character.nature, bodySize: $0.bodySize)
         })
         let shown = targets.filter { looks[$0.key] != nil }
         for (id, target) in shown where shownMimics[id] != target {
@@ -2040,6 +2053,10 @@ import Observation
         // 기다리는 동안 닫혔거나 더 새 요청이 있었으면 버린다.
         guard generation == refreshGeneration, let scene else { return }
         scene.setCharacter(frames)
+        // 내 보이는 그림이 오는 유일한 길이다. 처음·재시도·종 바뀜·변장 시작과 끝이 모두 여기를 지난다.
+        myBodySize = PlazaBodySize.size(of: frames) ?? 1
+        scene.myBodySize = myBodySize
+        session?.updateBodySize(myBodySize)
         if Self.shouldRetry(frames, attempt: attempt) {
             Task { [weak self, sleep = spriteRetrySleep] in
                 await sleep(Self.spriteRetryDelay)
