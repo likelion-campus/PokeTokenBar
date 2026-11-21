@@ -36,7 +36,14 @@ extension WindowsSelftest {
             return m
         }
         await measure(r, device: device, name: "plaza.renderCostSpring", me: TilePoint(x: 31, y: 17), sit: nil, members: springMembers)
-<<<<<<< HEAD
+        // The big tree under me, shaking: eleven teammates around it (x 13...24 on rows 12 and 7; none on a tree tile, those on row 7
+        // behind the narrow top stand behind it) and one standing at (15,10) who hits it.
+        var treeMembers: [PlazaSceneMember] = (0..<11).map { i in
+            PlazaSceneMember(memberID: "m\(i)", nickname: "Member \(i)", isAway: false,
+                             tile: TilePoint(x: 13 + i, y: i % 2 == 0 ? 12 : 7), facing: .down, isWalking: true)
+        }
+        treeMembers.append(PlazaSceneMember(memberID: "m11", nickname: "Member 11", isAway: false, tile: TilePoint(x: 15, y: 10), facing: .right, isWalking: false))
+        await measure(r, device: device, name: "plaza.renderCostTree", me: TilePoint(x: 17, y: 12), sit: nil, members: treeMembers)
         // The documentation captures: the same offscreen renderer on a summer noon, each written next to the other captures.
         let shotMembers: [PlazaSceneMember] = [
             PlazaSceneMember(memberID: "a", nickname: "Ash", isAway: false, tile: TilePoint(x: 33, y: 16), facing: .right, isWalking: false),
@@ -46,12 +53,12 @@ extension WindowsSelftest {
         await shoot(r, device: device, name: "plaza.shotSpring", file: "plaza-hot-spring.png", me: TilePoint(x: 35, y: 17), members: shotMembers) { _, _ in }
         // The big tree at the moment of my third hit of the day (the one that drops a mint), 10 frames after contact so the bend,
         // the leaves and the star show; teammates stand beside and behind it.
-        let treeMembers: [PlazaSceneMember] = [
+        let shotTreeMembers: [PlazaSceneMember] = [
             PlazaSceneMember(memberID: "a", nickname: "Ash", isAway: false, tile: TilePoint(x: 15, y: 10), facing: .right, isWalking: false),
             PlazaSceneMember(memberID: "b", nickname: "Brock", isAway: false, tile: TilePoint(x: 19, y: 10), facing: .left, isWalking: false),
             PlazaSceneMember(memberID: "c", nickname: "Misty", isAway: false, tile: TilePoint(x: 17, y: 7), facing: .down, isWalking: false),
         ]
-        await shoot(r, device: device, name: "plaza.shotTree", file: "plaza-big-tree.png", me: TilePoint(x: 17, y: 11), members: treeMembers, frames: 70) { scene, f in
+        await shoot(r, device: device, name: "plaza.shotTree", file: "plaza-big-tree.png", me: TilePoint(x: 17, y: 11), members: shotTreeMembers, frames: 70) { scene, f in
             if f == 1 { scene.face(.up) }
             if f == 60 { scene.playTreeHit(by: nil, direction: .up, level: 3, drop: .mint) }
         }
@@ -101,16 +108,6 @@ extension WindowsSelftest {
         }
         guard let rgba = surface.readRGBA() else { r.add(name, false, "no frame readback"); return }
         r.add(name, writeFrame(rgba, 1280, 960, file) == 0, "\(file) 1280x960, summer noon, a FIXTURE block per person for sprites, steam=\(scene.isSteamShown) tree=\(scene.isTreeShown)")
-=======
-        // The big tree under me, shaking: eleven teammates around it (x 13...24 on rows 12 and 7; none on a tree tile, those on row 7
-        // behind the narrow top stand behind it) and one standing at (15,10) who hits it.
-        var treeMembers: [PlazaSceneMember] = (0..<11).map { i in
-            PlazaSceneMember(memberID: "m\(i)", nickname: "Member \(i)", isAway: false,
-                             tile: TilePoint(x: 13 + i, y: i % 2 == 0 ? 12 : 7), facing: .down, isWalking: true)
-        }
-        treeMembers.append(PlazaSceneMember(memberID: "m11", nickname: "Member 11", isAway: false, tile: TilePoint(x: 15, y: 10), facing: .right, isWalking: false))
-        await measure(r, device: device, name: "plaza.renderCostTree", me: TilePoint(x: 17, y: 12), sit: nil, members: treeMembers)
->>>>>>> origin/main
     }
 
     /// One render-cost case: `me` (sitting at `sit` when given) and `members` on the winter night, 60 warm-up frames, then
