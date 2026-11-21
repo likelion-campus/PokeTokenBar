@@ -421,7 +421,8 @@ struct PlazaActorContext {
     }
 
     /// 위와 같되 `hotSpring` 이면 잠긴 아랫부분의 물빛이 온천색이다.
-    func photoActor(foot rawFoot: CGPoint, pose: PlazaSpriteChoice, waterClip: CGRect?, hotSpring: Bool) -> PlazaPhotoActor? {
+    /// `flush` 는 온천의 붉은 기운(0...`flushBlend`)이다. 몸통에만 입히고 잠긴 아랫부분에는 입히지 않는다.
+    func photoActor(foot rawFoot: CGPoint, pose: PlazaSpriteChoice, waterClip: CGRect?, hotSpring: Bool, flush: CGFloat = 0) -> PlazaPhotoActor? {
         guard let list = currentFrames, !list.isEmpty else { return nil }
         // 춤의 옆걸음은 그림자도 함께 간다(화면의 `place`와 같다).
         let dancePose = dancePose
@@ -451,8 +452,18 @@ struct PlazaActorContext {
                                    ?? emoteKind.map { PlazaEmoteArt.image($0, scale: 2, large: true) },
                                opacity: opacity, plateBaseY: plateBaseY, sink: eggSunk ? 0 : swimSink, waterClip: swimSink > 0 ? waterClip : nil, eggSunk: eggSunk,
                                lift: dancePose.lift, squash: dancePose.squash, tilt: dancePose.tilt,
-                               waterColor: hotSpring ? PlazaHotSpring.waterColor : PlazaPondArt.waterColor)
+                               waterColor: hotSpring ? PlazaHotSpring.waterColor : PlazaPondArt.waterColor, flush: flush)
     }
+
+    /// 온천의 붉은 기운. 몸통 노드에만 입히고(잠긴 아랫부분 `ghostNode` 의 물빛은 그대로) 알파와는 따로 적용된다.
+    func setFlush(_ blend: CGFloat) {
+        guard characterNode.colorBlendFactor != blend else { return }
+        characterNode.color = PlazaHotSpring.flushColor
+        characterNode.colorBlendFactor = blend
+    }
+
+    /// 테스트용: 몸통에 입힌 붉은 기운.
+    var flushBlend: CGFloat { characterNode.colorBlendFactor }
 
     // MARK: - 값 읽기
 

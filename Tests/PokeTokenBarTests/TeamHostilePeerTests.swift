@@ -397,6 +397,27 @@ final class TeamHostilePeerTests: XCTestCase {
         XCTAssertEqual(s.sparkleCount, 0)
     }
 
+    /// Toggling the flag again and again never grows the node tree: the red is a colour on a node that is already there.
+    func testAFlushFloodAddsNoNode() async {
+        for paused in [false, true] {
+            let s = scene()
+            s.isPaused = paused
+            func member(_ flushed: Bool) -> PlazaSceneMember {
+                var m = PlazaSceneMember(memberID: "A", nickname: "A", isAway: false, tile: TilePoint(x: 34, y: 17), facing: .down, isWalking: false)
+                m.isFlushed = flushed
+                return m
+            }
+            s.applyMembers([member(false)])
+            s.update(0)   // the first frame makes the member's own nodes
+            let nodes = s.children.count, steam = s.steamNodeCount, ice = s.iceLayerNodeCount
+            for i in 0..<1_000 { s.applyMembers([member(i.isMultiple(of: 2))]) }
+            s.update(0.05)
+            XCTAssertEqual(s.children.count, nodes, "paused \(paused)")
+            XCTAssertEqual(s.steamNodeCount, steam)
+            XCTAssertEqual(s.iceLayerNodeCount, ice)
+        }
+    }
+
     func testIceLandingsAddNothingWhileTheSceneIsPaused() async {
         let map = PlazaMapData.map
         let s = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: map.spawn, zoom: 2, nickname: "나",

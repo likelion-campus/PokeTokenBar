@@ -587,6 +587,7 @@ private struct NoSpritesFetcher: PlazaSpriteFetching {
         presenting.showSnowball(from: otherID, on: me, tiles: 1, direction: .left)
         presenting.showPull(from: otherID, on: me)
         presenting.showDrag(from: otherID, on: me, tiles: 1)
+        t.other.updatePlazaPosition(inPlaza: true, tile: beside, facing: .left, isWalking: false, isFlushed: true)
         presenting.showPickup(from: otherID, slot: 0)
         presenting.showGroupPhoto(from: otherID)
         presenting.applySchedule()

@@ -402,21 +402,39 @@ final class PlazaPhotoTests: XCTestCase {
         }
     }
 
-    /// The water half; Task 7 adds the flush half.
+    /// The water half and the flush half.
     func testAPhotoOfTheSpringShowsSpringWaterAndTheFlush() async throws {
         let scene = newScene()
         scene.setCharacter(frames())
         func at(_ id: String, _ x: Int, _ y: Int) -> PlazaSceneMember {
             PlazaSceneMember(memberID: id, nickname: id, isAway: false, tile: TilePoint(x: x, y: y), facing: .down, isWalking: false)
         }
-        scene.applyMembers([at("a", 34, 18), at("b", 8, 14)])
+        var flushed = at("a", 34, 18)
+        flushed.isFlushed = true
+        var offSpring = at("b", 8, 14)
+        offSpring.isFlushed = true   // a claim off the spring is not drawn
+        scene.applyMembers([flushed, offSpring])
         scene.setMemberFrames("a", frames())
         scene.setMemberFrames("b", frames())
         let actors = try XCTUnwrap(scene.photoInput()).actors   // me, then a, b in key order
         XCTAssertEqual(actors.count, 3)
+        XCTAssertEqual(actors[1].flush, PlazaHotSpring.flushBlend, accuracy: 1e-9, "a late joiner sees the red at once")
+        XCTAssertEqual(actors[2].flush, 0)
+        XCTAssertEqual(actors[0].flush, 0)
         XCTAssertEqual(actors[1].waterColor, PlazaHotSpring.waterColor)
         XCTAssertEqual(actors[2].waterColor, PlazaPondArt.waterColor)
         XCTAssertEqual(actors[0].waterColor, PlazaPondArt.waterColor, "me, on land")
+
+        // The renderer: the body is tinted, the submerged part keeps its water colour, an unflushed body is untouched.
+        var red = actor(solid(2, 2, white), foot: CGPoint(x: 4, y: 8), scale: 1)
+        red.flush = PlazaHotSpring.flushBlend
+        let px = Pixels(try XCTUnwrap(PlazaPhotoRenderer.renderBitmap(input(map: solid(8, 8, black), rect: CGRect(x: 0, y: 0, width: 8, height: 8), ppw: 1, [red]))))
+        XCTAssertEqual(Int(px[4, 7].r), 241, accuracy: 1)
+        XCTAssertEqual(Int(px[4, 7].g), 176, accuracy: 1)
+        XCTAssertEqual(Int(px[4, 7].b), 167, accuracy: 1)
+        let plain = actor(solid(2, 2, white), foot: CGPoint(x: 4, y: 8), scale: 1)
+        let px2 = Pixels(try XCTUnwrap(PlazaPhotoRenderer.renderBitmap(input(map: solid(8, 8, black), rect: CGRect(x: 0, y: 0, width: 8, height: 8), ppw: 1, [plain]))))
+        XCTAssertTrue(same(px2[4, 7], white))
     }
 
     func testPhotoInputKeepsEggsAwayMembersAndSkipsMembersStillLoading() async throws {

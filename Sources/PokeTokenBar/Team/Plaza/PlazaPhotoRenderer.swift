@@ -36,6 +36,8 @@ struct PlazaPhotoActor {
     var tilt: CGFloat = 0
     /// 잠긴 아랫부분에 섞는 물빛. 온천에서는 온천색.
     var waterColor = PlazaPondArt.waterColor
+    /// 온천의 붉은 기운(0...`flushBlend`). 0보다 크면 몸통만 `PlazaHotSpring.tinted` 로 물들이고 잠긴 아랫부분은 그대로다.
+    var flush: CGFloat = 0
 }
 
 /// 기념사진에 찍히는 풀숲 앞 띠 한 칸. 좌표는 월드 픽셀이고 y가 아래로 늘어난다.
@@ -223,7 +225,7 @@ enum PlazaPhotoRenderer {
                 context.scale(x: 1, y: a.squash)
                 context.translate(x: -pivot.x, y: -pivot.y)
             }
-            draw(a.image, x: bodyX, top: bodyTop, w: w, h: h, mirrored: a.flipped)
+            draw(a.flush > 0 ? PlazaHotSpring.tinted(a.image, blend: a.flush) : a.image, x: bodyX, top: bodyTop, w: w, h: h, mirrored: a.flipped)
             if tilted { context.restoreState() }
             if sunk { context.restoreState() }
             if let front = a.front, !sunk {

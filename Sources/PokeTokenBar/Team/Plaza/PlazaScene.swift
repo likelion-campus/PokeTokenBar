@@ -25,6 +25,8 @@ struct PlazaSceneMember: Equatable, Sendable {
     var nature: PokemonNature?
     /// 그 팀원이 보낸 몸 크기 등급 1...3. 이 화면의 그림 크기가 아니라 받은 값이다.
     var bodySize = 1
+    /// 그 팀원이 알린 온천 붉은 기운. 장면은 그 팀원의 칸이 온천 칸일 때만 그린다.
+    var isFlushed = false
 }
 
 /// 광장 장면. 월드는 y가 아래로 늘어나고 SpriteKit은 위로 늘어나므로 `sceneY = 월드 높이 - y`로 바꾼다.
@@ -220,6 +222,8 @@ struct PlazaSceneMember: Equatable, Sendable {
         var dive = DiveFade()
         var stage = 1
         var bodySize = 1
+        /// 붉은 기운. 벽시계의 함수라 멈췄던 장면도 첫 프레임부터 맞다.
+        var flush = PlazaFlushFade(on: false, now: .distantPast)
         var pond = PondWatch()
         /// 광장 메타몽 전용: 팀원을 따라 한 모습인지.
         var isDecoy = false
@@ -656,6 +660,7 @@ struct PlazaSceneMember: Equatable, Sendable {
                 r.diving = m.isDiving
                 r.stage = m.evolutionStage
                 r.bodySize = m.bodySize
+                r.flush.set(flushed(m, at: target), now: now())
                 r.color = PlazaNameColor.color(forMemberID: m.memberID, chosen: m.nameColor)
                 r.actor.setName(r.displayName, color: r.color)
                 r.actor.setTitle(m.nature.map(L(.ko).plazaNatureTitle))
@@ -666,9 +671,10 @@ struct PlazaSceneMember: Equatable, Sendable {
                 var motion = PlazaRemoteMotion(tile: wanderer?.tile ?? target, facing: m.facing)
                 motion.senderIsWalking = !m.isAway && m.isWalking
                 motion.senderIsRunning = !m.isAway && m.isRunning
-                let r = Remote(actor: PlazaActor(name: Remote.displayName(m.nickname, isIdle: m.isIdle), color: color),
+                var r = Remote(actor: PlazaActor(name: Remote.displayName(m.nickname, isIdle: m.isIdle), color: color),
                                color: color, nickname: m.nickname, isAway: m.isAway, isIdle: m.isIdle, motion: motion,
                                wanderer: wanderer, diving: m.isDiving, stage: m.evolutionStage, bodySize: m.bodySize)
+                r.flush = PlazaFlushFade(on: flushed(m, at: target), now: now())   // 처음 본 모습은 한 번에 붉다(늦게 연 사람)
                 r.actor.setTitle(m.nature.map(L(.ko).plazaNatureTitle))
                 r.actor.attach(world: root, camera: cameraNode)
                 remotes[m.memberID] = r
@@ -676,6 +682,18 @@ struct PlazaSceneMember: Equatable, Sendable {
         }
         refreshInteractionTarget()
     }
+
+    /// 받은 붉은 기운을 그릴지: 깃발이 켜져 있고, 자리에 있고, 그 팀원의 칸이 온천 칸일 때만(적대적 입력 방어).
+    private func flushed(_ m: PlazaSceneMember, at tile: TilePoint) -> Bool {
+        !m.isAway && m.isFlushed && map.isHotSpring(tile)
+    }
+
+    /// 내 붉은 기운을 켜거나 끈다. 컨트롤러가 3분 마감과 칸 바뀜에서 부른다.
+    func setMyFlushed(_ on: Bool) { myFlush.set(on, now: now()) }
+    private var myFlush = PlazaFlushFade(on: false, now: .distantPast)
+    /// 테스트용: 내 몸통과 팀원 몸통에 입힌 붉은 기운(`layout` 이 마지막으로 쓴 값).
+    var myFlushBlend: CGFloat { me.flushBlend }
+    func memberFlushBlend(_ id: String) -> CGFloat? { remotes[id]?.actor.flushBlend }
 
     /// 광장 메타몽 한 마리. nil이면 지운다. 팀원이 아니라서 `applyMembers`가 건드리지 않고 `memberTiles`에도 없다.
     func applyDitto(_ shown: PlazaDittoShown?) {
@@ -1357,13 +1375,16 @@ struct PlazaSceneMember: Equatable, Sendable {
         func pose(_ facing: PlazaDirection, _ isWalking: Bool) -> PlazaSpriteChoice {
             PlazaPose.choice(facing: facing, isWalking: isWalking, clock: clock)
         }
+        let date = now()
         var actors = [me.photoActor(foot: walker.footPoint, pose: pose(walker.facing, walker.isWalking), waterClip: photoWaterClip(foot: walker.footPoint),
-                                 hotSpring: map.isHotSpring(walker.tile))]
+                                 hotSpring: map.isHotSpring(walker.tile),
+                                 flush: myFlush.blend(at: date))]
         for id in remotes.keys.sorted() {
             guard let r = remotes[id] else { continue }
             actors.append(r.actor.photoActor(foot: r.motion.footPoint, pose: pose(r.motion.facing, r.motion.isWalking),
                                           waterClip: photoWaterClip(foot: r.motion.footPoint),
-                                          hotSpring: map.isHotSpring(r.motion.tile)))
+                                          hotSpring: map.isHotSpring(r.motion.tile),
+                                          flush: r.flush.blend(at: date)))
         }
         let tint = daylightTint
         return PlazaPhotoInput(mapImage: mapImage, visibleRect: rect, pixelsPerWorld: zoom * 2, actors: actors.compactMap { $0 },
@@ -2200,11 +2221,14 @@ struct PlazaSceneMember: Equatable, Sendable {
         let pose = PlazaPose.choice(facing: walker.facing, isWalking: walker.isWalking, clock: clock)
         let context = PlazaActorContext(worldHeight: worldSize.height, cameraPosition: cameraPos,
                                         zoom: zoom, backing: backing, viewport: size)
+        let date = now()
+        me.setFlush(myFlush.blend(at: date))
         me.place(foot: foot, pose: pose, in: context,
                  concealment: concealment(tile: walker.tile, step: walker.currentStep, actor: me, dive: myDive.level), isMe: true,
                  swimSink: swimSink(tile: walker.tile, step: walker.currentStep, actor: me), waterRect: waterRect(foot: foot),
                  hotSpring: map.isHotSpring(walker.tile))
         for r in remotes.values {
+            r.actor.setFlush(r.flush.blend(at: date))
             let p = PlazaPose.choice(facing: r.motion.facing, isWalking: r.motion.isWalking, clock: clock)
             r.actor.place(foot: r.motion.footPoint, pose: p, in: context,
                           concealment: concealment(tile: r.motion.tile, step: r.motion.currentStep, actor: r.actor, dive: r.dive.level),
