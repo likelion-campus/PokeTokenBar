@@ -181,4 +181,19 @@ extension PlazaTreeTests {
             } }
         }
     }
+
+    /// The bake clips at the map's edge (a rectangle that runs off it) and leaves everything else alone.
+    func testTheBakedMinimapClipsAtTheMapEdge() async throws {
+        let tree = try treeImage(.summer)
+        let map = PlazaImage(bitmap: PlazaBitmap(width: 100, height: 100, fill: PlazaRGBA(r: 10, g: 20, b: 30, a: 255)))
+        let out = PlazaTree.baked(map, tree: tree, at: CGRect(x: -30, y: -30, width: 126, height: 144)).pixels.bytes
+        let t = tree.pixels.bytes, m = map.pixels.bytes
+        let k = Int(PlazaTree.scale)
+        for y in 0..<100 { for x in 0..<100 {
+            let i = (y * 100 + x) * 4, ti = (((y + 30) / k) * 42 + (x + 30) / k) * 4
+            let expected = (x + 30 < 126 && y + 30 < 144 && t[ti + 3] == 255) ? Array(t[ti..<ti + 4]) : Array(m[i..<i + 4])
+            XCTAssertEqual(Array(out[i..<i + 4]), expected, "(\(x),\(y))")
+        } }
+        XCTAssertNotEqual(out, m, "something of the tree is drawn")
+    }
 }

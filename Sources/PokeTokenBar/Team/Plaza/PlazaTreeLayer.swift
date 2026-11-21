@@ -13,7 +13,8 @@ import Foundation
 
     private let artRect: CGRect
     private let worldHeight: CGFloat
-    /// 계절마다 네 띠의 그림. 장면을 만들 때 한 번에 만든다(나중에 만드는 것이 없다).
+    /// 계절마다 네 띠의 그림과 그 텍스처. 장면을 만들 때 한 번에 만든다(나중에 만드는 것이 없다).
+    private let bandArt: [PlazaSeason: [PlazaImage]]
     private let textures: [PlazaSeason: [PlazaTexture]]
     private let bands: [PlazaSprite]
     private(set) var season = PlazaSeason.summer
@@ -24,7 +25,8 @@ import Foundation
         precondition(!PlazaTree.tiles(in: map).isEmpty, "the tree layer needs a map with a tree")
         let rect = PlazaTree.artRect(in: map)!
         artRect = rect
-        textures = images.mapValues { PlazaTree.bands($0).map { PlazaTexture($0) } }
+        bandArt = images.mapValues { PlazaTree.bands($0) }
+        textures = bandArt.mapValues { $0.map { PlazaTexture($0) } }
         self.worldHeight = worldHeight
         root.zPosition = PlazaTree.z(in: map)!
         // 줄기 밑: 그림의 가운데 아래(장면 좌표, y 위로).
@@ -61,9 +63,8 @@ import Foundation
     /// 기념사진에 찍을 나무: 띠마다 하나. 월드 좌표(y 아래로), 바닥 변은 맨 아래 줄의 아래 끝(모닥불과 같은 규칙).
     func photoProps() -> [PlazaPhotoProp] {
         guard !root.isHidden else { return [] }
-        return zip(bands, bandRects()).compactMap { node, rect in
-            guard let image = node.texture?.image else { return nil }
-            return PlazaPhotoProp(particle: PlazaPhotoParticle(image: image, origin: rect.origin, size: rect.size), baseY: artRect.maxY)
+        return zip(bandArt[season]!, bandRects()).map { image, rect in
+            PlazaPhotoProp(particle: PlazaPhotoParticle(image: image, origin: rect.origin, size: rect.size), baseY: artRect.maxY)
         }
     }
 

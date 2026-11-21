@@ -115,6 +115,7 @@ import XCTest
         let s = treeScene(start: p(17, 11))
         s.setBackgroundHidden(true)
         XCTAssertFalse(s.isTreeShown)
+        XCTAssertEqual(s.photoInput()?.props.filter { $0.baseY == 352 }.count, 0, "a hidden tree is not in the photo")
         s.handleKeyDown(keyCode: 126, characters: nil, isRepeat: false)   // up
         for i in 1..<60 { s.update(Double(i) / 60) }
         s.handleKeyUp(keyCode: 126)
@@ -157,5 +158,18 @@ import XCTest
         XCTAssertEqual(s.treeNodeCount, 0)
         XCTAssertFalse(s.isTreeShown)
         XCTAssertNil(s.treeZ)
+    }
+
+    func testTheSameSeasonWritesNothing() async throws {
+        let s = treeScene()
+        let layer = try XCTUnwrap(s.treeLayer)
+        let before = layer.bandImages.map { $0.map(ObjectIdentifier.init) }
+        layer.setSeason(.summer)
+        XCTAssertEqual(layer.bandImages.map { $0.map(ObjectIdentifier.init) }, before)
+        layer.setSeason(.winter)
+        XCTAssertNotEqual(layer.bandImages.map { $0.map(ObjectIdentifier.init) }, before)
+        layer.setSeason(.winter)
+        layer.setHidden(false)
+        XCTAssertTrue(layer.isShown)
     }
 }
