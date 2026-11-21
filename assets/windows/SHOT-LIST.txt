@@ -7,7 +7,7 @@
 # Owed (not made by any run yet): tray menu with an update offer, Setup welcome page, dark and high-contrast popover pages,
 # Settings in Japanese, the floating pet on a plain desktop (the runner's capture shows its terminal behind it) and the pet's
 # bubbles (Task 23).
-tray-menu.png | windows-app | ui-dump/tray-menu-open.png | crop=285x248:24:24:237:200,en-only
+tray-menu.png | windows-app | ui-dump/tray-menu-open.png | crop=285x270:24:24:237:222,en-only
 plaza-window.png | windows-app | plaza-panels-default.png
 home-en.png | ui-home | home-three.png
 home-ko.png | ui-home | home-three-ko.png
@@ -25,3 +25,4 @@ pokemon-detail-en.png | windows-app | ui-dump/collection/collection-detail-top-e
 floating-pet.png | windows-app | ui-dump/pet/pet-hatched-192.png
 home-pet-eye-en.png | windows-app | ui-dump/pet/home-footer-eye-on-en.png
 settings-team-report.png | ui-settings | settings-en-100-team-joined-bottom.png | en-only
+plaza-hot-spring.png | windows-app | plaza-hot-spring.png

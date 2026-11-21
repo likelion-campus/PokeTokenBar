@@ -64,13 +64,17 @@ extension WindowsSelftest {
         scene.now = { now }
         scene.currentModifiers = { [] }
         scene.seasonChoice = .summer
-        var block = PlazaBitmap(width: 28, height: 32)   // FIXTURE
-        for y in 2..<30 { for x in 3..<25 { block[x, y] = PlazaRGBA(r: 200, g: 120, b: 80, a: 255) } }
-        let frames = PlazaCharacterFrames(front: [PlazaFrame(image: PlazaImage(bitmap: block), delay: 0.2)],
-                                          back: [PlazaFrame(image: PlazaImage(bitmap: block), delay: 0.2)])
-        scene.setCharacter(frames)
+        // FIXTURE: a plain block of one colour per person stands in for each sprite.
+        func blockFrames(_ c: PlazaRGBA) -> PlazaCharacterFrames {
+            var block = PlazaBitmap(width: 28, height: 32)
+            for y in 2..<30 { for x in 3..<25 { block[x, y] = c } }
+            return PlazaCharacterFrames(front: [PlazaFrame(image: PlazaImage(bitmap: block), delay: 0.2)],
+                                        back: [PlazaFrame(image: PlazaImage(bitmap: block), delay: 0.2)])
+        }
+        let colours = [PlazaRGBA(r: 90, g: 130, b: 220, a: 255), PlazaRGBA(r: 90, g: 190, b: 120, a: 255), PlazaRGBA(r: 220, g: 190, b: 80, a: 255)]
+        scene.setCharacter(blockFrames(PlazaRGBA(r: 200, g: 80, b: 80, a: 255)))
         scene.applyMembers(members)
-        for m in members { scene.setMemberFrames(m.memberID, frames) }
+        for (i, m) in members.enumerated() { scene.setMemberFrames(m.memberID, blockFrames(colours[i % colours.count])) }
         let clockBase = 1000.0
         for _ in 0..<15 { stage.tick(at: clockBase) }
         for f in 1...120 {
@@ -81,7 +85,7 @@ extension WindowsSelftest {
             device.finish()
         }
         guard let rgba = surface.readRGBA() else { r.add(name, false, "no frame readback"); return }
-        r.add(name, writeFrame(rgba, 1280, 960, file) == 0, "\(file) 1280x960, summer noon, FIXTURE blocks for sprites, steam=\(scene.isSteamShown)")
+        r.add(name, writeFrame(rgba, 1280, 960, file) == 0, "\(file) 1280x960, summer noon, a FIXTURE block per person for sprites, steam=\(scene.isSteamShown)")
     }
 
     /// One render-cost case: `me` (sitting at `sit` when given) and `members` on the winter night, 60 warm-up frames, then
