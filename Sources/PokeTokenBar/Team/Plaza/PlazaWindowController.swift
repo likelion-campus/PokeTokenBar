@@ -465,7 +465,7 @@ import Observation
         scene.stopDance(memberID: nil)
         scene.showEmote(memberID: nil, kind: kind)
         var target = kind.notifiesTarget
-            ? PlazaTargeting.member(from: scene.walker.tile, facing: scene.walker.facing, members: targetTiles) : nil
+            ? PlazaTargeting.member(me: scene.myBody, facing: scene.walker.facing, members: scene.bodies(targetTiles)) : nil
         if target == PlazaDitto.sceneKey { target = nil }   // 복사본에게 보낸 마음은 진짜 팀원에게 가지 않는다
         session?.sendEmote(kind, target: target)
     }
@@ -643,9 +643,9 @@ import Observation
         guard let scene else { return nil }
         let me = scene.walker.tile
         let tiles = tiles ?? targetTiles
-        guard let id = PlazaTargeting.member(from: me, facing: scene.walker.facing, members: tiles),
+        guard let id = PlazaTargeting.member(me: scene.myBody, facing: scene.walker.facing, members: scene.bodies(tiles)),
               let tile = tiles[id] else { return nil }
-        if PlazaPathfinder.isAdjacent(me, tile) { scene.face(PlazaPathfinder.direction(from: me, to: tile)) }
+        scene.face(PlazaTargeting.turn(from: me, to: tile, facing: scene.walker.facing))
         return id
     }
 
@@ -941,8 +941,8 @@ import Observation
     /// 팀원이면 인사하기와 포켓몬 보기 메뉴를 띄운다.
     private func handleInteractKey() {
         guard let scene else { return }
-        guard let hit = PlazaInteraction.target(from: scene.walker.tile, facing: scene.walker.facing, map: map,
-                                                members: scene.interactionTiles) else {
+        guard let hit = PlazaInteraction.target(me: scene.myBody, facing: scene.walker.facing, map: map,
+                                                members: scene.bodies(scene.interactionTiles)) else {
             // 자리는 불에서 떨어져 있어 말을 걸 대상이 없다. 앉은 채로는 불을 켜고 끄는 줄만 있는 모닥불 메뉴를 연다.
             if isFocusing {
                 openOverlay(.campfireMenu(PlazaCampfireMenu(isJoin: true, minutes: [], selection: 0, isLit: isCampfireLit, isSeated: true)))
@@ -1083,7 +1083,9 @@ import Observation
         lastEmoteAt = now
         scene.stopDance(memberID: nil)
         let me = scene.walker.tile
-        let direction = PlazaPathfinder.isAdjacent(me, target) ? PlazaPathfinder.direction(from: me, to: target) : scene.walker.facing
+        let facing = scene.walker.facing
+        let touching = scene.myBody.touches(scene.body(of: id) ?? PlazaBody(foot: target, size: 1))
+        let direction = touching ? PlazaTargeting.turn(from: me, to: target, facing: facing) : facing
         scene.playTackle(by: nil, on: id, direction: direction)
         record(.tackle)
         if let copied {
@@ -1120,13 +1122,16 @@ import Observation
         let isMe = target == memberID()
         let isDitto = target == PlazaDitto.sceneKey
         if isDitto, shownDitto?.isDecoy != false { return }
-        guard let to = isMe ? scene.walker.tile : isDitto ? scene.dittoTile : scene.memberTiles[target] else { return }
-        let direction = PlazaPathfinder.isAdjacent(from, to) ? PlazaPathfinder.direction(from: from, to: to)
-            : members[sender]?.facing ?? .down
+        guard let to = isMe ? scene.walker.tile : isDitto ? scene.dittoTile : scene.memberTiles[target],
+              let targetBody = scene.body(of: isMe ? nil : target) else { return }
+        // 몸이 닿으면 민 쪽에서 맞는 쪽으로, 아니면 민 쪽이 바라보던 쪽으로. 등급 1이면 예전 옆 칸 규칙과 같다.
+        let senderFacing = members[sender]?.facing ?? .down
+        let touching = PlazaBody(foot: from, size: scene.body(of: sender)?.size ?? 1).touches(targetBody)
+        let direction = touching ? PlazaTargeting.turn(from: from, to: to, facing: senderFacing) : senderFacing
         scene.playTackle(by: sender, on: isMe ? nil : target, direction: direction)
         if isDitto { return dittoFormTackled(by: sender) }
         // 집중 중이거나 모닥불 메뉴를 연 내 Mac은 밀지 않는다(옛 버전이 보낸 몸통박치기도 같다). 충격 그림만 보인다.
-        guard isMe, PlazaPathfinder.isAdjacent(from, to) || from == to else { return }
+        guard isMe, touching else { return }
         // A disguised me is found instead of pushed.
         if myMimic != nil { return revealMe(by: sender) }
         if canBePushed { scene.pushMe(direction, tiles: tiles) }
@@ -1137,11 +1142,13 @@ import Observation
     func showMimicTackle(from sender: String, on target: String?) {
         guard let scene, let target, let from = scene.memberTiles[sender] else { return }
         let isMe = target == memberID()
-        guard let to = isMe ? scene.walker.tile : scene.memberTiles[target] else { return }
-        let direction = PlazaPathfinder.isAdjacent(from, to) ? PlazaPathfinder.direction(from: from, to: to)
-            : members[sender]?.facing ?? .down
+        guard let to = isMe ? scene.walker.tile : scene.memberTiles[target],
+              let targetBody = scene.body(of: isMe ? nil : target) else { return }
+        let senderFacing = members[sender]?.facing ?? .down
+        let touching = PlazaBody(foot: from, size: scene.body(of: sender)?.size ?? 1).touches(targetBody)
+        let direction = touching ? PlazaTargeting.turn(from: from, to: to, facing: senderFacing) : senderFacing
         scene.playTackle(by: sender, on: isMe ? nil : target, direction: direction)
-        if isMe, myMimic != nil, PlazaPathfinder.isAdjacent(from, to) || from == to { revealMe(by: sender) }
+        if isMe, myMimic != nil, touching { revealMe(by: sender) }
     }
 
     /// 런타임이 부른다. 변장한 팀원이 들켰다. 변장 중이라고 그리고 있는 팀원의 소식만 믿는다.

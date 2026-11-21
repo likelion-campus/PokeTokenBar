@@ -940,7 +940,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     }
 
     func refreshInteractionTarget() {
-        let hit = PlazaInteraction.target(from: walker.tile, facing: walker.facing, map: map, members: interactionTiles)
+        let hit = PlazaInteraction.target(me: myBody, facing: walker.facing, map: map, members: bodies(interactionTiles))
         guard hit != interactionTarget else { return }
         interactionTarget = hit
         onInteractionTargetChange?(hit)

@@ -205,4 +205,63 @@ final class PlazaBodySizeControllerTests: XCTestCase {
         w.c.prepareScene()
         XCTAssertEqual(w.c.scene?.myBodySize, 3)
     }
+
+    // MARK: - Reach by body
+
+    private func press(_ w: World, _ key: UInt16, _ chars: String = "ㅁ") {
+        w.scene.handleKeyDown(keyCode: key, characters: chars, isRepeat: false)
+    }
+
+    func testABigTacklerPushesMeFromThreeBelowButNotFour() async {
+        let w = await world(me: p(17, 9), b: p(17, 12), bSize: 3)
+        w.c.showTackle(from: w.b.id, on: w.me.id, tiles: 1)
+        run(w.scene, 1)
+        XCTAssertEqual(w.scene.walker.tile, p(17, 8))
+
+        let f = await world(me: p(17, 9), b: p(17, 13), bSize: 3)
+        let before = f.scene.impactsShown
+        f.c.showTackle(from: f.b.id, on: f.me.id, tiles: 1)
+        run(f.scene, 1)
+        XCTAssertEqual(f.scene.walker.tile, p(17, 9))
+        XCTAssertEqual(f.scene.impactsShown, before + 1)
+    }
+
+    func testMyBigBodyIsTackledFromThreeAbove() async {
+        let w = await world(me: p(17, 12), species: 130, b: p(17, 9))
+        XCTAssertEqual(w.c.myBodySize, 3, "test precondition")
+        w.c.showTackle(from: w.b.id, on: w.me.id, tiles: 1)
+        run(w.scene, 1)
+        XCTAssertEqual(w.scene.walker.tile, p(17, 13))
+    }
+
+    func testTheHintSpaceXAndCAllPickTheBigReach() async {
+        let w = await world(me: p(17, 12), species: 130, b: p(17, 9), facing: .down)
+        XCTAssertEqual(w.c.hint, L(.ko).plazaMemberHint(nickname: "가"))
+        press(w, 49, " ")
+        await settle()
+        XCTAssertEqual(w.c.overlayContent, .memberMenu(PlazaMemberMenu(memberID: w.b.id, nickname: "가")))
+        XCTAssertEqual(w.scene.walker.facing, .up)
+        press(w, 53, "\u{1b}")
+        await settle()
+        press(w, 7, "ㅌ")   // X
+        await settle()
+        XCTAssertTrue(w.b.received.emotes.contains { $0.isShared == true && $0.targetMemberID == w.b.id })
+        w.scene.face(.down)
+        run(w.scene, 1)
+        now = now.addingTimeInterval(5)   // past the emote rate limit
+        press(w, 8, "ㅊ")   // C
+        await settle()
+        XCTAssertTrue(w.b.received.emotes.contains { $0.kind == .tackle && $0.targetMemberID == w.b.id })
+    }
+
+    func testATeammatesNewSizeMovesTheHintWithoutAStep() async {
+        let w = await world(me: p(17, 9), b: p(17, 12), facing: .up)
+        let hint = L(.ko).plazaMemberHint(nickname: "가")
+        XCTAssertNotEqual(w.c.hint, hint)
+        w.b.session.updateBodySize(3)
+        await settle()
+        run(w.scene, 0.1)
+        XCTAssertEqual(w.c.hint, hint)
+        XCTAssertEqual(w.scene.walker.tile, p(17, 9))
+    }
 }
