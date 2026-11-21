@@ -1125,16 +1125,20 @@ import Observation
     }
 
     /// 끌어당길 수 있을 때 내가 물러날 방향과 칸 수. 메뉴 줄과 고른 일이 모두 이 조건을 읽는다.
-    /// 대상은 늘 팀원이다(메타몽 모습이나 복사본은 `memberTiles`에 없다). 둘 다 집중 중이 아니고 알이 아니며 물속이 아니고(잠수도 물속이다),
-    /// 두 몸이 닿는 같은 줄에 있어야 하고, 내 뒤로 한 칸 이상 물러날 빈 땅(얼음 포함)이 있어야 한다.
+    /// 대상은 늘 광장에 있는 팀원이다(메타몽 모습이나 복사본은 `memberTiles`에 없고, 광장을 닫아 쉼터에 있는 팀원은 끌려올 수 없다. 몸통박치기
+    /// 줄에는 이 검사가 없다). 둘 다 집중 중이 아니고 알이 아니며 물속이 아니고(잠수도 물속이다), 두 몸이 닿는 같은 줄에 있어야 하고,
+    /// 내 뒤로 한 칸 이상 물러날 빈 땅(얼음 포함)이 있어야 하며, 그 팀원이 나만큼 미끄러져 올 길이 한 칸 이상 열려 있어야 한다(받는 쪽과 같은 계산).
     private func dragStep(_ scene: PlazaScene, to id: String) -> (direction: PlazaDirection, tiles: Int)? {
-        guard scene.memberTiles[id] != nil, let target = scene.body(of: id), !isFocusing, focusRemaining(of: id) == nil,
+        guard let targetTile = scene.memberTiles[id], members[id]?.inPlaza == true, let target = scene.body(of: id), !isFocusing, focusRemaining(of: id) == nil,
               scene.canWalk, !scene.isMeInWater, scene.memberIsInWater(id) != true,
               let b = PlazaDrag.direction(puller: scene.myBody, target: target) else { return nil }
         let occupied = scene.occupiedTiles()
         let k = PlazaDrag.stepBack(from: scene.walker.tile, direction: b, stage: evolutionStage(),
                                    isOpen: { scene.isWalkableNow($0) && !occupied.contains($0) })
-        return k > 0 ? (b, k) : nil
+        guard k > 0 else { return nil }
+        let slides = PlazaDrag.slide(victim: targetTile, puller: scene.walker.tile, direction: b, pushTiles: k,
+                                     isOpen: { scene.isWalkableNow($0) && !occupied.contains($0) })
+        return slides > 0 ? (b, k) : nil
     }
 
     /// 끌어당기기: 먼저 보내고(받는 쪽이 아직 내 옛 칸을 본다) 뛰어드는 그림을 띄운 뒤 내가 물러난다. 팀원이 따라오는 것은 그 팀원의 Mac이 정한다.
@@ -1145,6 +1149,8 @@ import Observation
         if let last = lastEmoteAt, now.timeIntervalSince(last) < Self.emoteInterval { return }
         lastEmoteAt = now
         scene.stopDance(memberID: nil)
+        // 따라가던 그 팀원을 끌면 따라가기가 나를 그 팀원이 미끄러져 들어올 칸으로 되돌려 보낸다.
+        if scene.followingMember == id { scene.stopWalkingToMember() }
         session?.sendEmote(.drag, target: id, pushTiles: step.tiles)
         scene.playDrag(by: nil, on: id, direction: step.direction)
         scene.pushMe(step.direction, tiles: step.tiles)
@@ -1348,7 +1354,7 @@ import Observation
         if myMimic != nil { return revealMe(by: sender) }
         guard !scene.isMeInWater, canBePushed else { return }
         let occupied = scene.occupiedTiles(except: sender)   // 끄는 쪽의 칸은 길을 막지 않는다(pushMe의 pulledBy와 같다)
-        let n = PlazaDrag.slide(victim: scene.myBody, puller: PlazaBody(foot: from, size: scene.body(of: sender)?.size ?? 1), pushTiles: tiles,
+        let n = PlazaDrag.slide(victim: scene.walker.tile, puller: from, direction: b, pushTiles: tiles,
                                 isOpen: { scene.isWalkableNow($0) && !occupied.contains($0) })
         guard n > 0 else { return }
         shove(by: sender) { scene.pushMe(b, tiles: n, pulledBy: sender) }

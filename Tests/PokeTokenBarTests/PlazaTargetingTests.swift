@@ -165,4 +165,52 @@ final class PlazaTargetingTests: XCTestCase {
                                             members: ["m": body(left.x + 1, left.y + 3, 3)])
         XCTAssertEqual(faced, PlazaInteractionHit(target: .member("m"), facing: .down))
     }
+
+    // MARK: - Final review fixes
+
+    /// Real map: the board's right-hand shelter tile (22,5) has the board at (23,5) on my right. A class-2 teammate directly
+    /// below me covers my tile with its body, but the board still comes first when nobody is faced (TEAM.md, spec 6.3).
+    func testABigBodyBelowMeDoesNotTakeSpaceFromTheBoard() {
+        let map = PlazaMapData.map
+        XCTAssertEqual(map.tile(at: p(23, 5)), .board, "test precondition")
+        let me = body(22, 5, 1)
+        let hit = PlazaInteraction.target(me: me, facing: .up, map: map, members: ["m": body(22, 6, 2)])
+        XCTAssertEqual(hit, PlazaInteractionHit(target: .board, facing: .right))
+        // Faced, a class-2 body still wins over a side board: it covers the faced tile (22,4).
+        XCTAssertEqual(PlazaInteraction.target(me: me, facing: .up, map: map, members: ["m": body(22, 4, 2)])?.target, .member("m"))
+        // A foot on my own tile is still a member before a side board, as before this PR.
+        XCTAssertEqual(PlazaInteraction.target(me: me, facing: .up, map: map, members: ["m": body(22, 5, 1)])?.target, .member("m"))
+    }
+
+    func testABigBodyBesideMeDoesNotTakeSpaceFromTheCampfire() {
+        let map = PlazaMapData.map
+        XCTAssertEqual(map.tile(at: p(23, 15)), .campfire, "test precondition")
+        let me = body(23, 14, 1)
+        // The class-2 member at (24,14) covers (23,14), my tile, but not the faced tile (22,14); the campfire is on my side (below).
+        let hit = PlazaInteraction.target(me: me, facing: .left, map: map, members: ["m": body(24, 14, 2)])
+        XCTAssertEqual(hit, PlazaInteractionHit(target: .campfire, facing: .down))
+    }
+
+    /// The body that covers my tile and is not faced is still found, after the board and campfire.
+    func testABodyCoveringMyTileIsFoundAfterTheSideObjects() {
+        let members = ["m": body(24, 14, 2)]
+        XCTAssertEqual(PlazaTargeting.member(me: body(23, 14, 1), facing: .left, members: members), "m")
+        XCTAssertNil(PlazaTargeting.memberAhead(me: body(23, 14, 1), facing: .left, members: members), "not ahead: it only covers my tile")
+        XCTAssertEqual(PlazaTargeting.memberAround(me: body(23, 14, 1), facing: .left, members: members), "m")
+    }
+
+    /// A small teammate in front is not hidden by a big one behind it with a smaller ID.
+    func testASmallTeammateInFrontIsNotHiddenByABigOneBehind() {
+        let members = ["s": body(11, 10, 1), "b": body(12, 10, 3)]
+        XCTAssertEqual(PlazaTargeting.member(me: body(10, 10, 1), facing: .right, members: members), "s", "faced")
+        XCTAssertEqual(PlazaTargeting.member(me: body(10, 10, 1), facing: .up, members: members), "s", "beside me, whatever I face")
+        XCTAssertEqual(PlazaTargeting.member(me: body(10, 10, 1), facing: .down, members: members), "s")
+        XCTAssertEqual(PlazaTargeting.member(me: body(11, 9, 1), facing: .down, members: members), "s", "from above")
+        XCTAssertEqual(PlazaTargeting.member(me: body(11, 11, 1), facing: .up, members: members), "s", "from below")
+        XCTAssertEqual(PlazaInteraction.target(me: body(10, 10, 1), facing: .right, map: PlazaMapData.map, members: members)?.target, .member("s"))
+        // Two class-1 feet on one tile still fall back to the smaller ID.
+        XCTAssertEqual(PlazaTargeting.member(me: body(10, 10, 1), facing: .right, members: ["y": body(11, 10, 1), "x": body(11, 10, 1)]), "x")
+        // Equal distance, different feet: the smaller ID.
+        XCTAssertEqual(PlazaTargeting.member(me: body(10, 10, 1), facing: .right, members: ["q": body(12, 10, 3), "p": body(11, 11, 3)]), "p")
+    }
 }

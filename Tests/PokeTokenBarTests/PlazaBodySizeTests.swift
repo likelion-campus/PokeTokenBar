@@ -15,19 +15,19 @@ final class PlazaBodySizeTests: XCTestCase {
         return f
     }
 
-    func testTheTunablesAreTheSpecsStartingValues() {
+    func testTheTunablesAreTheSpecsStartingValues() async {
         XCTAssertEqual(PlazaBodySize.class2From, 80)
         XCTAssertEqual(PlazaBodySize.class3From, 120)
         XCTAssertEqual(PlazaBodySize.spans.map { [$0.w, $0.h] }, [[0, 0], [1, 1], [1, 2]])
         XCTAssertEqual(PlazaBodySize.classes, 1...3)
     }
 
-    func testTheClassBoundariesAreEightyAndOneTwentyWorldPixels() {
+    func testTheClassBoundariesAreEightyAndOneTwentyWorldPixels() async {
         XCTAssertEqual([79, 79.99, 80, 119, 119.99, 120].map { PlazaBodySize.size(longSide: $0) }, [1, 1, 2, 2, 2, 3])
         XCTAssertEqual([75, 57, 112, 112, 123, 153, 154].map { PlazaBodySize.size(longSide: $0) }, [1, 1, 2, 2, 3, 3, 3])
     }
 
-    func testTheClassIsTheCroppedFrontsLongSideTimesOneAndAHalf() {
+    func testTheClassIsTheCroppedFrontsLongSideTimesOneAndAHalf() async {
         XCTAssertEqual(PlazaBodySize.size(of: frames(front: (53, 10))), 1)
         XCTAssertEqual(PlazaBodySize.size(of: frames(front: (54, 10))), 2)
         XCTAssertEqual(PlazaBodySize.size(of: frames(front: (10, 54))), 2)
@@ -36,12 +36,12 @@ final class PlazaBodySizeTests: XCTestCase {
         XCTAssertEqual(PlazaBodySize.size(of: frames(front: (50, 40), back: (120, 120))), 1)
     }
 
-    func testAnEggOrThePlaceholderHasNoClass() {
+    func testAnEggOrThePlaceholderHasNoClass() async {
         XCTAssertNil(PlazaBodySize.size(of: frames(front: (80, 80), egg: true)))
         XCTAssertNil(PlazaBodySize.size(of: frames(front: (80, 80), placeholder: true)))
     }
 
-    func testReceivedSizesStayWithinOneToThreeAndOneIsNotSent() {
+    func testReceivedSizesStayWithinOneToThreeAndOneIsNotSent() async {
         XCTAssertEqual([nil, 0, -1, 1, 2, 3, 4, 999].map { PlazaBodySize.clamped($0) }, [1, 1, 1, 1, 2, 3, 3, 3])
         XCTAssertEqual([1, 2, 3].map { PlazaBodySize.sent($0) }, [nil, 2, 3])
     }
@@ -52,7 +52,7 @@ final class PlazaBodySizeTests: XCTestCase {
         return s
     }
 
-    func testABodyGrowsUpAndSidewaysButNeverBelowTheFoot() {
+    func testABodyGrowsUpAndSidewaysButNeverBelowTheFoot() async {
         let foot = TilePoint(x: 5, y: 5)
         func block(_ xs: ClosedRange<Int>, _ ys: ClosedRange<Int>) -> Set<TilePoint> {
             Set(xs.flatMap { x in ys.map { TilePoint(x: x, y: $0) } })
@@ -63,7 +63,7 @@ final class PlazaBodySizeTests: XCTestCase {
         for c in 1...3 { XCTAssertFalse(PlazaBody(foot: foot, size: c).covers(TilePoint(x: 5, y: 6))) }
     }
 
-    func testBodiesTouchWhenTwoTilesMeetOrSitSideBySide() {
+    func testBodiesTouchWhenTwoTilesMeetOrSitSideBySide() async {
         func b(_ x: Int, _ y: Int, _ c: Int) -> PlazaBody { PlazaBody(foot: TilePoint(x: x, y: y), size: c) }
         let me1 = b(5, 5, 1)
         XCTAssertEqual([b(5, 5, 1), b(6, 5, 1), b(6, 6, 1), b(7, 5, 1)].map { me1.touches($0) }, [true, true, false, false])
@@ -72,7 +72,7 @@ final class PlazaBodySizeTests: XCTestCase {
         XCTAssertTrue(b(6, 6, 2).touches(b(5, 5, 1)))
     }
 
-    func testTouchingIsSymmetric() {
+    func testTouchingIsSymmetric() async {
         var rng = PlazaSplitMix64(seed: 0xB0D1)
         func r(_ n: Int) -> Int { Int(rng.next() % UInt64(n)) }
         for _ in 0..<5000 {

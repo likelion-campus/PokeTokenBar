@@ -180,7 +180,7 @@ import XCTest
         await rig.flush()
         let panel = try XCTUnwrap(rig.panel(.card, as: PlazaCardPanel.self))
         for _ in 0..<10 { _ = try rig.panelTakesScroll(.card, at: CGPoint(x: 190, y: 380), dy: -6); await rig.flush() }
-        try await Task.sleep(for: .seconds(1.6))
+        try await rig.wait { !panel.scrollIndicator.isTimerRunning }
         XCTAssertFalse(panel.scrollIndicator.isTimerRunning, "after the fade nothing runs")
         let idle = rig.hud.renderCounts[.card] ?? 0
         try await Task.sleep(for: .seconds(1))

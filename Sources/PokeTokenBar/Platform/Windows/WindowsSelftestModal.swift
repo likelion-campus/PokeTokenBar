@@ -221,7 +221,7 @@ extension WindowsSelftest {
         guard let t = measured else { return nil }
         let w1 = knownWakes(app)
         let explained = (w1.safety - w0.safety) + (w1.debounce - w0.debounce) + (w1.day - w0.day)
-        let budget = 3 + 5 * explained + 60 * (w1.refreshes - w0.refreshes)
+        let budget = 3 + 5 * explained + 60 * w1.refreshesInWindow(since: w0)
         let verdict = IdleBurstAttribution.judge(cs: t.mainContextSwitches, budget: budget, wakes: t.samples, arrivals: arrivals)
         return (t.mainFound, t.mainContextSwitches, budget, verdict,
                 "cycles \(t.mainCycles); known wakes \(w1.minus(w0)); wake timeline [\(t.wakes)]; debounce pending at the start: \(w0.pending); "
@@ -230,15 +230,21 @@ extension WindowsSelftest {
 
     struct KnownWakes {
         var safety = 0, debounce = 0, day = 0, refreshes = 0, iterations = 0, pending = false
+        /// A store refresh is running (it is in `refreshes` only once it finishes).
+        var refreshing = false
+        /// The refreshes a window from `o` to this budgets, a refresh still running at its end included.
+        func refreshesInWindow(since o: KnownWakes) -> Int {
+            IdleBurstAttribution.refreshesInWindow(countBefore: o.refreshes, countAfter: refreshes, runningAtEnd: refreshing)
+        }
         func minus(_ o: KnownWakes) -> String {
-            "{safety:\(safety - o.safety) debounce:\(debounce - o.debounce) day:\(day - o.day) refresh:\(refreshes - o.refreshes) loop_iterations:\(iterations - o.iterations)}"
+            "{safety:\(safety - o.safety) debounce:\(debounce - o.debounce) day:\(day - o.day) refresh:\(refreshes - o.refreshes)\(refreshing ? "+running" : "") loop_iterations:\(iterations - o.iterations)}"
         }
     }
 
     @MainActor static func knownWakes(_ app: WindowsAppDelegate) -> KnownWakes {
         KnownWakes(safety: WinDefaultsSync.safetyFires, debounce: WinDefaultsSync.debounceFires,
                    day: (Platform.current.events as? WindowsSystemEvents)?.dayTimerFires ?? 0, refreshes: app.refreshCount,
-                   iterations: WinMainLoop.iterations, pending: WinDefaultsSync.isSyncPending)
+                   iterations: WinMainLoop.iterations, pending: WinDefaultsSync.isSyncPending, refreshing: app.store.isRefreshing)
     }
 
     private final class KeyCounts: @unchecked Sendable {

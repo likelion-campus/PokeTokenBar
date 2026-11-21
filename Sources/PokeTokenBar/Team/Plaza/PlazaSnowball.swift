@@ -36,7 +36,7 @@ enum PlazaSnowball {
         !map.isWalkable(t) && !map.isWater(t)
     }
 
-    /// 앞쪽 1...range칸. 막는 칸 앞에서 멈춘다. 몸이 덮은 첫 칸이 맞는 곳(같은 칸이면 작은 ID)이고,
+    /// 앞쪽 1...range칸. 막는 칸 앞에서 멈춘다. 몸이 덮은 첫 칸이 맞는 곳(그 칸을 덮는 몸이 여럿이면 발이 가장 가까운 쪽, 같으면 작은 ID)이고,
     /// 없으면 마지막 열린 칸이 땅 끝이다. 바로 앞 칸이 막혀 있으면 nil. 던지는 쪽의 등급은 상관없다.
     static func aim(from: TilePoint, facing: PlazaDirection, bodies: [String: PlazaBody], map: PlazaMap) -> PlazaSnowballShot? {
         var tile = from
@@ -44,7 +44,7 @@ enum PlazaSnowball {
         for _ in 1...range {
             tile = PlazaWalker.offset(tile, facing)
             if blocksBall(tile, in: map) { break }
-            if let id = bodies.filter({ $0.value.covers(tile) }).keys.min() {
+            if let id = PlazaTargeting.covering(tile, members: bodies) {
                 return PlazaSnowballShot(from: from, direction: facing, end: .actor(id: id, tile: tile))
             }
             last = tile
