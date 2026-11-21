@@ -57,6 +57,7 @@ extension WindowsSelftest {
             return
         }
         let renderer = WinPlazaRenderer(surface: surface)
+        let spring = name == "plaza.renderCostSpring", tree = name == "plaza.renderCostTree"
         let map = PlazaMapData.map
         let grass = PlatformPlaza.tallGrassArt()
         let mapImage = PlatformPlaza.tileSheet().map { PlazaTileArt.mapImage(map, sheet: $0, tallGrass: grass) } ?? PlazaTileArt.plainGrassImage(map)
@@ -124,7 +125,6 @@ extension WindowsSelftest {
         }
         let median = cpu.isEmpty ? Double.infinity : cpu.sorted()[cpu.count / 2] * 1000
         let st = renderer.stats
-        let spring = name == "plaza.renderCostSpring", tree = name == "plaza.renderCostTree"
         r.add(name, median <= 4 && st.failedFrames == 0 && (!spring || scene.isSteamShown) && (!tree || scene.isTreeShown),
               (spring ? "hot spring in view steam=\(scene.isSteamShown) " : "") + (tree ? "tree=\(scene.isTreeShown) leaves=\(scene.treeLeafCount) " : "") + "rush-hour, release, offscreen WARP 1280x960 (\(device.adapter)): update+flatten+build p50=\(ms(cpu, 0.5)) p95=\(ms(cpu, 0.95)) ms "
                 + "(D19 budget 4 ms, median judged); record+EndDraw p50=\(ms(submit, 0.5)) ms; WARP raster p50=\(ms(raster, 0.5)) p95=\(ms(raster, 0.95)) ms; "
