@@ -131,17 +131,19 @@ final class PlazaArtParityPixelArtTests: XCTestCase {
             XCTAssertEqual(legacy.count, new.count, "\(kind)")
             for (i, image) in legacy.enumerated() { assertSamePixels(image, new[i], "weather \(kind) \(i)") }
         }
-        // The snowball pieces, every season, the balloon in summer.
+        // The snowball art: the ball against the old piece 0 every season, the burst against all three for winter and summer.
         let balloon = try cg(PlazaResources.waterBalloon())
         for season in seasons {
-            let legacy = LegacyPlazaSnowballArt.pieces(season, balloon: balloon)
-            let new = PlazaSnowballArt.pieces(season, balloon: PlazaImage(cgImage: balloon))
-            XCTAssertEqual(legacy.map(\.scale), new.map(\.scale), "\(season)")
-            for (i, piece) in legacy.enumerated() {
-                if season == .summer && i == 0 { XCTAssertTrue(new[i].image.cgImage === balloon, "the balloon itself"); continue }
-                assertSamePixels(piece.image, new[i].image, "snowball \(season) piece \(i)")
+            let legacy = LegacyPlazaSnowballArt.pieces(season, balloon: nil)
+            let new = PlazaSnowballArt.art(season)
+            XCTAssertEqual(new.ball.scale, legacy[0].scale, "\(season)")
+            assertSamePixels(legacy[0].image, new.ball.image, "snowball \(season) ball")
+            if season == .winter || season == .summer {
+                XCTAssertEqual(legacy.map(\.scale), new.burst.map(\.scale), "\(season)")
+                for (i, piece) in legacy.enumerated() { assertSamePixels(piece.image, new.burst[i].image, "snowball \(season) burst \(i)") }
             }
         }
+        XCTAssertTrue(PlazaSnowballArt.art(.summer, ball: PlazaImage(cgImage: balloon)).ball.image.cgImage === balloon, "the balloon itself")
 
         // Fireworks: every shape and colour.
         var glyphs: [PlazaFireworkGlyph] = []

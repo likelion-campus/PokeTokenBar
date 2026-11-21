@@ -39,8 +39,19 @@ enum PlazaResources {
 
     static let tileSheetName = "plaza-tiles"           // png
     static let waterBalloonName = "plaza-water-balloon" // png
+    static let snowballName = "plaza-snowball", petalBallName = "plaza-petal-ball", leafBallName = "plaza-leaf-ball"   // png
     static let tallGrassSheetName = "plaza-tallgrass"   // png
     static let iceCrackSheetName = "plaza-ice-cracks"   // png
     static let iceGlossSheetName = "plaza-ice-gloss"    // png
     static let iceShatterName = "plaza-ice-shatter"     // gif
+
+    /// 계절이 던지는 공 그림 파일 이름.
+    static func ballName(_ season: PlazaSeason) -> String {
+        switch season {
+        case .winter: snowballName
+        case .spring: petalBallName
+        case .summer: waterBalloonName
+        case .autumn: leafBallName
+        }
+    }
 }

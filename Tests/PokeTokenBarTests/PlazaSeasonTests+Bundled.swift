@@ -28,14 +28,42 @@ extension PlazaSeasonTests {
             XCTAssertEqual(grass, Self.pinnedLooks[season]?.grass, "\(season) grass \(grass)")
         }
     }
+
     func testSummerThrowsTheWaterBalloonPictureAsItIsAndOnlyInSummer() async throws {
         let balloon = try XCTUnwrap(BundledArt.image(PlazaResources.waterBalloonName), "the bundled picture loads")
         XCTAssertEqual([balloon.width, balloon.height], [14, 18])
-        let summer = PlazaSnowballArt.pieces(.summer, balloon: balloon)
-        XCTAssertTrue(summer[0].image === balloon)
-        XCTAssertEqual(summer.map(\.scale), [1, 4, 4], "one picture pixel is one world pixel; the droplets keep the grid scale")
-        for season in [PlazaSeason.spring, .autumn, .winter] {
-            XCTAssertFalse(PlazaSnowballArt.pieces(season, balloon: balloon).contains { $0.image === balloon }, "\(season)")
+        let art = PlazaSnowballArt.art(.summer, ball: balloon)
+        XCTAssertTrue(art.ball.image === balloon)
+        XCTAssertEqual(art.ball.scale, 1, "one picture pixel is one world pixel")
+        XCTAssertFalse(art.burst.contains { $0.image === balloon })
+        XCTAssertEqual(art.burst.map { $0.image.pixels.bytes }, PlazaSnowballArt.art(.summer).burst.map { $0.image.pixels.bytes })
+        XCTAssertEqual(PlazaResources.ballName(.summer), PlazaResources.waterBalloonName)
+    }
+
+    func testEachSeasonNamesItsOwnBallFile() async {
+        let names = PlazaSeason.allCases.map { PlazaResources.ballName($0) }
+        XCTAssertEqual(PlazaResources.ballName(.winter), "plaza-snowball")
+        XCTAssertEqual(PlazaResources.ballName(.spring), "plaza-petal-ball")
+        XCTAssertEqual(PlazaResources.ballName(.summer), "plaza-water-balloon")
+        XCTAssertEqual(PlazaResources.ballName(.autumn), "plaza-leaf-ball")
+        XCTAssertEqual(Set(names).count, 4)
+    }
+
+    /// 장면이 처음 보이는 계절은 여름이다. 팀이 다른 계절을 골라 둔 광장을 열어도(첫 라운드는 고른 적 없는 겨울)
+    /// 처음 던지는 공부터 그 계절 것이어야 한다. 파일이 없는 계절은 눈 격자 공이다.
+    func testEachSeasonThrowsItsBundledPictureOrItsGrid() async throws {
+        let s = scene()
+        s.refreshSnowDay()
+        s.update(0)
+        for (i, season) in [PlazaSeason.winter, .spring, .summer, .autumn].enumerated() {
+            if i > 0 {
+                s.seasonChoice = PlazaSeasonChoice(rawValue: season.rawValue) ?? .summer
+            }
+            XCTAssertEqual(s.shownSeason, season)
+            s.playSnowball(by: nil, shot: PlazaSnowballShot(from: map.spawn, direction: .up, end: .ground(TilePoint(x: map.spawn.x, y: map.spawn.y - 3)))) {}
+            let want = PlazaSnowballArt.art(season, ball: BundledArt.image(PlazaResources.ballName(season))).ball
+            XCTAssertEqual(s.snowballBallImages.last?.pixels.bytes, want.image.pixels.bytes, "\(season)")
+            XCTAssertEqual(s.snowballBallSizes.last, CGSize(width: CGFloat(want.image.width) * want.scale, height: CGFloat(want.image.height) * want.scale), "\(season)")
         }
     }
 

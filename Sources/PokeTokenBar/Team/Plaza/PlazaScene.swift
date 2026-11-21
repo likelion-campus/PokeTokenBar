@@ -292,6 +292,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     let snowballLayer: PlazaSnowballLayer
     var snowballFlightCount: Int { snowballLayer.flightCount }
     var snowballBallSizes: [CGSize] { snowballLayer.ballSizes }
+    var snowballBallImages: [PlazaImage] { snowballLayer.ballImages }
     var snowballNodeCount: Int { snowballLayer.nodeCount }
     var snowballSpriteCount: Int { snowballLayer.shownSpriteCount }
     var footprintCount: Int { footprintLayer.count }
@@ -432,7 +433,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         self.footprintLayer = PlazaFootprintLayer(worldHeight: map.pixelSize.height)
         self.snowballLayer = PlazaSnowballLayer(worldHeight: map.pixelSize.height)
         // 처음 보이는 계절(`shownSeason`)의 그림으로 시작한다. `refreshSnowDay`는 계절이 바뀔 때만 그림을 바꾼다.
-        snowballLayer.setArt(PlazaSnowballArt.pieces(.summer, balloon: PlazaScene.waterBalloon))
+        snowballLayer.setArt(PlazaSnowballArt.art(.summer, ball: PlazaScene.ballImages[.summer]))
         self.walker = PlazaWalker(tile: start)
         self.lastReported = (start, .down, false)
         self.nickname = nickname
@@ -2001,8 +2002,15 @@ struct PlazaSceneMember: Equatable, Sendable {
     /// 테스트용: 지금 그리는 지도 그림.
     var shownMapImage: PlazaImage { mapImage }
 
-    private static let waterBalloon = PlatformPlaza.graphics.assetURL(PlazaResources.waterBalloonName, ext: "png")
-        .flatMap { PlatformPlaza.graphics.decodeImage(at: $0) }
+    /// 계절마다 던지는 공 그림 파일. 프로세스당 한 번 읽고, 없는 계절은 눈 격자 공으로 던진다.
+    private static let ballImages: [PlazaSeason: PlazaImage] = {
+        var out: [PlazaSeason: PlazaImage] = [:]
+        for season in PlazaSeason.allCases {
+            if let image = PlatformPlaza.graphics.assetURL(PlazaResources.ballName(season), ext: "png")
+                .flatMap({ PlatformPlaza.graphics.decodeImage(at: $0) }) { out[season] = image }
+        }
+        return out
+    }()
 
     /// 계절과 보이는 모습을 맞춘다. `update`(달력을 따르는 계절은 날이 바뀌며 바뀐다)와 계절 변경, 컨트롤러가 부른다.
     func refreshSnowDay() {
@@ -2019,7 +2027,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         iceLayer?.setMapImage(image)
         if let grass { tallGrassLayer?.setArt(grass) }
         shownSeason = s
-        snowballLayer.setArt(PlazaSnowballArt.pieces(s, balloon: PlazaScene.waterBalloon))
+        snowballLayer.setArt(PlazaSnowballArt.art(s, ball: PlazaScene.ballImages[s]))
         if s != .winter { footprintLayer.removeAll() }
         refreshIce(hit: nil)
         onSeasonChange?(s)

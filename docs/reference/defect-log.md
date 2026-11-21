@@ -1879,6 +1879,19 @@ read_when:
   컨트롤을 한꺼번에 만들거나 다시 만드는 코드는 그리기를 끈 채 짓고 한 번 그린다. 페이지를 바꾸는 점검은 결과만 보지 말고 그 사이
   그린 횟수와 패스 수를 센다.
 
+- **여름 물풍선이 터질 때 풍선 그림이 흩어졌다 (광장 터짐, 2026-11-21, fix 2 of plaza season art).**
+  증상: 여름에 던진 물풍선이 터지면 풍선 그림(14×18) 하나가 조각 자리에 섞여 날았다. 직접원인: 터짐 조각의 glyph 표가
+  `[공, 조각, 조각]` 한 목록의 색인이었고, 여름은 그 목록의 0번을 물풍선 그림으로 바꿔 끼웠다 — 터짐의 glyph 0(0단계의 가운데 조각,
+  1단계의 바깥 조각)이 곧 풍선이 됐다. **왜 못 걸렀나:** 테스트가 조각들의 색 합집합과 터짐 기하(`burstPieces`)를 따로따로만 확인했고
+  "여름 터짐이 무엇을 그리는가"는 아무도 보지 않았다. 던지기 장면 캡처도 첫 공이 땅에 닿기 전(프레임 5·12·20)에서 끝나 터짐이 한 장도
+  없었다. **고침:** `PlazaSnowballArt.art` 가 `ball` 과 `burst`(항상 셋)를 따로 돌려주고 glyph 는 `burst` 만 가리킨다. **회귀 테스트:**
+  `testTheBurstNeverDrawsTheBallPicture`(공 그림을 일부러 넘겨 터짐 내내 레이어가 그린 그림을 보고, 한 번도 그 그림이 아니며 glyph 0 은
+  터짐 조각임을 확인), `testASeasonChangeMidBurstRedrawsWithTheNewPieces`(터지는 중 계절이 바뀌어도 새 조각으로). **결함 주입:**
+  `resizeBurst` 가 glyph 0 에서 공 텍스처를 쓰게 하면 `testTheBurstNeverDrawsTheBallPicture` 가 "a burst drew the ball picture" 와
+  "glyph 0 is a burst piece" 두 곳에서 실패, 되돌리면 통과. **스윕:** `grep -rnE "\[[0-9]\] = \(|textures\[0\]" Team/Plaza/` — 한
+  목록의 한 칸을 계절별로 바꿔 끼우는 다른 광장 레이어는 없다(옛 `PlazaSnowball.swift`·`PlazaSnowballLayer.swift` 의 세 곳만 걸렸고 모두
+  이 고침으로 사라짐). **규칙:** 한 목록을 "그림 목록"과 "색인표"로 동시에 쓰지 않는다 — 한 칸만 다르게 끼우고 싶으면 목록을 나눈다.
+
 ## 에너지 (상시 표시 애니메이션)
 
 - **절전용 정지 상태는 짝 알림 하나에만 복구를 맡기지 마라.** `screensDidSleep` 이 폴링 타이머를 끄고

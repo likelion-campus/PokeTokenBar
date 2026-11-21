@@ -29,9 +29,11 @@ struct PlazaSnowballFlight {
     private var flights: [Flight] = []
     private var pool: [PlazaSprite] = []
     private var created = 0
-    private var textures: [PlazaTexture] = []
-    /// 그림마다, 그림 한 픽셀의 월드 픽셀 수.
-    private var scales: [CGFloat] = []
+    private var ballTexture: PlazaTexture!
+    private var burstTextures: [PlazaTexture] = []
+    /// 공 그림과 터짐 조각마다, 그림 한 픽셀의 월드 픽셀 수.
+    private var ballScale: CGFloat = 1
+    private var burstScales: [CGFloat] = []
     private let shadowTexture: PlazaTexture
 
     private static func nearest(_ image: PlazaImage) -> PlazaTexture {
@@ -39,27 +41,40 @@ struct PlazaSnowballFlight {
     }
 
     /// 던지는 것과 터짐 그림을 바꾼다(계절이 바뀔 때). 이미 날고 있는 것은 다음 프레임부터 새 그림이다.
-    func setArt(_ pieces: [PlazaSnowballArt.Piece]) {
-        textures = pieces.map { Self.nearest($0.image) }
-        scales = pieces.map(\.scale)
-        for f in flights { f.ball.map { resize($0, glyph: 0) } }
+    func setArt(_ art: PlazaSnowballArt.Art) {
+        burstTextures = art.burst.map { Self.nearest($0.image) }
+        // 파일이 없는 계절의 공은 터짐 조각 0과 같은 그림이다. 텍스처를 하나 더 만들지 않는다.
+        ballTexture = art.ball.image === art.burst[0].image ? burstTextures[0] : Self.nearest(art.ball.image)
+        ballScale = art.ball.scale
+        burstScales = art.burst.map(\.scale)
+        for f in flights { f.ball.map { resizeBall($0) } }   // 터짐 조각은 다음 place가 제 glyph로 다시 맞춘다
     }
 
-    private func resize(_ node: PlazaSprite, glyph: Int) {
-        node.texture = textures[glyph]
-        node.size = CGSize(width: textures[glyph].pixelSize.width * scales[glyph], height: textures[glyph].pixelSize.height * scales[glyph])
+    private func resizeBall(_ node: PlazaSprite) {
+        node.texture = ballTexture
+        node.size = CGSize(width: ballTexture.pixelSize.width * ballScale, height: ballTexture.pixelSize.height * ballScale)
+    }
+
+    private func resizeBurst(_ node: PlazaSprite, glyph: Int) {
+        node.texture = burstTextures[glyph]
+        node.size = CGSize(width: burstTextures[glyph].pixelSize.width * burstScales[glyph],
+                           height: burstTextures[glyph].pixelSize.height * burstScales[glyph])
     }
 
     init(worldHeight: CGFloat) {
         self.worldHeight = worldHeight
         let nearest = Self.nearest
         shadowTexture = nearest(PlazaGroundShadow.image(width: Int(PlazaSnowball.shadowSize.width), height: Int(PlazaSnowball.shadowSize.height)))
-        setArt(PlazaSnowballArt.pieces())
+        setArt(PlazaSnowballArt.art())
     }
 
     var flightCount: Int { flights.count }
     /// 테스트용: 날고 있는 것들의 크기(월드 픽셀).
     var ballSizes: [CGSize] { flights.compactMap { $0.ball?.size } }
+    /// 테스트용: 날고 있는 공들이 지금 그리는 그림.
+    var ballImages: [PlazaImage] { flights.compactMap { $0.ball?.texture?.image } }
+    /// 테스트용: 지금 보이는 터짐 조각들이 그리는 그림.
+    var burstImages: [PlazaImage] { flights.flatMap { $0.pieces.filter { !$0.isHidden }.compactMap { $0.texture?.image } } }
     var nodeCount: Int { created }
     var shownSpriteCount: Int { root.children.filter { !$0.isHidden }.count }
 
@@ -67,8 +82,8 @@ struct PlazaSnowballFlight {
     func launch(_ flight: PlazaSnowballFlight, onLand: @escaping @MainActor () -> Void) -> Bool {
         guard flights.count < Self.maxFlights else { return false }
         var f = Flight(spec: flight, onLand: onLand)
-        f.ball = take(texture: textures[0], anchor: CGPoint(x: 0, y: 0))
-        f.ball.map { resize($0, glyph: 0) }
+        f.ball = take(texture: ballTexture, anchor: CGPoint(x: 0, y: 0))
+        f.ball.map { resizeBall($0) }
         f.shadow = take(texture: shadowTexture, anchor: CGPoint(x: 0, y: 0))
         f.shadow?.size = PlazaSnowball.shadowSize
         flights.append(f)
@@ -133,11 +148,11 @@ struct PlazaSnowballFlight {
         let z: CGFloat = air ? 21 : 1 + spec.end.y / worldHeight + 0.0003
         let pieces = PlazaSnowball.burstPieces(step: step, onGround: !air)
         while f.pieces.count < pieces.count {
-            f.pieces.append(take(texture: textures[0], anchor: CGPoint(x: 0, y: 0)))
+            f.pieces.append(take(texture: burstTextures[0], anchor: CGPoint(x: 0, y: 0)))
         }
         for (i, piece) in pieces.enumerated() {
             let node = f.pieces[i]
-            resize(node, glyph: piece.glyph)
+            resizeBurst(node, glyph: piece.glyph)
             // 왼쪽 아래 모서리를 월드 2픽셀(시트 한 픽셀)에 맞춘다. 가운데를 맞추면 6픽셀 조각이 홀수 픽셀에 앉는다.
             node.position = CGPoint(x: even(center.x + piece.offset.dx - node.size.width / 2),
                                     y: even(center.y + piece.offset.dy - node.size.height / 2))
