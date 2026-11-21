@@ -198,9 +198,10 @@ enum PlazaTree {
     static let leaves: [Int] = [3, 5, 8]
     static let leafScale: CGFloat = 3                              // 날씨 격자의 한 칸이 3 월드 픽셀: 나무의 픽셀과 같은 크기
     static let leafPop: ClosedRange<CGFloat> = 30...60             // 월드 픽셀/초, 맞은 쪽과 위로
-    static let leafGravity: CGFloat = 160                          // 월드 픽셀/초², 그 종류의 `PlazaWeather` 낙하 속도가 될 때까지
+    static let leafGravity: CGFloat = 160                          // 월드 픽셀/초², `leafFall` 이 될 때까지
+    static let leafFall: CGFloat = 75                              // 터진 뒤 잎이 떨어지는 속도(월드 픽셀/초). 날씨 입자(14~24)보다 빠르다: 잎이 눈에 띄게 쏟아지고 땅에 닿는다
     static let leafRest: TimeInterval = 0.3                        // 땅에서 흐려지며 쉰다
-    static let leafLife: TimeInterval = 2.4                        // 땅에 닿았든 아니든 이때는 없다
+    static let leafLife: TimeInterval = 3.2                        // 맨 위 잎이 땅에 닿아 `leafRest` 쉬고 흐려질 만큼. 이때는 모두 없다
     static let dustSpread: [CGFloat] = [10, 12, 14]                // 월드 픽셀, 0.35초 동안(`puffDust` 처럼)
     static let dustOffsetX: CGFloat = 26                           // 줄기 가운데에서 먼지 하나까지: 3배 그림에서 뿌리의 가장자리
     static let impactScale: [CGFloat] = [1.4, 1.6, 1.9]            // 별은 0.6에서 자란다(태클은 1.4)
@@ -337,7 +338,7 @@ struct PlazaTreeLeaves {
         }
     }
 
-    /// 시간을 흘린다(1/60초 이하로 나눠서). 쏘아 올림 → 중력 → 그 종류의 낙하 속도로 흔들리며 흘러내림 → 땅에서 쉼 → 사라짐.
+    /// 시간을 흘린다(1/60초 이하로 나눠서). 쏘아 올림 → 중력 → `leafFall` 로 떨어지며 그 종류의 흔들림·옆 쏠림(`PlazaWeather.motion`) → 땅에서 쉼 → 사라짐.
     mutating func advance(by dt: TimeInterval, kind: PlazaWeather.Kind) {
         let motion = PlazaWeather.motion(kind)
         var left = dt
@@ -348,7 +349,7 @@ struct PlazaTreeLeaves {
                 leaves[i].age += h
                 if leaves[i].restedAt != nil { continue }
                 let g = CGFloat(h)
-                leaves[i].vy = min(leaves[i].vy + PlazaTree.leafGravity * g, CGFloat(motion.fall))
+                leaves[i].vy = min(leaves[i].vy + PlazaTree.leafGravity * g, PlazaTree.leafFall)
                 let sway = CGFloat(motion.drift) + CGFloat(motion.sway) * CGFloat(cos(motion.swayRate * leaves[i].age + Double(leaves[i].phase)))
                 leaves[i].vx += (sway - leaves[i].vx) * min(1, 2 * g)
                 leaves[i].x += leaves[i].vx * g

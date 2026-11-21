@@ -279,7 +279,45 @@ import XCTest
                 XCTAssertLessThan(t, PlazaTree.leafLife + 1.0 / 60, "no leaf outlives leafLife")
             }
         }
-        XCTAssertTrue(field.leaves.isEmpty, "all gone by leafLife, landed or not")
+        XCTAssertTrue(field.leaves.isEmpty, "all gone by leafLife")
+    }
+
+    /// The hit must feel impactful: after the pop the leaves rain down faster than the weather and EVERY leaf of a burst lands, rests and fades
+    /// inside leafLife (none vanishes in the air), for every burst seed, every direction and every season's kind.
+    func testEveryLeafOfEveryBurstLandsBeforeItFades() async throws {
+        let (points, rect) = try canopyPoints()
+        XCTAssertTrue((60...90).contains(PlazaTree.leafFall), "faster than the weather's 14...24, as the user asked: 60...90")
+        XCTAssertGreaterThan(PlazaTree.leafFall, CGFloat(PlazaWeather.Kind.allCases.map { PlazaWeather.motion($0).fall }.max()!) * 2)
+        for kind in [PlazaWeather.Kind.greenLeaves, .leaves, .snow] {
+            var field = PlazaTreeLeaves(spawnPoints: points, baseY: rect.maxY)
+            var landed = 0, maxFall: CGFloat = 0, lastLanding = 0.0
+            for n in 0..<60 {
+                field.burst(count: PlazaTree.maxFallingLeaves, direction: PlazaDirection.allCases[n % 4], grids: [0, 1])
+                var t = 0.0
+                while !field.leaves.isEmpty {
+                    let before = field.leaves
+                    field.advance(by: 1.0 / 60, kind: kind)
+                    t += 1.0 / 60
+                    maxFall = max(maxFall, field.leaves.map(\.vy).max() ?? 0)
+                    var j = 0, goneLeaves: [PlazaTreeLeaf] = []   // survivors keep their order; a leaf is the same one by its seeded groundY and phase
+                    for b in before {
+                        if j < field.leaves.count, field.leaves[j].groundY == b.groundY, field.leaves[j].phase == b.phase { j += 1 } else { goneLeaves.append(b) }
+                    }
+                    for gone in goneLeaves {
+                        // it left the field in this step: it must have been resting, never airborne
+                        XCTAssertNotNil(gone.restedAt, "\(kind) burst \(n): a leaf vanished in the air at t=\(t)")
+                        landed += 1
+                        lastLanding = max(lastLanding, gone.restedAt ?? 0)
+                    }
+                    XCTAssertLessThan(t, PlazaTree.leafLife + 1.0 / 60, "\(kind) burst \(n)")
+                    if t > 10 { break }
+                }
+            }
+            XCTAssertEqual(landed, 60 * PlazaTree.maxFallingLeaves, "\(kind): every leaf of every burst landed")
+            XCTAssertLessThanOrEqual(lastLanding, PlazaTree.leafLife - PlazaTree.leafRest, "\(kind): the slowest leaf is down before the end-of-life fade")
+            XCTAssertGreaterThan(maxFall, PlazaTree.leafFall * 0.95, "\(kind): they really fall at leafFall")
+            XCTAssertLessThanOrEqual(maxFall, PlazaTree.leafFall + 1e-6)
+        }
     }
 
     /// The pine's low boughs drop a leaf to the ground inside leafLife: it lands on groundY, lies still, fades over leafRest and goes.
