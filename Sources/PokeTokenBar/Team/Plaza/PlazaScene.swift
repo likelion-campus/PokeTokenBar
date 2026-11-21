@@ -1505,8 +1505,7 @@ struct PlazaSceneMember: Equatable, Sendable {
                 switch shot.end {
                 case .actor(let id, let tile):
                     // 맞힌 자리에 더는 없으면(걸어서 피했다) 별 없이 공중에서 터지기만 한다.
-                    let standing = id.map { self.remotes[$0]?.motion.tile } ?? self.walker.tile
-                    if standing == tile { self.showImpact(on: id, direction: shot.direction) }
+                    if self.body(of: id)?.covers(tile) == true { self.showImpact(on: id, direction: shot.direction) }
                 case .ground(let tile): if self.isWaterNow(tile) { self.pondLayer?.splash(at: tile, big: false) }
                 }
             }

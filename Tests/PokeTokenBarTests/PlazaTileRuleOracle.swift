@@ -88,3 +88,44 @@ extension PlazaInteraction {
         target(me: PlazaBody(foot: from, size: 1), facing: facing, map: map, members: PlazaBody.ones(members))
     }
 }
+
+// MARK: - Snowball (verbatim at b93f25e2)
+
+enum LegacyPlazaSnowball {
+    static func aim(from: TilePoint, facing: PlazaDirection, targets: [String: TilePoint], map: PlazaMap) -> PlazaSnowballShot? {
+        var tile = from
+        var last: TilePoint?
+        for _ in 1...PlazaSnowball.range {
+            tile = PlazaWalker.offset(tile, facing)
+            if PlazaSnowball.blocksBall(tile, in: map) { break }
+            if let id = targets.filter({ $0.value == tile }).keys.min() {
+                return PlazaSnowballShot(from: from, direction: facing, end: .actor(id: id, tile: tile))
+            }
+            last = tile
+        }
+        guard let last else { return nil }
+        return PlazaSnowballShot(from: from, direction: facing, end: .ground(last))
+    }
+
+    static func hits(thrower: TilePoint, target: TilePoint, direction: PlazaDirection) -> Bool {
+        let dx = target.x - thrower.x, dy = target.y - thrower.y
+        let along: Int, across: Int
+        switch direction {
+        case .right: (along, across) = (dx, dy)
+        case .left: (along, across) = (-dx, dy)
+        case .down: (along, across) = (dy, dx)
+        case .up: (along, across) = (-dy, dx)
+        }
+        return across == 0 && (1...PlazaSnowball.reach).contains(along)
+    }
+}
+
+extension PlazaSnowball {
+    static func aim(from: TilePoint, facing: PlazaDirection, targets: [String: TilePoint], map: PlazaMap) -> PlazaSnowballShot? {
+        aim(from: from, facing: facing, bodies: PlazaBody.ones(targets), map: map)
+    }
+
+    static func hits(thrower: TilePoint, target: TilePoint, direction: PlazaDirection) -> Bool {
+        hitTile(thrower: thrower, target: PlazaBody(foot: target, size: 1), direction: direction) != nil
+    }
+}

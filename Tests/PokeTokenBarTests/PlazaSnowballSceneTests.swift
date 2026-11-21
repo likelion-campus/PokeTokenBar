@@ -121,6 +121,26 @@ final class PlazaSnowballSceneTests: XCTestCase {
         XCTAssertEqual(s.impactsShown, 0)
     }
 
+    func testAStarShowsWhenTheBallReachesABigBodyAboveItsFoot() async {
+        func star(_ size: Int) -> Int {
+            let s = scene()
+            addAll(s, [member("a", p(10, 12)), { var g = member("g", p(16, 13)); g.bodySize = size; return g }()])
+            s.update(0)
+            s.playSnowball(by: "a", shot: PlazaSnowballShot(from: p(10, 12), direction: .right, end: .actor(id: "g", tile: p(15, 12)))) {}
+            run(s, 0.9)
+            return s.impactsShown
+        }
+        XCTAssertEqual(star(3), 1)
+        XCTAssertEqual(star(1), 0)
+        let s = scene(start: p(16, 13))
+        addAll(s, [member("a", p(10, 12))])
+        s.myBodySize = 3
+        s.update(0)
+        s.playSnowball(by: "a", shot: PlazaSnowballShot(from: p(10, 12), direction: .right, end: .actor(id: nil, tile: p(15, 12)))) {}
+        run(s, 0.9)
+        XCTAssertEqual(s.impactsShown, 1)
+    }
+
     func testPausingMidFlightLandsEveryBallAtOnce() async {
         let s = scene()
         addAll(s, [member("a", p(10, 12))])

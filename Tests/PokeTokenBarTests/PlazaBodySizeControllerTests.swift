@@ -27,7 +27,8 @@ final class PlazaBodySizeControllerTests: XCTestCase {
     private var hub: FakeTransportHub!
     private var dirs: [URL] = []
     private var code: TeamCode!
-    private var now = Date(timeIntervalSince1970: 1_790_000_000)
+    /// A snow day (V throws only then).
+    private var now = PlazaWeather.gregorian.date(from: DateComponents(year: 2026, month: 11, day: 6, hour: 12))!
     private var t: TimeInterval = 0
     private let map = PlazaMapData.map
 
@@ -263,5 +264,44 @@ final class PlazaBodySizeControllerTests: XCTestCase {
         run(w.scene, 0.1)
         XCTAssertEqual(w.c.hint, hint)
         XCTAssertEqual(w.scene.walker.tile, p(17, 9))
+    }
+
+    // MARK: - Throws
+
+    func testVHitsABigTeammateOneRowOff() async {
+        let w = await world(me: p(12, 11), b: p(17, 12), bSize: 3, facing: .right)
+        press(w, 9)   // V
+        await settle()
+        XCTAssertEqual(w.b.received.emotes.filter { $0.kind == .snowball }.first?.targetMemberID, w.b.id)
+        XCTAssertEqual(w.c.activity.snowballHits, 0, "still in the air")
+        run(w.scene, 1)
+        XCTAssertEqual(w.c.activity.snowballHits, 1)
+
+        let s = await world(me: p(12, 11), b: p(17, 12), facing: .right)
+        press(s, 9)
+        await settle()
+        let sent = s.b.received.emotes.filter { $0.kind == .snowball }
+        XCTAssertEqual(sent.count, 1)
+        XCTAssertNil(sent.first?.targetMemberID)
+    }
+
+    func testABallOneRowOffHitsMyBigBodyUnlessItLeavesTheEndTile() async {
+        let w = await world(me: p(17, 12), species: 130, b: p(12, 11))
+        XCTAssertEqual(w.c.myBodySize, 3, "test precondition")
+        w.c.showSnowball(from: w.b.id, on: w.me.id, tiles: 1, direction: .right)
+        run(w.scene, 1.2)
+        XCTAssertEqual(w.scene.walker.tile, p(18, 12))
+
+        let away = await world(me: p(17, 12), species: 130, b: p(12, 11))
+        away.c.showSnowball(from: away.b.id, on: away.me.id, tiles: 1, direction: .right)
+        away.scene.pushMe(.right)
+        run(away.scene, 1.2)
+        XCTAssertEqual(away.scene.walker.tile, p(18, 12), "my body no longer covers the end tile (16,11)")
+
+        let stay = await world(me: p(17, 12), species: 130, b: p(12, 11))
+        stay.c.showSnowball(from: stay.b.id, on: stay.me.id, tiles: 1, direction: .right)
+        stay.scene.pushMe(.left)
+        run(stay.scene, 1.2)
+        XCTAssertEqual(stay.scene.walker.tile, p(17, 12), "still covers (16,11), so the ball pushes me back")
     }
 }

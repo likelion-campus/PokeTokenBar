@@ -1177,7 +1177,7 @@ import Observation
     private func handleSnowballKey() {
         guard let scene, !isFocusing, scene.canWalk, !scene.isMeInWater else { return }
         let facing = scene.walker.facing
-        guard let shot = PlazaSnowball.aim(from: scene.walker.tile, facing: facing, targets: scene.snowballTargets, map: map) else { return }
+        guard let shot = PlazaSnowball.aim(from: scene.walker.tile, facing: facing, bodies: scene.bodies(scene.snowballTargets), map: map) else { return }
         let now = clock()
         if let last = lastEmoteAt, now.timeIntervalSince(last) < Self.emoteInterval { return }
         lastEmoteAt = now
@@ -1189,11 +1189,9 @@ import Observation
         scene.playSnowball(by: nil, shot: shot) { [weak self] in
             guard let self else { return }
             // 닿을 때 겨눈 칸에 그 팀원(또는 메타몽)이 아직 있어야 맞힌 것이다. 비켜섰으면 빗나간 것이다.
-            if let target, (target == PlazaDitto.sceneKey ? self.scene?.dittoTile : self.scene?.memberTiles[target]) == shot.endTile {
-                self.record(.snowballHit)
-            }
+            if let target, self.scene?.body(of: target)?.covers(shot.endTile) == true { self.record(.snowballHit) }
             // 복사본이 닿기 전에 비켜섰으면 빗나간 것이다.
-            guard target == PlazaDitto.sceneKey, self.scene?.dittoTile == shot.endTile else { return }
+            guard target == PlazaDitto.sceneKey, self.scene?.body(of: PlazaDitto.sceneKey)?.covers(shot.endTile) == true else { return }
             if let copied {
                 // 복사본은 닿는 순간 정체를 드러낸다. 몸통박치기와 같이 따라 한 팀원을 알려 모두가 같은 복사본을 찾았다고 안다.
                 guard self.shownDitto?.decoyOf == copied else { return }
@@ -1212,34 +1210,36 @@ import Observation
         guard let scene, let direction, let from = scene.memberTiles[sender] else { return }
         let isMe = target == memberID()
         let isDitto = target == PlazaDitto.sceneKey
-        let resolved: (id: String?, tile: TilePoint)?
+        let resolved: (id: String?, body: PlazaBody)?
         if isMe {
-            resolved = scene.isDiving ? nil : (nil, scene.walker.tile)
+            resolved = scene.isDiving ? nil : (nil, scene.myBody)
         } else if isDitto {
-            resolved = scene.dittoTile.map { (PlazaDitto.sceneKey, $0) }
-        } else if let target, let tile = scene.memberTiles[target], scene.memberIsDiving(target) != true {
-            resolved = (target, tile)
+            resolved = scene.body(of: PlazaDitto.sceneKey).map { (PlazaDitto.sceneKey, $0) }
+        } else if let target, let body = scene.body(of: target), scene.memberIsDiving(target) != true {
+            resolved = (target, body)
         } else {
             resolved = nil
         }
+        // 몸에 맞으면 던진 쪽 `aim`이 끝낸 칸에서 끝난다. 아니면 예전처럼 그 팀원의 발 칸까지 날아가 빗나간다.
+        let entry = resolved.flatMap { PlazaSnowball.hitTile(thrower: from, target: $0.body, direction: direction) }
         let shot: PlazaSnowballShot
         if let resolved {
-            shot = PlazaSnowballShot(from: from, direction: direction, end: .actor(id: resolved.id, tile: resolved.tile))
-        } else if let miss = PlazaSnowball.aim(from: from, facing: direction, targets: [:], map: map) {
+            shot = PlazaSnowballShot(from: from, direction: direction, end: .actor(id: resolved.id, tile: entry ?? resolved.body.foot))
+        } else if let miss = PlazaSnowball.aim(from: from, facing: direction, bodies: [:], map: map) {
             shot = miss
         } else {
             return
         }
-        let hit = resolved.map { PlazaSnowball.hits(thrower: from, target: $0.tile, direction: direction) } ?? false
+        let hit = entry != nil
         let pushed = TeamEmote.pushTiles(tiles)
         scene.playSnowball(by: sender, shot: shot) { [weak self] in
             guard let self, hit else { return }
             // 닿을 때 겨눈 칸에 더는 없으면 빗나간 것이다(걸어서 피했다).
             if isMe {
-                guard self.scene?.walker.tile == shot.endTile else { return }
+                guard self.scene?.myBody.covers(shot.endTile) == true else { return }
                 if self.myMimic != nil { self.revealMe(by: sender) }
                 else if self.canBePushed { self.scene?.pushMe(direction, tiles: pushed) }
-            } else if isDitto, self.shownDitto?.isDecoy == false, self.scene?.dittoTile == shot.endTile {
+            } else if isDitto, self.shownDitto?.isDecoy == false, self.scene?.body(of: PlazaDitto.sceneKey)?.covers(shot.endTile) == true {
                 self.dittoFormTackled(by: sender)
             }
         }

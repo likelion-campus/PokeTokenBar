@@ -121,4 +121,92 @@ final class PlazaSnowballTests: XCTestCase {
         XCTAssertEqual(PlazaSnowballArt.shaded(["WW", "WS"]), ["WWo", "WSo", "oo."])
         XCTAssertEqual(PlazaSnowballArt.shaded(["W"]), ["Wo", "o."])
     }
+
+    // MARK: - Body size (PR 2)
+
+    private func body(_ x: Int, _ y: Int, _ c: Int) -> PlazaBody { PlazaBody(foot: p(x, y), size: c) }
+
+    func testEveryThrowIsUnchangedWhenEveryoneIsClassOne() {
+        var rng = PlazaSplitMix64(seed: 0x5B0A)
+        func r(_ n: Int) -> Int { Int(rng.next() % UInt64(n)) }
+        let dirs: [PlazaDirection] = [.up, .down, .left, .right]
+        for _ in 0..<20_000 {
+            var from = p(r(map.width), r(map.height))
+            while !map.isWalkable(from) { from = p(r(map.width), r(map.height)) }
+            let facing = dirs[r(4)]
+            var targets: [String: TilePoint] = [:]
+            for id in ["a", "b", "c", "d", "e"].prefix(r(5)) {
+                let ahead = r(13), off = r(3) - 1
+                var t = from
+                for _ in 0..<ahead { t = PlazaWalker.offset(t, facing) }
+                switch facing { case .left, .right: t.y += off; case .up, .down: t.x += off }
+                targets[id] = t
+            }
+            XCTAssertEqual(PlazaSnowball.aim(from: from, facing: facing, bodies: PlazaBody.ones(targets), map: map),
+                           LegacyPlazaSnowball.aim(from: from, facing: facing, targets: targets, map: map))
+            let thrower = p(20 + r(27) - 13, 20 + r(27) - 13), target = p(20 + r(27) - 13, 20 + r(27) - 13)
+            for d in dirs {
+                let hit = PlazaSnowball.hitTile(thrower: thrower, target: PlazaBody(foot: target, size: 1), direction: d)
+                XCTAssertEqual(hit != nil, LegacyPlazaSnowball.hits(thrower: thrower, target: target, direction: d))
+                if let hit { XCTAssertEqual(hit, target) }
+            }
+            // The same row/column as the target: the interesting case the random pair rarely lands on.
+            let inLine = p(target.x - 5, target.y)
+            XCTAssertEqual(PlazaSnowball.hitTile(thrower: inLine, target: PlazaBody(foot: target, size: 1), direction: .right) != nil,
+                           LegacyPlazaSnowball.hits(thrower: inLine, target: target, direction: .right))
+        }
+    }
+
+    func testABigBodyOneRowOffTheLineIsHitAndASmallOneIsMissed() {
+        let from = p(10, 12)
+        let g3 = PlazaSnowball.aim(from: from, facing: .right, bodies: ["g": body(16, 13, 3)], map: map)
+        XCTAssertEqual(g3?.end, .actor(id: "g", tile: p(15, 12)))
+        XCTAssertEqual(g3?.frames, 5)
+        XCTAssertEqual(PlazaSnowball.aim(from: from, facing: .right, bodies: ["g": body(16, 13, 2)], map: map)?.end, .actor(id: "g", tile: p(15, 12)))
+        XCTAssertEqual(PlazaSnowball.aim(from: from, facing: .right, bodies: ["g": body(16, 11, 2)], map: map)?.end, .ground(p(20, 12)),
+                       "the line runs below its foot")
+        XCTAssertEqual(PlazaSnowball.aim(from: from, facing: .right, bodies: ["g": body(16, 13, 1)], map: map)?.end, .ground(p(20, 12)))
+        XCTAssertEqual(PlazaSnowball.hitTile(thrower: from, target: body(16, 13, 3), direction: .right), p(15, 12))
+        XCTAssertNil(PlazaSnowball.hitTile(thrower: from, target: body(16, 13, 1), direction: .right))
+    }
+
+    func testAColumnThrowHitsABigBodyBesideTheColumn() {
+        let from = p(10, 16)
+        let shot = PlazaSnowball.aim(from: from, facing: .up, bodies: ["g": body(11, 9, 3)], map: map)
+        XCTAssertEqual(shot?.end, .actor(id: "g", tile: p(10, 9)))
+        XCTAssertEqual(shot?.frames, 7)
+        XCTAssertEqual(PlazaSnowball.hitTile(thrower: from, target: body(11, 9, 3), direction: .up), p(10, 9))
+        XCTAssertEqual(PlazaSnowball.aim(from: from, facing: .up, bodies: ["g": body(11, 9, 1)], map: map)?.end, .ground(p(10, 6)))
+    }
+
+    func testTheReceiverFindsTheNearestBodyColumnWithinEleven() {
+        let g = body(16, 13, 3)
+        XCTAssertEqual(PlazaSnowball.hitTile(thrower: p(4, 12), target: g, direction: .right), p(15, 12))
+        XCTAssertNil(PlazaSnowball.hitTile(thrower: p(3, 12), target: g, direction: .right))
+        XCTAssertEqual(PlazaSnowball.hitTile(thrower: p(16, 12), target: g, direction: .right), p(17, 12))
+        XCTAssertEqual(PlazaSnowball.aim(from: p(16, 12), facing: .right, bodies: ["g": g], map: map)?.end, .actor(id: "g", tile: p(17, 12)))
+    }
+
+    func testTheReceiverAgreesWithTheThrowersAim() throws {
+        let open = try PlazaMap(rows: ["NS" + String(repeating: ".", count: 38)] + Array(repeating: String(repeating: ".", count: 40), count: 29))
+        var rng = PlazaSplitMix64(seed: 0xA61E)
+        func r(_ n: Int) -> Int { Int(rng.next() % UInt64(n)) }
+        let dirs: [PlazaDirection] = [.up, .down, .left, .right]
+        var hits = 0
+        for _ in 0..<10_000 {
+            let from = p(14 + r(12), 12 + r(6))
+            let facing = dirs[r(4)]
+            let target = PlazaBody(foot: p(from.x + r(25) - 12, from.y + r(25) - 12), size: r(3) + 1)
+            let shot = PlazaSnowball.aim(from: from, facing: facing, bodies: ["t": target], map: open)
+            let entry = PlazaSnowball.hitTile(thrower: from, target: target, direction: facing)
+            if case .actor(_, let tile)? = shot?.end {
+                hits += 1
+                XCTAssertEqual(entry, tile)
+            }
+            if let entry, abs(entry.x - from.x) + abs(entry.y - from.y) <= PlazaSnowball.range {
+                XCTAssertEqual(shot?.end, .actor(id: "t", tile: entry))
+            }
+        }
+        XCTAssertGreaterThan(hits, 200, "the layouts must actually hit")
+    }
 }
