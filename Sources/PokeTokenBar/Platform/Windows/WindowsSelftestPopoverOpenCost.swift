@@ -304,7 +304,11 @@ private func winPaintSpyQueued(_ code: Int32, _ wParam: WPARAM, _ lParam: LPARAM
         let lines = log.components(separatedBy: "\n").filter { $0.contains("popover page Settings") }.count
 
         let state = "state: team joined with a nickname, companion hatched with \(snapshots) snapshots, no usage, no session key, Korean"
-        let settingsBad = settings.violations(maxFrames: 4, maxLayoutsOnScreen: 1, maxMs: 3000, maxStepMs: 500)
+        // The same build (164 windows, 28 paints, 45 erases) measured 3, 4 and 5 frames on runners of different speed, so the
+        // frame count alone cannot hold the page at its size: the window count does that exactly, and the frames keep one of slack.
+        let settingsWindows = 164
+        let settingsBad = settings.violations(maxFrames: 5, maxLayoutsOnScreen: 1, maxMs: 3000, maxStepMs: 500)
+            + ((settings.report?.windows ?? 0) > settingsWindows ? ["\(settings.report?.windows ?? 0) windows made (budget \(settingsWindows))"] : [])
             + (leaked ? ["the fixture team code is in the log"] : []) + (lines == 0 ? ["no 'popover page Settings' line in the log"] : [])
         r.add("settings.openCost", settingsBad.isEmpty,
               "\(state); \(settings.summary); for comparison \(homeOpen.summary); \(direct.summary); log lines for Settings \(lines), team code in the log=\(leaked)"
