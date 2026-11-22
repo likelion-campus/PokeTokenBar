@@ -180,8 +180,10 @@ struct PlazaSceneMember: Equatable, Sendable {
     let treeTiles: Set<TilePoint>
     /// 나무마다의 'B' 칸(`PlazaTree.runs`의 순서). `treeLayers[i]` 가 `treeRuns[i]` 의 나무를 그린다(층이 없는 장면은 `treeLayers` 가 비어 있다).
     let treeRuns: [Set<TilePoint>]
-    /// 나무마다 층 하나: 노드 풀(서른두 장)도 나무마다 따로라 한 나무를 흔들어도 다른 나무는 가만히 있다. 장면을 만들 때 모두 만들고 늘지 않는다.
+    /// 나무마다 층 하나: 노드 풀(뿌리 셋과 서른한 장)도 나무마다 따로라 한 나무를 흔들어도 다른 나무는 가만히 있다. 장면을 만들 때 모두 만들고 늘지 않는다.
     private(set) var treeLayers: [PlazaTreeLayer] = []
+    /// 모든 나무 잎 아래 칸(`PlazaTree.coveredTiles(in:)`): 떨어지는 칸을 고를 때마다 지도를 훑지 않게 한 번 구해 둔다.
+    private let treeCovered: Set<TilePoint>
     /// 첫 나무(테스트용).
     var treeLayer: PlazaTreeLayer? { treeLayers.first }
     /// 나무마다, 아이템이 거두어질 때 반짝일 쪽(안쪽 nil = 나, 바깥 nil = 나는 것 없음).
@@ -476,6 +478,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         self.campfireNode = Self.makeCampfireNode(map: map)
         self.treeTiles = PlazaTree.tiles(in: map)
         self.treeRuns = PlazaTree.runs(in: map)
+        self.treeCovered = PlazaTree.coveredTiles(in: map)
         self.stage = stage
         self.tweens = PlazaTweens(root: stage.root)
         stage.delegate = self
@@ -509,6 +512,7 @@ struct PlazaSceneMember: Equatable, Sendable {
                 let layer = PlazaTreeLayer(map: map, run: run, images: Self.treeImages, worldHeight: map.pixelSize.height)
                 root.addChild(layer.root)
                 root.addChild(layer.fxRoot)
+                root.addChild(layer.groundRoot)
                 treeLayers.append(layer)
             }
             treeDropFor = Array(repeating: .none, count: treeLayers.count)
@@ -1606,11 +1610,19 @@ struct PlazaSceneMember: Equatable, Sendable {
         actor.treeLunge(toward: direction, level: level)
         let foot = tackler.flatMap { remotes[$0]?.motion.footPoint } ?? walker.footPoint
         if treeLayers.indices.contains(tree) {
-            let hitter = body(of: tackler)?.foot ?? walker.tile
-            let landing = PlazaTree.footPoint(of: PlazaTree.landingTile(run: treeRuns[tree], hitter: hitter, direction: direction, map: map))
-            // 새 아이템을 받아들였을 때만 그 반짝임의 주인을 바꾼다(나는 아이템이 있으면 그것이 먼저다).
+            // 떨어질 자리는 드랍이 있을 때만 고른다(그 몸의 칸을 피한다).
+            var landing = foot
+            if drop != nil {
+                let hitter = body(of: tackler) ?? PlazaBody(foot: walker.tile, size: 1)
+                landing = PlazaTree.footPoint(of: PlazaTree.landingTile(run: treeRuns[tree], hitter: hitter.foot, size: hitter.size, direction: direction,
+                                                                      map: map, covered: treeCovered))
+            }
+            // 내 드랍은 날고 있는 팀원의 아이템을 갈아 끼운다(내 민트가 내 화면에서 팀원에게 가면 안 된다). 팀원의 드랍은 누구의 것도 갈아 끼우지 않는다.
+            var mine = false
+            if case .some(.none) = treeDropFor[tree] { mine = true }
+            // 새 아이템을 받아들였을 때만 그 반짝임의 주인을 바꾼다(내 아이템이 날고 있으면 그것이 먼저다).
             if treeLayers[tree].hit(direction: direction, level: level, tacklerFoot: foot, tacklerHeight: actor.characterSize.height,
-                                    drop: drop, landing: landing) {
+                                    drop: drop, landing: landing, replacing: tackler == nil && !mine) {
                 treeDropFor[tree] = .some(tackler)
             }
         }

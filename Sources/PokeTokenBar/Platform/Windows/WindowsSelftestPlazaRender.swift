@@ -6,7 +6,7 @@ import Foundation
 /// `plaza.renderCost` fails when the main thread's scene update + flatten + command building takes more than D19's 4 ms per
 /// frame (median); recording + EndDraw and WARP's raster time are reported, not judged. The teammates' pictures are a
 /// FIXTURE (a plain block of bytes standing in for a sprite: the cost does not depend on what the texels show).
-/// `plaza.renderCostTree` is the same busy case at the big tree with it shaking: a hit from me (levels 1 to 3, the third dropping a
+/// `plaza.renderCostTree` is the same busy case at the big tree with it shaking: a hit from me (levels 1 to 3, the level 3 one dropping a
 /// mint) and one from a teammate at (15,10) every 20 frames, so the leaves, dust, star and falling item are all in play.
 /// Runs after the idle window: it loads Direct3D and WARP's worker threads.
 extension WindowsSelftest {
@@ -51,7 +51,7 @@ extension WindowsSelftest {
             PlazaSceneMember(memberID: "c", nickname: "Brock", isAway: false, tile: TilePoint(x: 35, y: 21), facing: .up, isWalking: false),
         ].enumerated().map { i, m in var m = m; m.isFlushed = i == 0; return m }
         await shoot(r, device: device, name: "plaza.shotSpring", file: "plaza-hot-spring.png", me: TilePoint(x: 35, y: 17), members: shotMembers) { _, _ in }
-        // The big tree at the moment of my third hit of the day (the one that drops a mint), 18 frames (0.3 s) after the hit starts:
+        // The big tree at the moment of the hit that drops a mint (a tree's fifth of the day), 18 frames (0.3 s) after the hit starts:
         // the leaves burst at 0.2 s (contact 0.1 s plus the 0.1 s hit stop), so the bend, the leaves and the star all show;
         // teammates stand beside and behind it.
         let shotTreeMembers: [PlazaSceneMember] = [

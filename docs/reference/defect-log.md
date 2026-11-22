@@ -3441,7 +3441,7 @@ read_when:
 - **Class rule:** a plaza change that adds a node, a panel or a default node property must (1) run `swift test --filter "Plaza|Team|SpriteKit|Mirror"` plus the guard suites, and (2) grep `Tests/PokeTokenBarTests/Windows*.swift` and `Platform/Windows` for the pinned lists it touches (`zOrder`, `drawList.count`, panel ID lists) before pushing. Prefer mounting optional nodes on demand over growing every actor.
 
 ## 큰 나무의 하루 횟수가 시계를 앞으로 돌리면 잠기고, 받은 `treeDrop` 을 그대로 그렸다 (v2.5.637 감사, 2026-11-22)
-- **증상:** ① `PlazaTreeDay.hit(on:)` 은 `today > day` 일 때만 처음부터 셌다. 시계를 한 번 앞으로 돌리거나(시간대를 건넌 경우도 같다) 그 날 한 번만 쳐도 저장된 날이 미래가 돼서, 진짜 날이 그 날짜에 닿을 때까지 민트가 나오지 않았다. ② 팀원이 고친 앱으로 `treeDrop` 에 이로치 부적·이상한 사탕을 보내면 모든 화면에 그 아이템이 떨어지는 그림이 그려지고, 나무의 아이템 자리(하나뿐)가 한동안 차 있어 진짜 드랍이 그려지지 못했다.
+- **증상:** ① `PlazaTreeDay.hit(on:)` 은 `today > day` 일 때만 처음부터 셌다. 시계를 한 번 앞으로 돌리거나(시간대를 건넌 경우도 같다) 그 날 한 번 치면 저장된 날이 미래가 되고, 그 뒤로는 그 미래 날짜에 이어 셌다. 그 날 아직 못 받았으면 민트가 한 번은 나왔지만, 한 번 나온 뒤에는 진짜 날이 그 날짜에 닿을 때까지 민트가 다시 나오지 않았다. ② 팀원이 고친 앱으로 `treeDrop` 에 이로치 부적·이상한 사탕을 보내면 모든 화면에 그 아이템이 떨어지는 그림이 그려지고, 나무의 아이템 자리(하나뿐)가 한동안 차 있어 진짜 드랍이 그려지지 못했다.
 - **직접 원인:** ① 날 키를 순서로 비교했다(되감긴 시계 부류의 방어를 "키는 사전순으로 시간 순서다" 라는 가정으로 만들었다). ② `showTreeShake` 가 디코드된 `ItemKind` 를 그대로 `playTreeHit` 에 넘겼다(디코드는 알려진 종류만 거르지, 그 종류가 이 상황에 맞는지는 보지 않는다).
 - **왜 못 걸렀나:** ① 테스트가 되감기(`testAClockSetBackGivesNoSecondMint`)만 만들고 앞으로 돌린 시계는 만들지 않았다: 방어의 한쪽 방향만 검증해서 반대 방향의 잠김을 못 봤다. 음력처럼 사전순이 시간순이 아닌 키도 시험하지 않았다. ② 적대 피어 테스트(`testAbsurdTreeShakesBecomeHarmless`)는 디코드 단계(모르는 종류는 nil, 단계는 범위 안)만 봤고 "알려진 종류지만 이 자리에 올 수 없는 값" 이 화면에 닿는 길은 보지 않았다.
 - **고침:** ① 키가 **다르면**(앞이든 뒤든) 처음부터 센다. 키의 앞뒤를 보지 않는다(시계를 바꿔 다시 받을 수 있는 것은 알고 받아들였다: 광장의 다른 하루 기록과 같다). ② 받은 드랍은 `PlazaTree.dropItem` 이고 단계가 맨 위일 때만 그린다. 아니면 흔들림만 그린다.

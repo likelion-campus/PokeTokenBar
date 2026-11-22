@@ -65,7 +65,7 @@ import XCTest
         XCTAssertEqual(union, try XCTUnwrap(PlazaTree.artRect(of: PlazaTree.runs(in: map)[0])))
         XCTAssertEqual(layer.bandWorldRects.map(\.height), [30, 30, 30, 54])
         XCTAssertEqual(s.treeLayers.count, 2, "one layer per tree")
-        XCTAssertEqual(s.treeNodeCount, 64, "per tree: two roots, four bands, twenty leaves, two dust puffs, the star, the item and two landing puffs")
+        XCTAssertEqual(s.treeNodeCount, 68, "per tree: two roots, four bands, twenty leaves, two dust puffs, the star, the item and two landing puffs")
     }
 
     func testTeammatesInFrontAndBehind() async throws {
@@ -215,7 +215,7 @@ import XCTest
     func testThePoolIsMadeOnceAndNeverGrows() async throws {
         let s = hitScene()
         let layer = try XCTUnwrap(s.treeLayer)
-        XCTAssertEqual(s.treeNodeCount, 64, "2 trees x (2 roots + 30 sprites), from the first frame")
+        XCTAssertEqual(s.treeNodeCount, 68, "2 trees x (2 roots + 30 sprites), from the first frame")
         XCTAssertTrue(s.root.children.contains { $0 === layer.root } && s.root.children.contains { $0 === layer.fxRoot })
         var t = run(s, from: 1.0 / 60, seconds: 0.2)
         let others = s.root.children.count
@@ -223,10 +223,10 @@ import XCTest
             s.playTreeHit(by: i % 3 == 0 ? nil : ["a", "b", "c", "d"][i % 4], direction: PlazaDirection.allCases[i % 4], level: i % 3 + 1,
                           drop: i % 5 == 0 ? .mint : nil)
             if i % 20 == 0 { t = run(s, from: t, seconds: 0.05) }
-            XCTAssertEqual(s.treeNodeCount, 64)
+            XCTAssertEqual(s.treeNodeCount, 68)
         }
         t = run(s, from: t, seconds: 10)   // the sparkles and the star are gone, the pool is the same
-        XCTAssertEqual(s.treeNodeCount, 64)
+        XCTAssertEqual(s.treeNodeCount, 68)
         XCTAssertEqual(s.root.children.count, others, "no other node of the scene grew either")
         XCTAssertFalse(s.isTreeBusy)
     }
@@ -417,6 +417,105 @@ import XCTest
             XCTAssertTrue(seen.contains { abs($0.x - resting.x) < 0.6 && abs($0.y - resting.y) < 0.6 }, "\(other): my mint kept resting where it fell")
             XCTAssertNil(s.treeItemPosition)
         }
+    }
+
+    /// My own drop is never hidden by a teammate's mint in flight on the same tree: it replaces it and the sparkle lands on me. A teammate's drop
+    /// replaces nobody's (not mine, not another teammate's), so a peer repeating level-3 mint shakes cannot hide my mint.
+    func testMyDropReplacesATeammatesFlightButNoTeammateReplacesAnother() async throws {
+        let mineFoot = hitScene().walker.footPoint
+        let theirs = PlazaTree.footPoint(of: p(19, 10)), other = PlazaTree.footPoint(of: p(15, 10))
+        // teammate b's mint, then mine 0.5 s later
+        let s = hitScene()
+        s.playTreeHit(by: "b", direction: .left, level: 3, drop: .mint)
+        var t = run(s, from: 1.0 / 60, seconds: 0.5)
+        XCTAssertNotNil(s.treeItemPosition, "test precondition: b's mint is out")
+        s.playTreeHit(by: nil, direction: .up, level: 3, drop: .mint)
+        var seen: [CGPoint] = [], sparkles: [Int] = [], previous = 0
+        run(s, from: t, seconds: 2.4) { _ in
+            if let q = s.treeItemPosition { seen.append(q) }
+            if s.sparkleCount > previous { sparkles.append(seen.count) }
+            previous = s.sparkleCount
+        }
+        let last = try XCTUnwrap(seen.last)
+        XCTAssertLessThan(abs(last.x - mineFoot.x), 12, "the mint on screen goes to me: \(last) vs \(mineFoot), not b's \(theirs)")
+        XCTAssertEqual(sparkles.count, 1, "one sparkle, on me")
+        // a teammate's drop never replaces mine, however often it repeats
+        let s2 = hitScene()
+        s2.playTreeHit(by: nil, direction: .up, level: 3, drop: .mint)
+        t = run(s2, from: 1.0 / 60, seconds: 0.5)
+        for _ in 0..<20 { s2.playTreeHit(by: "b", direction: .left, level: 3, drop: .mint); t = run(s2, from: t, seconds: 0.05) }
+        seen = []
+        run(s2, from: t, seconds: 2.4) { _ in if let q = s2.treeItemPosition { seen.append(q) } }
+        XCTAssertLessThan(abs(try XCTUnwrap(seen.last).x - mineFoot.x), 12, "mine keeps flying to me")
+        // and a teammate's drop does not replace another teammate's
+        let s3 = hitScene()
+        s3.playTreeHit(by: "a", direction: .right, level: 3, drop: .mint)
+        t = run(s3, from: 1.0 / 60, seconds: 0.5)
+        s3.playTreeHit(by: "b", direction: .left, level: 3, drop: .mint)
+        seen = []
+        run(s3, from: t, seconds: 2.4) { _ in if let q = s3.treeItemPosition { seen.append(q) } }
+        XCTAssertLessThan(abs(try XCTUnwrap(seen.last).x - other.x), 12, "a's mint keeps flying to a, not b")
+    }
+
+    /// The hop to the hitter is drawn even when the hitter has walked far outside the tree's cull rect, and nothing is left hanging afterwards.
+    func testTheHopIsDrawnWhenTheHitterLeavesTheTreesRect() async throws {
+        let s = hitScene()
+        s.zoom = 3
+        let art = try XCTUnwrap(PlazaTree.artRect(of: PlazaTree.runs(in: map)[0])).insetBy(dx: -PlazaTree.cullMargin, dy: -PlazaTree.cullMargin)
+        s.playTreeHit(by: nil, direction: .up, level: 3, drop: .mint)
+        var t = run(s, from: 1.0 / 60, seconds: 0.3)
+        s.handleKeyDown(keyCode: 125, characters: nil, isRepeat: false)   // down
+        var left = false, drawnWhileAway: [CGPoint] = [], sparkled = 0
+        run(s, from: t, seconds: 1.8) { dt in
+            if dt > 1.0, !s.visibleWorldRect.intersects(art) {
+                left = true
+                if let q = s.treeItemPosition { drawnWhileAway.append(q) }
+            }
+            if s.sparkleCount > 0 { sparkled += 1 }
+        }
+        s.handleKeyUp(keyCode: 125)
+        XCTAssertTrue(left, "test precondition: the view no longer touches the tree's rect")
+        XCTAssertFalse(drawnWhileAway.isEmpty, "the item is still drawn while the tree is out of view")
+        t = run(s, from: 3, seconds: 1)
+        XCTAssertNil(s.treeItemPosition, "nothing hangs mid-air once it is collected")
+        XCTAssertEqual(s.treeLayers[0].shownLandDustCount, 0)
+        XCTAssertGreaterThan(sparkled, 0)
+    }
+
+    /// The landing puffs and the resting mint stand at the landing tile's foot depth in their own root, under the daylight multiply and the name
+    /// tags, so they are tinted like the trunk dust; the puffs hide with the background, the mint stays. (Photos carry the bands and the leaves only,
+    /// never the dust, the star or the falling mint, so the photo is left alone.)
+    func testTheRestingMintAndLandingDustSitAtTheLandingsDepth() async throws {
+        let s = hitScene()
+        let layer = try XCTUnwrap(s.treeLayer)
+        let landing = PlazaTree.footPoint(of: p(19, 11)), z = 1 + landing.y / map.pixelSize.height
+        XCTAssertTrue(s.root.children.contains { $0 === layer.groundRoot })
+        s.playTreeHit(by: nil, direction: .up, level: 3, drop: .mint)
+        var sawHop = false, sawRest = false, sawDust = false
+        run(s, from: 1.0 / 60, seconds: 1.5) { dt in
+            if let _ = s.treeItemPosition, !layer.isItemResting { sawHop = true }
+            if layer.isItemResting {
+                sawRest = true
+                XCTAssertEqual(layer.restItemZ, z + 0.0003, accuracy: 1e-5)
+                XCTAssertLessThan(layer.restItemZ, 5, "under the daylight multiply")
+            }
+            if layer.shownLandDustCount > 0 {
+                sawDust = true
+                for dz in layer.landDustZs { XCTAssertEqual(dz, z + 0.0002, accuracy: 1e-5) }
+            }
+        }
+        XCTAssertTrue(sawHop && sawRest && sawDust)
+        // the background hidden: puffs hide, the resting mint stays
+        let q = hitScene()
+        q.setBackgroundHidden(true)
+        q.playTreeHit(by: nil, direction: .up, level: 3, drop: .mint)
+        var puffs = 0, rested = false
+        run(q, from: 1.0 / 60, seconds: 1.5) { _ in
+            puffs += q.treeLayer?.shownLandDustCount ?? 0
+            if q.treeLayer?.isItemResting == true { rested = true }
+        }
+        XCTAssertEqual(puffs, 0)
+        XCTAssertTrue(rested)
     }
 
     // MARK: the second tree
