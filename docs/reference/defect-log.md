@@ -3475,3 +3475,12 @@ Found before release by three independent read-only reviews (correctness, policy
 - **Class sweep:** every place one Mac decides something about another member from "who is present" (`putOut`'s sweep, the referee, the host's lock): each now runs only when connected. Every received field that names a member (`host`, `players`, `holder`, `out`, `winner`): checked against the member's own presence before it is shown.
 - **Permanent capture:** `PlazaGameTests` "Leaving, cut-off Macs and consent" (the harness has a `cutOff` set: ticking, unreachable) and `PlazaGameControllerTests` "The 2026-11-22 audit".
 - **Class rule:** with no server, test every rule from a Mac that sees nobody (asleep, offline) and from one that reconnects with an older or a "finished" state. A list received from a peer is a claim: before acting on "X is in", look for X's own word. A test of a tie-break or a role (referee, holder) must pin who gets the role, not accept whoever the seed picks.
+
+## 같은 빌드인데 `settings.openCost` 프레임 수가 러너 속도에 따라 3–5 로 흔들려 main 과 PR 의 windows-app 을 막았다 (v2.5.638 준비, 2026-11-22)
+- **증상:** #334 의 PR 실행 두 번과 main(5c18827c) 실행 44990471889 의 설치본 셀프테스트가 `settings.openCost` "5 frames with a paint (budget 4)" 로 실패했다. 같은 실행의 번들 셀프테스트와 직전 커밋들은 3–4 로 통과했다.
+- **직접 원인:** 실패와 통과 모두 창 164 개, paint 28, erase 45 로 같은 일을 했다. 다른 것은 러너 속도뿐이다(빌드 62–91 ms 는 3–4 프레임, 112–113 ms 는 4–5 프레임). 느린 러너에서는 첫 프레임의 지우기가 두 프레임으로 갈린다. 설정 코드는 v2.5.637 이후 바뀌지 않았다.
+- **왜 못 걸렀나:** 예산 4 는 관측 범위(3–4)의 가장자리였고, 프레임 수는 일의 양이 아니라 시간에 따라 달라지는 값인데 그것 하나로 페이지 크기를 지키게 했다. v2.5.636 때 같은 증상을 두 번 겪고도 예산과 측정 방식을 그대로 뒀다.
+- **부류 스윕:** `popover.swapCost` 의 Back·Recap·Collection 은 같은 실행들에서 여유가 있어(창 48 개 안팎) 그대로 둔다. 시간에 따라 달라지는 값만으로 막는 다른 셀프테스트 예산은 찾지 못했다.
+- **고침:** 설정 전환의 프레임 예산을 5 로 올리고, 창 수 예산 164 를 더했다. 행을 하나 더하면(v2.5.636 의 결함) 러너 속도와 무관하게 창 수에서 걸린다.
+- **영구 캡처:** `settings.openCost` 의 창 수 예산(Windows CI 의 셀프테스트). 맥에서는 돌지 않는 코드라 CI 실행으로 확인한다.
+- **규칙:** 셀프테스트 예산은 같은 빌드에서 값이 변하지 않는 수(창 수, 메시지 수)에 건다. 시간에 따라 달라지는 수(프레임, ms)는 관측 범위에서 한 단계 이상 여유를 둔다.
