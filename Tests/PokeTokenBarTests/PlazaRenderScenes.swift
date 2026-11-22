@@ -396,6 +396,20 @@ enum PlazaRenderScenes {
         }
     }
 
+    /// 두 번째 큰 나무(x41–43, y25–27, 지도 오른쪽 아래): 앞에 선 나와 이웃. 한 번 칠 때(드랍 포함) 아이템이 튀어나와 옆 칸에 내려앉았다가 나에게 온다.
+    private static func bigTreeTwo(_ name: String, captures: [Int], hit: Bool) -> PlazaRenderScene {
+        scene(name, captures: captures) { st in
+            var o = Options(); o.season = .summer; o.zoom = hit ? 2 : 1; o.me = TilePoint(x: 42, y: 28)
+            let s = stage(o, on: st)
+            s.scene.face(.up)
+            s.put([member("ash", "Ash", 40, 26, facing: .right), member("misty", "Misty", 42, 24, facing: .down),
+                   member("brock", "Brock", 38, 27, facing: .left)], looks: crowdLooks)
+            return setup(s) { f in
+                if hit, f == 1 { s.scene.playTreeHit(tree: 1, by: nil, direction: .up, level: 3, drop: .mint) }
+            }
+        }
+    }
+
     private static func ice(_ name: String, _ script: @escaping @MainActor (Stage, Int) -> Void) -> PlazaRenderScene {
         scene(name, captures: [5, 20, 40]) { st in
             var o = Options(); o.season = .winter; o.me = TilePoint(x: 10, y: 12)
@@ -584,6 +598,8 @@ enum PlazaRenderScenes {
             bigTreeHit("big-tree-hit-2", captures: [1, 6, 10, 22, 100, 200], by: "brock", direction: .left, level: 2),
             bigTreeHit("big-tree-hit-3", captures: [1, 6, 12, 28, 44, 100, 200], by: nil, direction: .up, level: 3, drop: .mint),
             bigTreeHit("big-tree-hit-3-peer", captures: [1, 6, 12, 28, 44, 100, 200], by: "ash", direction: .right, level: 3, drop: .mint),
+            bigTreeTwo("big-tree-two", captures: [10], hit: false),
+            bigTreeTwo("big-tree-two-drop", captures: [12, 26, 40, 60, 100, 125, 140], hit: true),
             ice("ice-frozen") { _, _ in },
             ice("ice-breaking") { s, f in if f == 1 { s.scene.setIceBreak(iceBreak(s), hit: TilePoint(x: 9, y: 14)) } },
             ice("ice-refreeze") { s, f in

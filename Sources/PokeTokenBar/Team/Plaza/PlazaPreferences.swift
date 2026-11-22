@@ -105,11 +105,11 @@ import Foundation
         }
     }
 
-    /// 오늘 큰 나무를 친 횟수와 받은 민트. 다시 켜도 이어 센다(`PlazaTreeDay.hit(on:)` 가 날짜를 본다). 읽을 수 없으면 nil.
-    var tree: PlazaTreeDay? {
+    /// 나무마다 오늘 친 횟수와 받은 민트(옛 저장값은 처음 나무의 것으로 읽는다). 다시 켜도 이어 센다(`PlazaTreeDay.hit(on:)` 가 날짜를 본다). 읽을 수 없으면 nil.
+    var tree: PlazaTreeDays? {
         get {
             guard let data = defaults.data(forKey: Self.treeKey) else { return nil }
-            return try? JSONDecoder().decode(PlazaTreeDay.self, from: data)
+            return try? JSONDecoder().decode(PlazaTreeDays.self, from: data)
         }
         set {
             guard let newValue, let data = try? JSONEncoder().encode(newValue) else {

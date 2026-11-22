@@ -615,7 +615,8 @@ PR 마다 다음을 한다:
 | `PlazaHotSpring.flushBlend` | 0.45, 색 `#E0503C` | 설계자 판단·미확인 |
 | `PlazaSteam.maxWisps` | 8 | 설계자 판단·미확인 |
 | `PlazaTree.origin` | (16, 8), 몸 칸 최대 3×3 | 위임 |
-| `PlazaTree.hitsPerDrop` | 3 | 위임 |
+| `PlazaTree.hitsPerDrop` | 5, 나무마다 따로 센다 (처음 3, 하루 합쳐서 세었다. 2026-11-22 사용자 결정으로 변경. 본문의 "세 번째"는 처음 값) | 사용자 |
+| `PlazaTree.levelTwoFrom` | 3 (그 나무의 그날 3·4번째 때림이 2단계, 1·2번째와 떨어진 뒤는 1단계, 5번째는 3단계) | 설계자 판단·미확인 |
 | `PlazaTree.dropsPerDay` | 1 | 위임 |
 | `PlazaTree.dropItem` | `.mint` | 위임 (R3) |
 | `PlazaTree.maxFallingLeaves` | 12 | 설계자 판단·미확인 |

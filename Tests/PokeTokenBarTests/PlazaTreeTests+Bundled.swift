@@ -123,7 +123,7 @@ extension PlazaTreeTests {
 
     func testTheCanopySpawnPointsAreOpaqueCanopyPixels() async throws {
         let image = try treeImage(.summer)
-        let rect = try XCTUnwrap(PlazaTree.artRect(in: PlazaMapData.map))
+        let rect = try XCTUnwrap(PlazaTree.artRect(of: PlazaTree.runs(in: PlazaMapData.map)[0]))
         let points = PlazaTree.canopySpawnPoints(image, artRect: rect)
         let b = image.pixels.bytes
         var opaque = 0
@@ -161,7 +161,7 @@ extension PlazaTreeTests {
 
     func testTheMinimapShowsTheTreeInEverySeason() async throws {
         let sheet = try XCTUnwrap(PlatformPlaza.tileSheet()), grass = try grassSheet()
-        let rect = try XCTUnwrap(PlazaTree.artRect(in: PlazaMapData.map))
+        let rect = try XCTUnwrap(PlazaTree.artRect(of: PlazaTree.runs(in: PlazaMapData.map)[0]))
         let (x0, y0, k) = (Int(rect.minX), Int(rect.minY), Int(PlazaTree.scale))
         let (rw, rh) = (Int(rect.width), Int(rect.height))
         for season in PlazaSeason.allCases {
