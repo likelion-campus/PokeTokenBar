@@ -22,4 +22,6 @@ extension PlazaKeyEvent {
 enum MacPlazaInput {
     /// The keyboard's modifier state right now (`NSEvent.modifierFlags`), as the scene polls it every frame.
     @MainActor static func currentModifiers() -> PlazaModifiers { PlazaModifiers(NSEvent.modifierFlags) }
+    /// System Settings > Accessibility > Display > Reduce motion.
+    @MainActor static func reduceMotion() -> Bool { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
 }

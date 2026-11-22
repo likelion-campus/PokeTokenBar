@@ -46,6 +46,17 @@ enum PlatformPlaza {
         #endif
     }
 
+    /// The OS asks for less motion ("Reduce motion" on the Mac, "Show animations in Windows" off): no screen shake.
+    @MainActor static func reduceMotion() -> Bool {
+        #if os(Windows)
+        !WinSpriteAnimator.systemAnimationsEnabled()
+        #elseif PTB_SHARED_ONLY
+        false
+        #else
+        MacPlazaInput.reduceMotion()
+        #endif
+    }
+
     /// Where the scene draws: SpriteKit on the Mac (`SpriteKitStage`, whose `SKScene` the window's `SKView` presents),
     /// Direct2D in the Windows app (`WinPlazaStage`, once the app installed `WinPlazaLive`), the headless stage in tests and
     /// the shared-only check (no drawing, no frame clock: the scene gets no `update`).

@@ -1335,6 +1335,15 @@ struct PlazaSceneMember: Equatable, Sendable {
         }
     }
 
+    /// 폭탄을 든 캐릭터는 뭍에서 조금 더 빨리 달린다. 같은 속도로는 계속 달아나는 참가자를 따라잡을 수 없다.
+    private func stepDuration(hasBomb: Bool) -> (TilePoint, TilePoint, Bool) -> TimeInterval {
+        guard hasBomb else { return pondStepDuration }
+        return { [unowned self] from, to, running in
+            let usual = PlazaPond.stepDuration(from: from, to: to, running: running, isWater: { isWaterNow($0) })
+            return usual == PlazaWalker.runStepDuration ? PlazaBomb.holderRunStepDuration : usual
+        }
+    }
+
     /// 다른 팀원이 서 있는(걷는 중이면 도착할) 칸. 나는 이 칸에 들어가지 못한다. 이미 겹쳐 서 있으면 빠져나갈 수는 있다.
     /// 팀원 쪽 Mac도 같은 규칙으로 나를 피하므로 서로 겹치지 않는다(동시에 같은 칸에 들어가면 잠깐 겹칠 수 있다).
     func occupiedTiles(except id: String? = nil) -> Set<TilePoint> {
@@ -1508,16 +1517,17 @@ struct PlazaSceneMember: Equatable, Sendable {
         for (id, r) in remotes { r.actor.setBomb(!isMe && id == holder, urgent: urgent) }
     }
 
-    /// 폭탄이 터졌다: 그 캐릭터 몸에서 불꽃이 터지고, 캐릭터가 빙글 돌며 솟았다 떨어져 그을리고, 화면이 잠깐 흔들린다.
+    /// 폭탄이 터졌다: 그 캐릭터 몸에서 불꽃이 터지고, 캐릭터가 빙글 돌며 솟았다 떨어져 그을린다. `shake`면 화면도 잠깐
+    /// 흔들린다(참가자의 화면만: 구경하거나 모닥불에 앉은 팀원의 화면은 흔들지 않는다).
     /// `memberID`가 nil이면 나. 창이 가려져 멈춘 장면에서는 그을리기만 한다.
-    func playBlast(memberID: String?) {
+    func playBlast(memberID: String?, shake: Bool) {
         guard let actor = actor(memberID) else { return }
         actor.blast()
         guard !isPaused else { return }
         let foot = memberID.flatMap { remotes[$0]?.motion.footPoint } ?? walker.footPoint
         let center = CGPoint(x: foot.x, y: worldSize.height - foot.y + actor.characterSize.height / 2)
         fireworkLayer.launch(PlazaFireworks.blast, at: center, rise: 0, owner: PlazaScene.blastOwner, immediate: true)
-        blastShake = 0
+        if shake { blastShake = 0 }
     }
 
     /// 테스트용: 머리 위에 폭탄이 뜬 캐릭터들(나는 nil), 그리고 폭발에 날아가는 중인지.
@@ -1529,6 +1539,8 @@ struct PlazaSceneMember: Equatable, Sendable {
     /// 폭발로 화면이 흔들리는 시간과 세기(장면 픽셀).
     static let blastShakeDuration: TimeInterval = 0.4, blastShakeAmount: CGFloat = 5
     private var blastShake: TimeInterval?
+    /// 테스트용: 폭발로 화면이 흔들리는 중인지.
+    var isBlastShaking: Bool { blastShake != nil }
 
     private func advanceBlastShake(by dt: TimeInterval) {
         guard let elapsed = blastShake else { return }
@@ -2057,7 +2069,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         advanceWalkToMember()
         let occupied = occupiedTiles()
         walker.advance(by: dt, canEnterFrom: canEnterTile(occupied: occupied), canPushInto: canPushTile(occupied: occupied),
-                       stepDuration: pondStepDuration)
+                       stepDuration: stepDuration(hasBomb: me.hasBomb))
         if pullerID != nil, !walker.hasPendingMove, !walker.isWalking { pullerID = nil }
         if let owed = plungeJumpOwed, let step = walker.currentStep, step.to == owed {
             plungeJumpOwed = nil
@@ -2277,7 +2289,8 @@ struct PlazaSceneMember: Equatable, Sendable {
             // 쉼터에서 어슬렁거리는 팀원도 나와 다른 팀원이 선 칸으로는 옮기지 않는다.
             // `remotes`를 읽는 값은 먼저 구한다. 같은 식 안에서 고치는 원소와 함께 읽으면 접근 충돌로 멈춘다.
             let blocked = occupiedTiles(except: id).union([walker.tile])
-            remotes[id]?.advance(by: dt, blocked: blocked, stepDuration: pondStepDuration)
+            let pace = stepDuration(hasBomb: remotes[id]?.actor.hasBomb == true)
+            remotes[id]?.advance(by: dt, blocked: blocked, stepDuration: pace)
             guard let r = remotes[id] else { continue }
             let p = PlazaPose.choice(facing: r.motion.facing, isWalking: r.motion.isWalking, clock: clock)
             r.actor.animate(by: dt, useBack: p.useBack)
