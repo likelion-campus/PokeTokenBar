@@ -182,4 +182,24 @@ final class PlazaDragTests: XCTestCase {
         XCTAssertTrue(s.allows("a", now: t0.addingTimeInterval(1)))
         XCTAssertTrue(s.allows("a", now: t0.addingTimeInterval(-1)), "a clock that went back")
     }
+
+    /// One app claiming many member IDs must not get a move per ID: across all senders only `maxMovesPerWindow` moves per second.
+    func testManySenderIDsMoveMeAtMostThreeTimesASecond() {
+        XCTAssertEqual(PlazaShove.maxMovesPerWindow, 3)
+        var s = PlazaShove()
+        var moved = 0
+        for i in 0..<10 where s.admit("sybil\(i)", now: t0.addingTimeInterval(Double(i) / 20)) { moved += 1 }
+        XCTAssertEqual(moved, 3)
+        XCTAssertEqual(s.lastMoved.count, 3, "refused moves record nothing, so the table stays at the cap")
+        // The window slides: once the first move is a second old, one more is let through.
+        XCTAssertTrue(s.admit("late", now: t0.addingTimeInterval(1.0)))
+    }
+
+    /// Ordinary play: two friends tackling in turn, each once a second, are never held by the cap.
+    func testTwoFriendsTacklingInTurnAreNeverHeldByTheCap() {
+        var s = PlazaShove()
+        for i in 0..<20 {
+            XCTAssertTrue(s.admit(i.isMultiple(of: 2) ? "a" : "b", now: t0.addingTimeInterval(Double(i) * 0.5)), "\(i)")
+        }
+    }
 }

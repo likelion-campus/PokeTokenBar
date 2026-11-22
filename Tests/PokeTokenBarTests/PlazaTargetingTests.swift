@@ -150,8 +150,21 @@ final class PlazaTargetingTests: XCTestCase {
         XCTAssertEqual(PlazaTargeting.turn(from: from, to: p(6, 5), facing: .up), .right)
         XCTAssertEqual(PlazaTargeting.turn(from: from, to: p(5, 2), facing: .left), .up)
         XCTAssertEqual(PlazaTargeting.turn(from: from, to: p(7, 6), facing: .up), .right)
-        XCTAssertEqual(PlazaTargeting.turn(from: from, to: p(6, 6), facing: .left), .left)
         XCTAssertEqual(PlazaTargeting.turn(from: from, to: from, facing: .up), .up)
+    }
+
+    /// 대각선(차이가 같음): `facing` 이 상대 쪽이면 그대로, 반대쪽이면 같은 축에서 상대 쪽으로 돈다.
+    func testADiagonalKeepsAFacingTowardThemAndTurnsAFacingAway() {
+        let from = p(5, 5)
+        for (to, toward) in [(p(6, 6), (PlazaDirection.right, PlazaDirection.down)), (p(4, 6), (.left, .down)),
+                             (p(6, 4), (.right, .up)), (p(4, 4), (.left, .up))] {
+            XCTAssertEqual(PlazaTargeting.turn(from: from, to: to, facing: toward.0), toward.0)
+            XCTAssertEqual(PlazaTargeting.turn(from: from, to: to, facing: toward.1), toward.1)
+            let opposite0: PlazaDirection = toward.0 == .right ? .left : .right
+            let opposite1: PlazaDirection = toward.1 == .down ? .up : .down
+            XCTAssertEqual(PlazaTargeting.turn(from: from, to: to, facing: opposite0), toward.0, "\(to) \(opposite0)")
+            XCTAssertEqual(PlazaTargeting.turn(from: from, to: to, facing: opposite1), toward.1, "\(to) \(opposite1)")
+        }
     }
 
     func testTheBoardStillComesFirst() {

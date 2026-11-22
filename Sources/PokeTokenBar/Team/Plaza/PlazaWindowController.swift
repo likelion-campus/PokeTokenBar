@@ -198,18 +198,19 @@ import Observation
         return look
     }
 
-    /// 작은 지도 그림(나무를 얹은 것)도 계절마다 한 번만 만든다. 같은 그림이어야 작은 지도가 줄여 둔 그림을 다시 쓴다.
-    private static var cachedMinimapImages: [PlazaSeason: PlazaImage] = [:]
+    /// 작은 지도 그림(나무를 얹은 것)은 지금 계절 것 하나만 쥔다(전체 크기 6MB라 계절마다 쥐면 안 놓는다). 같은 그림이어야 작은 지도가
+    /// 줄여 둔 그림을 다시 쓴다. 창을 닫으면 놓는다(`handleClose`).
+    private static var cachedMinimapImage: (season: PlazaSeason, image: PlazaImage)?
     private lazy var treeArtRects = PlazaTree.runs(in: map).compactMap { PlazaTree.artRect(of: $0) }
 
     /// 그 계절의 지도 그림에 큰 나무를 얹은 것. 나무나 그림이 없으면 지도 그림 그대로.
     func minimapImage(for season: PlazaSeason) -> PlazaImage {
         let plain = season == .summer ? mapImage : (Self.seasonLook(for: map, season: season)?.mapImage ?? mapImage)
         guard !treeArtRects.isEmpty else { return plain }
-        if let cached = Self.cachedMinimapImages[season] { return cached }
+        if let cached = Self.cachedMinimapImage, cached.season == season { return cached.image }
         guard let sheet = PlatformPlaza.tallGrassSheet(), let tree = PlazaTree.image(sheet, season: season) else { return plain }
         let baked = treeArtRects.reduce(plain) { PlazaTree.baked($0, tree: tree, at: $1) }
-        Self.cachedMinimapImages[season] = baked
+        Self.cachedMinimapImage = (season, baked)
         return baked
     }
 
@@ -429,7 +430,8 @@ import Observation
             guard let self, !self.isFocusing else { return }
             if self.pullUnder() { return }
             if self.scene?.isDiving == true { return }   // a diver cannot tackle: nothing to pull means nothing happens, not even a turn
-            if self.hitTree() { return }   // the tree before a teammate: facing it hits it even with someone beside
+            // The tree before a teammate: facing it hits it even with someone beside, but not through someone standing on the faced tile.
+            if !self.teammateOnFacedTile(), self.hitTree() { return }
             if let id = self.faceNearbyMember(in: self.scene?.interactionTiles) { self.tackle(id) }
         }
         s.onSnowballKey = { [weak self] in self?.handleSnowballKey() }
@@ -1490,9 +1492,11 @@ import Observation
             resolved = nil
         }
         // 몸에 맞으면 던진 쪽 `aim`이 끝낸 칸에서 끝난다. 아니면 예전처럼 그 팀원의 발 칸까지 날아가 빗나간다.
-        let entry = resolved.flatMap { PlazaSnowball.hitTile(thrower: from, target: $0.body, direction: direction) }
+        // 내 지도에서 공이 막히면(옛 지도의 팀원이 던진 공) 맞지 않고, 막는 칸 앞에서 멈추는 빗나감으로 그린다.
+        let path = resolved.map { PlazaSnowball.trace(thrower: from, target: $0.body, direction: direction, map: map) }
+        let entry = path?.hit
         let shot: PlazaSnowballShot
-        if let resolved {
+        if let resolved, path?.blocked != true {
             shot = PlazaSnowballShot(from: from, direction: direction, end: .actor(id: resolved.id, tile: entry ?? resolved.body.foot))
         } else if let miss = PlazaSnowball.aim(from: from, facing: direction, bodies: [:], map: map) {
             shot = miss
@@ -1586,6 +1590,14 @@ import Observation
                                 isOpen: { scene.isWalkableNow($0) && !occupied.contains($0) })
         guard n > 0 else { return }
         shove(by: sender) { scene.pushMe(b, tiles: n, pulledBy: sender) }
+    }
+
+    /// 발 앞 칸이 나무 칸이 아니고 팀원 몸이 그 칸을 덮고 있다. 큰 몸의 다른 칸이 나무를 마주 보아도 그 팀원이 먼저다(나무 너머로 치지 않는다).
+    private func teammateOnFacedTile() -> Bool {
+        guard let scene else { return false }
+        let faced = PlazaTargeting.facingTile(from: scene.myBody.foot, facing: scene.walker.facing)
+        guard !scene.treeRuns.contains(where: { $0.contains(faced) }) else { return false }
+        return PlazaTargeting.covering(faced, members: scene.bodies(scene.interactionTiles)) != nil
     }
 
     /// 큰 나무 치기(C): 나무를 바라보고 있으면(몸이 크면 몸이 나무에 닿고 그쪽을 바라보면) 팀원 대신 나무를 친다. 나무를 보고 있으면 true
@@ -2512,6 +2524,9 @@ import Observation
         soakTask?.cancel()
         soakTask = nil
         soak = PlazaSoak()
+        // The minimap's full-size tree-baked map is not kept while the plaza is closed; the next open bakes it again.
+        minimap.seasonMapImage = nil
+        Self.cachedMinimapImage = nil
         dittoLoop?.cancel()
         dittoLoop = nil
         leaveGame()

@@ -493,6 +493,41 @@ final class PlazaPhotoTests: XCTestCase {
         XCTAssertEqual(scene.memberFlushCacheCount("a"), 0, "released when the fade ends")
     }
 
+    /// A many-frame sprite fading out bakes every frame of the current step only: the old steps' pictures are dropped on each step change.
+    func testTheFadeKeepsOnlyTheCurrentStepsBakedFrames() async {
+        var date = Calendar.current.date(from: DateComponents(year: 2026, month: 5, day: 10, hour: 12))!
+        let scene = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: map.spawn, zoom: 2, nickname: "나", pondVisuals: true)
+        scene.backingOverride = 2
+        scene.size = CGSize(width: 800, height: 600)
+        scene.now = { date }
+        scene.setCharacter(frames())
+        func swimmer(_ flushed: Bool) -> PlazaSceneMember {
+            var m = PlazaSceneMember(memberID: "a", nickname: "a", isAway: false, tile: TilePoint(x: 34, y: 18), facing: .down, isWalking: false)
+            m.isFlushed = flushed
+            return m
+        }
+        let count = 6
+        let moving = (0..<count).map { PlazaFrame(image: solid(24 + $0, 40, red), delay: 0.1) }
+        scene.applyMembers([swimmer(true)])
+        scene.setMemberFrames("a", PlazaCharacterFrames(front: moving, back: moving))
+        var t: TimeInterval = 0
+        func play(_ seconds: TimeInterval) { for _ in 0..<Int(seconds / 0.05) { t += 0.05; scene.update(t) } }
+        date += 3
+        play(1.0)   // the full red, every frame of the cycle shown once
+        XCTAssertEqual(scene.memberFlushStep("a"), PlazaHotSpring.flushSteps)
+        XCTAssertEqual(scene.memberFlushCacheCount("a"), count, "test precondition: the whole cycle is baked at the top step")
+        scene.applyMembers([swimmer(false)])
+        var steps: [Int] = [PlazaHotSpring.flushSteps]
+        for _ in 0..<8 {
+            date += 8
+            play(1.0)
+            let step = scene.memberFlushStep("a") ?? 0
+            if step != steps.last { steps.append(step) }
+            XCTAssertLessThanOrEqual(scene.memberFlushCacheCount("a") ?? 99, count, "never more than one step's frames (step \(step))")
+        }
+        XCTAssertGreaterThan(Set(steps).count, 2, "test precondition: the fade really walked several steps \(steps)")
+    }
+
     func testPhotoInputKeepsEggsAwayMembersAndSkipsMembersStillLoading() async throws {
         let scene = newScene()
         scene.setCharacter(frames())

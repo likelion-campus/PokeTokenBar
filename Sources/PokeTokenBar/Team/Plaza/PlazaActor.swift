@@ -547,7 +547,8 @@ struct PlazaActorContext {
         let step = PlazaHotSpring.flushStep(forBlend: blend)
         guard step != flushStep else { return }
         flushStep = step
-        if step == 0 { flushCache.removeAll() }
+        // Entries of other steps are never shown again (the fade only walks one way), so one teammate holds at most one step's frames.
+        flushCache = flushCache.filter { $0.key.step == step && step != 0 }
         applyFrame()
     }
 

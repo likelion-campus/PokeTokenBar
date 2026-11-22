@@ -51,14 +51,15 @@ extension WindowsSelftest {
             PlazaSceneMember(memberID: "c", nickname: "Brock", isAway: false, tile: TilePoint(x: 35, y: 21), facing: .up, isWalking: false),
         ].enumerated().map { i, m in var m = m; m.isFlushed = i == 0; return m }
         await shoot(r, device: device, name: "plaza.shotSpring", file: "plaza-hot-spring.png", me: TilePoint(x: 35, y: 17), members: shotMembers) { _, _ in }
-        // The big tree at the moment of my third hit of the day (the one that drops a mint), 10 frames after contact so the bend,
-        // the leaves and the star show; teammates stand beside and behind it.
+        // The big tree at the moment of my third hit of the day (the one that drops a mint), 18 frames (0.3 s) after the hit starts:
+        // the leaves burst at 0.2 s (contact 0.1 s plus the 0.1 s hit stop), so the bend, the leaves and the star all show;
+        // teammates stand beside and behind it.
         let shotTreeMembers: [PlazaSceneMember] = [
             PlazaSceneMember(memberID: "a", nickname: "Ash", isAway: false, tile: TilePoint(x: 15, y: 10), facing: .right, isWalking: false),
             PlazaSceneMember(memberID: "b", nickname: "Brock", isAway: false, tile: TilePoint(x: 19, y: 10), facing: .left, isWalking: false),
             PlazaSceneMember(memberID: "c", nickname: "Misty", isAway: false, tile: TilePoint(x: 17, y: 7), facing: .down, isWalking: false),
         ]
-        await shoot(r, device: device, name: "plaza.shotTree", file: "plaza-big-tree.png", me: TilePoint(x: 17, y: 11), members: shotTreeMembers, frames: 70) { scene, f in
+        await shoot(r, device: device, name: "plaza.shotTree", file: "plaza-big-tree.png", me: TilePoint(x: 17, y: 11), members: shotTreeMembers, frames: 78) { scene, f in
             if f == 1 { scene.face(.up) }
             if f == 60 { scene.playTreeHit(by: nil, direction: .up, level: 3, drop: .mint) }
         }
@@ -151,6 +152,7 @@ extension WindowsSelftest {
         for _ in 0..<15 { stage.tick(at: clockBase) }
         var cpu: [Double] = [], submit: [Double] = [], raster: [Double] = []
         var clean = 0
+        var mostLeaves = 0   // the busiest the tree got: the hits really animated it (`isTreeShown` is true for a still tree too)
         for f in 1...(warm + measured) {
             now = base.addingTimeInterval(Double(f) / 60)
             if f % 20 == 1 {
@@ -177,6 +179,7 @@ extension WindowsSelftest {
             let t2 = seconds()
             device.finish()
             let t3 = seconds()
+            mostLeaves = max(mostLeaves, scene.treeLeafCount)
             guard f > warm else { continue }
             guard result == .drawn else { clean += 1; continue }
             cpu.append(t1 - t0 + renderer.stats.buildSeconds)
@@ -189,8 +192,8 @@ extension WindowsSelftest {
         }
         let median = cpu.isEmpty ? Double.infinity : cpu.sorted()[cpu.count / 2] * 1000
         let st = renderer.stats
-        r.add(name, median <= 4 && st.failedFrames == 0 && (!spring || scene.isSteamShown) && (!tree || scene.isTreeShown),
-              (spring ? "hot spring in view steam=\(scene.isSteamShown) " : "") + (tree ? "tree=\(scene.isTreeShown) leaves=\(scene.treeLeafCount) " : "") + "rush-hour, release, offscreen WARP 1280x960 (\(device.adapter)): update+flatten+build p50=\(ms(cpu, 0.5)) p95=\(ms(cpu, 0.95)) ms "
+        r.add(name, median <= 4 && st.failedFrames == 0 && (!spring || scene.isSteamShown) && (!tree || (scene.isTreeShown && mostLeaves > 0)),
+              (spring ? "hot spring in view steam=\(scene.isSteamShown) " : "") + (tree ? "tree=\(scene.isTreeShown) mostLeaves=\(mostLeaves) " : "") + "rush-hour, release, offscreen WARP 1280x960 (\(device.adapter)): update+flatten+build p50=\(ms(cpu, 0.5)) p95=\(ms(cpu, 0.95)) ms "
                 + "(D19 budget 4 ms, median judged); record+EndDraw p50=\(ms(submit, 0.5)) ms; WARP raster p50=\(ms(raster, 0.5)) p95=\(ms(raster, 0.95)) ms; "
                 + "drawn=\(cpu.count) clean=\(clean) of \(measured); commands=\(st.commands) bitmaps=\(st.bitmapDraws) colours=\(st.colorDraws) "
                 + "effects=\(st.effectDraws) failedFrames=\(st.failedFrames) liveBitmaps=\(device.stats.liveBitmaps) (\(device.stats.liveBitmapBytes / 1024) KB)")

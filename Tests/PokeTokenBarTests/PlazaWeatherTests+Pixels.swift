@@ -86,4 +86,22 @@ extension PlazaWeatherTests {
         XCTAssertEqual(Double(pixel(out, 1, 1).r), 128, accuracy: 1)
         XCTAssertEqual(pixel(out, 0, 0).r, 0)
     }
+
+    /// A prop (a tree leaf fading on the ground) is drawn at its alpha like on the screen, and it does not dim an actor drawn after it.
+    func testAFadingPropIsNotOpaqueAndLeavesTheNextActorAlone() async throws {
+        func solid(_ w: Int, _ h: Int, _ v: UInt8) -> PlazaImage {
+            var b = PlazaBitmap(width: w, height: h)
+            for y in 0..<h { for x in 0..<w { b[x, y] = PlazaRGBA(r: v, g: v, b: v, a: 255) } }
+            return PlazaImage(bitmap: b)
+        }
+        let actor = PlazaPhotoActor(image: solid(2, 2, 255), flipped: false, foot: CGPoint(x: 6, y: 7), scale: 1,
+                                    shadow: nil, shadowRect: .zero, plate: nil, bubble: nil)
+        var input = PlazaPhotoInput(mapImage: solid(8, 8, 0), visibleRect: CGRect(x: 0, y: 0, width: 8, height: 8),
+                                    pixelsPerWorld: 1, actors: [actor])
+        input.props = [PlazaPhotoProp(particle: PlazaPhotoParticle(image: solid(2, 2, 255), origin: CGPoint(x: 1, y: 1),
+                                                                   size: CGSize(width: 2, height: 2), alpha: 0.5), baseY: 3)]
+        let out = try XCTUnwrap(PlazaPhotoRenderer.renderBitmap(input))
+        XCTAssertEqual(Double(pixel(out, 1, 1).r), 128, accuracy: 1, "the leaf at half alpha")
+        XCTAssertEqual(pixel(out, 6, 6).r, 255, "the actor drawn after the prop is opaque")
+    }
 }

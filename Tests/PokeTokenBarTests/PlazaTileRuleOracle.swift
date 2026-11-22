@@ -137,6 +137,9 @@ extension PlazaSnowball {
     }
 
     static func hits(thrower: TilePoint, target: TilePoint, direction: PlazaDirection) -> Bool {
-        hitTile(thrower: thrower, target: PlazaBody(foot: target, size: 1), direction: direction) != nil
+        hitTile(thrower: thrower, target: PlazaBody(foot: target, size: 1), direction: direction, map: openGround) != nil
     }
+
+    /// 64x64 open ground (board (0,0), shelter (1,0)): the old receiver knew no blocking tiles, and the oracle's random tiles stay on it.
+    static let openGround = try! PlazaMap(rows: ["NS" + String(repeating: ".", count: 62)] + Array(repeating: String(repeating: ".", count: 64), count: 63))
 }

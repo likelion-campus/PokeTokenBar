@@ -178,6 +178,31 @@ final class PlazaTreeControllerTests: XCTestCase {
         v.c.handleClose()
     }
 
+    /// A big body whose other cells face the trunk must not hit the tree through a teammate standing on the faced tile.
+    func testABigBodyDoesNotHitTheTreeThroughATeammateOnTheFacedTile() async {
+        for (mine, size, facing, front) in [(p(16, 12), 2, PlazaDirection.up, p(16, 11)), (p(19, 11), 2, .left, p(18, 11)),
+                                            (p(15, 11), 2, .right, p(16, 11)), (p(17, 13), 3, .up, p(17, 12))] {
+            let w = await world(me: mine, b: front, facing: facing, bodySize: size)
+            XCTAssertTrue(PlazaTree.isFacing(w.scene.myBody, facing: facing, tiles: w.scene.treeRuns[0]), "test precondition \(mine): the body faces the trunk")
+            press(w.scene, cKey)
+            await settle()
+            XCTAssertEqual(w.c.treeHitsToday(), 0, "\(mine) \(facing): the tree is not hit")
+            XCTAssertEqual(tackles(w.b).count, 1, "\(mine) \(facing): the teammate is tackled")
+            XCTAssertEqual(shakes(w.b).count, 0, "\(mine) \(facing)")
+            w.c.handleClose()
+        }
+    }
+
+    /// Only the faced tile counts: a big body with a teammate merely beside it still hits the tree.
+    func testABigBodyStillHitsTheTreeWithATeammateOnlyBeside() async {
+        let w = await world(me: p(16, 12), b: p(18, 12), facing: .up, bodySize: 2)
+        press(w.scene, cKey)
+        await settle()
+        XCTAssertEqual(w.c.treeHitsToday(), 1)
+        XCTAssertEqual(tackles(w.b).count, 0)
+        w.c.handleClose()
+    }
+
     func testSpaceBesideTheTreeStillGreetsATeammate() async {
         let w = await world(me: p(17, 11), b: p(16, 11), facing: .up)
         run(w.scene, 0.2)
@@ -398,6 +423,29 @@ final class PlazaTreeControllerTests: XCTestCase {
         w.c.showTreeShake(from: w.b.id, level: 3, drop: .mint)
         XCTAssertTrue(w.scene.treeLayers[0].isBusy)
         XCTAssertFalse(w.scene.treeLayers[1].isBusy)
+        w.c.handleClose()
+    }
+
+    // MARK: - Snowballs through the tree
+
+    /// A teammate on an old map (grass where the trunk stands) throws across it at me. My map has the trunk, so the ball stops there and I stay.
+    func testASnowballThrownThroughTheTreeDoesNotMoveMe() async {
+        let w = await world(me: p(20, 9), b: p(14, 9), facing: .left)
+        XCTAssertTrue(PlazaSnowball.blocksBall(p(17, 9), in: PlazaMapData.map), "test precondition: the trunk is between us")
+        w.c.showSnowball(from: w.b.id, on: w.me.id, tiles: 2, direction: .right)
+        run(w.scene, 2)
+        await settle()
+        XCTAssertEqual(w.scene.walker.tile, p(20, 9), "the ball stopped at the trunk")
+        w.c.handleClose()
+    }
+
+    /// The same throw with nothing in between still moves me, so the tree is what stopped the one above.
+    func testASnowballOnOpenGroundStillMovesMe() async {
+        let w = await world(me: p(20, 12), b: p(14, 12), facing: .left)
+        w.c.showSnowball(from: w.b.id, on: w.me.id, tiles: 2, direction: .right)
+        run(w.scene, 2)
+        await settle()
+        XCTAssertNotEqual(w.scene.walker.tile, p(20, 12), "an open line still hits")
         w.c.handleClose()
     }
 
