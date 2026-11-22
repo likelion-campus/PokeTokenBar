@@ -62,6 +62,8 @@ extension PlazaDirection {
 struct PlazaShove: Sendable {
     // 조정용 상수 (명세 13, 설계자 판단·미확인)
     static let receiveCooldown: TimeInterval = 1
+    /// 보낸 사람이 몇이든 한 `receiveCooldown` 안에 나를 움직일 수 있는 횟수. 한 앱이 여러 멤버 ID로 사람마다 1초 규칙을 피하지 못하게 한다.
+    static let maxMovesPerWindow = 3
     private(set) var lastMoved: [String: Date] = [:]
 
     /// 1초 이상 지났거나(`now − t >= receiveCooldown`) 시계가 되감긴(`now < t`) 기록을 버린다.
@@ -72,11 +74,15 @@ struct PlazaShove: Sendable {
         return true
     }
 
-    /// `sender`의 1초가 아직 안 끝났는지만 본다(아무것도 적지 않는다). 받은 값을 적용하기 전에 묻는다.
+    /// `sender`의 1초가 아직 안 끝났는지, 그리고 모든 보낸 사람을 합쳐 1초 안에 `maxMovesPerWindow` 번 움직이지 않았는지만 본다
+    /// (아무것도 적지 않는다). 받은 값을 적용하기 전에 묻는다.
     func allows(_ sender: String, now: Date) -> Bool {
-        guard let t = lastMoved[sender] else { return true }
-        let dt = now.timeIntervalSince(t)
-        return !(dt >= 0 && dt < Self.receiveCooldown)
+        func isWithin(_ t: Date) -> Bool {
+            let dt = now.timeIntervalSince(t)
+            return dt >= 0 && dt < Self.receiveCooldown
+        }
+        if let t = lastMoved[sender], isWithin(t) { return false }
+        return lastMoved.values.filter(isWithin).count < Self.maxMovesPerWindow
     }
 
     /// 내가 실제로 움직였을 때 `sender`의 1초를 시작한다. 지난 기록(1초 이상, 또는 시계가 되감긴 것)도 이때 버린다.

@@ -170,6 +170,8 @@ enum PlazaPhotoRenderer {
             while let prop = pendingProps.first, y.map({ prop.baseY <= $0 }) ?? true {
                 pendingProps = pendingProps.dropFirst()
                 let p = prop.particle
+                context.setAlpha(p.alpha)   // a prop drawn between actors must not leave its alpha on them (and a fading leaf is not opaque)
+                defer { context.setAlpha(1) }
                 draw(p.image, x: px(p.origin.x, origin: rect.minX), top: px(p.origin.y, origin: rect.minY),
                      w: Int((p.size.width * ppw).rounded()), h: Int((p.size.height * ppw).rounded()))
             }

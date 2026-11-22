@@ -47,11 +47,19 @@ enum PlazaTargeting {
     }
 
     /// 돌아서기(내가 팀원 쪽으로)와 미는 방향(민 쪽에서 맞는 쪽으로)이 같이 쓰는 규칙: 발이 바로 옆이면 그 방향,
-    /// 아니면 차이가 큰 축, 같으면 `facing`. 등급 1이면 예전 옆 칸 규칙과 그 대체 방향과 같다.
+    /// 아니면 차이가 큰 축. 대각선(차이가 같음)이면 `facing` 이 상대 쪽을 향할 때만 `facing`, 반대쪽이면 같은 축에서 상대 쪽으로 돈다
+    /// (그래야 대각선으로 닿은 팀원을 밀 때 민 쪽 쪽으로 밀리지 않는다). 등급 1이면 대각선이 닿지 않아 예전 옆 칸 규칙과 그 대체 방향과 같다.
     static func turn(from: TilePoint, to: TilePoint, facing: PlazaDirection) -> PlazaDirection {
         let dx = to.x - from.x, dy = to.y - from.y
         if abs(dx) + abs(dy) == 1 { return PlazaPathfinder.direction(from: from, to: to) }
-        if abs(dx) == abs(dy) { return facing }
+        if abs(dx) == abs(dy) {
+            switch facing {
+            case .right: return dx < 0 ? .left : .right
+            case .left: return dx > 0 ? .right : .left
+            case .down: return dy < 0 ? .up : .down
+            case .up: return dy > 0 ? .down : .up
+            }
+        }
         if abs(dx) > abs(dy) { return dx > 0 ? .right : .left }
         return dy > 0 ? .down : .up
     }

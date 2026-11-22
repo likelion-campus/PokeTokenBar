@@ -396,6 +396,14 @@ extension PlazaSeasonTests {
         plaza.applySchedule()
         XCTAssertTrue(plaza.minimapSeasonImage === plaza.minimapImage(for: .winter))
         XCTAssertTrue(plaza.minimapShowsSnow)
+        // Only the current season's full-size picture is held (6 MB each), and the same pixels come back when another season was asked in between.
+        let winter = plaza.minimapImage(for: .winter)
+        _ = plaza.minimapImage(for: .summer)
+        let again = plaza.minimapImage(for: .winter)
+        XCTAssertFalse(again === winter, "the winter picture was released when summer was asked for")
+        XCTAssertEqual(again.pixels.bytes, winter.pixels.bytes, "and baking it again gives the same pixels")
+        // Closing the plaza releases the picture the small map held.
         plaza.handleClose()
+        XCTAssertNil(plaza.minimapSeasonImage)
     }
 }

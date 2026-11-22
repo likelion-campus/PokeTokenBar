@@ -55,13 +55,21 @@ enum PlazaSnowball {
 
     /// 받는 쪽 확인: 던진 쪽 `direction`으로 1...reach칸 안에서 `target`의 몸이 덮은 첫 칸. 던진 쪽 `aim`이 끝낸 칸과 같다.
     /// 가로 던지기는 던진 쪽 줄이 몸의 발 위 `h`줄 안이어야 하고, 세로 던지기는 몸의 옆 `w`칸 안이어야 한다.
-    static func hitTile(thrower: TilePoint, target: PlazaBody, direction: PlazaDirection) -> TilePoint? {
+    /// 내 지도에서 공을 막는 칸(`blocksBall`)이 몸이 덮은 칸보다 먼저 나오면 nil이고 `blocked` 가 true다(몸이 줄에 없으면 막혔는지 따지지 않는 평범한 빗나감): 나무가 없던 옛 지도의 팀원이 던진 공이나
+    /// 고친 앱이 보낸 공은 나무를 지나 나를 밀지 못한다.
+    static func trace(thrower: TilePoint, target: PlazaBody, direction: PlazaDirection, map: PlazaMap) -> (hit: TilePoint?, blocked: Bool) {
         var tile = thrower
+        var blocked = false
         for _ in 1...reach {
             tile = PlazaWalker.offset(tile, direction)
-            if target.covers(tile) { return tile }
+            if blocksBall(tile, in: map) { blocked = true }
+            if target.covers(tile) { return blocked ? (nil, true) : (tile, false) }
         }
-        return nil
+        return (nil, false)   // never on the line (or too far): an ordinary miss, drawn as before
+    }
+
+    static func hitTile(thrower: TilePoint, target: PlazaBody, direction: PlazaDirection, map: PlazaMap) -> TilePoint? {
+        trace(thrower: thrower, target: target, direction: direction, map: map).hit
     }
 
     /// handHeight + (endHeight - handHeight)·u + 4·peak·u·(1 - u).

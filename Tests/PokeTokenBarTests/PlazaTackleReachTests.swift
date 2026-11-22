@@ -78,7 +78,7 @@ final class PlazaTackleReachTests: XCTestCase {
         } }
     }
 
-    func testThePushGoesFromTheTacklerElseAlongTheLongerAxisElseTheirFacing() async {
+    func testThePushGoesFromTheTacklerElseAlongTheLongerAxisElseAwayOnTheirFacingAxis() async {
         let me = TilePoint(x: 5, y: 5)
         func dir(_ x: Int, _ y: Int, _ f: PlazaDirection = .down) -> PlazaDirection {
             PlazaTargeting.turn(from: TilePoint(x: x, y: y), to: me, facing: f)
@@ -86,7 +86,12 @@ final class PlazaTackleReachTests: XCTestCase {
         XCTAssertEqual(dir(5, 6), .up)
         XCTAssertEqual(dir(5, 8), .up)
         XCTAssertEqual(dir(7, 6), .left)
-        XCTAssertEqual(dir(6, 6, .down), .down)
-        XCTAssertEqual(dir(6, 6, .right), .right)
+        // Diagonal: the victim is never pushed toward the tackler, whatever way the tackler faced.
+        XCTAssertEqual(dir(6, 6, .down), .up)
+        XCTAssertEqual(dir(6, 6, .right), .left)
+        XCTAssertEqual(dir(6, 6, .up), .up)
+        XCTAssertEqual(dir(6, 6, .left), .left)
+        XCTAssertEqual(dir(4, 4, .up), .down)
+        XCTAssertEqual(dir(4, 4, .left), .right)
     }
 }
