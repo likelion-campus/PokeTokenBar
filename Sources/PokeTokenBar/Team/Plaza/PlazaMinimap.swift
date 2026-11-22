@@ -10,6 +10,8 @@ final class PlazaMinimapModel {
         let color: PlazaColor
         let isMe: Bool
         let isAway: Bool
+        /// 살아 있는 미니게임 폭탄을 들고 있다: 점에 붉은 테가 둘린다(화면 밖에 있어도 어디 있는지 보인다).
+        var hasBomb = false
     }
 
     static let width: CGFloat = 192

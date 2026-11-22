@@ -329,10 +329,36 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         XCTAssertGreaterThan(run.tiles, walk.tiles)
     }
 
+    /// Whoever holds the live minigame bomb runs a little faster (at the same speed nobody who keeps running is ever
+    /// caught), and that pace still counts as running for teammates.
+    func testABombHolderRunsFasterAndStillCountsAsRunning() async {
+        func frames(holdingBomb: Bool) -> (count: Int, ran: Bool) {
+            let c = controller(defaults())
+            c.prepareScene()
+            guard let scene = c.scene, let key = clearRun(from: scene.walker.tile, count: 10) else { XCTFail("setup"); return (0, false) }
+            let start = scene.walker.tile
+            scene.setBomb(holder: nil, isMe: holdingBomb, urgent: false)
+            scene.currentModifiers = { .shift }
+            scene.handleKeyDown(keyCode: key, characters: nil, isRepeat: false, modifiers: .shift)
+            var ran = false, t: TimeInterval = 0, count = 0
+            scene.update(t)
+            while abs(scene.walker.tile.x - start.x) + abs(scene.walker.tile.y - start.y) < 10, count < 600 {
+                t += 1.0 / 120; count += 1; scene.update(t); ran = ran || scene.walker.isRunning
+            }
+            return (count, ran)
+        }
+        let plain = frames(holdingBomb: false), holder = frames(holdingBomb: true)
+        XCTAssertTrue(plain.ran)
+        XCTAssertTrue(holder.ran, "a holder's faster step is still a run")
+        XCTAssertLessThan(holder.count, plain.count, "ten tiles: \(holder.count) frames with the bomb, \(plain.count) without")
+    }
+
     /// A frame can never cover two tiles, even a slow one while running, so every tile I pass is reported and
     /// teammates never see me jump two tiles. The frame cap stays below the running step for that.
     func testASlowFrameWhileRunningReportsEveryTile() async {
         XCTAssertLessThan(PlazaScene.maxFrameDelta, PlazaWalker.runStepDuration)
+        XCTAssertLessThan(PlazaScene.maxFrameDelta, PlazaBomb.holderRunStepDuration, "a bomb holder runs faster, but not past the cap")
+        XCTAssertLessThan(PlazaBomb.holderRunStepDuration, PlazaWalker.runStepDuration)
         let c = controller(defaults())
         c.prepareScene()
         guard let scene = c.scene, let key = clearRun(from: scene.walker.tile, count: 6) else { return XCTFail("setup") }

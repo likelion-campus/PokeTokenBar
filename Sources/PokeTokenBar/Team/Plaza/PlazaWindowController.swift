@@ -1117,10 +1117,11 @@ import Observation
         let now = clock()
         let before = game.state
         move(&game, now)
-        for m in members.values { game.learn(m.game, now: now) }
+        for m in members.values { game.learn(m.game, from: m.memberID, now: now) }
         let present = gamePresent
         let id = game.state?.id
-        game.tick(now: now, present: present, joins: Set(members.values.filter { $0.inPlaza && id != nil && $0.gameJoin == id }.map(\.memberID)))
+        game.tick(now: now, present: present, joins: Set(members.values.filter { $0.inPlaza && id != nil && $0.gameJoin == id }.map(\.memberID)),
+                  connected: !members.isEmpty)
         session?.updateGame(game.state, join: game.joined)
         if game.state != before { gameChanged(from: before, now: now) }
         refreshGame(now: now)
@@ -1131,7 +1132,7 @@ import Observation
         guard let scene, let s = game.state else { return }
         let l = L(.ko), me = memberID()
         let same = old?.id == s.id
-        let iPlay = s.players.contains(me)
+        let iPlay = game.isPlayer
         let gameName = PlazaGameKind(rawValue: s.kind).map(l.plazaGameName) ?? l.plazaGameUnknownName
         func name(_ id: String) -> String { (id == me ? nickname() : members[id]?.nickname) ?? l.plazaGroupPhotoSomeone }
         func flash(_ title: PlazaGameView.Title, for seconds: TimeInterval) {
@@ -1146,10 +1147,21 @@ import Observation
                 showBanner(l.plazaGameStartedBanner(game: gameName, players: s.players.count))
             }
         }
-        // 새로 빠진 사람 가운데 첫 사람이 터진 사람이다(나머지는 광장을 떠나 함께 빠졌다).
-        let oldOut = Set(same ? old?.bomb?.out ?? [] : [])
-        if let blown = s.bomb?.out.first(where: { !oldOut.contains($0) }) {
-            scene.playBlast(memberID: blown == me ? nil : blown)
+        // 새로 빠진 사람 가운데 살아 있는 폭탄을 들고 있던 사람만 터진 것이다. 나머지는 판에서 나갔다(광장을 닫았거나 떠났다).
+        // 참가하겠다고 한 적 없는 사람은 누가 명단에 넣었든 터지지도, 이름이 불리지도 않는다.
+        func saidYes(_ id: String) -> Bool { id == me ? game.joined == s.id : members[id]?.gameJoin == s.id }
+        let oldBomb = same ? old?.bomb : nil
+        let newlyOut = (s.bomb?.out ?? []).filter { !(oldBomb?.out ?? []).contains($0) && saidYes($0) }
+        let blown = newlyOut.first { $0 == oldBomb?.holder && now.timeIntervalSince1970 >= (oldBomb?.roundStartsAt ?? .infinity) }
+        for id in newlyOut where id != blown {
+            if id != me {
+                showBanner(l.plazaGameLeftBanner(nickname: name(id)))
+            } else if game.lostConnection == s.id {
+                showBanner(l.plazaGameLostConnectionBanner)
+            }
+        }
+        if let blown {
+            scene.playBlast(memberID: blown == me ? nil : blown, shake: iPlay && !PlatformPlaza.reduceMotion())
             if iPlay {
                 flash(.init(text: l.plazaGameOut(nickname: blown == me ? nil : name(blown)), tone: .out), for: Self.gameOutFlash)
             } else {
@@ -1157,7 +1169,9 @@ import Observation
             }
         }
         if s.endedAt != nil, !(same && old?.endedAt != nil) {
-            if let winner = s.winner {
+            if game.lostConnection == s.id {
+                // 연결이 끊겨 내가 빠진 판: 누가 이겼는지는 이 Mac이 알 수 없다.
+            } else if let winner = s.winner {
                 scene.showEmote(memberID: winner == me ? nil : winner, kind: .party)
                 if iPlay {
                     flash(.init(text: l.plazaGameWin(nickname: winner == me ? nil : name(winner)), tone: .win), for: Self.gameWinFlash)
@@ -1165,7 +1179,9 @@ import Observation
                     showBanner(l.plazaGameWinBanner(nickname: name(winner), game: gameName))
                 }
             } else if s.startsAt == nil {
-                if game.declined != s.id { showBanner(l.plazaGameCancelledBanner(game: gameName)) }
+                // 참가하겠다고 한 사람에게만 알린다(대답하지 않은 팀원에게는 카드가 사라질 뿐이다). 내가 접은 판은 알릴 것이 없다.
+                let closed = (s.endedAt ?? 0) < s.opensAt + PlazaGame.recruitSeconds
+                if game.joined == s.id { showBanner(l.plazaGameCancelledBanner(game: gameName, closed: closed)) }
             } else {
                 showBanner(l.plazaGameOverBanner(game: gameName))
             }
@@ -1184,10 +1200,11 @@ import Observation
                 + (game.joined == s.id && s.host != me ? 1 : 0)
         }
         let view = PlazaGameView.make(engine: game, now: now, joinedCount: joined, canPlay: subject().speciesID != nil,
-                                      flash: gameFlashes.first(where: { $0.from <= now })?.title,
+                                      inWater: scene?.isMeInWater == true, flash: gameFlashes.first(where: { $0.from <= now })?.title,
                                       name: { [members, nickname] in $0 == me ? nickname() : members[$0]?.nickname })
-        let hintChanged = view.hint != gameView.hint
+        let hintChanged = view.hint != gameView.hint, holderChanged = view.holder != gameView.holder
         gameView = view
+        if holderChanged { refreshMinimap() }
         if gameModel.card != view.card { gameModel.card = view.card }
         if gameModel.title != view.title { gameModel.title = view.title }
         scene?.setBomb(holder: view.holder, isMe: view.holder == me, urgent: view.urgent)
@@ -1196,6 +1213,7 @@ import Observation
 
     /// M: 내가 연 판이 모집 중이면 바로 시작, 아니면 미니게임 메뉴. Y: 참가. N: 안 함(내가 연 판이면 취소).
     private func handleGameKey(_ key: PlazaGameKey) {
+        guard !isPhotoMode else { return }   // 사진 모드는 초대 카드를 가린다: 보이지 않는 카드에 답하지 않는다
         switch key {
         case .menu:
             if game.isHost, game.phase(now: clock()) == .recruiting { gameAction("start") } else { openGameMenu() }
@@ -1226,7 +1244,9 @@ import Observation
         var menu = PlazaGameMenu()
         if subject().speciesID == nil {
             menu.blocked = L(.ko).plazaGameMenuEgg
-        } else if !game.canOpen(now: clock()) {
+        } else if let wait = game.opensIn(now: clock()) {
+            if wait > 0 { menu.blocked = L(.ko).plazaGameMenuWait(seconds: Int(wait.rounded(.up))) }
+        } else {
             menu.blocked = L(.ko).plazaGameMenuBusy
         }
         _ = openOverlay(.gameMenu(menu))
@@ -1311,7 +1331,10 @@ import Observation
         // 장면의 메타몽과 `shownDitto`는 늘 같은 모습이라, 복사본이면 `copied`가 있고 메타몽 모습이면 nil이다.
         let isDitto = id == PlazaDitto.sceneKey
         let copied = isDitto ? shownDitto?.decoyOf : nil
-        guard let scene, let target = scene.interactionTiles[id], !isFocusing, focusRemaining(of: id) == nil,
+        // 집중 중인 팀원은 건드리지 않는다. 다만 내가 든 폭탄은 같은 판의 참가자에게 넘길 수 있다(모닥불이 피난처가 되지 않게).
+        // 받는 쪽 Mac은 밀리지 않고 폭탄만 받는다.
+        let passesBomb = gameView.holder == memberID() && game.state.map { PlazaBomb.alive($0).contains(id) } == true
+        guard let scene, let target = scene.interactionTiles[id], !isFocusing, focusRemaining(of: id) == nil || passesBomb,
               !scene.isDiving, scene.memberIsDiving(id) != true else { return }
         let now = clock()
         if let last = lastEmoteAt, now.timeIntervalSince(last) < Self.emoteInterval { return }
@@ -2225,12 +2248,13 @@ import Observation
         var dots = members.values.sorted { $0.memberID < $1.memberID }.compactMap { m -> PlazaMinimapModel.Dot? in
             guard let tile = scene.memberTiles[m.memberID] else { return nil }
             return .init(id: m.memberID, tile: tile, color: scene.memberNameColor(m.memberID) ?? PlazaNameColor.palette[0],
-                         isMe: false, isAway: m.isIdle)
+                         isMe: false, isAway: m.isIdle, hasBomb: gameView.holder == m.memberID)
         }
         if shownDitto?.isDecoy == true, let tile = scene.dittoTile, let color = scene.memberNameColor(PlazaDitto.sceneKey) {
             dots.append(.init(id: PlazaDitto.sceneKey, tile: tile, color: color, isMe: false, isAway: false))
         }
-        dots.append(.init(id: memberID(), tile: scene.walker.tile, color: scene.nameColor, isMe: true, isAway: false))
+        dots.append(.init(id: memberID(), tile: scene.walker.tile, color: scene.nameColor, isMe: true, isAway: false,
+                          hasBomb: gameView.holder == memberID()))
         if dots != minimap.dots { minimap.dots = dots }
         if scene.visibleWorldRect != minimap.view { minimap.view = scene.visibleWorldRect }
         if scene.itemTile != minimap.item { minimap.item = scene.itemTile }

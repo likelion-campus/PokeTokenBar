@@ -568,8 +568,12 @@ final class TeamSession {
 
     private var currentCharacter: TeamMonSummary { character ?? profileProvider().current }
 
-    private func makePresence() -> TeamPresence {
-        TeamPresence(nickname: TeamSettings.validNickname(settings.nickname) ?? "", character: currentCharacter,
+    /// Not private: a test reads what would go out.
+    func makePresence() -> TeamPresence {
+        // A game that is over (I left the plaza with its last state in hand) is not sent for ever.
+        let game = PlazaGame.accepted(game, now: clock())
+        let gameJoin = game == nil ? nil : gameJoin
+        return TeamPresence(nickname: TeamSettings.validNickname(settings.nickname) ?? "", character: currentCharacter,
                      inPlaza: inPlaza, tile: tile, facing: facing, isWalking: isWalking, isIdle: isIdle ? true : nil,
                      nameColor: settings.nameColor, isRunning: isRunning ? true : nil, takenItemSlot: takenItemSlot,
                      focusEndsAt: focusEndsAt,

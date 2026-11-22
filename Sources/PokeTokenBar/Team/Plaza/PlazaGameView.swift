@@ -50,15 +50,16 @@ struct PlazaGameView: Equatable {
     var urgent = false
 
     /// `name`: a member's nickname. `joinedCount`: how many said yes, the host included. `canPlay`: I am not an egg.
-    /// `flash`: an explosion or the result, shown as the title until it runs out.
-    static func make(engine: PlazaGameEngine, now: Date, joinedCount: Int, canPlay: Bool, flash: Title?,
+    /// `inWater`: I am swimming (no throwing there). `flash`: an explosion or the result, shown as the title until it
+    /// runs out. Who gets the next bomb stays hidden until it is live, so nobody gets a head start on the holder.
+    static func make(engine: PlazaGameEngine, now: Date, joinedCount: Int, canPlay: Bool, inWater: Bool = false, flash: Title?,
                      name: (String) -> String?) -> PlazaGameView {
         var view = PlazaGameView()
         guard let s = engine.state, let phase = engine.phase(now: now) else { return view }
         let l = L(.ko), t = now.timeIntervalSince1970, me = engine.me
         let kind = PlazaGameKind(rawValue: s.kind)
         let game = kind.map(l.plazaGameName) ?? l.plazaGameUnknownName
-        let isPlayer = s.players.contains(me)
+        let isPlayer = engine.isPlayer
         func nick(_ id: String) -> String { name(id) ?? l.plazaGroupPhotoSomeone }
         switch phase {
         case .recruiting:
@@ -74,7 +75,7 @@ struct PlazaGameView: Equatable {
             card.lines = l.plazaGameRules(kind)
             let status = l.plazaGameRecruiting(players: joinedCount, seconds: left)
             if s.host == me {
-                card.lines.append(joinedCount < PlazaGame.minPlayers ? l.plazaGameNeedsTwo : status)
+                card.lines.append(joinedCount < PlazaGame.minPlayers ? l.plazaGameNeedsTwo(seconds: left) : status)
                 card.buttons = [Button(label: l.plazaGameButtonStart, action: "start", isEnabled: joinedCount >= PlazaGame.minPlayers),
                                 Button(label: l.plazaGameButtonCancel, action: "decline")]
             } else if !canPlay {
@@ -89,25 +90,32 @@ struct PlazaGameView: Equatable {
             }
             view.card = card
         case .countdown:
-            view.holder = s.bomb?.holder
             guard isPlayer, let starts = s.startsAt else { break }
             view.title = Title(text: "\(max(1, Int((starts - t).rounded(.up))))", tone: .count)
-            if let kind { view.card = Card(title: game, lines: l.plazaGameRules(kind) + [l.plazaGameStartingSoon]) }
-            if let holder = s.bomb?.holder { view.hint = holder == me ? l.plazaGameHoldSoonHint : l.plazaGameWaitHint(nickname: nick(holder)) }
+            if let kind {
+                view.card = Card(title: game, lines: l.plazaGameRules(kind) + [l.plazaGamePlayers(s.players.map(nick))])
+            }
+            view.hint = l.plazaGameScatterHint
         case .playing:
             guard let b = s.bomb else { break }
             let live = t >= b.roundStartsAt
-            view.holder = b.holder
+            view.holder = live ? b.holder : nil
             if live, let explodes = PlazaBomb.explodesAt(s) { view.urgent = explodes - t <= PlazaBomb.urgentSeconds }
             guard isPlayer else { break }
             if live, t < b.roundStartsAt + 1 { view.title = Title(text: b.round == 1 ? l.plazaGameGo : l.plazaGameNextBomb, tone: .go) }
             let alive = PlazaBomb.alive(s)
             if !alive.contains(me) {
                 view.hint = l.plazaGameOutHint(left: alive.count)
+            } else if !live {
+                view.hint = l.plazaGameScatterHint
             } else if b.holder == me {
-                view.hint = live ? l.plazaGameHoldHint : l.plazaGameHoldSoonHint
+                if let from = b.from, let at = b.passedAt, t - at < PlazaBomb.returnImmunity {
+                    view.hint = l.plazaGameNoReturnHint(nickname: nick(from))
+                } else {
+                    view.hint = inWater ? l.plazaGameWaterHint : l.plazaGameHoldHint
+                }
             } else {
-                view.hint = live ? l.plazaGameRunHint(nickname: nick(b.holder)) : l.plazaGameWaitHint(nickname: nick(b.holder))
+                view.hint = l.plazaGameRunHint(nickname: nick(b.holder))
             }
         case .ended:
             break

@@ -22,6 +22,7 @@ import Observation
 
     static let dimmedMapOpacity = 0.3, dimmedPanelOpacity = 0.45
     private static let dark = PlazaColor(hex: 0x14161F)
+    private static let bombRing = PlazaColor(hex: 0xE8402A)
 
     /// The minute of the day the map is lit for (the window's clock updates it every second; it changes once a minute).
     private(set) var minute = 0
@@ -165,6 +166,10 @@ import Observation
                 canvas.fillEllipse(in: circle)
                 canvas.setStrokeColor(dot.isMe ? .white : Self.dark)
                 canvas.strokeEllipse(in: circle, lineWidth: dot.isMe ? 1.5 : 1)
+                if dot.hasBomb {
+                    canvas.setStrokeColor(Self.bombRing)
+                    canvas.strokeEllipse(in: circle.insetBy(dx: -2.5, dy: -2.5), lineWidth: 2)
+                }
                 canvas.restoreState()
             }
         }

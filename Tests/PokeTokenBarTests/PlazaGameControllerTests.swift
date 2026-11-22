@@ -48,10 +48,11 @@ final class PlazaGameControllerTests: XCTestCase {
         /// What a plaza does every step: hear, move, tell.
         func step(_ now: Date) {
             let members = session.members.values
-            for m in members { engine.learn(m.game, now: now) }
+            for m in members { engine.learn(m.game, from: m.memberID, now: now) }
             let id = engine.state?.id
             engine.tick(now: now, present: Set(members.filter(\.inPlaza).map(\.memberID)),
-                        joins: Set(members.filter { $0.inPlaza && id != nil && $0.gameJoin == id }.map(\.memberID)))
+                        joins: Set(members.filter { $0.inPlaza && id != nil && $0.gameJoin == id }.map(\.memberID)),
+                        connected: !members.isEmpty)
             session.updateGame(engine.state, join: engine.joined)
         }
     }
@@ -249,8 +250,15 @@ final class PlazaGameControllerTests: XCTestCase {
         let w = await world()
         let starts = await hostedByTeammate(w, holder: w.b.id)
         XCTAssertEqual(w.c.gameTitle, .init(text: "3", tone: .count))
-        XCTAssertEqual(w.c.gameCard?.lines.last, L(.ko).plazaGameStartingSoon, "the rules stay up through the countdown")
+        XCTAssertEqual(w.c.gameCard?.lines.first, L(.ko).plazaGameRules(.bomb).first, "the rules stay up through the countdown")
+        XCTAssertEqual(w.c.gameCard?.lines.last, L(.ko).plazaGamePlayers(w.c.gameState!.players.map { $0 == w.me.id ? "나" : "가" }),
+                       "with who plays")
         XCTAssertNil(w.c.gameCard?.buttons.first)
+        // Who gets the bomb stays hidden until it is live: shown early, everyone else had the whole countdown to run.
+        XCTAssertEqual(w.scene.bombHolders, [], "no bomb over anyone yet")
+        XCTAssertNil(w.c.gameView.holder)
+        XCTAssertEqual(w.c.hint, L(.ko).plazaGameScatterHint)
+        XCTAssertFalse(w.c.minimapDots.contains(where: \.hasBomb))
         now = starts.addingTimeInterval(-0.5)
         w.c.advanceGame()
         XCTAssertEqual(w.c.gameTitle?.text, "1")
@@ -260,6 +268,7 @@ final class PlazaGameControllerTests: XCTestCase {
         XCTAssertNil(w.c.gameCard)
         XCTAssertEqual(w.c.hint, L(.ko).plazaGameRunHint(nickname: "가"))
         XCTAssertEqual(w.scene.bombHolders, [w.b.id])
+        XCTAssertEqual(w.c.minimapDots.filter(\.hasBomb).map(\.id), [w.b.id], "the holder is ringed on the minimap")
         now = starts.addingTimeInterval(1.5)
         w.c.advanceGame()
         XCTAssertNil(w.c.gameTitle)
@@ -275,8 +284,11 @@ final class PlazaGameControllerTests: XCTestCase {
         XCTAssertEqual(w.c.gameState?.bomb?.holder, w.me.id)
         XCTAssertEqual(w.c.gameState?.bomb?.from, w.b.id)
         XCTAssertEqual(w.b.session.members[w.me.id]?.game?.bomb?.holder, w.me.id, "and the teammate's Mac hears it")
-        XCTAssertEqual(w.c.hint, L(.ko).plazaGameHoldHint)
+        XCTAssertEqual(w.c.hint, L(.ko).plazaGameNoReturnHint(nickname: "가"), "the rule that blocks the way back is said")
         XCTAssertEqual(w.scene.bombHolders, [nil], "the bomb is over my head")
+        now += PlazaBomb.returnImmunity
+        w.c.advanceGame()
+        XCTAssertEqual(w.c.hint, L(.ko).plazaGameHoldHint)
     }
 
     func testATackleFromSomeoneWithoutTheBombChangesNothing() async {
@@ -319,6 +331,7 @@ final class PlazaGameControllerTests: XCTestCase {
         XCTAssertEqual(w.b.session.members[w.me.id]?.game?.winner, w.b.id)
         XCTAssertEqual(w.c.gameTitle, .init(text: L(.ko).plazaGameOut(nickname: nil), tone: .out))
         XCTAssertTrue(w.scene.isBlasting(memberID: nil), "I fly")
+        XCTAssertEqual(w.scene.isBlastShaking, !PlatformPlaza.reduceMotion(), "a player's screen shakes, unless the OS asks for less motion")
         XCTAssertEqual(w.scene.bombHolders, [], "the bomb is gone")
         now += PlazaWindowController.gameOutFlash + 0.1
         w.c.advanceGame()
@@ -393,7 +406,7 @@ final class PlazaGameControllerTests: XCTestCase {
         XCTAssertNil(w.c.gameTitle)
         XCTAssertNil(w.c.gameCard)
         XCTAssertEqual(w.c.banner, L(.ko).plazaGameStartedBanner(game: L(.ko).plazaGameName(.bomb), players: 2))
-        XCTAssertNotNil(w.c.gameView.holder, "the bomb still shows over the holder")
+        XCTAssertNil(w.c.gameView.holder, "no bomb before it is live")
         XCTAssertNil(w.c.gameView.hint)
         // The explosion and the result reach a watcher as banners too.
         let s = try XCTUnwrap(w.c.gameState)
@@ -402,7 +415,138 @@ final class PlazaGameControllerTests: XCTestCase {
         for _ in 0..<4 { third.step(now); await settle(); w.b.step(now); await settle(); w.c.advanceGame(); await settle() }
         XCTAssertEqual(w.c.gameState?.bomb?.out, [holder], "test precondition")
         XCTAssertNil(w.c.gameTitle, "no big title for someone who is not playing")
+        XCTAssertTrue(w.scene.isBlasting(memberID: holder), "test precondition: the blast plays")
+        XCTAssertFalse(w.scene.isBlastShaking, "but a watcher's screen does not shake")
         let winner = holder == w.b.id ? "다" : "가"
         XCTAssertEqual(w.c.banner, L(.ko).plazaGameWinBanner(nickname: winner, game: L(.ko).plazaGameName(.bomb)))
+    }
+
+    // MARK: - The 2026-11-22 audit
+
+    /// Before: every player who left was drawn blowing up, sooty for a minute, under "탈락!".
+    func testATeammateWhoLeavesMidGameIsNotShownBlowingUp() async {
+        let w = await world()
+        let starts = await hostedByTeammate(w, holder: w.me.id)
+        now = starts.addingTimeInterval(2)
+        await sync(w)
+        w.b.engine.leave(now: now, present: [w.me.id])   // the teammate closes the plaza without the bomb
+        await sync(w)
+        XCTAssertEqual(w.c.gameState?.bomb?.out, [w.b.id], "test precondition")
+        XCTAssertFalse(w.scene.isBlasting(memberID: w.b.id))
+        XCTAssertFalse(w.scene.isBlastShaking)
+        XCTAssertEqual(w.c.banner, L(.ko).plazaGameLeftBanner(nickname: "가"))
+        XCTAssertEqual(w.c.gameTitle, .init(text: L(.ko).plazaGameWin(nickname: nil), tone: .win), "I am the one left")
+    }
+
+    /// Before: my Mac played whenever the list named me, so a list made up by a modified app pulled me out of a dive,
+    /// took my hint line and showed me blowing up on every plaza.
+    func testAListThatNamesMeWithoutMyYesNeitherPlaysMeNorBlowsMeUp() async {
+        let w = await world()
+        var forged = PlazaGameState(id: "\(w.b.id)@1", kind: "bomb", host: w.b.id, opensAt: now.timeIntervalSince1970 - 10)
+        forged.startsAt = now.timeIntervalSince1970 - 5
+        forged.players = [w.me.id, w.b.id].sorted()
+        forged.seed = 1
+        forged.bomb = PlazaBombState(round: 1, roundStartsAt: forged.startsAt!, holder: w.me.id)
+        w.b.session.updateGame(forged, join: forged.id)
+        await settle()
+        w.c.advanceGame()
+        XCTAssertNotNil(w.c.gameState, "test precondition: the list is within bounds")
+        XCTAssertNil(w.c.gameView.hint, "my hint line is my own")
+        XCTAssertNil(w.c.gameTitle)
+        XCTAssertFalse(w.scene.isBlasting(memberID: nil))
+        XCTAssertEqual(w.c.gameState?.bomb?.out.contains(w.me.id), true, "and I am out of it")
+        // The forger marks me out by itself on another Mac's view: still no blast, no name.
+        w.c.handleClose()
+    }
+
+    /// Before: whoever a list put out was drawn blowing up, under "탈락!", on every open plaza.
+    func testAMemberPutOutByAListTheyNeverJoinedIsNotShownBlowingUp() async throws {
+        let w = await world()
+        let third = node("다")
+        hub.connect(w.me.transport, to: third.transport)
+        hub.connect(w.b.transport, to: third.transport)
+        await settle()
+        third.session.updatePlazaPosition(inPlaza: true, tile: TilePoint(x: 14, y: 6), facing: .down, isWalking: false, isFlushed: false)
+        await settle()
+        for _ in 0..<200 where w.scene.memberTiles[third.id] == nil { await Task.yield(); t += 0.05; w.scene.update(t) }
+        // The teammate's (modified) app says a game is running with "다" holding a live bomb; "다" never said yes.
+        var forged = PlazaGameState(id: "\(w.b.id)@1", kind: "bomb", host: w.b.id, opensAt: now.timeIntervalSince1970 - 10)
+        forged.startsAt = now.timeIntervalSince1970 - 5
+        forged.players = [third.id, w.b.id].sorted()
+        forged.seed = 1
+        forged.bomb = PlazaBombState(round: 1, roundStartsAt: forged.startsAt!, holder: third.id)
+        w.b.session.updateGame(forged, join: forged.id)
+        await settle()
+        w.c.advanceGame()
+        XCTAssertEqual(w.c.gameState?.bomb?.holder, third.id, "test precondition: I saw the holder before the blast")
+        forged.bomb?.out = [third.id]
+        forged.bomb?.pass = 1
+        forged.endedAt = now.timeIntervalSince1970
+        forged.winner = w.b.id
+        w.b.session.updateGame(forged, join: forged.id)
+        await settle()
+        w.c.advanceGame()
+        XCTAssertEqual(w.c.gameState?.bomb?.out, [third.id], "test precondition")
+        XCTAssertFalse(w.scene.isBlasting(memberID: third.id))
+        XCTAssertNotEqual(w.c.banner, L(.ko).plazaGameOutBanner(nickname: "다"))
+        XCTAssertNotEqual(w.c.banner, L(.ko).plazaGameLeftBanner(nickname: "다"))
+    }
+
+    /// Before: in the plaza a focusing player could not be tackled, so the campfire was a shelter from the bomb.
+    func testTheHolderCanTackleAFocusingPlayerButNobodyElseCan() async {
+        let w = await world()
+        var tackles = 0
+        w.b.session.onEmote = { _, emote in if emote.kind == .tackle { tackles += 1 } }
+        let starts = await hostedByTeammate(w, holder: w.me.id)
+        w.b.session.updateFocus(endsAt: now.addingTimeInterval(600))
+        await settle()
+        w.scene.onTackleKey?()   // the countdown: no live bomb in my hands yet
+        await settle()
+        XCTAssertEqual(tackles, 0, "a focusing teammate is left alone")
+        now = starts.addingTimeInterval(2)
+        await sync(w)
+        w.scene.onTackleKey?()
+        await settle()
+        XCTAssertEqual(tackles, 1, "but my live bomb reaches a player")
+    }
+
+    /// Before: closing the plaza left the last game in my presence, sent with every heartbeat until the plaza reopened.
+    func testAGameThatIsOverIsNoLongerSent() async {
+        let w = await world()
+        let starts = await hostedByTeammate(w, holder: w.me.id)
+        now = starts.addingTimeInterval(2)
+        await sync(w)
+        w.c.handleClose()
+        XCTAssertNotNil(w.me.session.makePresence().game, "the result goes out while it is fresh")
+        now += PlazaGame.endedKeep
+        XCTAssertNil(w.me.session.makePresence().game)
+        XCTAssertNil(w.me.session.makePresence().gameJoin)
+    }
+
+    /// Before: Y in photo mode joined a game whose card photo mode was hiding.
+    func testGameKeysDoNothingInPhotoMode() async {
+        let w = await world()
+        XCTAssertTrue(w.b.engine.open(.bomb, now: now))
+        await sync(w)
+        w.scene.enterPhotoMode()
+        press(w.c, yKey)
+        await sync(w)
+        XCTAssertNil(w.c.gameJoined)
+    }
+
+    /// Before: the menu said another game was open in the seconds after one ended, and a host could loop invitations.
+    func testTheMenuSaysHowLongUntilICanOpenAgainAfterCancelling() async {
+        let w = await world()
+        press(w.c, mKey)
+        press(w.c, spaceKey)
+        await sync(w)
+        XCTAssertEqual(w.c.gameState?.host, w.me.id, "test precondition")
+        press(w.c, nKey)   // I cancel my own game
+        await sync(w)
+        XCTAssertNil(w.c.banner, "nothing to tell the one who cancelled")
+        now += PlazaGame.rematchDelay + 1
+        press(w.c, mKey)
+        guard case .gameMenu(let menu) = w.c.overlayContent else { return XCTFail("the menu opens") }
+        XCTAssertEqual(menu.blocked, L(.ko).plazaGameMenuWait(seconds: Int(PlazaGame.reopenDelay - PlazaGame.rematchDelay - 1)))
     }
 }
