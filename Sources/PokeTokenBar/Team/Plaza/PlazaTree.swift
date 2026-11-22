@@ -536,10 +536,12 @@ struct PlazaTreeDay: Codable, Equatable, Sendable {
 
     init(day: String) { self.day = day }
 
-    /// `today`(`PlazaActivity.dayKey`)에 한 번 쳤다. 더 늦은 날이면 처음부터 센다. 더 이른 날(시계를 되돌림)이면 저장된 날에 이어 세서
-    /// 민트를 또 받지 못한다(결함 부류 "되감긴 시계"). 이번 때림이 민트를 떨어뜨리면 true: `hitsPerDrop` 번째마다, 하루 `dropsPerDay` 번까지.
+    /// `today`(`PlazaActivity.dayKey`)에 한 번 쳤다. 날 키가 저장된 것과 **다르면**(앞으로든 뒤로든) 처음부터 센다. 키의 앞뒤는 보지 않는다:
+    /// 시계를 한 번 앞으로 돌리거나 시간대를 건넜다고 진짜 날이 올 때까지 민트가 잠기면 안 되고, 음력 같은 달력의 키도 같게 동작한다.
+    /// 시계를 바꿔 다시 받을 수 있다는 것은 알고 받아들인 것이다(광장의 다른 하루 기록과 같다). 이번 때림이 민트를 떨어뜨리면 true:
+    /// `hitsPerDrop` 번째마다, 하루 `dropsPerDay` 번까지.
     mutating func hit(on today: String) -> Bool {
-        if today > day { self = PlazaTreeDay(day: today) }
+        if today != day { self = PlazaTreeDay(day: today) }
         hits = min(hits + 1, Self.maxHits)
         guard hits % PlazaTree.hitsPerDrop == 0, dropped < PlazaTree.dropsPerDay else { return false }
         dropped += 1

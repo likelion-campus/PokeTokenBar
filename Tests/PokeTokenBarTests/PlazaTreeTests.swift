@@ -582,14 +582,28 @@ import XCTest
         XCTAssertTrue(day.hit(on: key(at(0, 0, 4, day: 22))))
     }
 
-    func testAClockSetBackGivesNoSecondMint() async {
-        var day = PlazaTreeDay(day: "2026-11-22")
-        XCTAssertEqual((0..<5).map { _ in day.hit(on: "2026-11-22") }, [false, false, false, false, true])
-        for _ in 0..<5 { XCTAssertFalse(day.hit(on: "2026-11-21"), "an earlier day keeps counting on the saved one") }
-        XCTAssertEqual(day.day, "2026-11-22")
-        XCTAssertEqual(day.dropped, 1)
-        for _ in 0..<4 { _ = day.hit(on: "2026-11-23") }
-        XCTAssertTrue(day.hit(on: "2026-11-23"))
+    /// The day key only has to differ: a clock set ahead once (or a trip across zones) must not lock the drop until real time catches up, and a
+    /// calendar whose keys do not sort like Gregorian dates (a lunar year) works the same. Setting the clock back gives a fresh count too, as the
+    /// plaza activity record does (a known, accepted way to farm).
+    func testADifferentDayKeyInEitherDirectionStartsOver() async {
+        var ahead = PlazaTreeDay(day: "2026-11-22")
+        _ = ahead.hit(on: "2099-01-01")   // one hit with the clock far ahead
+        XCTAssertEqual((0..<5).map { _ in ahead.hit(on: "2026-11-22") }, [false, false, false, false, true], "real time is back: the count restarts, the drop is not locked")
+        var back = PlazaTreeDay(day: "2026-11-22")
+        XCTAssertEqual((0..<5).map { _ in back.hit(on: "2026-11-22") }, [false, false, false, false, true])
+        XCTAssertEqual((0..<5).map { _ in back.hit(on: "2026-11-21") }, [false, false, false, false, true], "an earlier key is a different day: a fresh count")
+        XCTAssertEqual(back.day, "2026-11-21")
+        var lunar = PlazaTreeDay(day: "1448-03-04")
+        XCTAssertEqual((0..<5).map { _ in lunar.hit(on: "1447-12-30") }, [false, false, false, false, true], "keys are compared for equality only")
+        XCTAssertEqual((0..<5).map { _ in lunar.hit(on: "1448-01-02") }, [false, false, false, false, true])
+        // Every tree restarts when the key differs, in either direction.
+        var days = PlazaTreeDays()
+        for key in ["16,8", "41,25"] { for _ in 0..<5 { _ = days.hit(tree: key, on: "2026-11-22") } }
+        for other in ["2026-11-21", "2026-11-23"] {
+            for key in ["16,8", "41,25"] { XCTAssertEqual(days.hits(tree: key, on: other), 0, "\(key) on \(other)") }
+        }
+        XCTAssertEqual((0..<5).map { _ in days.hit(tree: "16,8", on: "2026-11-21") }, [false, false, false, false, true])
+        XCTAssertEqual((0..<5).map { _ in days.hit(tree: "41,25", on: "2026-11-23") }, [false, false, false, false, true])
     }
 
     func testHitsStopAtTheCap() async {

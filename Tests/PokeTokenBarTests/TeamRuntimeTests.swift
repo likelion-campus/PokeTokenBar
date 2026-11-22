@@ -292,6 +292,41 @@ final class TeamRuntimeTests: XCTestCase {
         plaza.handleClose()
     }
 
+    /// A modified app can send any `treeDrop`: only the mint at the top level is drawn. A shiny charm, a rare candy, a mint at a lower level and an
+    /// unknown kind shake the tree and show no item (the item slot stays free); the genuine drop still shows. Through the real receive path.
+    func testAHostileTreeDropShowsNoItem() async {
+        let (a, b) = connectedPair()
+        let suite = "ptb.test.team.runtime.hostiledrop.\(UUID().uuidString)"
+        let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: TestDefaults.make(suite: suite)),
+                                          loader: PlazaCharacterLoader(fetcher: NoSprites()),
+                                          nickname: { "나" }, memberID: { b.settings.memberID },
+                                          subject: { .init(speciesID: 25, isShiny: false) }, session: b.runtime.session)
+        b.runtime.plaza = plaza
+        plaza.prepareScene()
+        let sender = a.settings.memberID
+        let spot = TilePoint(x: 17, y: 11)
+        a.runtime.session.updatePlazaPosition(inPlaza: true, tile: spot, facing: .up, isWalking: false, isFlushed: false)
+        await settle { plaza.scene?.memberTiles[sender] == spot }
+        var t = 0.0
+        func frames(_ n: Int) -> CGPoint? {
+            var seen: CGPoint?
+            for _ in 0..<n { t += 1.0 / 60; plaza.scene?.update(t); seen = seen ?? plaza.scene?.treeItemPosition }
+            return seen
+        }
+        _ = frames(2)
+        for (drop, level) in [(ItemKind.shinyCharm, 3), (.rareCandy, 3), (.mint, 2), (.mint, 1)] {
+            a.runtime.session.sendEmote(.treeShake, target: nil, pushTiles: level, treeDrop: drop)
+            await settle { plaza.scene?.isTreeBusy == true }
+            XCTAssertNil(frames(260), "\(drop) at level \(level) shows no item")
+            XCTAssertEqual(plaza.scene?.isTreeBusy, false, "it shook and settled")
+            XCTAssertEqual(plaza.scene?.treeLayers[0].isFlying, false)
+        }
+        a.runtime.session.sendEmote(.treeShake, target: nil, pushTiles: 3, treeDrop: .mint)
+        await settle { plaza.scene?.isTreeBusy == true }
+        XCTAssertNotNil(frames(150), "control: the real drop is drawn")
+        plaza.handleClose()
+    }
+
     /// A teammate who does something else stops dancing on my screen; the shared moments and the Ditto copy's jump do not.
     func testARemotesActionEmoteOrChatStopsItsDance() async {
         let (a, b) = connectedPair()

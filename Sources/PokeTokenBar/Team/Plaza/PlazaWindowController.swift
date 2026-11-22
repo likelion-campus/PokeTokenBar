@@ -1621,7 +1621,11 @@ import Observation
         // 어느 나무인지는 그 팀원의 몸과 바라보는 쪽에서 안다(새 필드가 없다). 어느 나무에도 닿지 않으면 그리지 않는다.
         guard let tree = scene.treeIndex(hitting: body, facing: facing) else { return }
         let direction = PlazaTree.hitDirection(body, facing: facing, tiles: scene.treeRuns[tree])
-        scene.playTreeHit(tree: tree, by: sender, direction: direction, level: TeamEmote.pushTiles(level), drop: drop)
+        // 받은 아이템은 진짜 떨어지는 때림(`dropItem` 이고 맨 위 단계)일 때만 그린다. 고친 앱이 보낸 이로치 부적·이상한 사탕이나 낮은 단계의 민트는
+        // 흔들림만 그린다(아이템 자리를 붙들지 못한다).
+        let level = TeamEmote.pushTiles(level)
+        let shown = drop == PlazaTree.dropItem && level == PlazaTree.bend.count ? drop : nil
+        scene.playTreeHit(tree: tree, by: sender, direction: direction, level: level, drop: shown)
     }
 
     /// 테스트용: 띄운 배너 수(닫을 때도 오른다)와 오늘 나무를 친 횟수.
