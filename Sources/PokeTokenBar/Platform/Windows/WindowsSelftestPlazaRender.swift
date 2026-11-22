@@ -63,6 +63,24 @@ extension WindowsSelftest {
             if f == 1 { scene.face(.up) }
             if f == 60 { scene.playTreeHit(by: nil, direction: .up, level: 3, drop: .mint) }
         }
+        // The second big tree (tiles x41-43, y25-27) with the mint of a tree's fifth hit bounced out beside me, 40 frames after the hit.
+        let shotTwoTreesMembers: [PlazaSceneMember] = [
+            PlazaSceneMember(memberID: "a", nickname: "Ash", isAway: false, tile: TilePoint(x: 40, y: 26), facing: .right, isWalking: false),
+            PlazaSceneMember(memberID: "b", nickname: "Misty", isAway: false, tile: TilePoint(x: 42, y: 24), facing: .down, isWalking: false),
+            PlazaSceneMember(memberID: "c", nickname: "Brock", isAway: false, tile: TilePoint(x: 38, y: 27), facing: .left, isWalking: false),
+        ]
+        await shoot(r, device: device, name: "plaza.shotTwoTrees", file: "plaza-two-trees.png", me: TilePoint(x: 42, y: 28), members: shotTwoTreesMembers, frames: 40) { scene, f in
+            if f == 1 { scene.face(.up); scene.playTreeHit(tree: 1, by: nil, direction: .up, level: 3, drop: .mint) }
+        }
+        // A pass-the-bomb round in progress: the bomb (about to go off) over Misty's head, teammates around me.
+        let shotBombMembers: [PlazaSceneMember] = [
+            PlazaSceneMember(memberID: "a", nickname: "Ash", isAway: false, tile: TilePoint(x: 15, y: 13), facing: .right, isWalking: false),
+            PlazaSceneMember(memberID: "b", nickname: "Misty", isAway: false, tile: TilePoint(x: 19, y: 15), facing: .left, isWalking: false),
+            PlazaSceneMember(memberID: "c", nickname: "Brock", isAway: false, tile: TilePoint(x: 17, y: 17), facing: .up, isWalking: false),
+        ]
+        await shoot(r, device: device, name: "plaza.shotBomb", file: "plaza-bomb-game.png", me: TilePoint(x: 17, y: 14), members: shotBombMembers, frames: 30) { scene, f in
+            if f == 1 { scene.setBomb(holder: "b", isMe: false, urgent: true) }
+        }
     }
 
     /// One documentation capture: `me` and `members` (FIXTURE blocks for sprites) in the summer plaza at noon, `script` called
