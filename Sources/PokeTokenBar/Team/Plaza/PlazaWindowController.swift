@@ -55,7 +55,7 @@ import Observation
     /// 창이 열려 있는 동안 1초마다 모닥불·타이머·안내를 다시 맞추는 틱. 테스트에서 바꿔 끼운다.
     private let focusTickSleep: @MainActor (Duration) async -> Void
     private var focusTick: Task<Void, Never>?
-    /// 온천에 든 뒤 3분 마감을 기다리는 잠. 마감 하나뿐이라 세는 반복이 없다. 테스트에서 바꿔 끼운다.
+    /// 온천에 든 뒤 마감(`flushAfter`)을 기다리는 잠. 마감 하나뿐이라 세는 반복이 없다. 테스트에서 바꿔 끼운다.
     private let soakSleep: @MainActor (Duration) async -> Void
     private var soak = PlazaSoak()
     private var soakTask: Task<Void, Never>?

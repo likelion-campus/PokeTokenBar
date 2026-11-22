@@ -3,7 +3,7 @@ import Foundation
 /// 오른쪽 연못: 온천. 이 파일은 SpriteKit 없이 쓰는 규칙만 둔다(`PlazaPond`·`PlazaDrag`처럼).
 /// 온천의 조정용 상수는 모두 여기에 있다.
 enum PlazaHotSpring {
-    static let flushAfter: TimeInterval = 180            // 조정용 상수 (명세 13, 위임)
+    static let flushAfter: TimeInterval = 10             // 조정용 상수 (명세 13, 2026-11-22 사용자 결정: 180 → 10)
     static let flushFade: TimeInterval = 60              // 조정용 상수 (명세 13, 위임)
     static let flushRise: TimeInterval = 2               // 명세 8.4 구현자 재량
     static let flushBlend: CGFloat = 0.45                // 조정용 상수 (명세 13, 설계자 판단·미확인)

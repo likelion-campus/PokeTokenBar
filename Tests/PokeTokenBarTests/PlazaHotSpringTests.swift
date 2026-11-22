@@ -209,25 +209,28 @@ final class PlazaHotSpringTests: XCTestCase {
 
     private let t0 = Date(timeIntervalSinceReferenceDate: 1_000)
 
-    func testFlushedAtExactlyThreeMinutes() {
+    func testFlushedAtExactlyTheSoakTime() {
+        let after = PlazaHotSpring.flushAfter
+        XCTAssertEqual(after, 10)
         var soak = PlazaSoak()
         XCTAssertTrue(soak.update(inSpring: true, now: t0))
-        XCTAssertFalse(soak.isFlushed(now: t0 + 179.9))
-        XCTAssertTrue(soak.isFlushed(now: t0 + 180))
-        XCTAssertEqual(soak.deadline, t0 + 180)
+        XCTAssertFalse(soak.isFlushed(now: t0 + after - 0.1))
+        XCTAssertTrue(soak.isFlushed(now: t0 + after))
+        XCTAssertEqual(soak.deadline, t0 + after)
         XCTAssertNil(PlazaSoak().deadline)
         XCTAssertFalse(PlazaSoak().isFlushed(now: t0 + 9_999))
     }
 
-    func testLeavingAt179RestartsTheCount() {
+    func testLeavingJustBeforeTheSoakTimeRestartsTheCount() {
+        let after = PlazaHotSpring.flushAfter
         var soak = PlazaSoak()
         _ = soak.update(inSpring: true, now: t0)
-        XCTAssertTrue(soak.update(inSpring: false, now: t0 + 179))
+        XCTAssertTrue(soak.update(inSpring: false, now: t0 + after - 1))
         XCTAssertNil(soak.since)
-        XCTAssertFalse(soak.update(inSpring: false, now: t0 + 179.5), "staying out changes nothing")
-        XCTAssertTrue(soak.update(inSpring: true, now: t0 + 180))
-        XCTAssertFalse(soak.isFlushed(now: t0 + 359.9))
-        XCTAssertTrue(soak.isFlushed(now: t0 + 360))
+        XCTAssertFalse(soak.update(inSpring: false, now: t0 + after - 0.5), "staying out changes nothing")
+        XCTAssertTrue(soak.update(inSpring: true, now: t0 + after))
+        XCTAssertFalse(soak.isFlushed(now: t0 + 2 * after - 0.1))
+        XCTAssertTrue(soak.isFlushed(now: t0 + 2 * after))
     }
 
     func testStayingInDoesNotRestart() {
@@ -242,7 +245,7 @@ final class PlazaHotSpringTests: XCTestCase {
         _ = soak.update(inSpring: true, now: t0)
         XCTAssertTrue(soak.update(inSpring: true, now: t0 - 3600))
         XCTAssertEqual(soak.since, t0 - 3600)
-        XCTAssertFalse(soak.isFlushed(now: t0 - 3600 + 179))
+        XCTAssertFalse(soak.isFlushed(now: t0 - 3600 + PlazaHotSpring.flushAfter - 1))
     }
 
     func testTheRedRisesInTwoSecondsAndFadesOverAMinute() {

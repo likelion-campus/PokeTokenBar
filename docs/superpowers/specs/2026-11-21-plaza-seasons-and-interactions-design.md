@@ -610,7 +610,7 @@ PR 마다 다음을 한다:
 | `PlazaBodySize.class2From` / `class3From` | 80 / 120 월드 px | 설계자 판단·미확인 |
 | 몸 칸 (w, h) | 1등급 (0,0), 2등급 (1,1), 3등급 (1,2) | 설계자 판단·미확인 |
 | `PlazaShove.receiveCooldown` | 1초 | 설계자 판단·미확인 |
-| `PlazaHotSpring.flushAfter` | 180초 | 위임 |
+| `PlazaHotSpring.flushAfter` | 10초 (처음 180초, 2026-11-22 사용자 결정으로 변경. 본문의 3분·180초는 처음 값) | 사용자 |
 | `PlazaHotSpring.flushFade` | 60초 | 위임 |
 | `PlazaHotSpring.flushBlend` | 0.45, 색 `#E0503C` | 설계자 판단·미확인 |
 | `PlazaSteam.maxWisps` | 8 | 설계자 판단·미확인 |
