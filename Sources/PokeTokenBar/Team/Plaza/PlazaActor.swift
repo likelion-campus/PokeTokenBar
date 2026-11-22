@@ -60,7 +60,9 @@ struct PlazaActorContext {
     static let bombFrameDuration: TimeInterval = 0.14, bombUrgentFrameDuration: TimeInterval = 0.05
     /// 폭발에 날아가는 시간과 높이, 도는 바퀴 수. 그 뒤 `sootDuration` 동안 그을려 있다가 마지막 `sootFade` 동안 돌아온다.
     static let blastDuration: TimeInterval = 0.9, blastHeight: CGFloat = 56, blastTurns: CGFloat = 2
-    static let sootDuration: TimeInterval = 60, sootFade: TimeInterval = 10, sootBlend: CGFloat = 0.8
+    /// 곧 터질 폭탄이 붉게 부푸는 빠르기(rad/s). |sin|이라 초당 약 2.9번: 초당 세 번을 넘는 깜빡임은 쓰지 않는다.
+    static let bombPulseRate: Double = 9
+    static let sootDuration: TimeInterval = 20, sootFade: TimeInterval = 10, sootBlend: CGFloat = 0.8
     private static let sootColor = PlazaColor(hex: 0x1A1A1E)
     private var blastElapsed: TimeInterval?
     private(set) var sootRemaining: TimeInterval = 0
@@ -673,9 +675,9 @@ struct PlazaActorContext {
         let base = isBubbleShown ? emoteNode.position.y + emoteNode.size.height : namePlateTop
         let bob = (sin(elapsed * 6) * 2).rounded()
         bombNode.position = CGPoint(x: plateNode.position.x, y: base + 2 + bob)
-        let pulse = isBombUrgent ? 1 + 0.25 * abs(sin(elapsed * 14)) : 1
+        let pulse = isBombUrgent ? 1 + 0.25 * abs(sin(elapsed * Self.bombPulseRate)) : 1
         bombNode.setScale(pulse)
-        bombNode.colorBlendFactor = isBombUrgent ? 0.55 * abs(sin(elapsed * 14)) : 0
+        bombNode.colorBlendFactor = isBombUrgent ? 0.55 * abs(sin(elapsed * Self.bombPulseRate)) : 0
     }
 
     private func setBubble(_ image: PlazaImage, backing: CGFloat) {

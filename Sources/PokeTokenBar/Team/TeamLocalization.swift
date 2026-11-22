@@ -198,20 +198,25 @@ extension L {
     var plazaGameUnknownName: String { "새 미니게임" }
     func plazaGameRules(_ kind: PlazaGameKind) -> [String] {
         switch kind {
-        case .bomb: ["폭탄을 들면 C(치기)나 V(던지기)로 넘겨요", "터질 때 들고 있으면 탈락!", "마지막 한 명이 이겨요"]
+        case .bomb: ["폭탄을 들면 C(치기)나 V(던지기)로 넘겨요", "터질 때 들고 있으면 탈락!", "마지막 한 명이 이겨요 · 한 판 1~3분"]
         }
     }
     func plazaGameMenuRow(_ kind: PlazaGameKind) -> String { "\(plazaGameName(kind)) 열기" }
     var plazaGameMenuBusy: String { "지금 다른 판이 열려 있어요" }
+    func plazaGameMenuWait(seconds: Int) -> String { "\(seconds)초 뒤에 판을 열 수 있어요" }
     var plazaGameMenuEgg: String { "알은 걸을 수 없어 판을 열 수 없어요" }
     var plazaGameMenuHowTo: String { "판을 열면 30초 동안 참가할 팀원을 모아요" }
     func plazaGameCardTitle(host: String?, game: String) -> String { host.map { "\($0)님의 \(game)" } ?? "내가 연 \(game)" }
     func plazaGameRecruiting(players: Int, seconds: Int) -> String { "참가 \(players)명 · \(seconds)초 뒤 시작" }
-    var plazaGameNeedsTwo: String { "두 명부터 시작돼요 · 팀원을 기다리는 중" }
+    func plazaGameNeedsTwo(seconds: Int) -> String { "두 명부터 시작돼요 · \(seconds)초 남음" }
     var plazaGameJoined: String { "참가했어요!" }
     var plazaGameEggNote: String { "알은 걸을 수 없어 구경만 해요" }
     var plazaGameUpdateNote: String { "앱을 업데이트하면 참가할 수 있어요" }
-    var plazaGameStartingSoon: String { "곧 시작해요!" }
+    /// 참가자 이름 줄. 셋까지 이름을 적고 나머지는 수로 줄인다.
+    func plazaGamePlayers(_ names: [String]) -> String {
+        let shown = names.prefix(3).joined(separator: ", ")
+        return names.count > 3 ? "참가: \(shown) 외 \(names.count - 3)명" : "참가: \(shown)"
+    }
     var plazaGameButtonJoin: String { "Y 참가" }
     var plazaGameButtonDecline: String { "N 안 함" }
     var plazaGameButtonLeave: String { "N 빠지기" }
@@ -223,16 +228,22 @@ extension L {
     func plazaGameOut(nickname: String?) -> String { nickname.map { "\($0) 탈락!" } ?? "탈락!" }
     func plazaGameWin(nickname: String?) -> String { nickname.map { "\($0) 승리!" } ?? "승리!" }
     var plazaGameHoldHint: String { "💣 폭탄! C로 치거나 V로 맞혀 넘기세요" }
-    var plazaGameHoldSoonHint: String { "💣 다음 폭탄은 내 차례 · C나 V로 넘기세요" }
+    func plazaGameNoReturnHint(nickname: String) -> String { "💣 \(nickname)님에겐 잠깐 뒤에 돌려줄 수 있어요" }
+    var plazaGameWaterHint: String { "💣 물에서는 던질 수 없어요 · 뭍으로 나가 C나 V로 넘기세요" }
+    var plazaGameScatterHint: String { "곧 폭탄이 나와요 · 서로 흩어지세요" }
     func plazaGameRunHint(nickname: String) -> String { "\(nickname)님이 폭탄을 들었어요 · 도망치세요!" }
-    func plazaGameWaitHint(nickname: String) -> String { "다음 폭탄은 \(nickname)님 · 멀리 떨어지세요" }
-    func plazaGameOutHint(left: Int) -> String { "탈락 · 남은 \(left)명 구경 중" }
+    func plazaGameOutHint(left: Int) -> String { "탈락 · 남은 \(left)명을 구경해요" }
     var plazaGameNoDive: String { "미니게임 중에는 잠수할 수 없어요" }
     func plazaGameStartedBanner(game: String, players: Int) -> String { "\(game) 시작 · \(players)명" }
     func plazaGameOutBanner(nickname: String) -> String { "💥 \(nickname)님 탈락!" }
     func plazaGameWinBanner(nickname: String, game: String) -> String { "🏆 \(nickname)님이 \(game)에서 이겼어요!" }
-    func plazaGameOverBanner(game: String) -> String { "\(game)가 끝났어요" }
-    func plazaGameCancelledBanner(game: String) -> String { "참가자가 모자라 \(game) 판이 취소됐어요" }
+    func plazaGameOverBanner(game: String) -> String { "\(game) 판이 끝났어요" }
+    /// `closed`: 판을 연 사람이 접었다. 아니면 모집이 끝났는데 참가자가 모자랐다.
+    func plazaGameCancelledBanner(game: String, closed: Bool) -> String {
+        closed ? "\(game) 판이 취소됐어요" : "참가자가 모자라 \(game) 판이 취소됐어요"
+    }
+    func plazaGameLeftBanner(nickname: String) -> String { "\(nickname)님이 판에서 나갔어요" }
+    var plazaGameLostConnectionBanner: String { "팀원과 연결이 끊겨 판에서 빠졌어요" }
     func teamGameInviteNotice(nickname: String, game: String) -> String { "💣 \(nickname)님이 \(game) 판을 열었어요. 광장에서 Y를 눌러 참가하세요" }
     var plazaPhotoGuide: String { "📷 사진 모드 · 방향키 이동 · Shift 빠르게 · −/+ 확대 · Space 찍기 · G 단체 사진 · Esc 나가기" }
     var plazaPhotoCopied: String { "사진을 클립보드에 담았어요 · ⌘V로 붙여 넣기" }

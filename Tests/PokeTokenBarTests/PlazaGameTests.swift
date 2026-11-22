@@ -6,10 +6,12 @@ final class PlazaGameTests: XCTestCase {
     private let t0 = Date(timeIntervalSince1970: 1_800_000_000)
     private func at(_ s: TimeInterval) -> Date { t0.addingTimeInterval(s) }
 
-    /// A plaza of engines. `gone` members are not in anyone's plaza and neither tick nor hear anything.
+    /// A plaza of engines. `gone` members are not in anyone's plaza and neither tick nor hear anything. `cutOff` members
+    /// (asleep and woken, or off the network) keep ticking but reach nobody, and nobody reaches them.
     private struct Plaza {
         var engines: [String: PlazaGameEngine]
         var gone: Set<String> = []
+        var cutOff: Set<String> = []
 
         init(_ ids: [String], seed: UInt64 = 7) {
             engines = Dictionary(uniqueKeysWithValues: ids.map { id in
@@ -24,7 +26,9 @@ final class PlazaGameTests: XCTestCase {
             set { engines[id] = newValue }
         }
 
-        func present(for id: String) -> Set<String> { Set(engines.keys).subtracting(gone).subtracting([id]) }
+        func present(for id: String) -> Set<String> {
+            cutOff.contains(id) ? [] : Set(engines.keys).subtracting(gone).subtracting(cutOff).subtracting([id])
+        }
 
         /// Everyone ticks, then everyone hears everyone, until nothing changes.
         mutating func step(_ now: Date) {
@@ -33,11 +37,11 @@ final class PlazaGameTests: XCTestCase {
                 for id in engines.keys.sorted() where !gone.contains(id) {
                     let present = present(for: id)
                     let joins = Set(present.filter { engines[$0]!.joined != nil && engines[$0]!.joined == engines[id]!.state?.id })
-                    if engines[id]!.tick(now: now, present: present, joins: joins) { changed = true }
+                    if engines[id]!.tick(now: now, present: present, joins: joins, connected: !cutOff.contains(id)) { changed = true }
                 }
-                for id in engines.keys.sorted() where !gone.contains(id) {
-                    for other in engines.keys.sorted() where other != id && !gone.contains(other) {
-                        if engines[id]!.learn(engines[other]!.state, now: now) { changed = true }
+                for id in engines.keys.sorted() where !gone.contains(id) && !cutOff.contains(id) {
+                    for other in engines.keys.sorted() where other != id && !gone.contains(other) && !cutOff.contains(other) {
+                        if engines[id]!.learn(engines[other]!.state, from: other, now: now) { changed = true }
                     }
                 }
                 if !changed { return }
@@ -307,6 +311,205 @@ final class PlazaGameTests: XCTestCase {
         XCTAssertNotNil(PlazaGame.accepted(s, now: at(start - 2.5)), "teammates accept what the leaver wrote")
     }
 
+    // MARK: - Leaving, cut-off Macs and consent (the 2026-11-22 audit)
+
+    /// Before: any player leaving re-dealt the bomb with a fresh fuse, so closing the plaza a second before the blast
+    /// saved the holder.
+    func testANonHolderLeavingKeepsTheBombAndItsFuse() {
+        var plaza = Plaza(["a", "b", "c"])
+        let start = started(&plaza, joiners: ["b", "c"])
+        let before = plaza["a"].state!
+        let holder = before.bomb!.holder
+        let leaver = ["a", "b", "c"].first { $0 != holder }!
+        plaza[leaver].leave(now: at(start + 5), present: plaza.present(for: leaver))
+        plaza.step(at(start + 5))
+        let s = plaza[holder].state!
+        XCTAssertEqual(s.bomb?.out, [leaver])
+        XCTAssertEqual(s.bomb?.round, 1, "no new round")
+        XCTAssertEqual(s.bomb?.holder, holder)
+        XCTAssertEqual(s.bomb?.roundStartsAt, before.bomb?.roundStartsAt, "the fuse keeps running")
+        XCTAssertEqual(Set(plaza.states).count, 1)
+        XCTAssertNotNil(PlazaGame.accepted(s, now: at(start + 5)))
+    }
+
+    func testTheLastOpponentLeavingEndsTheGameForTheOneWhoStayed() {
+        var plaza = Plaza(["a", "b"])
+        let start = started(&plaza, joiners: ["b"])
+        let holder = plaza["a"].state!.bomb!.holder, other = holder == "a" ? "b" : "a"
+        plaza[other].leave(now: at(start + 5), present: plaza.present(for: other))
+        plaza.step(at(start + 5))
+        XCTAssertEqual(plaza[holder].state?.winner, holder)
+    }
+
+    /// Before: a Mac that slept through the game woke with nobody in sight, made itself the referee, put everyone else
+    /// out and published "I won", which beat the running game on every Mac once it reconnected.
+    func testAMacCutOffFromEveryoneNeitherWinsNorEndsTheGame() {
+        var plaza = Plaza(["a", "b", "c", "d", "e"])
+        let start = started(&plaza, joiners: ["b", "c", "d", "e"])
+        let s0 = plaza["a"].state!
+        let holder = s0.bomb!.holder
+        let sleeper = s0.players.first { $0 != holder }!
+        plaza.cutOff = [sleeper]
+        let boom = start + PlazaBomb.fuse(seed: s0.seed, round: 1)
+        for now in stride(from: start + 1, through: boom + PlazaBomb.absenceGrace + 1, by: 1) { plaza.step(at(now)) }
+        XCTAssertNil(plaza[sleeper].state?.endedAt, "it ends nobody's game")
+        XCTAssertNil(plaza[sleeper].state?.winner)
+        XCTAssertEqual(plaza[sleeper].state?.bomb?.out, [sleeper], "after a while it only steps out itself")
+        XCTAssertEqual(plaza[sleeper].lostConnection, s0.id)
+        let others = plaza[holder].state!
+        XCTAssertNil(others.endedAt, "the rest play on")
+        XCTAssertEqual(others.bomb?.round, 2)
+        // Back on the network: the running game wins, with the sleeper out.
+        plaza.cutOff = []
+        plaza.step(at(boom + PlazaBomb.absenceGrace + 2))
+        XCTAssertEqual(Set(plaza.states).count, 1)
+        XCTAssertNil(plaza[sleeper].state?.endedAt)
+        XCTAssertTrue(plaza[sleeper].state?.bomb?.out.contains(sleeper) == true)
+        XCTAssertEqual(plaza[sleeper].state?.bomb?.out.count, 2, "the one who blew up, and the sleeper")
+    }
+
+    func testAShortCutOffKeepsMyPlace() {
+        var plaza = Plaza(["a", "b", "c"])
+        let start = started(&plaza, joiners: ["b", "c"])
+        let holder = plaza["a"].state!.bomb!.holder
+        let blinker = ["a", "b", "c"].first { $0 != holder }!
+        plaza.cutOff = [blinker]
+        plaza.step(at(start + 1))
+        plaza.step(at(start + 1 + PlazaGame.isolationLimit - 0.5))
+        plaza.cutOff = []
+        plaza.step(at(start + 1 + PlazaGame.isolationLimit))
+        XCTAssertEqual(plaza[blinker].state?.bomb?.out, [])
+        XCTAssertTrue(plaza[blinker].isPlaying)
+    }
+
+    func testACutOffHolderBlowsUpAloneAndPutsNobodyElseOut() {
+        var plaza = Plaza(["a", "b", "c"])
+        let start = started(&plaza, joiners: ["b", "c"])
+        let s0 = plaza["a"].state!
+        let holder = s0.bomb!.holder
+        plaza.cutOff = [holder]
+        plaza.step(at(start + 1))
+        // Its fuse runs out before the isolation limit would.
+        plaza[holder].tick(now: at(start + PlazaBomb.fuse(seed: s0.seed, round: 1)), present: [], joins: [], connected: false)
+        XCTAssertEqual(plaza[holder].state?.bomb?.out, [holder])
+        XCTAssertNil(plaza[holder].state?.endedAt)
+    }
+
+    /// Before: the next holder wore the bomb through the countdown and the pause, and everyone else was told to get
+    /// away from them: a head start longer than the map.
+    func testWhoGetsTheNextBombIsHiddenThroughThePauseBetweenRounds() {
+        var plaza = Plaza(["a", "b", "c"])
+        let start = started(&plaza, joiners: ["b", "c"])
+        let s0 = plaza["a"].state!
+        func view(_ id: String, _ now: Date) -> PlazaGameView {
+            PlazaGameView.make(engine: plaza[id], now: now, joinedCount: 3, canPlay: true, flash: nil, name: { $0 })
+        }
+        XCTAssertNil(view("a", at(start - 1)).holder, "the countdown")
+        XCTAssertEqual(view("a", at(start - 1)).hint, L(.ko).plazaGameScatterHint)
+        XCTAssertEqual(view("a", at(start + 1)).holder, s0.bomb?.holder, "live")
+        let boom = start + PlazaBomb.fuse(seed: s0.seed, round: 1)
+        plaza.step(at(boom))
+        let next = plaza["a"].state!.bomb!
+        XCTAssertEqual(next.round, 2, "test precondition")
+        for id in ["a", "b", "c"] where id != s0.bomb?.holder {
+            XCTAssertNil(view(id, at(boom + 1)).holder, "the pause: nobody wears the bomb yet")
+            XCTAssertEqual(view(id, at(boom + 1)).hint, L(.ko).plazaGameScatterHint, "and the next holder reads the same line as the rest")
+        }
+        XCTAssertEqual(view("a", at(boom + PlazaBomb.intermission)).holder, next.holder)
+    }
+
+    /// Before: with the holder counted among "those here", a silent holder with the smallest ID was its own referee on
+    /// every other Mac, so nobody put it out. The old test passed because its seed made "b" the holder.
+    func testASilentHolderWithTheSmallestIDStillHasAReferee() throws {
+        let ids = ["a", "b", "c"]
+        let seed = try XCTUnwrap((UInt64(1)...200).first { PlazaBomb.firstHolder(seed: $0, round: 1, alive: ids) == "a" })
+        var plaza = Plaza(ids, seed: seed)
+        let start = started(&plaza, joiners: ["b", "c"])
+        XCTAssertEqual(plaza["b"].state?.bomb?.holder, "a", "test precondition")
+        let boom = start + PlazaBomb.fuse(seed: seed, round: 1)
+        for id in ["b", "c"] { plaza[id].tick(now: at(boom + PlazaBomb.absenceGrace), present: Set(ids).subtracting([id]), joins: []) }
+        XCTAssertEqual(plaza["b"].state?.bomb?.out, ["a"], "b, the first player who is not the holder, speaks")
+        XCTAssertEqual(plaza["c"].state?.bomb?.out, [], "and only b")
+    }
+
+    /// Before: a Mac played whenever the list named it. A late N (or a made-up list) locked in someone who never said yes.
+    func testListedWithoutMyYesIStepOutAndTheBombStaysWhereItIs() {
+        var plaza = Plaza(["a", "b", "c"])
+        let start = started(&plaza, joiners: ["b"])
+        var forged = plaza["a"].state!
+        let holder = forged.bomb!.holder
+        forged.players = ["a", "b", "c"]
+        forged.bomb!.pass += 1   // newer than what c knows, so c takes it
+        XCTAssertNotNil(PlazaGame.accepted(forged, now: at(start + 1)), "test precondition: the list itself is within bounds")
+        plaza["c"].learn(forged, from: "a", now: at(start + 1))
+        XCTAssertFalse(plaza["c"].isPlayer, "named, but never said yes")
+        plaza["c"].tick(now: at(start + 1), present: ["a", "b"], joins: [])
+        XCTAssertEqual(plaza["c"].state?.bomb?.out, ["c"])
+        XCTAssertEqual(plaza["c"].state?.bomb?.holder, holder)
+        XCTAssertEqual(plaza["c"].state?.bomb?.round, 1)
+        XCTAssertFalse(plaza["c"].hit(by: holder, now: at(start + 2)), "and takes no bomb")
+    }
+
+    /// Before: anyone's presence could carry an invitation naming any host.
+    func testAnInvitationCountsOnlyFromItsHostsOwnMac() {
+        var a = PlazaGameEngine(me: "a")
+        XCTAssertTrue(a.open(.bomb, now: at(0)))
+        var b = PlazaGameEngine(me: "b")
+        b.learn(a.state, from: "c", now: at(1))
+        XCTAssertNil(b.state, "c cannot invite in a's name")
+        b.learn(a.state, from: "a", now: at(1))
+        XCTAssertEqual(b.state?.host, "a")
+        // A game already running is passed on by anyone (a late Mac still sees it).
+        var plaza = Plaza(["a", "b", "c"])
+        _ = started(&plaza, joiners: ["b"])
+        var late = PlazaGameEngine(me: "d")
+        late.learn(plaza["c"].state, from: "c", now: at(PlazaGame.recruitSeconds + 1))
+        XCTAssertNotNil(late.state)
+    }
+
+    /// Before: open, cancel, wait five seconds, open again put a new card on every plaza each time.
+    func testAHostWhoseGameWasCancelledWaitsBeforeInvitingAgain() {
+        var plaza = Plaza(["a", "b"])
+        XCTAssertTrue(plaza["a"].open(.bomb, now: at(0)))
+        plaza.step(at(1))
+        plaza["a"].leave(now: at(5), present: ["b"])
+        plaza.step(at(5))
+        XCTAssertFalse(plaza["a"].open(.bomb, now: at(5 + PlazaGame.rematchDelay + 1)), "my own Mac refuses")
+        XCTAssertEqual(plaza["a"].opensIn(now: at(15)), PlazaGame.reopenDelay - 10)
+        // A Mac that opens one anyway is not heard.
+        let again = PlazaGameState(id: "a@again", kind: "bomb", host: "a", opensAt: t0.timeIntervalSince1970 + 15)
+        plaza["b"].learn(again, from: "a", now: at(15))
+        XCTAssertNotEqual(plaza["b"].state?.id, "a@again")
+        // The teammate is not held back by my cancelled game.
+        XCTAssertTrue(plaza["b"].canOpen(now: at(5 + PlazaGame.rematchDelay)))
+        XCTAssertTrue(plaza["a"].open(.bomb, now: at(5 + PlazaGame.reopenDelay)))
+        plaza.step(at(5 + PlazaGame.reopenDelay))
+        XCTAssertEqual(plaza["b"].phase(now: at(5 + PlazaGame.reopenDelay)), .recruiting)
+    }
+
+    /// Before: a count sent at its limit made the engine's next move out of bounds; the state was dropped, learned again
+    /// and moved again five times a second.
+    func testAGameAtItsPassLimitEndsInsteadOfLeavingTheBounds() {
+        var plaza = Plaza(["a", "b"])
+        let start = started(&plaza, joiners: ["b"])
+        var s = plaza["a"].state!
+        s.bomb!.pass = PlazaGame.maxPass
+        let holder = s.bomb!.holder, other = holder == "a" ? "b" : "a"
+        for id in ["a", "b"] { plaza[id].learn(s, from: holder, now: at(start + 1)) }
+        XCTAssertFalse(plaza[other].hit(by: holder, now: at(start + 1)), "no more passes")
+        let boom = start + PlazaBomb.fuse(seed: s.seed, round: 1)
+        plaza.step(at(boom))
+        XCTAssertEqual(plaza[other].phase(now: at(boom)), .ended)
+        XCTAssertNil(plaza[other].state?.winner)
+        XCTAssertNotNil(PlazaGame.accepted(plaza[holder].state, now: at(boom)), "what the engine wrote is within its own bounds")
+    }
+
+    func testTheLongestGameEndsInsideAGamesLife() {
+        let longest = PlazaGame.recruitSeconds + PlazaGame.countdownSeconds
+            + Double(PlazaGame.maxPlayers - 1) * (PlazaBomb.fuseRange.upperBound + PlazaBomb.intermission)
+        XCTAssertLessThan(longest, PlazaGame.maxLife)
+    }
+
     // MARK: - Merging and hostile input
 
     func testMergingIsTheSameInEitherOrder() {
@@ -367,6 +570,9 @@ final class PlazaGameTests: XCTestCase {
         bad({ $0.bomb?.out = ["a", "b"] }, "everyone out but still running")
         bad({ $0.bomb?.pass = -1 }, "negative pass")
         bad({ $0.bomb?.round = 0 }, "round zero")
+        bad({ $0.bomb?.round = 2 }, "a second round with nobody out")
+        bad({ $0.bomb?.pass = PlazaGame.maxPass + 1 }, "more passes than a game has")
+        bad({ $0.players = (0...PlazaGame.maxPlayers).map { "p\($0)" } }, "one player too many")
         bad({ $0.bomb?.roundStartsAt = .nan }, "nan round")
         bad({ $0.bomb?.from = "stranger" }, "handed over by a stranger")
         bad({ $0.winner = "a" }, "a winner without an end")

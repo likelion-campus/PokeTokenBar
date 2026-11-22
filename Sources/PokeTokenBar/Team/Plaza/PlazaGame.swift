@@ -50,7 +50,8 @@ enum PlazaGame {
     /// The 3-2-1 before play begins.
     static let countdownSeconds: TimeInterval = 3
     static let minPlayers = 2
-    static let maxPlayers = 64
+    /// Small enough that the longest game (every fuse at its longest) still ends well inside `maxLife`.
+    static let maxPlayers = 20
     /// A recruiting game whose host never locked it (the host left) is forgotten this long after recruiting ends.
     static let hostGrace: TimeInterval = 15
     /// No game lives longer than this.
@@ -61,6 +62,12 @@ enum PlazaGame {
     static let rematchDelay: TimeInterval = 5
     /// A received time may be this far ahead of my clock.
     static let clockSlack: TimeInterval = 60
+    /// A host whose game was cancelled before it started cannot open another for this long: no invitation loop.
+    static let reopenDelay: TimeInterval = 30
+    /// A Mac with no teammate connected (asleep, off the network) gives up its place in the game after this long.
+    static let isolationLimit: TimeInterval = 10
+    /// Passes and explosions in one game. A game that reaches it ends with no winner.
+    static let maxPass = 100_000
 
     enum Phase: Equatable, Sendable { case recruiting, countdown, playing, ended }
 
@@ -92,8 +99,9 @@ enum PlazaGame {
         if let ended = s.endedAt { guard okTime(ended, from: s.opensAt) else { return nil } }
         if let winner = s.winner { guard s.endedAt != nil, s.players.contains(winner) else { return nil } }
         if let b = s.bomb {
-            guard let starts = s.startsAt, (1...maxPlayers).contains(b.round), okTime(b.roundStartsAt, from: starts),
-                  s.players.contains(b.holder), (0...100_000).contains(b.pass),
+            // A round only begins after someone went out, so the round can never run ahead of the out list.
+            guard let starts = s.startsAt, (1...(b.out.count + 1)).contains(b.round), okTime(b.roundStartsAt, from: starts),
+                  s.players.contains(b.holder), (0...maxPass).contains(b.pass),
                   b.out.count < s.players.count || s.endedAt != nil, b.out.count <= s.players.count,
                   b.out.allSatisfy(s.players.contains), Set(b.out).count == b.out.count else { return nil }
             if let from = b.from { guard s.players.contains(from) else { return nil } }
@@ -136,6 +144,10 @@ enum PlazaBomb {
     static let intermission: TimeInterval = 4
     /// Whoever just handed the bomb over cannot get it back for this long.
     static let returnImmunity: TimeInterval = 2
+    /// One running step of whoever holds the live bomb (everyone else: `PlazaWalker.runStepDuration`). At the same
+    /// speed a holder never catches a player who keeps running. It stays above `PlazaScene.maxFrameDelta`: a frame must
+    /// never cover two tiles, or teammates see the holder jump.
+    static let holderRunStepDuration: TimeInterval = 0.071
     /// A holder who is gone from the plaza, or whose Mac did not report the explosion, is put out after this long.
     static let absenceGrace: TimeInterval = 3
 
@@ -178,6 +190,11 @@ struct PlazaGameEngine {
     /// The host asked to start before recruiting ends.
     private var startRequested = false
     private var holderAbsentSince: Double?
+    private var isolatedSince: Double?
+    /// The game I dropped out of because this Mac lost every teammate (the plaza says so instead of naming a loser).
+    private(set) var lostConnection: String?
+    /// Hosts whose game was cancelled before it started, and when: their next invitation waits `reopenDelay`.
+    private var cancelled: [String: Double] = [:]
     /// Draws the seed when I lock a game as its host.
     var makeSeed: () -> UInt64 = { UInt64.random(in: .min ... .max) }
 
@@ -193,29 +210,51 @@ struct PlazaGameEngine {
         return PlazaBomb.alive(state).contains(me)
     }
 
-    /// Takes what a teammate knows. True when it changed what I know.
+    /// I am one of the players, and I said yes: a list that names me without my yes does not make me one.
+    var isPlayer: Bool {
+        guard let state else { return false }
+        return state.players.contains(me) && joined == state.id
+    }
+
+    /// Takes what `sender` knows (nil: not checked, for tests of the merge alone). True when it changed what I know.
+    /// An invitation counts only from its host's own Mac, and not while that host's last cancelled game is fresh.
     @discardableResult
-    mutating func learn(_ received: PlazaGameState?, now: Date) -> Bool {
+    mutating func learn(_ received: PlazaGameState?, from sender: String? = nil, now: Date) -> Bool {
         let before = state
-        state = PlazaGame.merged(PlazaGame.accepted(state, now: now), PlazaGame.accepted(received, now: now))
-        settle()
+        var incoming = PlazaGame.accepted(received, now: now)
+        if let r = incoming, r.id != state?.id, r.startsAt == nil, r.endedAt == nil {
+            if let sender, sender != r.host { incoming = nil }
+            if let at = cancelled[r.host], r.opensAt < at + PlazaGame.reopenDelay { incoming = nil }
+        }
+        state = PlazaGame.merged(PlazaGame.accepted(state, now: now), incoming)
+        settle(now: now)
         return state != before
     }
 
-    private mutating func settle() {
+    private mutating func settle(now: Date) {
         if joined != state?.id { joined = nil }
         if declined != state?.id { declined = nil }
+        if lostConnection != state?.id { lostConnection = nil }
         if state?.startsAt != nil || state == nil { startRequested = false }
+        let t = now.timeIntervalSince1970
+        if let s = state, s.startsAt == nil, let ended = s.endedAt { cancelled[s.host] = max(cancelled[s.host] ?? ended, ended) }
+        cancelled = cancelled.filter { t < $0.value + PlazaGame.reopenDelay }
     }
 
-    /// Whether a new game can open now: none is alive, and the last one ended a moment ago.
-    func canOpen(now: Date) -> Bool {
+    /// How long until I can open a game: 0 when none is alive, the last one ended a moment ago, and my own last game
+    /// was not just cancelled. nil while a game is alive.
+    func opensIn(now: Date) -> TimeInterval? {
+        let t = now.timeIntervalSince1970
+        var wait = max(0, (cancelled[me] ?? -.infinity) + PlazaGame.reopenDelay - t)
         switch phase(now: now) {
-        case nil: true
-        case .ended: now.timeIntervalSince1970 >= (state?.endedAt ?? 0) + PlazaGame.rematchDelay
-        case .recruiting, .countdown, .playing: false
+        case nil: break
+        case .ended: wait = max(wait, (state?.endedAt ?? 0) + PlazaGame.rematchDelay - t)
+        case .recruiting, .countdown, .playing: return nil
         }
+        return wait
     }
+
+    func canOpen(now: Date) -> Bool { opensIn(now: now) == 0 }
 
     /// Opens a game with me as host and first player.
     @discardableResult
@@ -242,14 +281,17 @@ struct PlazaGameEngine {
     /// tick reads it, so on anyone else's Mac it does nothing.
     mutating func requestStart() { startRequested = true }
 
-    /// I am leaving the plaza: out of the lobby, and out of a running game (a holder blows up).
+    /// I am leaving the plaza: out of the lobby, and out of a running game. Only a holder's leaving ends the round
+    /// (the bomb goes off with them); anyone else just steps out and the bomb keeps ticking.
     mutating func leave(now: Date, present: Set<String>) {
         guard var s = state else { return }
-        joined = nil
         switch phase(now: now) {
-        case .recruiting where s.host == me:
+        case .recruiting:
+            joined = nil
+            guard s.host == me else { return }
             s.endedAt = now.timeIntervalSince1970
             state = s
+            settle(now: now)
         case .countdown, .playing:
             guard PlazaBomb.alive(s).contains(me) else { return }
             putOut(me, now: now, present: present.subtracting([me]))
@@ -260,9 +302,9 @@ struct PlazaGameEngine {
     /// A hit from `sender` landed on me. True when it handed me the bomb.
     mutating func hit(by sender: String, now: Date) -> Bool {
         guard var s = state, phase(now: now) == .playing, var b = s.bomb, b.holder == sender, sender != me,
-              PlazaBomb.alive(s).contains(me) else { return false }
+              PlazaBomb.alive(s).contains(me), joined == s.id else { return false }
         let t = now.timeIntervalSince1970
-        guard t >= b.roundStartsAt else { return false }
+        guard t >= b.roundStartsAt, b.pass < PlazaGame.maxPass else { return false }
         if b.from == me, let at = b.passedAt, t - at < PlazaBomb.returnImmunity { return false }
         b.holder = me
         b.from = sender
@@ -274,15 +316,36 @@ struct PlazaGameEngine {
     }
 
     /// Does what only this Mac may do right now. `present`: teammates in the plaza (not me). `joins`: those of them who
-    /// said yes to the current game. True when `state` changed (publish it).
+    /// said yes to the current game. `connected`: this Mac reaches at least one teammate. True when `state` changed
+    /// (publish it).
     @discardableResult
-    mutating func tick(now: Date, present: Set<String>, joins: Set<String>) -> Bool {
+    mutating func tick(now: Date, present: Set<String>, joins: Set<String>, connected: Bool = true) -> Bool {
         let before = state
         state = PlazaGame.accepted(state, now: now)
-        settle()
+        settle(now: now)
         guard var s = state else { return before != nil }
         let t = now.timeIntervalSince1970
-        switch PlazaGame.phase(s, now: now) {
+        let phase = PlazaGame.phase(s, now: now)
+        if phase == .countdown || phase == .playing, PlazaBomb.alive(s).contains(me) {
+            // Listed without my yes (a late N, a restart, a list someone made up): I step out, quietly.
+            if joined != s.id {
+                putOut(me, now: now, present: present, sweep: false)
+                return state != before
+            }
+            // Cut off from everyone, I cannot tell who is still there: I judge nobody, and after a while I step out
+            // myself. Without this a Mac that slept through the game woke up as its only player and "won" it.
+            if !connected {
+                holderAbsentSince = nil
+                let since = isolatedSince ?? t
+                isolatedSince = since
+                let myBombBlew = phase == .playing && s.bomb?.holder == me && t >= (PlazaBomb.explodesAt(s) ?? .infinity)
+                if t - since >= PlazaGame.isolationLimit { lostConnection = s.id }
+                if myBombBlew || lostConnection == s.id { putOut(me, now: now, present: present, sweep: false) }
+                return state != before
+            }
+        }
+        isolatedSince = nil
+        switch phase {
         case .recruiting where s.host == me:
             let players = (joins.intersection(present).union(joined == s.id ? [me] : [])).sorted()
             let timeUp = t >= s.opensAt + PlazaGame.recruitSeconds
@@ -306,8 +369,8 @@ struct PlazaGameEngine {
                 if t >= explodes { putOut(me, now: now, present: present) }
                 break
             }
-            // The referee (the first player still here) speaks for a holder who cannot.
-            let here = alive.filter { $0 == me || present.contains($0) }
+            // The referee (the first player still here, the holder aside) speaks for a holder who cannot.
+            let here = alive.filter { $0 != b.holder && ($0 == me || present.contains($0)) }
             guard here.min() == me else { break }
             if present.contains(b.holder) {
                 holderAbsentSince = nil
@@ -323,29 +386,38 @@ struct PlazaGameEngine {
         return state != before
     }
 
-    /// `member` is out. Players who are gone go out with them; then the next round starts, or the game ends.
-    private mutating func putOut(_ member: String, now: Date, present: Set<String>) {
+    /// `member` is out, and with `sweep` so are the players who are gone. A holder going out ends the round: the next
+    /// one starts, or the game ends. Anyone else going out leaves the bomb and its fuse as they are.
+    private mutating func putOut(_ member: String, now: Date, present: Set<String>, sweep: Bool = true) {
         guard var s = state, var b = s.bomb else { return }
         let t = now.timeIntervalSince1970
         var out = b.out
         if !out.contains(member) { out.append(member) }
-        for p in PlazaBomb.alive(s).sorted() where p != me && !present.contains(p) && !out.contains(p) { out.append(p) }
+        if sweep {
+            for p in PlazaBomb.alive(s).sorted() where p != me && !present.contains(p) && !out.contains(p) { out.append(p) }
+        }
+        guard out != b.out else { return }
+        holderAbsentSince = nil
+        guard b.pass < PlazaGame.maxPass else {
+            s.endedAt = t   // out of moves: nobody wins
+            state = s
+            return
+        }
         b.out = out
         b.pass += 1
-        b.from = nil
-        b.passedAt = nil
         s.bomb = b
         let alive = PlazaBomb.alive(s)
         if alive.count <= 1 {
             s.endedAt = t
             s.winner = alive.first
-        } else {
+        } else if out.contains(b.holder) {
+            b.from = nil
+            b.passedAt = nil
             b.round += 1
             b.roundStartsAt = max(t + PlazaBomb.intermission, s.startsAt ?? t)
             b.holder = PlazaBomb.firstHolder(seed: s.seed, round: b.round, alive: alive)
             s.bomb = b
         }
         state = s
-        holderAbsentSince = nil
     }
 }
