@@ -147,7 +147,7 @@ final class PlazaTreeControllerTests: XCTestCase {
             XCTAssertEqual(shakes(w.b).count, 1, "\(beside)")
             XCTAssertEqual(tackles(w.b).count, 0, "\(beside): no tackle")
             XCTAssertEqual(w.scene.memberTiles[w.b.id], before, "\(beside): b did not move")
-            XCTAssertEqual(w.c.treeHitsToday, 1)
+            XCTAssertEqual(w.c.treeHitsToday(), 1)
             XCTAssertTrue(w.scene.isTreeBusy)
             w.c.handleClose()
         }
@@ -159,7 +159,7 @@ final class PlazaTreeControllerTests: XCTestCase {
         await settle()
         XCTAssertEqual(tackles(w.b).count, 1)
         XCTAssertEqual(shakes(w.b).count, 0)
-        XCTAssertEqual(w.c.treeHitsToday, 0)
+        XCTAssertEqual(w.c.treeHitsToday(), 0)
         w.c.handleClose()
     }
 
@@ -168,12 +168,12 @@ final class PlazaTreeControllerTests: XCTestCase {
         let w = await world(me: p(15, 11), facing: .right, bodySize: 3)
         press(w.scene, cKey)
         await settle()
-        XCTAssertEqual(w.c.treeHitsToday, 1, "class 3 at (15,11) facing right")
+        XCTAssertEqual(w.c.treeHitsToday(), 1, "class 3 at (15,11) facing right")
         w.c.handleClose()
         let v = await world(me: p(15, 11), b: p(15, 12), facing: .down, bodySize: 3)
         press(v.scene, cKey)
         await settle()
-        XCTAssertEqual(v.c.treeHitsToday, 0, "facing down, away from the tree")
+        XCTAssertEqual(v.c.treeHitsToday(), 0, "facing down, away from the tree")
         XCTAssertEqual(tackles(v.b).count, 1, "tackles b")
         v.c.handleClose()
     }
@@ -184,7 +184,7 @@ final class PlazaTreeControllerTests: XCTestCase {
         press(w.scene, spaceKey)
         await settle()
         if case .memberMenu = w.c.overlayContent {} else { XCTFail("Space opens the teammate's menu: \(w.c.overlayContent)") }
-        XCTAssertEqual(w.c.treeHitsToday, 0)
+        XCTAssertEqual(w.c.treeHitsToday(), 0)
         w.c.handleClose()
     }
 
@@ -193,14 +193,14 @@ final class PlazaTreeControllerTests: XCTestCase {
         w.c.startFocus(minutes: 25)
         press(w.scene, cKey)
         await settle()
-        XCTAssertEqual(w.c.treeHitsToday, 0, "focusing")
+        XCTAssertEqual(w.c.treeHitsToday(), 0, "focusing")
         w.c.handleClose()
         let v = await world(me: p(17, 11), facing: .up)
         press(v.scene, pKey)
         XCTAssertTrue(v.c.overlayIsPhotoMode, "test precondition")
         press(v.scene, cKey)
         await settle()
-        XCTAssertEqual(v.c.treeHitsToday, 0, "photo mode swallows C")
+        XCTAssertEqual(v.c.treeHitsToday(), 0, "photo mode swallows C")
         XCTAssertTrue(shakes(v.b).isEmpty)
         v.c.handleClose()
     }
@@ -212,32 +212,34 @@ final class PlazaTreeControllerTests: XCTestCase {
         now = now.addingTimeInterval(0.29)
         press(w.scene, cKey)
         await settle()
-        XCTAssertEqual(w.c.treeHitsToday, 1, "0.29 s apart: one hit")
+        XCTAssertEqual(w.c.treeHitsToday(), 1, "0.29 s apart: one hit")
         XCTAssertEqual(w.scene.walker.facing, .up, "I still face the tree (a fall-through would turn me to b)")
         XCTAssertTrue(tackles(w.b).isEmpty)
         now = now.addingTimeInterval(0.02)
         press(w.scene, cKey)
         await settle()
-        XCTAssertEqual(w.c.treeHitsToday, 2, "0.31 s after the first: two hits")
+        XCTAssertEqual(w.c.treeHitsToday(), 2, "0.31 s after the first: two hits")
         w.c.handleClose()
     }
 
     // MARK: - The drop
 
-    func testTheThirdHitGrantsOneMintOnce() async {
+    func testTheFifthHitGrantsOneMintOnce() async {
         let w = await world(me: p(17, 11), facing: .up)
         let shown = w.c.bannersShown
-        for _ in 0..<3 { await hit(w) }
+        for _ in 0..<4 { await hit(w) }
+        XCTAssertTrue(granted.isEmpty, "the 4th hit drops nothing")
+        await hit(w)
         XCTAssertEqual(granted, [.mint])
         XCTAssertEqual(w.c.banner, "나무에서 민트가 떨어졌어요! 가방에 넣었어요")
         XCTAssertEqual(w.c.bannersShown, shown + 1, "one banner")
         XCTAssertEqual(w.c.activity.pickups, 1)
         XCTAssertEqual(w.c.activity.tackles, 0)
         let sent = shakes(w.b)
-        XCTAssertEqual(sent.map { TeamEmote.pushTiles($0.pushTiles) }, [1, 2, 3])
-        XCTAssertEqual(sent.map(\.treeDrop), [nil, nil, .mint])
+        XCTAssertEqual(sent.map { TeamEmote.pushTiles($0.pushTiles) }, [1, 1, 2, 2, 3])
+        XCTAssertEqual(sent.map(\.treeDrop), [nil, nil, nil, nil, .mint])
         await hit(w)
-        XCTAssertEqual(granted, [.mint], "a fourth hit grants nothing")
+        XCTAssertEqual(granted, [.mint], "a sixth hit grants nothing")
         XCTAssertEqual(w.c.bannersShown, shown + 1)
         XCTAssertEqual(TeamEmote.pushTiles(shakes(w.b).last?.pushTiles), 1)
         XCTAssertNil(shakes(w.b).last?.treeDrop)
@@ -253,7 +255,7 @@ final class PlazaTreeControllerTests: XCTestCase {
         now = Self.day(22, 0, 0, 0)
         await hitNoAdvance(w)
         XCTAssertTrue(granted.isEmpty, "the third hit is on a new day: it counts as the first")
-        for _ in 0..<2 { now = now.addingTimeInterval(0.4); await hitNoAdvance(w) }
+        for _ in 0..<4 { now = now.addingTimeInterval(0.4); await hitNoAdvance(w) }
         XCTAssertEqual(granted, [.mint])
         w.c.handleClose()
     }
@@ -266,19 +268,19 @@ final class PlazaTreeControllerTests: XCTestCase {
 
     func testTheCountSurvivesAReopen() async {
         let first = await world(me: p(17, 11), facing: .up)
-        await hit(first); await hit(first)
+        for _ in 0..<4 { await hit(first) }
         XCTAssertTrue(granted.isEmpty)
         first.c.handleClose()
         let second = await world(me: p(17, 11), facing: .up, suite: first.suite)
-        XCTAssertEqual(second.c.treeHitsToday, 2)
+        XCTAssertEqual(second.c.treeHitsToday(), 4)
         await hit(second)
-        XCTAssertEqual(granted, [.mint], "the third hit of the day, across a restart")
+        XCTAssertEqual(granted, [.mint], "the fifth hit of the day, across a restart")
         second.c.handleClose()
     }
 
     func testAHiddenSceneStillDecides() async {
         let w = await world(me: p(17, 11), facing: .up)
-        await hit(w); await hit(w)
+        for _ in 0..<4 { await hit(w) }
         w.c.setRendering(visible: false)
         await hit(w)
         XCTAssertEqual(granted, [.mint], "the grant is the controller's, whatever the scene draws")
@@ -327,40 +329,48 @@ final class PlazaTreeControllerTests: XCTestCase {
 
     // MARK: - The second tree
 
-    func testHittingTheSecondTreeSharesTheDayCountAndShakesOnlyThatTree() async {
+    func testHittingTheSecondTreeCountsAndDropsOnItsOwn() async {
         let w = await world(me: p(42, 28), facing: .up)
         let shown = w.c.bannersShown
         await hit(w)
         XCTAssertTrue(w.scene.treeLayers[1].isBusy)
         XCTAssertFalse(w.scene.treeLayers[0].isBusy, "the other tree stays still")
         run(w.scene, 3)
-        // Two hits on the second, then one on the first (walk is not needed: a second world on the same save would reset the scene, so the
-        // controller's own count is what we read): the third hit of the day drops, whichever tree takes it.
-        await hit(w)
-        XCTAssertEqual(w.c.treeHitsToday, 2)
-        await hit(w)
-        XCTAssertEqual(granted, [.mint], "three hits, one mint")
-        XCTAssertEqual(w.c.bannersShown, shown + 1)
         for _ in 0..<3 { await hit(w) }
-        XCTAssertEqual(granted, [.mint], "one drop a day in total, not per tree")
-        XCTAssertEqual(shakes(w.b).count, 6)
+        XCTAssertEqual(w.c.treeHitsToday(tree: 1), 4)
+        XCTAssertEqual(w.c.treeHitsToday(tree: 0), 0, "the first tree's count is untouched")
+        XCTAssertTrue(granted.isEmpty, "the 4th hit drops nothing")
+        await hit(w)
+        XCTAssertEqual(granted, [.mint], "the 5th hit of this tree drops")
+        XCTAssertEqual(w.c.bannersShown, shown + 1)
+        for _ in 0..<5 { await hit(w) }
+        XCTAssertEqual(granted, [.mint], "one drop a day from this tree")
+        XCTAssertEqual(shakes(w.b).count, 10)
         w.c.handleClose()
     }
 
-    /// Two hits on the first tree, a reopen standing at the second: the third hit of the day is the one that drops, on the other tree.
-    func testTheDayCountIsSharedAcrossBothTrees() async {
+    /// Four hits on the first tree (a reopen standing at the second keeps the save): the second tree is still at zero, its fifth hit drops one
+    /// mint and the first tree's fifth hit drops another: two a day, one from each tree.
+    func testEachTreeGivesItsOwnMintAndTheOtherIsUnaffected() async {
         let first = await world(me: p(17, 11), facing: .up)
-        await hit(first); await hit(first)
+        for _ in 0..<4 { await hit(first) }
         first.c.handleClose()
         let second = await world(me: p(42, 28), facing: .up, suite: first.suite)
-        XCTAssertEqual(second.c.treeHitsToday, 2)
+        XCTAssertEqual(second.c.treeHitsToday(tree: 0), 4)
+        XCTAssertEqual(second.c.treeHitsToday(tree: 1), 0, "tree A's hits do not advance tree B")
+        for _ in 0..<4 { await hit(second) }
+        XCTAssertTrue(granted.isEmpty, "tree B at 4 hits drops nothing, though tree A is at 4 too")
         await hit(second)
-        XCTAssertEqual(granted, [.mint], "the third hit of the day, on the other tree, drops")
+        XCTAssertEqual(granted, [.mint], "tree B's own 5th hit")
         XCTAssertTrue(second.scene.treeLayers[1].isBusy)
         XCTAssertFalse(second.scene.treeLayers[0].isBusy)
-        for _ in 0..<3 { await hit(second) }
-        XCTAssertEqual(granted, [.mint], "never a second drop that day")
         second.c.handleClose()
+        let third = await world(me: p(17, 11), facing: .up, suite: first.suite)
+        await hit(third)
+        XCTAssertEqual(granted, [.mint, .mint], "tree A's 5th hit still drops its own, after B's drop")
+        for _ in 0..<4 { await hit(third) }
+        XCTAssertEqual(granted, [.mint, .mint], "never a second drop from the same tree that day")
+        third.c.handleClose()
     }
 
     /// A teammate standing at the second tree shakes that tree on my screen; one standing at the first shakes the first. Where they stand decides, not a field.

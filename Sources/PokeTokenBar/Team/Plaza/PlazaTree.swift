@@ -4,7 +4,8 @@ import Foundation
 /// 나무의 조정용 상수는 모두 여기에 있다. 자리는 지도의 'B' 칸이다(상수로 두지 않는다).
 enum PlazaTree {
     // 하루 규칙 (명세 9.3, 13)
-    static let hitsPerDrop = 3                // 조정용 상수 (명세 13, 위임)
+    static let hitsPerDrop = 5                // 조정용 상수. 그 나무를 그날 이만큼 치면 떨어진다(나무마다 따로 센다). 처음 3, 2026-11-22 사용자 결정으로 5
+    static let levelTwoFrom = 3               // 조정용 상수: 그 나무의 그날 이 번째 때림부터 2단계(그 전은 1단계). 떨어지는 때림은 3단계, 떨어진 뒤는 다시 1단계
     static let dropsPerDay = 1                // 조정용 상수 (명세 13, 위임)
     static let dropItem: ItemKind = .mint     // 조정용 상수 (명세 13, 위임, R3)
     static let maxFallingLeaves = 20          // 조정용 상수 (명세 13, 설계자 판단·미확인). 3단계 때림이 풀 전체를 쓴다
@@ -231,10 +232,20 @@ enum PlazaTree {
     /// 세게 맞는 마지막 단계. 이 단계는 민트가 떨어지는 때림에만 쓴다(`level`).
     private static let dropLevel = 3
 
-    /// 이번 때림의 세기 1...3. 떨어지는 때림은 3이고, 나머지는 하루 세 번 주기 안에서 1, 2, 2(`hitsPerDrop` 번째 전까지)로 돈다.
+    /// 이번 때림의 세기 1...3. `hits` 는 그 나무의 그날 때림 수다. 떨어지는 때림은 3이고, 그 전은 1, 1, 2, 2(`levelTwoFrom` 번째부터 2)로 쌓이며,
+    /// 떨어진 뒤(`hitsPerDrop` 번째를 넘긴 때림)는 다시 1이다.
     static func level(hits: Int, drops: Bool) -> Int {
-        drops ? dropLevel : min(2, (max(hits, 1) - 1) % hitsPerDrop + 1)
+        if drops { return dropLevel }
+        if hits >= hitsPerDrop { return 1 }
+        return hits >= levelTwoFrom ? 2 : 1
     }
+
+    /// 나무의 변하지 않는 이름: 그 줄 'B' 칸의 맨 왼쪽·맨 위 모서리 "x,y". 나무가 더 생기거나 순서가 바뀌어도 저장된 횟수가 따라간다(번호는 그렇지 않다).
+    static func key(of run: Set<TilePoint>) -> String {
+        "\(run.map(\.x).min() ?? 0),\(run.map(\.y).min() ?? 0)"
+    }
+    /// 처음 나무(2.5.637 의 하나뿐인 나무)의 이름. 옛 저장값의 횟수가 여기로 간다.
+    static let originalKey = "16,8"
 
     // MARK: 타격감 (결정 (b)). 표의 항목은 [level − 1]
 
@@ -484,7 +495,39 @@ struct PlazaTreeItemFall: Equatable {
     }
 }
 
-/// 그날 나무를 친 횟수. 내 Mac 에만 저장하고 보내지 않는다(`PlazaPreferences.tree`).
+/// 나무마다의 그날 횟수(`PlazaTree.key(of:)` 가 이름). 내 Mac 에만 저장하고 보내지 않는다(`PlazaPreferences.tree`).
+/// 옛 저장값(`PlazaTreeDay` 하나: day/hits/dropped)은 처음 나무의 것으로 읽는다.
+struct PlazaTreeDays: Codable, Equatable, Sendable {
+    var trees: [String: PlazaTreeDay] = [:]
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        if let trees = try c.decodeIfPresent([String: PlazaTreeDay].self, forKey: .trees) {
+            self.trees = trees
+        } else {
+            trees = [PlazaTree.originalKey: try PlazaTreeDay(from: decoder)]
+        }
+    }
+
+    private enum CodingKeys: String, CodingKey { case trees }
+
+    /// 그 나무를 오늘 한 번 쳤다. 다른 나무의 횟수는 건드리지 않는다. 민트가 떨어지면 true.
+    mutating func hit(tree: String, on today: String) -> Bool {
+        var day = trees[tree] ?? PlazaTreeDay(day: today)
+        let drops = day.hit(on: today)
+        trees[tree] = day
+        return drops
+    }
+
+    /// 그 나무의 `today` 때림 수(다른 날이면 0).
+    func hits(tree: String, on today: String) -> Int {
+        trees[tree].flatMap { $0.day == today ? $0.hits : 0 } ?? 0
+    }
+}
+
+/// 한 나무의 그날 횟수.
 struct PlazaTreeDay: Codable, Equatable, Sendable {
     var day: String
     var hits = 0
