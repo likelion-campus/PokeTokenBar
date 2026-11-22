@@ -54,7 +54,7 @@ struct TeamPresence: Codable, Equatable, Sendable {
     /// The plaza size class (1...3) of the picture the sender shows. Left out at 1; a receiver keeps it within 1...3;
     /// unreadable values become nil; earlier versions ignore it.
     @LossyOptional var bodySize: Int?
-    /// Flushed red from three minutes in the plaza hot spring. Left out when false; a receiver draws it only while the
+    /// Flushed red from soaking (`PlazaHotSpring.flushAfter`) in the plaza hot spring. Left out when false; a receiver draws it only while the
     /// sender's tile is a hot-spring tile; unreadable values become nil; earlier versions ignore it.
     @LossyOptional var isFlushed: Bool?
     /// The plaza minigame as this member knows it (`PlazaGameState`). Every member passes it on. Left out when none;

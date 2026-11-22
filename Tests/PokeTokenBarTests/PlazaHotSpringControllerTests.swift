@@ -142,13 +142,13 @@ final class PlazaHotSpringControllerTests: XCTestCase {
 
     // MARK: - My soak
 
-    func testThreeMinutesInTheSpringFlushesMeOnEveryScreen() async {
+    func testTheSoakTimeInTheSpringFlushesMeOnEveryScreen() async {
         let w = await world(me: p(31, 17), b: p(20, 12))
         await enterTheSpring(w)
         await settle()
-        XCTAssertEqual(gate.requested, [.milliseconds(180_000)])
+        XCTAssertEqual(gate.requested, [.milliseconds(Int(PlazaHotSpring.flushAfter * 1000))])
         XCTAssertEqual(w.b.session.members[w.me.id]?.isFlushed, false)
-        now += 180
+        now += PlazaHotSpring.flushAfter
         gate.fire()
         await settle()
         XCTAssertEqual(w.b.session.members[w.me.id]?.isFlushed, true)
@@ -177,15 +177,15 @@ final class PlazaHotSpringControllerTests: XCTestCase {
         await settle()
         now += 400
         XCTAssertEqual(w.b.session.members[w.me.id]?.isFlushed, false)
-        // Re-entering waits the full three minutes again.
+        // Re-entering waits the full soak time again.
         w.scene.face(.right)
         await enterTheSpring(w)
         XCTAssertEqual(gate.requested.count, 2)
-        XCTAssertEqual(gate.requested.last, .milliseconds(180_000))
+        XCTAssertEqual(gate.requested.last, .milliseconds(Int(PlazaHotSpring.flushAfter * 1000)))
     }
 
-    /// The system clock was set back while the deadline slept: it wakes early, flushes nobody and the soak restarts from now (three
-    /// minutes), not after the whole set-back.
+    /// The system clock was set back while the deadline slept: it wakes early, flushes nobody and the soak restarts from now (the
+    /// full soak time), not after the whole set-back.
     func testAClockSetBackWhileSoakingRestartsTheSoakFromNow() async {
         let w = await world(me: p(31, 17), b: p(20, 12))
         await enterTheSpring(w)
@@ -193,8 +193,8 @@ final class PlazaHotSpringControllerTests: XCTestCase {
         gate.fire()
         await settle()
         XCTAssertEqual(w.b.session.members[w.me.id]?.isFlushed, false)
-        XCTAssertEqual(gate.requested, [.milliseconds(180_000), .milliseconds(180_000)], "three minutes from the new now, not 63")
-        now += 180
+        XCTAssertEqual(gate.requested, [.milliseconds(Int(PlazaHotSpring.flushAfter * 1000)), .milliseconds(Int(PlazaHotSpring.flushAfter * 1000))], "the full soak time from the new now, not the set-back plus it")
+        now += PlazaHotSpring.flushAfter
         gate.fire()
         await settle()
         XCTAssertEqual(w.b.session.members[w.me.id]?.isFlushed, true)
@@ -203,7 +203,7 @@ final class PlazaHotSpringControllerTests: XCTestCase {
     func testLeavingClearsTheFlagInThePresenceThatMovesMe() async {
         let w = await world(me: p(31, 17), b: p(20, 12))
         await enterTheSpring(w)
-        now += 180
+        now += PlazaHotSpring.flushAfter
         gate.fire()
         await settle()
         XCTAssertEqual(w.b.session.members[w.me.id]?.isFlushed, true, "test precondition")
@@ -226,7 +226,7 @@ final class PlazaHotSpringControllerTests: XCTestCase {
     func testClosingThePlazaClearsTheFlag() async {
         let w = await world(me: p(31, 17), b: p(20, 12))
         await enterTheSpring(w)
-        now += 180
+        now += PlazaHotSpring.flushAfter
         gate.fire()
         await settle()
         XCTAssertEqual(w.b.session.members[w.me.id]?.isFlushed, true, "test precondition")
@@ -241,7 +241,7 @@ final class PlazaHotSpringControllerTests: XCTestCase {
         await enterTheSpring(v)
         let before = presences(of: v.me).count
         v.c.handleClose()
-        now += 180
+        now += PlazaHotSpring.flushAfter
         gate.fire()
         await settle()
         XCTAssertFalse(presences(of: v.me).dropFirst(before).contains { $0.isFlushed == true })
@@ -252,7 +252,7 @@ final class PlazaHotSpringControllerTests: XCTestCase {
         let w = await world(me: p(31, 17), b: p(20, 12))
         await enterTheSpring(w)
         w.c.setRendering(visible: false)
-        now += 180
+        now += PlazaHotSpring.flushAfter
         gate.fire()
         await settle()
         XCTAssertEqual(w.b.session.members[w.me.id]?.isFlushed, true)

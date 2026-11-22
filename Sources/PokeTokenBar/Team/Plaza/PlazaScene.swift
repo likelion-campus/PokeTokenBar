@@ -707,7 +707,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         !m.isAway && m.isFlushed && map.isHotSpring(tile)
     }
 
-    /// 내 붉은 기운을 켜거나 끈다. 컨트롤러가 3분 마감과 칸 바뀜에서 부른다.
+    /// 내 붉은 기운을 켜거나 끈다. 컨트롤러가 온천 마감(`flushAfter`)과 칸 바뀜에서 부른다.
     func setMyFlushed(_ on: Bool) { myFlush.set(on, now: now()) }
     private var myFlush = PlazaFlushFade(on: false, now: .distantPast)
     /// 테스트용: 내 몸통과 팀원 몸통에 입힌 붉은 기운(`layout` 이 마지막으로 쓴 값).
