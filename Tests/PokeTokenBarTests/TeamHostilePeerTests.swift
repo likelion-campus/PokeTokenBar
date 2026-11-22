@@ -469,7 +469,7 @@ final class TeamHostilePeerTests: XCTestCase {
             let s = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: map.spawn, zoom: 2, nickname: "나", pondVisuals: true)
             s.applyMembers([PlazaSceneMember(memberID: "A", nickname: "A", isAway: false, tile: TilePoint(x: 17, y: 11), facing: .up, isWalking: false)])
             s.update(0)
-            XCTAssertEqual(s.treeNodeCount, 64, "precondition: the tree layer exists, so this cannot pass vacuously")
+            XCTAssertEqual(s.treeNodeCount, 68, "precondition: the tree layer exists, so this cannot pass vacuously")
             s.isPaused = paused
             let nodes = count(s.children), tree = s.treeNodeCount
             for _ in 0..<1000 { s.playTreeHit(by: "A", direction: .up, level: 3, drop: .mint) }

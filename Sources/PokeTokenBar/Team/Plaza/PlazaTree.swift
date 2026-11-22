@@ -200,8 +200,9 @@ enum PlazaTree {
 
     /// 떨어진 아이템이 놓이는 칸. 때린 쪽의 칸(`hitter`)에서 때린 방향(`direction`, 나무 쪽)과 직각인 옆으로 `landSide` 칸, 줄기 가운데에서 먼 쪽부터
     /// (같으면 오른쪽·아래쪽), 그다음 반대쪽 옆, 나무에서 `landSide` 칸 물러난 칸, 한 칸 옆 둘, 한 칸 물러난 칸 순서로
-    /// 걸을 수 있고(물·막힌 칸 아님) 어느 나무 잎 아래도 아닌 첫 칸. 없으면 `hitter` 칸. 지도와 몸의 칸만 쓰므로 모든 화면이 같은 칸을 고른다.
-    static func landingTile(run: Set<TilePoint>, hitter: TilePoint, direction: PlazaDirection, map: PlazaMap) -> TilePoint {
+    /// 걸을 수 있고(물·막힌 칸 아님) 어느 나무 잎 아래도 아니며 때린 쪽의 몸(`size`: 모든 피어가 아는 몸 등급) 안도 아닌 첫 칸. `covered` 는 `coveredTiles(in:)` 를 장면이 한 번 구해 둔 것. 없으면 `hitter` 칸. 지도와 몸의 칸만 쓰므로 모든 화면이 같은 칸을 고른다.
+    static func landingTile(run: Set<TilePoint>, hitter: TilePoint, size: Int = 1, direction: PlazaDirection, map: PlazaMap,
+                            covered: Set<TilePoint>? = nil) -> TilePoint {
         let horizontal = direction == .left || direction == .right
         let sides: [PlazaDirection] = horizontal ? [.up, .down] : [.left, .right]
         let minV = run.map { horizontal ? $0.y : $0.x }.min() ?? 0, maxV = run.map { horizontal ? $0.y : $0.x }.max() ?? 0
@@ -210,10 +211,11 @@ enum PlazaTree {
         let other: PlazaDirection = awayFirst == sides[0] ? sides[1] : sides[0]
         let back: PlazaDirection = switch direction { case .up: .down; case .down: .up; case .left: .right; case .right: .left }
         func step(_ p: TilePoint, _ d: PlazaDirection, _ n: Int) -> TilePoint { (0..<n).reduce(p) { q, _ in PlazaWalker.offset(q, d) } }
-        let covered = coveredTiles(in: map)
+        let covered = covered ?? coveredTiles(in: map)
+        let body = PlazaBody(foot: hitter, size: size)
         let candidates = [step(hitter, awayFirst, landSide), step(hitter, other, landSide), step(hitter, back, landSide),
                           step(hitter, awayFirst, 1), step(hitter, other, 1), step(hitter, back, 1)]
-        return candidates.first { map.isWalkable($0) && !covered.contains($0) } ?? hitter
+        return candidates.first { map.isWalkable($0) && !covered.contains($0) && !body.covers($0) } ?? hitter
     }
 
     /// 칸의 발 자리(월드 픽셀, y 아래로): 몸이 그 칸에 설 때 발이 놓이는 곳.

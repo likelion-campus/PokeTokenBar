@@ -476,6 +476,8 @@ import XCTest
                     let back: PlazaDirection = switch d { case .up: .down; case .down: .up; case .left: .right; case .right: .left }
                     let land = PlazaTree.landingTile(run: run, hitter: hitter, direction: back, map: map)
                     XCTAssertTrue(map.isWalkable(land), "\(hitter) -> \(land)")
+                    XCTAssertNotEqual(land, hitter, "\(hitter): a candidate was found, not the fallback")
+                    XCTAssertEqual(land, PlazaTree.landingTile(run: run, hitter: hitter, direction: back, map: map, covered: covered), "the cached covered set gives the same tile")
                     XCTAssertFalse(covered.contains(land), "\(hitter) -> \(land) is under a canopy")
                 }
             }
@@ -485,6 +487,10 @@ import XCTest
         let under = try PlazaMap(rows: ["TTTTTTTTT", "TSNTTTTTT", "TT....TTT", "TTTBBBTTT", "TTTTTTTTT"])
         XCTAssertTrue(PlazaTree.coveredTiles(in: under).contains(p(5, 2)) && under.isWalkable(p(5, 2)), "test precondition")
         XCTAssertEqual(PlazaTree.landingTile(run: PlazaTree.runs(in: under)[0], hitter: p(3, 2), direction: .down, map: under), p(2, 2))
+        // A class-3 body (the foot and two rows above it) never lets the mint land on the hitter: its own top cell (15,6) is skipped.
+        let first = PlazaTree.runs(in: map)[0]
+        XCTAssertEqual(PlazaTree.landingTile(run: first, hitter: p(15, 8), size: 1, direction: .right, map: map), p(15, 6))
+        XCTAssertEqual(PlazaTree.landingTile(run: first, hitter: p(15, 8), size: 3, direction: .right, map: map), p(15, 10), "(15,6) is the body's top cell")
         // A hitter boxed in on every candidate falls back to their own tile.
         let boxed = try PlazaMap(rows: ["TTTTTTT", "TSNTBTT", "TTT.TTT", "TTTTTTT"])
         XCTAssertEqual(PlazaTree.landingTile(run: PlazaTree.runs(in: boxed)[0], hitter: p(3, 2), direction: .up, map: boxed), p(3, 2))

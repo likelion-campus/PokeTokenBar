@@ -292,8 +292,9 @@ final class TeamRuntimeTests: XCTestCase {
         plaza.handleClose()
     }
 
-    /// A modified app can send any `treeDrop`: only the mint at the top level is drawn. A shiny charm, a rare candy, a mint at a lower level and an
-    /// unknown kind shake the tree and show no item (the item slot stays free); the genuine drop still shows. Through the real receive path.
+    /// A modified app can send any `treeDrop`: only the mint at the top level is drawn. A shiny charm, a rare candy and a mint at a lower level shake
+    /// the tree and show no item (the item slot stays free); the genuine drop still shows. Through the real receive path. (An unreadable or unknown
+    /// kind never gets here: the decode test in `TeamHostilePeerTests` turns it into nil.)
     func testAHostileTreeDropShowsNoItem() async {
         let (a, b) = connectedPair()
         let suite = "ptb.test.team.runtime.hostiledrop.\(UUID().uuidString)"
