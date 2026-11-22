@@ -23,9 +23,31 @@ enum PlazaTree {
         return out
     }
 
-    /// 그림이 서는 월드 픽셀 사각형(y 아래로). 'B' 줄의 가운데 열에 가운데를 맞추고 맨 아래 줄의 아래 끝에 바닥을 맞춘다.
-    static func artRect(in map: PlazaMap) -> CGRect? {
-        let run = tiles(in: map)
+    /// 나무 한 그루씩의 'B' 칸: 상하좌우로 이어진 칸끼리 한 줄(run). 위 줄부터, 같은 줄이면 왼쪽부터 정렬한다(맨 위 칸의 (y, x)). 나무 없는 지도는 [].
+    /// 장면·층·피어가 모두 이 순서의 번호로 나무를 가리킨다(번호는 지도에서만 나오므로 화면마다 같다).
+    static func runs(in map: PlazaMap) -> [Set<TilePoint>] {
+        var left = tiles(in: map)
+        var out: [Set<TilePoint>] = []
+        while let seed = left.min(by: { ($0.y, $0.x) < ($1.y, $1.x) }) {
+            var run = Set<TilePoint>(), queue = [seed]
+            left.remove(seed)
+            while let cell = queue.popLast() {
+                run.insert(cell)
+                for d in PlazaDirection.allCases {
+                    let next = PlazaWalker.offset(cell, d)
+                    if left.remove(next) != nil { queue.append(next) }
+                }
+            }
+            out.append(run)
+        }
+        return out.sorted { a, b in
+            let ka = a.min(by: { ($0.y, $0.x) < ($1.y, $1.x) })!, kb = b.min(by: { ($0.y, $0.x) < ($1.y, $1.x) })!
+            return (ka.y, ka.x) < (kb.y, kb.x)
+        }
+    }
+
+    /// 그림이 서는 월드 픽셀 사각형(y 아래로). 한 줄의 가운데 열에 가운데를 맞추고 맨 아래 줄의 아래 끝에 바닥을 맞춘다.
+    static func artRect(of run: Set<TilePoint>) -> CGRect? {
         guard let minX = run.map(\.x).min(), let maxX = run.map(\.x).max(), let maxY = run.map(\.y).max() else { return nil }
         let tile = CGFloat(PlazaMap.tileSize)
         let size = CGSize(width: CGFloat(PlazaResources.treeCrop.width) * scale, height: CGFloat(PlazaResources.treeCrop.height) * scale)
@@ -34,9 +56,8 @@ enum PlazaTree {
         return CGRect(x: centerX - size.width / 2, y: bottom - size.height, width: size.width, height: size.height)
     }
 
-    /// 잎이 아이템 자리를 덮는 칸: 'B' 줄과 그 뒤 한 줄(줄의 열 위). 그림 상자 전체가 아니다(ruling 10).
-    static func coveredTiles(in map: PlazaMap) -> Set<TilePoint> {
-        let run = tiles(in: map)
+    /// 잎이 아이템 자리를 덮는 칸: 한 줄과 그 뒤 한 줄(줄의 열 위). 그림 상자 전체가 아니다(ruling 10).
+    static func coveredTiles(of run: Set<TilePoint>) -> Set<TilePoint> {
         guard let minX = run.map(\.x).min(), let maxX = run.map(\.x).max(),
               let minY = run.map(\.y).min(), let maxY = run.map(\.y).max() else { return [] }
         var out = Set<TilePoint>()
@@ -44,9 +65,14 @@ enum PlazaTree {
         return out
     }
 
+    /// 모든 나무가 덮는 칸.
+    static func coveredTiles(in map: PlazaMap) -> Set<TilePoint> {
+        runs(in: map).reduce(into: Set<TilePoint>()) { $0.formUnion(coveredTiles(of: $1)) }
+    }
+
     /// 그림의 깊이: 모닥불과 같은 식(맨 아래 줄 아래 끝 기준). 그 줄 이하의 캐릭터는 뒤, 아래 줄은 앞.
-    static func z(in map: PlazaMap) -> CGFloat? {
-        guard let r = artRect(in: map) else { return nil }
+    static func z(of run: Set<TilePoint>, in map: PlazaMap) -> CGFloat? {
+        guard let r = artRect(of: run) else { return nil }
         return 1 + r.maxY / map.pixelSize.height
     }
 
@@ -165,6 +191,33 @@ enum PlazaTree {
         tiles.contains { body.touches(PlazaBody(foot: $0, size: 1)) }
     }
 
+    /// 때린 몸이 가리키는 나무의 번호: 그쪽을 보고 서 있는 나무(`isFacing`)가 먼저, 없으면 몸이 닿은 나무. 어느 나무에도 닿지 않으면 nil.
+    /// 피어에게서 받는 것은 몸과 바라보는 쪽뿐이라 모든 화면이 같은 나무를 고른다(새 필드가 없다).
+    static func targetRun(_ body: PlazaBody, facing: PlazaDirection, runs: [Set<TilePoint>]) -> Int? {
+        runs.firstIndex { isFacing(body, facing: facing, tiles: $0) } ?? runs.firstIndex { touches(body, tiles: $0) }
+    }
+
+    /// 떨어진 아이템이 놓이는 칸. 때린 쪽의 칸(`hitter`)에서 때린 방향(`direction`, 나무 쪽)과 직각인 옆으로 `landSide` 칸, 줄기 가운데에서 먼 쪽부터
+    /// (같으면 오른쪽·아래쪽), 그다음 반대쪽 옆, 나무에서 `landSide` 칸 물러난 칸, 한 칸 옆 둘, 한 칸 물러난 칸 순서로
+    /// 걸을 수 있고(물·막힌 칸 아님) 어느 나무 잎 아래도 아닌 첫 칸. 없으면 `hitter` 칸. 지도와 몸의 칸만 쓰므로 모든 화면이 같은 칸을 고른다.
+    static func landingTile(run: Set<TilePoint>, hitter: TilePoint, direction: PlazaDirection, map: PlazaMap) -> TilePoint {
+        let horizontal = direction == .left || direction == .right
+        let sides: [PlazaDirection] = horizontal ? [.up, .down] : [.left, .right]
+        let minV = run.map { horizontal ? $0.y : $0.x }.min() ?? 0, maxV = run.map { horizontal ? $0.y : $0.x }.max() ?? 0
+        let mine = horizontal ? hitter.y : hitter.x
+        let awayFirst: PlazaDirection = mine * 2 < minV + maxV ? sides[0] : sides[1]
+        let other: PlazaDirection = awayFirst == sides[0] ? sides[1] : sides[0]
+        let back: PlazaDirection = switch direction { case .up: .down; case .down: .up; case .left: .right; case .right: .left }
+        func step(_ p: TilePoint, _ d: PlazaDirection, _ n: Int) -> TilePoint { (0..<n).reduce(p) { q, _ in PlazaWalker.offset(q, d) } }
+        let covered = coveredTiles(in: map)
+        let candidates = [step(hitter, awayFirst, landSide), step(hitter, other, landSide), step(hitter, back, landSide),
+                          step(hitter, awayFirst, 1), step(hitter, other, 1), step(hitter, back, 1)]
+        return candidates.first { map.isWalkable($0) && !covered.contains($0) } ?? hitter
+    }
+
+    /// 칸의 발 자리(월드 픽셀, y 아래로): 몸이 그 칸에 설 때 발이 놓이는 곳.
+    static func footPoint(of tile: TilePoint) -> CGPoint { PlazaWalker.footPoint(from: tile, to: tile, progress: 0) }
+
     /// 때리는 쪽: 나무를 보고 있으면 그쪽, 아니면 몸이 선 쪽에서 나무로(줄의 서쪽이면 오른쪽, 동쪽이면 왼쪽, 북쪽이면 아래, 남쪽이면 위).
     static func hitDirection(_ body: PlazaBody, facing: PlazaDirection, tiles: Set<TilePoint>) -> PlazaDirection {
         if isFacing(body, facing: facing, tiles: tiles) { return facing }
@@ -206,10 +259,15 @@ enum PlazaTree {
     static let dustOffsetX: CGFloat = 26                           // 줄기 가운데에서 먼지 하나까지: 3배 그림에서 뿌리의 가장자리
     static let impactScale: [CGFloat] = [1.4, 1.6, 1.9]            // 별은 0.6에서 자란다(태클은 1.4)
     static let itemDelay: TimeInterval = 0.05                      // 멈춤이 끝난 뒤
-    static let itemFall: TimeInterval = 0.45
-    static let itemArc: CGFloat = 12
-    static let itemBounce: CGFloat = 2
-    static let itemBounceDuration: TimeInterval = 0.1
+    static let itemFall: TimeInterval = 0.4                        // 잎 속에서 튀어나와 떨어질 자리까지 한 번 크게 뛰는 시간
+    static let itemArc: CGFloat = 40                               // 그 한 번의 뜀이 위로 굽는 월드 픽셀(눈에 띄게)
+    static let itemBounce: CGFloat = 8                             // 닿은 뒤 작게 한 번 튀는 높이
+    static let itemBounceDuration: TimeInterval = 0.18
+    static let itemRest: TimeInterval = 0.8                        // 떨어진 자리에서 쉬는 시간: 먼지가 일고 아이템이 놓여 있다
+    static let itemCollect: TimeInterval = 0.3                     // 쉰 뒤 때린 쪽의 발로 뛰어 가는 시간. 닿으면 거기서 반짝인다
+    static let itemCollectArc: CGFloat = 16                        // 그 뜀이 위로 굽는 월드 픽셀
+    static let landSide: Int = 2                                   // 떨어지는 자리: 때린 쪽의 몸에서 옆으로 이만큼 떨어진 칸을 먼저 본다
+    static let landDustSpread: CGFloat = 12                        // 떨어진 자리에서 먼지가 양옆으로 퍼지는 월드 픽셀(0.35초 동안)
     static let itemInset: CGFloat = 24                             // 아이템은 그림 가장자리에서 이만큼 안쪽에서 시작한다
     static let itemClearance: CGFloat = 48                         // 뒤에서 때리면 발 위 이만큼에서 시작한다
     static let itemStartRow = 30                                   // 자른 그림의 줄: 아이템이 시작하는 높이
@@ -384,27 +442,45 @@ struct PlazaTreeLeaves {
     }
 }
 
-/// 떨어지는 아이템 한 번의 길: 잎 속에서 때린 쪽의 발까지 `itemArc` 만큼 위로 굽은 길로 `itemFall` 동안, 그다음 `itemBounce` 만큼 한 번 튄다.
+/// 아이템 한 번의 길: 잎 속에서 `landing`(떨어질 자리)까지 `itemArc` 만큼 위로 굽은 한 번의 뜀(`itemFall`), 작게 한 번 튐(`itemBounceDuration`),
+/// `itemRest` 동안 쉼, 그다음 때린 쪽의 발(`collectTo`)로 `itemCollectArc` 만큼 굽은 뜀(`itemCollect`).
 struct PlazaTreeItemFall: Equatable {
     let from: CGPoint
+    let landing: CGPoint
+    /// 때린 쪽의 발 자리(때린 순간). 장면이 더 나은 자리(지금 그 사람의 발)를 주면 `position(at:collectTo:)` 가 그것을 쓴다.
     let to: CGPoint
 
-    /// 월드 픽셀(y 아래로). `to` 는 때린 순간 때린 쪽의 발 자리다.
-    init(from: CGPoint, to: CGPoint) {
+    /// 월드 픽셀(y 아래로).
+    init(from: CGPoint, landing: CGPoint, to: CGPoint) {
         self.from = from
+        self.landing = landing
         self.to = to
     }
 
-    /// 떨어지기 시작한 뒤 t 초의 자리. 튐이 끝났거나 시작 전이면 nil.
-    func position(at t: TimeInterval) -> CGPoint? {
-        guard t >= 0, t < PlazaTree.itemFall + PlazaTree.itemBounceDuration else { return nil }
+    /// 시작부터 거두어질 때까지의 길이.
+    static var length: TimeInterval { PlazaTree.itemFall + PlazaTree.itemBounceDuration + PlazaTree.itemRest + PlazaTree.itemCollect }
+
+    /// 떨어진 자리에 닿는 때(먼지가 이는 때).
+    static var restStart: TimeInterval { PlazaTree.itemFall }
+
+    /// 시작한 뒤 t 초의 자리. 시작 전이거나 거두어진 뒤면 nil.
+    func position(at t: TimeInterval, collectTo: CGPoint? = nil) -> CGPoint? {
+        guard t >= 0, t < Self.length else { return nil }
         if t <= PlazaTree.itemFall {
             let u = CGFloat(t / PlazaTree.itemFall)
-            return CGPoint(x: from.x * (1 - u) + to.x * u,
-                           y: from.y * (1 - u) + to.y * u - PlazaTree.itemArc * 4 * u * (1 - u))
+            return CGPoint(x: from.x * (1 - u) + landing.x * u,
+                           y: from.y * (1 - u) + landing.y * u - PlazaTree.itemArc * 4 * u * (1 - u))
         }
-        let v = (t - PlazaTree.itemFall) / PlazaTree.itemBounceDuration
-        return CGPoint(x: to.x, y: to.y - PlazaTree.itemBounce * CGFloat(sin(v * .pi)))
+        let bounceEnd = PlazaTree.itemFall + PlazaTree.itemBounceDuration
+        if t < bounceEnd {
+            let v = (t - PlazaTree.itemFall) / PlazaTree.itemBounceDuration
+            return CGPoint(x: landing.x, y: landing.y - PlazaTree.itemBounce * CGFloat(sin(v * .pi)))
+        }
+        let restEnd = bounceEnd + PlazaTree.itemRest
+        if t < restEnd { return landing }
+        let u = CGFloat((t - restEnd) / PlazaTree.itemCollect), target = collectTo ?? to
+        return CGPoint(x: landing.x * (1 - u) + target.x * u,
+                       y: landing.y * (1 - u) + target.y * u - PlazaTree.itemCollectArc * 4 * u * (1 - u))
     }
 }
 

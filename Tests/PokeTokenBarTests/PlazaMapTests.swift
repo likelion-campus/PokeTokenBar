@@ -28,6 +28,26 @@ final class PlazaMapTests: XCTestCase {
         XCTAssertEqual(seen.count, walkable)
     }
 
+    /// The second tree (x41...43, y25...27) takes exactly its nine tiles: with those nine put back to grass the map is the one-tree map, and the
+    /// ring of tiles around the nine is open walkable ground that the reachability test above reaches.
+    func testTheSecondTreeTakesOnlyItsOwnNineTiles() throws {
+        let second = Set((25...27).flatMap { y in (41...43).map { TilePoint(x: $0, y: y) } })
+        let rows = PlazaMapData.rows.enumerated().map { y, row in
+            String(row.enumerated().map { x, c in second.contains(TilePoint(x: x, y: y)) ? "." : c })
+        }
+        let before = try PlazaMap(rows: rows)
+        for y in 0..<map.height { for x in 0..<map.width {
+            let t = TilePoint(x: x, y: y)
+            XCTAssertEqual(map.isWalkable(t), second.contains(t) ? false : before.isWalkable(t), "\(t)")
+        } }
+        XCTAssertEqual(map.spawn, before.spawn)
+        XCTAssertEqual(map.shelterTiles, before.shelterTiles)
+        for t in second { XCTAssertEqual(before.tile(at: t), .grass, "\(t) was open grass") }
+        for y in 24...28 { for x in 40...44 where !second.contains(TilePoint(x: x, y: y)) {
+            XCTAssertTrue(map.isWalkable(TilePoint(x: x, y: y)), "(\(x),\(y)) around the tree stays open")
+        } }
+    }
+
     func testShelterBoardAndSpawn() {
         XCTAssertGreaterThanOrEqual(map.shelterTiles.count, 12)
         XCTAssertEqual(map.tile(at: map.spawn), .shelter)

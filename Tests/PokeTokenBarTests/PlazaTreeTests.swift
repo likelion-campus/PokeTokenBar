@@ -19,21 +19,28 @@ import XCTest
     func testTheTreeIsTheBRun() async throws {
         XCTAssertEqual(PlazaTile(rawValue: "B"), .bigTree)
         XCTAssertFalse(PlazaTile.bigTree.isWalkable)
-        XCTAssertEqual(PlazaTree.tiles(in: map), block(16...18, 8...10))
-        XCTAssertEqual(PlazaTree.artRect(in: map), CGRect(x: 497, y: 208, width: 126, height: 144))
-        XCTAssertEqual(PlazaTree.coveredTiles(in: map), block(16...18, 7...10))
-        XCTAssertEqual(PlazaTree.z(in: map), 1.34375)
+        let first = block(16...18, 8...10), second = block(41...43, 25...27)
+        XCTAssertEqual(PlazaTree.tiles(in: map), first.union(second))
+        XCTAssertEqual(PlazaTree.runs(in: map), [first, second], "two trees, the upper one first")
+        XCTAssertEqual(PlazaTree.artRect(of: first), CGRect(x: 497, y: 208, width: 126, height: 144))
+        XCTAssertEqual(PlazaTree.artRect(of: second), CGRect(x: 1297, y: 752, width: 126, height: 144))
+        XCTAssertEqual(PlazaTree.coveredTiles(of: first), block(16...18, 7...10))
+        XCTAssertEqual(PlazaTree.coveredTiles(of: second), block(41...43, 24...27))
+        XCTAssertEqual(PlazaTree.coveredTiles(in: map), block(16...18, 7...10).union(block(41...43, 24...27)))
+        XCTAssertEqual(PlazaTree.z(of: first, in: map), 1.34375)
+        XCTAssertEqual(PlazaTree.z(of: second, in: map), 1 + 896.0 / 1024)
         let bare = try PlazaMap(rows: ["SN..", "...."])
         XCTAssertTrue(PlazaTree.tiles(in: bare).isEmpty)
-        XCTAssertNil(PlazaTree.artRect(in: bare))
+        XCTAssertEqual(PlazaTree.runs(in: bare), [])
+        XCTAssertNil(PlazaTree.artRect(of: []))
         XCTAssertTrue(PlazaTree.coveredTiles(in: bare).isEmpty)
-        XCTAssertNil(PlazaTree.z(in: bare))
+        XCTAssertNil(PlazaTree.z(of: [], in: bare))
     }
 
     func testTheTreeAnswersLikeTheGrassItReplaced() async throws {
         let old = try oldMap()
         let trunk = PlazaTree.tiles(in: map)
-        XCTAssertEqual(trunk.count, 9)
+        XCTAssertEqual(trunk.count, 18)
         for y in -1...32 {
             for x in -1...48 {
                 let t = p(x, y)
@@ -72,6 +79,7 @@ import XCTest
     func testTheTreeStandsOnPlainGrassReachableFromEverySide() async throws {
         let old = try oldMap()
         let trunk = PlazaTree.tiles(in: map)
+        XCTAssertEqual(PlazaTree.runs(in: map).count, 2)
         for t in trunk { XCTAssertEqual(old.tile(at: t), .grass, "\(t)") }
         for t in trunk {
             for d in [PlazaDirection.up, .down, .left, .right] {
@@ -79,17 +87,19 @@ import XCTest
                 if !trunk.contains(n) { XCTAssertTrue(map.isWalkable(n), "neighbour \(n) of \(t)") }
             }
         }
-        // The drawn box (x15...19 × y6...10) lies over open ground and flowers only.
-        let art = try XCTUnwrap(PlazaTree.artRect(in: map)), tile = CGFloat(PlazaMap.tileSize)
-        for y in Int(art.minY / tile)..<Int((art.maxY / tile).rounded(.up)) {
-            for x in Int(art.minX / tile)..<Int((art.maxX / tile).rounded(.up)) {
-                XCTAssertTrue([.grass, .flowers, .bigTree].contains(map.tile(at: p(x, y))), "\(p(x, y)) is \(map.tile(at: p(x, y)))")
+        // Each drawn box (the first x15...19 × y6...10, the second x40...44 × y23...27) lies over open ground and flowers only, inside the walkway.
+        for run in PlazaTree.runs(in: map) {
+            let art = try XCTUnwrap(PlazaTree.artRect(of: run)), tile = CGFloat(PlazaMap.tileSize)
+            for y in Int(art.minY / tile)..<Int((art.maxY / tile).rounded(.up)) {
+                for x in Int(art.minX / tile)..<Int((art.maxX / tile).rounded(.up)) {
+                    XCTAssertTrue([.grass, .flowers, .bigTree].contains(map.tile(at: p(x, y))), "\(p(x, y)) is \(map.tile(at: p(x, y)))")
+                }
             }
         }
         let features: [(String, [TilePoint])] = [
             ("border tree", [p(10, 2), p(16, 2), p(0, 9)]),
             ("bush", [p(15, 4)]), ("shelter", map.shelterTiles), ("board", [map.boardTile]),
-            ("tall grass", [p(11, 5)]), ("left pond", [p(13, 13)]), ("hot spring", [p(32, 14)]),
+            ("tall grass", [p(11, 5), p(31, 24)]), ("left pond", [p(13, 13), p(22, 26)]), ("hot spring", [p(32, 14), p(38, 20)]),
             ("campfire", map.campfireTiles),
         ]
         for (name, tiles) in features {
@@ -102,7 +112,8 @@ import XCTest
 
     // MARK: Task 5: reach, strength, the hit timeline, the leaves and the falling item
 
-    private var trunk: Set<TilePoint> { PlazaTree.tiles(in: map) }
+    /// The first tree (the rules below are asked of one tree; the second one is checked in `testNoSwimmerCanFaceOrTouchTheTree` and the landing tests).
+    private var trunk: Set<TilePoint> { PlazaTree.runs(in: map)[0] }
     private func body(_ x: Int, _ y: Int, _ size: Int = 1) -> PlazaBody { PlazaBody(foot: p(x, y), size: size) }
 
     func testClassOneHitsTheFacedTile() async {
@@ -134,8 +145,10 @@ import XCTest
         for y in 0..<map.height { for x in 0..<map.width where map.isWater(p(x, y)) {
             water += 1
             for size in 1...3 {
-                XCTAssertFalse(PlazaTree.touches(body(x, y, size), tiles: trunk), "(\(x),\(y)) class \(size)")
-                for d in PlazaDirection.allCases { XCTAssertFalse(PlazaTree.isFacing(body(x, y, size), facing: d, tiles: trunk), "(\(x),\(y)) class \(size) \(d)") }
+                for run in PlazaTree.runs(in: map) {
+                    XCTAssertFalse(PlazaTree.touches(body(x, y, size), tiles: run), "(\(x),\(y)) class \(size)")
+                    for d in PlazaDirection.allCases { XCTAssertFalse(PlazaTree.isFacing(body(x, y, size), facing: d, tiles: run), "(\(x),\(y)) class \(size) \(d)") }
+                }
             }
         } }
         XCTAssertGreaterThan(water, 80, "the ponds and the spring were looked at")
@@ -244,7 +257,7 @@ import XCTest
     private func canopyPoints() throws -> (points: [CGPoint], rect: CGRect) {
         let sheet = try XCTUnwrap(PlatformPlaza.tallGrassSheet())
         let image = try XCTUnwrap(PlazaTree.image(sheet, season: .summer))
-        let rect = try XCTUnwrap(PlazaTree.artRect(in: map))
+        let rect = try XCTUnwrap(PlazaTree.artRect(of: PlazaTree.runs(in: map)[0]))
         return (PlazaTree.canopySpawnPoints(image, artRect: rect), rect)
     }
 
@@ -322,7 +335,7 @@ import XCTest
 
     /// The pine's low boughs drop a leaf to the ground inside leafLife: it lands on groundY, lies still, fades over leafRest and goes.
     func testALowLeafReachesTheGroundRestsFadesAndGoes() async throws {
-        let rect = try XCTUnwrap(PlazaTree.artRect(in: map))
+        let rect = try XCTUnwrap(PlazaTree.artRect(of: PlazaTree.runs(in: map)[0]))
         var field = PlazaTreeLeaves(spawnPoints: [CGPoint(x: 560, y: rect.maxY - 3)], baseY: rect.maxY)
         field.burst(count: 4, direction: .left, grids: [0, 1, 2])
         var seen = Set<CGFloat>()   // groundY is different for every leaf
@@ -386,39 +399,106 @@ import XCTest
     // MARK: the falling item
 
     func testTheItemStartsAboveTheTackler() async throws {
-        let rect = try XCTUnwrap(PlazaTree.artRect(in: map))
+        let rect = try XCTUnwrap(PlazaTree.artRect(of: PlazaTree.runs(in: map)[0]))
         XCTAssertEqual(PlazaTree.itemStart(artRect: rect, tacklerFoot: CGPoint(x: 560, y: 380)), CGPoint(x: 560, y: 298))
         XCTAssertEqual(PlazaTree.itemStart(artRect: rect, tacklerFoot: CGPoint(x: 496, y: 348)), CGPoint(x: 521, y: 298), "clamped 24 px inside the art")
         XCTAssertEqual(PlazaTree.itemStart(artRect: rect, tacklerFoot: CGPoint(x: 700, y: 348)), CGPoint(x: 599, y: 298))
         XCTAssertEqual(PlazaTree.itemStart(artRect: rect, tacklerFoot: CGPoint(x: 560, y: 252)), CGPoint(x: 560, y: 204), "48 px above feet behind the tree")
     }
 
-    func testTheItemFallsFromTheCanopyToTheFeet() async throws {
-        let rect = try XCTUnwrap(PlazaTree.artRect(in: map))
-        let feet = CGPoint(x: 540, y: 380)
+    /// The item's one path: a big hop from the canopy to the landing tile, a small bounce, a rest, a hop to the hitter's feet.
+    func testTheItemHopsToTheLandingBouncesRestsAndComesToTheFeet() async throws {
+        let rect = try XCTUnwrap(PlazaTree.artRect(of: PlazaTree.runs(in: map)[0]))
+        let feet = CGPoint(x: 540, y: 380), landing = CGPoint(x: 600, y: 396)
         let from = PlazaTree.itemStart(artRect: rect, tacklerFoot: feet)
-        let fall = PlazaTreeItemFall(from: from, to: feet)
+        let fall = PlazaTreeItemFall(from: from, landing: landing, to: feet)
         XCTAssertEqual(fall.position(at: 0), from)
-        XCTAssertEqual(fall.position(at: PlazaTree.itemFall), feet)
-        for k in 0...45 {
-            let t = PlazaTree.itemFall * Double(k) / 45
-            let at = try XCTUnwrap(fall.position(at: t))
-            let line = from.y + (feet.y - from.y) * CGFloat(t / PlazaTree.itemFall)
-            XCTAssertLessThanOrEqual(at.y, feet.y + 1e-9)
-            XCTAssertLessThanOrEqual(at.y, line + 1e-9, "above the straight line: the arc")
-            XCTAssertGreaterThanOrEqual(at.y, from.y - PlazaTree.itemArc - 1e-9)
-        }
+        XCTAssertEqual(fall.position(at: PlazaTree.itemFall), landing)
         var top: CGFloat = 0
+        for k in 0...40 {
+            let t = PlazaTree.itemFall * Double(k) / 40
+            let at = try XCTUnwrap(fall.position(at: t))
+            let line = from.y + (landing.y - from.y) * CGFloat(t / PlazaTree.itemFall)
+            XCTAssertLessThanOrEqual(at.y, line + 1e-9, "above the straight line: the hop")
+            top = max(top, line - at.y)
+        }
+        XCTAssertEqual(top, PlazaTree.itemArc, accuracy: 1.0, "one clear hop, itemArc high")
+        top = 0
         for k in 1..<10 {
             let at = try XCTUnwrap(fall.position(at: PlazaTree.itemFall + PlazaTree.itemBounceDuration * Double(k) / 10))
-            XCTAssertEqual(at.x, feet.x)
-            XCTAssertLessThanOrEqual(at.y, feet.y + 1e-9)
-            top = max(top, feet.y - at.y)
+            XCTAssertEqual(at.x, landing.x)
+            XCTAssertLessThanOrEqual(at.y, landing.y + 1e-9)
+            top = max(top, landing.y - at.y)
         }
-        XCTAssertEqual(top, PlazaTree.itemBounce, accuracy: 0.2, "it bounces itemBounce high")
-        XCTAssertNil(fall.position(at: PlazaTree.itemFall + PlazaTree.itemBounceDuration))
+        XCTAssertEqual(top, PlazaTree.itemBounce, accuracy: 0.3, "it bounces itemBounce high")
+        let restStart = PlazaTree.itemFall + PlazaTree.itemBounceDuration
+        for k in 0..<10 { XCTAssertEqual(fall.position(at: restStart + PlazaTree.itemRest * Double(k) / 10), landing, "it rests on the landing") }
+        let collectStart = restStart + PlazaTree.itemRest
+        var last = landing
+        for k in 1...29 {
+            let at = try XCTUnwrap(fall.position(at: collectStart + PlazaTree.itemCollect * Double(k) / 30))
+            XCTAssertLessThan(abs(at.x - feet.x), abs(last.x - feet.x) + 1e-9, "it keeps moving toward the feet")
+            last = at
+        }
+        let live = CGPoint(x: 100, y: 200)
+        XCTAssertEqual(try XCTUnwrap(fall.position(at: PlazaTreeItemFall.length - 1e-6, collectTo: live)).x, live.x, accuracy: 0.01, "the hop follows the hitter's present feet")
+        XCTAssertNil(fall.position(at: PlazaTreeItemFall.length))
         XCTAssertNil(fall.position(at: 5))
         XCTAssertNil(fall.position(at: -0.01))
+        let total = PlazaTree.contactAt + PlazaTree.hitStop[2] + PlazaTree.itemDelay + PlazaTreeItemFall.length
+        XCTAssertTrue((1.5...2.1).contains(total), "from the hit to the pick-up: \(total) s")
+    }
+
+    // MARK: where the item lands
+
+    func testTheLandingIsTwoTilesToTheSideAwayFromTheTrunkCentre() async throws {
+        let first = PlazaTree.runs(in: map)[0], second = PlazaTree.runs(in: map)[1]
+        // Hit from the south of the first tree (x 16...18): left of the centre column goes left, the centre and right go right.
+        XCTAssertEqual(PlazaTree.landingTile(run: first, hitter: p(16, 11), direction: .up, map: map), p(14, 11))
+        XCTAssertEqual(PlazaTree.landingTile(run: first, hitter: p(17, 11), direction: .up, map: map), p(19, 11), "the centre goes right")
+        XCTAssertEqual(PlazaTree.landingTile(run: first, hitter: p(18, 11), direction: .up, map: map), p(20, 11))
+        // From the west, above the middle row goes up, below goes down.
+        XCTAssertEqual(PlazaTree.landingTile(run: first, hitter: p(15, 8), direction: .right, map: map), p(15, 6))
+        XCTAssertEqual(PlazaTree.landingTile(run: first, hitter: p(15, 10), direction: .right, map: map), p(15, 12))
+        // The second tree, from the south at its centre column.
+        XCTAssertEqual(PlazaTree.landingTile(run: second, hitter: p(42, 28), direction: .up, map: map), p(44, 28))
+    }
+
+    func testTheLandingSkipsCoveredBlockedAndWaterTilesAndFallsBackToTheHitter() async throws {
+        let covered = PlazaTree.coveredTiles(in: map)
+        // Every hit position around both trees lands on an open tile that is not under a canopy.
+        for run in PlazaTree.runs(in: map) {
+            for t in PlazaTree.coveredTiles(of: run).union(run) {
+                for d in PlazaDirection.allCases {
+                    let hitter = PlazaWalker.offset(t, d)
+                    guard map.isWalkable(hitter), !covered.contains(hitter) else { continue }
+                    let back: PlazaDirection = switch d { case .up: .down; case .down: .up; case .left: .right; case .right: .left }
+                    let land = PlazaTree.landingTile(run: run, hitter: hitter, direction: back, map: map)
+                    XCTAssertTrue(map.isWalkable(land), "\(hitter) -> \(land)")
+                    XCTAssertFalse(covered.contains(land), "\(hitter) -> \(land) is under a canopy")
+                }
+            }
+        }
+        // A canopy tile is skipped even when it is open: the hitter stands on the covered row above the trunk, the far side is a wall and the near
+        // side's two-tile step ends on a covered tile, so the answer is the one-tile step the other way.
+        let under = try PlazaMap(rows: ["TTTTTTTTT", "TSNTTTTTT", "TT....TTT", "TTTBBBTTT", "TTTTTTTTT"])
+        XCTAssertTrue(PlazaTree.coveredTiles(in: under).contains(p(5, 2)) && under.isWalkable(p(5, 2)), "test precondition")
+        XCTAssertEqual(PlazaTree.landingTile(run: PlazaTree.runs(in: under)[0], hitter: p(3, 2), direction: .down, map: under), p(2, 2))
+        // A hitter boxed in on every candidate falls back to their own tile.
+        let boxed = try PlazaMap(rows: ["TTTTTTT", "TSNTBTT", "TTT.TTT", "TTTTTTT"])
+        XCTAssertEqual(PlazaTree.landingTile(run: PlazaTree.runs(in: boxed)[0], hitter: p(3, 2), direction: .up, map: boxed), p(3, 2))
+        // Water is skipped: the preferred side (x + 2, since the hitter is at the centre) is a pond, so the other side is taken.
+        let wet = try PlazaMap(rows: ["TTTTTTT", "TSN...T", "T..B..T", "T....wT", "T.....T", "TTTTTTT"])
+        XCTAssertEqual(PlazaTree.landingTile(run: PlazaTree.runs(in: wet)[0], hitter: p(3, 3), direction: .up, map: wet), p(1, 3))
+    }
+
+    func testTheRunTheHitterFacesIsTheOneTheyHit() async throws {
+        let runs = PlazaTree.runs(in: map)
+        XCTAssertEqual(PlazaTree.targetRun(PlazaBody(foot: p(17, 11), size: 1), facing: .up, runs: runs), 0)
+        XCTAssertEqual(PlazaTree.targetRun(PlazaBody(foot: p(42, 28), size: 1), facing: .up, runs: runs), 1)
+        XCTAssertEqual(PlazaTree.targetRun(PlazaBody(foot: p(40, 26), size: 1), facing: .right, runs: runs), 1)
+        XCTAssertEqual(PlazaTree.targetRun(PlazaBody(foot: p(17, 11), size: 1), facing: .down, runs: runs), 0, "touching without facing still names the tree beside")
+        XCTAssertNil(PlazaTree.targetRun(PlazaBody(foot: p(30, 22), size: 1), facing: .up, runs: runs))
     }
 
     // MARK: the day count (Task 7)

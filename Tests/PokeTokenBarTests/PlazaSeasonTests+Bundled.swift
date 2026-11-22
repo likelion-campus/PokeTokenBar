@@ -373,7 +373,8 @@ extension PlazaSeasonTests {
     /// The small map shows the tree (baked once per season) and still reads "snow" only in a snowy season.
     func testTheMinimapImageHasTheTreeAndKeepsTheSnowFlag() async throws {
         let sheet = try XCTUnwrap(PlatformPlaza.tileSheet())
-        let rect = try XCTUnwrap(PlazaTree.artRect(in: PlazaMapData.map))
+        let rects = PlazaTree.runs(in: PlazaMapData.map).compactMap { PlazaTree.artRect(of: $0) }
+        XCTAssertEqual(rects.count, 2, "both trees are on the small map")
         var current: PlazaSchedule? = schedule("summer")
         let plaza = controller { current }
         plaza.prepareScene()
@@ -381,12 +382,13 @@ extension PlazaSeasonTests {
         let summer = plaza.minimapImage(for: .summer)
         XCTAssertEqual(summer.width, plain.width)
         let (a, b, w) = (summer.pixels.bytes, plain.pixels.bytes, plain.width)
-        var changed = 0
+        var changed = [0, 0]
         for y in 0..<plain.height { for x in 0..<w where Array(a[(y * w + x) * 4..<(y * w + x) * 4 + 4]) != Array(b[(y * w + x) * 4..<(y * w + x) * 4 + 4]) {
-            changed += 1
-            XCTAssertTrue(rect.contains(CGPoint(x: x, y: y)), "(\(x),\(y)) is outside the tree's rect")
+            guard let i = rects.firstIndex(where: { $0.contains(CGPoint(x: x, y: y)) }) else { XCTFail("(\(x),\(y)) is outside both trees' rects"); continue }
+            changed[i] += 1
         } }
-        XCTAssertGreaterThan(changed, 1000, "the pine is drawn")
+        XCTAssertGreaterThan(changed[0], 1000, "the first pine is drawn")
+        XCTAssertGreaterThan(changed[1], 1000, "the second pine is drawn")
         XCTAssertTrue(plaza.minimapImage(for: .summer) === summer, "baked once")
         XCTAssertNil(plaza.minimapSeasonImage)
         XCTAssertFalse(plaza.minimapShowsSnow)

@@ -307,13 +307,87 @@ final class PlazaTreeControllerTests: XCTestCase {
         w.c.handleClose()
     }
 
-    func testADropFallsToTheSendersFoot() async {
+    /// A teammate's drop bounces out to a tile two away from them, rests there, and comes to their foot.
+    func testADropBouncesOutBesideTheSenderAndComesToTheirFoot() async {
         let w = await world(me: p(20, 12), b: p(17, 11))
         w.c.showTreeShake(from: w.b.id, level: 3, drop: .mint)
         let foot = w.scene.memberFoot(w.b.id)!
         var seen: [CGPoint] = []
-        for _ in 0..<40 { t += 0.05; w.scene.update(t); if let q = w.scene.treeItemPosition { seen.append(q) } }
-        XCTAssertTrue(seen.contains { abs($0.x - foot.x) < 1 && abs($0.y - foot.y) < 1 }, "it ends at b's foot")
+        for _ in 0..<60 { t += 0.05; w.scene.update(t); if let q = w.scene.treeItemPosition { seen.append(q) } }
+        let size = CGFloat(PlazaMap.tileSize)
+        let rest = seen.filter { q in seen.filter { abs($0.x - q.x) < 0.6 && abs($0.y - q.y) < 0.6 }.count > 8 }
+        XCTAssertFalse(rest.isEmpty, "it rests somewhere")
+        let tile = TilePoint(x: Int(rest[0].x / size), y: Int(rest[0].y / size))
+        XCTAssertEqual(max(abs(tile.x - 17), abs(tile.y - 11)), 2, "two tiles from the sender: \(tile)")
+        XCTAssertFalse(PlazaTree.coveredTiles(in: PlazaMapData.map).contains(tile))
+        XCTAssertTrue(PlazaMapData.map.isWalkable(tile))
+        XCTAssertLessThan(hypot(seen.last!.x - foot.x, seen.last!.y - foot.y), 12, "it ends at b's foot")
+        w.c.handleClose()
+    }
+
+    // MARK: - The second tree
+
+    func testHittingTheSecondTreeSharesTheDayCountAndShakesOnlyThatTree() async {
+        let w = await world(me: p(42, 28), facing: .up)
+        let shown = w.c.bannersShown
+        await hit(w)
+        XCTAssertTrue(w.scene.treeLayers[1].isBusy)
+        XCTAssertFalse(w.scene.treeLayers[0].isBusy, "the other tree stays still")
+        run(w.scene, 3)
+        // Two hits on the second, then one on the first (walk is not needed: a second world on the same save would reset the scene, so the
+        // controller's own count is what we read): the third hit of the day drops, whichever tree takes it.
+        await hit(w)
+        XCTAssertEqual(w.c.treeHitsToday, 2)
+        await hit(w)
+        XCTAssertEqual(granted, [.mint], "three hits, one mint")
+        XCTAssertEqual(w.c.bannersShown, shown + 1)
+        for _ in 0..<3 { await hit(w) }
+        XCTAssertEqual(granted, [.mint], "one drop a day in total, not per tree")
+        XCTAssertEqual(shakes(w.b).count, 6)
+        w.c.handleClose()
+    }
+
+    /// Two hits on the first tree, a reopen standing at the second: the third hit of the day is the one that drops, on the other tree.
+    func testTheDayCountIsSharedAcrossBothTrees() async {
+        let first = await world(me: p(17, 11), facing: .up)
+        await hit(first); await hit(first)
+        first.c.handleClose()
+        let second = await world(me: p(42, 28), facing: .up, suite: first.suite)
+        XCTAssertEqual(second.c.treeHitsToday, 2)
+        await hit(second)
+        XCTAssertEqual(granted, [.mint], "the third hit of the day, on the other tree, drops")
+        XCTAssertTrue(second.scene.treeLayers[1].isBusy)
+        XCTAssertFalse(second.scene.treeLayers[0].isBusy)
+        for _ in 0..<3 { await hit(second) }
+        XCTAssertEqual(granted, [.mint], "never a second drop that day")
+        second.c.handleClose()
+    }
+
+    /// A teammate standing at the second tree shakes that tree on my screen; one standing at the first shakes the first. Where they stand decides, not a field.
+    func testATeammatesShakeFindsItsTreeFromWhereTheyStand() async {
+        let w = await world(me: p(30, 5), b: p(42, 28))
+        w.c.showTreeShake(from: w.b.id, level: 2, drop: nil)
+        XCTAssertTrue(w.scene.treeLayers[1].isBusy)
+        XCTAssertFalse(w.scene.treeLayers[0].isBusy)
+        run(w.scene, 3)
+        await place(w, p(17, 11), facing: .up)
+        w.c.showTreeShake(from: w.b.id, level: 2, drop: nil)
+        XCTAssertTrue(w.scene.treeLayers[0].isBusy)
+        XCTAssertFalse(w.scene.treeLayers[1].isBusy)
+        w.c.handleClose()
+    }
+
+    /// What a v2.5.637 peer (one tree, at the first one) does with my hit on the second tree: its `showTreeShake` needs my body to touch ITS tree, so a hitter
+    /// standing at the new tree is ignored there. This test plays that old rule against the frame I send.
+    func testAnOldPeerIgnoresAHitOnTheNewTree() async {
+        let old = PlazaTree.runs(in: PlazaMapData.map)[0]
+        XCTAssertFalse(PlazaTree.touches(PlazaBody(foot: p(42, 28), size: 1), tiles: old), "my body at the second tree does not touch the old peer's only tree")
+        XCTAssertTrue(PlazaTree.touches(PlazaBody(foot: p(17, 11), size: 1), tiles: old), "control: a hit on the first tree still reaches an old peer")
+        // And the new rule sees an old peer's hit on the first tree as the first tree.
+        let w = await world(me: p(30, 5), b: p(17, 11))
+        w.c.showTreeShake(from: w.b.id, level: 3, drop: .mint)
+        XCTAssertTrue(w.scene.treeLayers[0].isBusy)
+        XCTAssertFalse(w.scene.treeLayers[1].isBusy)
         w.c.handleClose()
     }
 

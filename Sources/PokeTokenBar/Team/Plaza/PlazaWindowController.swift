@@ -200,15 +200,15 @@ import Observation
 
     /// 작은 지도 그림(나무를 얹은 것)도 계절마다 한 번만 만든다. 같은 그림이어야 작은 지도가 줄여 둔 그림을 다시 쓴다.
     private static var cachedMinimapImages: [PlazaSeason: PlazaImage] = [:]
-    private lazy var treeArtRect = PlazaTree.artRect(in: map)
+    private lazy var treeArtRects = PlazaTree.runs(in: map).compactMap { PlazaTree.artRect(of: $0) }
 
     /// 그 계절의 지도 그림에 큰 나무를 얹은 것. 나무나 그림이 없으면 지도 그림 그대로.
     func minimapImage(for season: PlazaSeason) -> PlazaImage {
         let plain = season == .summer ? mapImage : (Self.seasonLook(for: map, season: season)?.mapImage ?? mapImage)
-        guard let rect = treeArtRect else { return plain }
+        guard !treeArtRects.isEmpty else { return plain }
         if let cached = Self.cachedMinimapImages[season] { return cached }
         guard let sheet = PlatformPlaza.tallGrassSheet(), let tree = PlazaTree.image(sheet, season: season) else { return plain }
-        let baked = PlazaTree.baked(plain, tree: tree, at: rect)
+        let baked = treeArtRects.reduce(plain) { PlazaTree.baked($0, tree: tree, at: $1) }
         Self.cachedMinimapImages[season] = baked
         return baked
     }
@@ -1592,7 +1592,8 @@ import Observation
     /// (연타 제한에 걸려도 true라 C가 옆 팀원으로 넘어가지 않는다). 하루 세 번째에는 민트가 떨어지는데, 정하고 주고 알리는 것은 여기서
     /// 한 번이고 장면이 그리는지와 상관없다. 몸통박치기가 아니라서 오늘 한 일의 몸통박치기에는 세지 않는다.
     private func hitTree() -> Bool {
-        guard let scene, PlazaTree.isFacing(scene.myBody, facing: scene.walker.facing, tiles: scene.treeTiles) else { return false }
+        guard let scene, let tree = scene.treeRuns.firstIndex(where: { PlazaTree.isFacing(scene.myBody, facing: scene.walker.facing, tiles: $0) })
+        else { return false }
         let now = clock()
         if let last = lastEmoteAt, now.timeIntervalSince(last) < Self.emoteInterval { return true }
         lastEmoteAt = now
@@ -1601,7 +1602,7 @@ import Observation
         preferences.tree = treeDay
         let level = PlazaTree.level(hits: treeDay.hits, drops: drops)
         let drop = drops ? PlazaTree.dropItem : nil
-        scene.playTreeHit(by: nil, direction: scene.walker.facing, level: level, drop: drop)
+        scene.playTreeHit(tree: tree, by: nil, direction: scene.walker.facing, level: level, drop: drop)
         session?.sendEmote(.treeShake, target: nil, pushTiles: level, treeDrop: drop)
         if let drop {
             grantItem(drop)
@@ -1614,10 +1615,12 @@ import Observation
     /// 런타임이 부른다. 팀원이 나무를 쳤다. 그 팀원의 몸이 내 화면의 나무에 닿을 때만 그린다(아니면 무시). 아무도 움직이지 않고, 주지도
     /// 알리지도 기록하지도 않는다. 떨어지는 아이템은 그 팀원 발 앞에서 끝나는 그림일 뿐이다. 창이 닫혀 있으면 아무것도 안 한다.
     func showTreeShake(from sender: String, level: Int, drop: ItemKind?) {
-        guard let scene, scene.memberTiles[sender] != nil, let body = scene.body(of: sender),
-              PlazaTree.touches(body, tiles: scene.treeTiles) else { return }
-        let direction = PlazaTree.hitDirection(body, facing: members[sender]?.facing ?? .down, tiles: scene.treeTiles)
-        scene.playTreeHit(by: sender, direction: direction, level: TeamEmote.pushTiles(level), drop: drop)
+        guard let scene, scene.memberTiles[sender] != nil, let body = scene.body(of: sender) else { return }
+        let facing = members[sender]?.facing ?? .down
+        // 어느 나무인지는 그 팀원의 몸과 바라보는 쪽에서 안다(새 필드가 없다). 어느 나무에도 닿지 않으면 그리지 않는다.
+        guard let tree = scene.treeIndex(hitting: body, facing: facing) else { return }
+        let direction = PlazaTree.hitDirection(body, facing: facing, tiles: scene.treeRuns[tree])
+        scene.playTreeHit(tree: tree, by: sender, direction: direction, level: TeamEmote.pushTiles(level), drop: drop)
     }
 
     /// 테스트용: 띄운 배너 수(닫을 때도 오른다)와 오늘 나무를 친 횟수.
