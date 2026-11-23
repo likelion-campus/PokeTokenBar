@@ -798,6 +798,7 @@ import Observation
 
     /// 가판대에서 오늘의 포춘쿠키를 깬다. 하루에 한 번만 깨고 팀원에게 보이며, 같은 날 다시 오면 내 화면에 쪽지만 다시 펴진다.
     private func openFortune() {
+        guard scene?.shownFortune(memberID: nil) == nil else { return }   // 깨는 중이나 쪽지가 떠 있는 동안 다시 누르면 그대로 둔다
         let day = PlazaActivity.dayKey(clock())
         let draw = PlazaFortune.draw(day: day, memberID: memberID())
         let isFirst = preferences.fortuneDay != day

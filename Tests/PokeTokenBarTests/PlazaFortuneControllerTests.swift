@@ -8,12 +8,24 @@ private struct NoSprites: PlazaSpriteFetching {
 }
 
 /// Space at the fortune stall: one cookie a day, shown to teammates once, and the slip again on a later visit.
+/// 1초 틱을 테스트가 손으로 넘긴다.
+@MainActor private final class TickGate {
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    func sleep(_ d: Duration) async { await withCheckedContinuation { waiters.append($0) } }
+    func tick() async {
+        let w = waiters; waiters = []
+        w.forEach { $0.resume() }
+        for _ in 0..<20 { await Task.yield() }
+    }
+}
+
 @MainActor
 final class PlazaFortuneControllerTests: XCTestCase {
     private var hub: FakeTransportHub!
     private var dirs: [URL] = []
     private var code: TeamCode!
     private var now = PlazaFortuneControllerTests.day(23)
+    private let gate = TickGate()
     private var t: TimeInterval = 0
     private let spaceKey: UInt16 = 49, dKey: UInt16 = 2
 
@@ -74,6 +86,7 @@ final class PlazaFortuneControllerTests: XCTestCase {
                                       subject: { .init(speciesID: 25, isShiny: false) },
                                       session: me.session, clock: { [unowned self] in now },
                                       bannerSleep: { _ in try? await Task.sleep(for: .seconds(60)) },
+                                      focusTickSleep: { [gate] in await gate.sleep($0) },
                                       shell: PlazaHeadlessShell(), chatInput: PlazaStubChatInput())
         c.prepareScene()
         return c
@@ -136,6 +149,21 @@ final class PlazaFortuneControllerTests: XCTestCase {
         w.c.handleClose()
     }
 
+    /// Space again while the cookie is still rising used to restart it as a bare slip on my own screen.
+    func testSpaceDuringTheCrackLeavesItAlone() async throws {
+        let w = await world()
+        await space(w)
+        run(w.scene, 0.2)
+        XCTAssertEqual(w.scene.shownFortune(memberID: nil)?.stage, .whole)
+        await space(w)
+        XCTAssertEqual(w.scene.shownFortune(memberID: nil)?.stage, .whole, "the cookie is still there")
+        run(w.scene, PlazaFortune.splitStart + 4 * PlazaFortune.splitStepDuration)
+        await space(w)
+        XCTAssertEqual(w.scene.shownFortune(memberID: nil)?.stage, .open, "the open slip does not unroll again")
+        XCTAssertEqual(fortunes(w.b).count, 1)
+        w.c.handleClose()
+    }
+
     func testTheSameDayShowsOnlyTheSlipAgainAndSendsNothingMore() async throws {
         let w = await world()
         await space(w)
@@ -162,8 +190,9 @@ final class PlazaFortuneControllerTests: XCTestCase {
         let w = await world()
         await space(w)
         run(w.scene, 9)
+        XCTAssertEqual(w.c.hint, L(.ko).plazaFortuneAgainHint)
         now = Self.day(24, 9)
-        w.c.refreshHintForTesting()   // nothing redraws the hint at midnight by itself; the next move does
+        await gate.tick()   // standing still past midnight: the one-second tick (refreshCampfire) redraws the hint
         XCTAssertEqual(w.c.hint, L(.ko).plazaFortuneHint)
         await space(w)
         XCTAssertEqual(w.scene.shownFortune(memberID: nil)?.stage, .whole)

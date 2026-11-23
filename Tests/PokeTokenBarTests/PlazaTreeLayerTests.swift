@@ -46,6 +46,17 @@ import XCTest
         XCTAssertEqual(foot.y, ref.y - 2 * CGFloat(PlazaMap.tileSize), accuracy: 0.001, "drawn on (17,10), not moved to the shelter")
     }
 
+    /// The stall's tiles were open grass up to 2.5.638. A teammate on that version standing there stays there.
+    func testAnOldPeerOnTheStallIsDrawnThere() async throws {
+        let s = scene()
+        XCTAssertTrue(map.isStall(p(42, 4)))
+        s.applyMembers([member("a", 42, 4), member("ref", 42, 6)])
+        let foot = try XCTUnwrap(s.memberFoot("a"))
+        let ref = try XCTUnwrap(s.memberFoot("ref"))
+        XCTAssertEqual(foot.x, ref.x, accuracy: 0.001)
+        XCTAssertEqual(foot.y, ref.y - 2 * CGFloat(PlazaMap.tileSize), accuracy: 0.001, "drawn on (42,4), not moved to the shelter")
+    }
+
     func testABlockedTileThatIsNotTheTreeStillGoesToTheShelter() async throws {
         let s = scene()
         s.applyMembers([member("a", 15, 4)])   // the bush
