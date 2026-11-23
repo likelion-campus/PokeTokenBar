@@ -261,6 +261,10 @@ final class CompanionStore {
     var eggStarted: Bool { state.eggUsage > 0 }
     var eggProgress: Double { min(1, max(0, Double(state.eggUsage) / Double(eggHatchThreshold))) }
     var eggTokensToHatch: Int { max(0, eggHatchThreshold - state.eggUsage) }
+    /// 부화할 때가 됐다: 토큰을 다 모았거나 기도를 `prayersToHatch` 번 했다.
+    private var isEggReady: Bool {
+        state.eggUsage >= eggHatchThreshold || (state.eggPrayers?.count ?? 0) >= PokemonBalance.prayersToHatch
+    }
     /// 알이 부화 준비(100%)가 되었으나 PokéAPI 요청/후보 선택 실패로 다음 갱신을 기다리는 상태.
     private(set) var isHatchRetryDelayed = false
 
@@ -983,7 +987,7 @@ final class CompanionStore {
             justGraduated = nil; justEvolvedTo = nil; eventUntil = nil
         }
         if state.active == nil, state.installBaselineSet, !isHatching {
-            if state.eggUsage >= eggHatchThreshold {
+            if isEggReady {
                 // ready egg 는 부화를 우선한다. 같은 틱에 프리패치와 별도 Task 로 경쟁시키면
                 // 프리패치 락을 본 부화가 반환하고 실패 상태도 놓칠 수 있다.
                 Task { await hatchIfNeeded() }
@@ -1429,14 +1433,16 @@ final class CompanionStore {
         return true
     }
 
-    /// Pray over the egg. A placebo: it only counts, and never touches an RNG or a roll — the species is
+    /// Pray over the egg. It only counts, and never touches an RNG or a roll — the species is
     /// usually already in `pendingHatchID` (prefetched at purchase) long before anyone prays.
+    /// The `prayersToHatch`th prayer hatches the egg at once, whatever tokens it has gathered.
     func pray() {
         guard state.active == nil else { return }
         var record = state.eggPrayers ?? PrayerRecord(count: 0)
         record.count += 1
         state.eggPrayers = record
         save()
+        if isEggReady, !isHatching { Task { await hatchIfNeeded() } }
     }
 
     // 보증 없는 기본 알 래퍼 — 기존 호출부/테스트 호환.
@@ -1581,7 +1587,7 @@ final class CompanionStore {
     // MARK: 부화
 
     func hatchIfNeeded() async {
-        guard state.active == nil, !isHatching, state.eggUsage >= eggHatchThreshold else { return }
+        guard state.active == nil, !isHatching, isEggReady else { return }
         // 프리패치가 "종 롤 중"(pending 미확정)일 때만 대기 — 이중 rng 소비 방지.
         // pending 확정 후의 예열(라인/스프라이트)과는 동시 진행해도 안전하다.
         guard state.pendingHatchID != nil || !prefetchInFlight else { return }
@@ -1631,7 +1637,7 @@ final class CompanionStore {
     }
 
     private func isCurrentReadyEgg(generation: Int) -> Bool {
-        isCurrentEgg(generation: generation) && state.eggUsage >= eggHatchThreshold
+        isCurrentEgg(generation: generation) && isEggReady
     }
 
     private func markHatchRetryDelayedIfReady(generation: Int) {
