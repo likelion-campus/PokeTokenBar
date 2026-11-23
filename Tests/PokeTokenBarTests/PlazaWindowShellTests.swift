@@ -351,6 +351,22 @@ private struct NoSpritesFetcher: PlazaSpriteFetching {
         c.handleClose()
     }
 
+    /// The tenth prayer hatches the egg and the count goes back to zero: the hint must not say "기도 0번".
+    func testThePrayedHintGoesAwayWhenThePrayerHatchesTheEgg() async throws {
+        let shell = RecordingPlazaShell()
+        var prayers = 9
+        var species: Int?
+        let c = controller(shell, subject: { .init(speciesID: species, isShiny: false) }, prayerCount: { prayers })
+        c.show()
+        prayers = 10
+        key(try XCTUnwrap(c.scene), PlazaKeyCode.a)
+        XCTAssertEqual(c.hint, L(.ko).plazaPrayedHint(prayers: 10))
+        species = 25; prayers = 0   // what the hatch does
+        c.refreshHintForTesting()
+        XCTAssertNotEqual(c.hint, L(.ko).plazaPrayedHint(prayers: 0))
+        c.handleClose()
+    }
+
     func testRefreshTitleGoesThroughTheShell() async {
         let shell = RecordingPlazaShell()
         let c = controller(shell)

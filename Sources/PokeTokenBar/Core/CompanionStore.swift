@@ -1433,7 +1433,7 @@ final class CompanionStore {
         return true
     }
 
-    /// Pray over the egg. It only counts, and never touches an RNG or a roll — the species is
+    /// Pray over the egg. It only counts and never changes a roll — the species is
     /// usually already in `pendingHatchID` (prefetched at purchase) long before anyone prays.
     /// The `prayersToHatch`th prayer hatches the egg at once, whatever tokens it has gathered.
     func pray() {
@@ -1845,6 +1845,7 @@ final class CompanionStore {
             kind: .hatch, speciesID: line.baseID, fromSpeciesID: nil, speciesName: name,
             fromSpeciesName: nil, form: form, isShiny: showShiny, nature: nature, rarity: line.rarity))
         justEvolvedTo = nil        // 새 부화는 "성장" 문구(진화 아님) — 직전 진화명이 남아 표시되지 않게
+        justGraduated = nil        // 졸업 직후 기도로 바로 부화하면 졸업 문구가 새 포켓몬 아래에 남는다
         displayState = .levelUp
         eventUntil = clock().addingTimeInterval(4)
         if overflow > 0 { applyUsage(overflow) }   // 이월분 즉시 반영(필요 시 진화/리빌까지)
