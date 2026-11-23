@@ -55,6 +55,7 @@ CompanionStore.isEgg | C9
 CompanionStore.isFinalStage | C8
 CompanionStore.isHatchRetryDelayed | C9
 CompanionStore.isHighValueCompanion | H3
+CompanionStore.isPrayerDoneToday | F2
 CompanionStore.isRepresentative | D5
 CompanionStore.itemCount | H2
 CompanionStore.justEvolvedTo | C10

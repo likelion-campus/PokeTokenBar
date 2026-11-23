@@ -11,7 +11,15 @@ private struct PrayerOfflineProvider: PokeProviding {
 
 @MainActor
 final class EggPrayerTests: XCTestCase {
-    private let now = Date(timeIntervalSince1970: 1_700_000_000)
+    private var now = Date(timeIntervalSince1970: 1_700_000_000)
+
+    /// `times` prayers that all count: the clock moves a day on whenever today's (`prayersPerDay`) are used up.
+    private func pray(_ store: CompanionStore, times: Int) {
+        for _ in 0..<times {
+            if store.isPrayerDoneToday { now = now.addingTimeInterval(86_400) }
+            store.pray()
+        }
+    }
     private let line = EvoLine(
         baseID: 1,
         tree: EvoNode(speciesID: 1, children: [EvoNode(speciesID: 2, children: [EvoNode(speciesID: 3, children: [])])]),
@@ -56,7 +64,7 @@ final class EggPrayerTests: XCTestCase {
     func testNinePrayersDoNotHatchAnEggThatHasNoTokens() async {
         XCTAssertEqual(PokemonBalance.prayersToHatch, 10)
         let store = youngEgg()
-        for _ in 0..<9 { store.pray() }
+        pray(store, times: 9)
         await store.hatchIfNeeded()
         XCTAssertNil(store.state.active)
         XCTAssertEqual(store.state.eggPrayers?.count, 9)
@@ -64,7 +72,7 @@ final class EggPrayerTests: XCTestCase {
 
     func testTheTenthPrayerHatchesTheEggOnItsOwn() async {
         let store = youngEgg()
-        for _ in 0..<10 { store.pray() }
+        pray(store, times: 10)
         let hatched = await settled { store.state.active != nil }
         XCTAssertTrue(hatched, "no update tick and no other call is needed")
         XCTAssertEqual(store.state.active?.prayers, PrayerRecord(count: 10))
@@ -73,7 +81,7 @@ final class EggPrayerTests: XCTestCase {
 
     func testAPrayerHatchDropsTheEggsTokensAndLeavesTheTotalsAlone() async {
         let store = youngEgg(eggUsage: 2_000_000)
-        for _ in 0..<10 { store.pray() }
+        pray(store, times: 10)
         await store.hatchIfNeeded()
         XCTAssertEqual(store.state.active?.usedAtStage, 0, "the egg's tokens are not carried over")
         XCTAssertEqual(store.state.eggUsage, 0)
@@ -89,7 +97,7 @@ final class EggPrayerTests: XCTestCase {
             store.applyUsage(PokemonBalance.phaseThreshold(rarity: .common, totalForms: 3, stageIndex: stage))
         }
         XCTAssertNotNil(store.justGraduated, "test precondition: the graduation caption is up")
-        for _ in 0..<10 { store.pray() }
+        pray(store, times: 10)
         let hatched = await settled { store.state.active != nil }
         XCTAssertTrue(hatched)
         XCTAssertNil(store.justGraduated)
@@ -129,8 +137,8 @@ final class EggPrayerTests: XCTestCase {
 
     func testPrayCounts() {
         let store = hatchReadyEgg(pending: true)
-        store.pray(); store.pray(); store.pray()
-        XCTAssertEqual(store.state.eggPrayers, PrayerRecord(count: 3))
+        pray(store, times: 3)
+        XCTAssertEqual(store.state.eggPrayers?.count, 3)
     }
 
     func testPrayIsIgnoredWhileRaisingAPokemon() {
@@ -145,7 +153,7 @@ final class EggPrayerTests: XCTestCase {
         for pending in [true, false] {
             let plain = hatchReadyEgg(pending: pending)
             let prayed = hatchReadyEgg(pending: pending)
-            for _ in 0..<50 { prayed.pray() }
+            pray(prayed, times: 50)
             await plain.hatchIfNeeded()
             await prayed.hatchIfNeeded()
             // The tenth prayer starts the hatch itself, so the call above may find it already running.
@@ -381,6 +389,8 @@ final class EggPrayerTests: XCTestCase {
         let prayed = FloatingPetView.hoverTooltip(todayTokens: 1, limitUtilization: nil, mode: .used, l: l, prayers: 3)
         XCTAssertFalse(plain.contains("기도"))
         XCTAssertEqual(prayed, plain + "\n기도 3회 · 일단 한번 빌어봄")
+        let done = FloatingPetView.hoverTooltip(todayTokens: 1, limitUtilization: nil, mode: .used, l: l, prayers: 3, prayersDoneToday: true)
+        XCTAssertEqual(done, prayed + "\n오늘 기도는 다 했어요 (하루 2번)")
     }
 
     // MARK: prayer-triggered usage refresh
@@ -390,6 +400,18 @@ final class EggPrayerTests: XCTestCase {
                        didPray: { log.didPray += 1 },
                        spawnEmoji: { log.emojis += 1 }, refreshUsage: { log.refreshes += 1 },
                        openPopover: { log.opens += 1 }, clock: clock)
+    }
+
+    /// Once today's prayers are used up a click counts nothing and shows no 🙏; it only rebuilds the hover text.
+    func testAClickPastTodaysPrayersOnlyRefreshesTheHoverText() {
+        let log = PrayerCallLog()
+        var left = 1
+        let router = PetClickRouter(pray: { log.prays += 1; left -= 1 }, prayerCount: { log.prays }, canPray: { left > 0 },
+                                    didPray: { log.didPray += 1 }, spawnEmoji: { log.emojis += 1 },
+                                    refreshUsage: { log.refreshes += 1 }, openPopover: { log.opens += 1 }, clock: { self.now })
+        router.handle(subjectIsEgg: true)
+        router.handle(subjectIsEgg: true)
+        XCTAssertEqual([log.prays, log.emojis, log.didPray], [1, 1, 2])
     }
 
     private func pray(_ times: Int, on router: PetClickRouter) {

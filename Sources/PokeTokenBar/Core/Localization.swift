@@ -1379,6 +1379,9 @@ struct L {
     func prayerBornWith(_ n: Int) -> String { t("기도 \(n)번 받고 태어남", "Born after \(n) prayers", "お祈り\(n)回を受けて誕生", "Nació tras \(n) oraciones", "Né après \(n) prières", "Nasceu após \(n) orações", "Geboren nach \(n) Gebeten", "Родился после \(n) молитв") }
     var prayerReachedHeaven: String { t("기도가 하늘에 닿았어요. 아마도요.", "Your prayers reached the heavens. Probably.", "祈りは天に届きました。たぶん。", "Tus plegarias llegaron al cielo. Probablemente.", "Tes prières sont montées jusqu'au ciel. Probablement.", "Suas preces chegaram aos céus. Provavelmente.", "Deine Gebete haben den Himmel erreicht. Vermutlich.", "Молитвы дошли до небес. Наверное.") }
 
+    /// Shown once today's prayers are used up (the hover text under the count).
+    func prayerDoneToday(_ perDay: Int) -> String { t("오늘 기도는 다 했어요 (하루 \(perDay)번)", "That's all the prayers for today (\(perDay) a day)", "今日のお祈りはここまで（1日\(perDay)回）", "Ya no quedan oraciones por hoy (\(perDay) al día)", "Plus de prières pour aujourd'hui (\(perDay) par jour)", "Acabaram as orações de hoje (\(perDay) por dia)", "Für heute ist genug gebetet (\(perDay) pro Tag)", "На сегодня молитв хватит (\(perDay) в день)") }
+
     /// Prayers per quip (and per usage refresh): the joke advances every 30 prayers.
     static let prayersPerQuip = 30
     static let prayerQuipCount = 11

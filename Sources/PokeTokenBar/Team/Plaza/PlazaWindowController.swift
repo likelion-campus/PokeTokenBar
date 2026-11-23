@@ -30,6 +30,8 @@ import Observation
     private let pray: () -> Void
     /// 지금 알에 쌓인 기도 횟수. 위쪽 안내 줄에 쓴다.
     private let prayerCount: () -> Int
+    /// 오늘 셀 기도가 남았는가(`CompanionStore.canPray`). 다 했으면 기도 키는 안내만 바꾼다.
+    private let canPray: () -> Bool
     /// 누군가 주운 것으로 아는 아이템 칸: 내가 주운 것, 팀원이 알려 온 것, 팀원 presence가 전해 준 것. 저장하고, 가장 최근
     /// 것을 내 presence로 다시 전한다. 그래서 주운 사람이 떠난 뒤 광장을 연 팀원도 그때 있던 누군가에게서 전해 듣는다.
     private var takenItemSlots: Set<Int> = []
@@ -287,6 +289,7 @@ import Observation
          grantItem: @escaping (ItemKind) -> Void = { _ in },
          pray: @escaping () -> Void = {},
          prayerCount: @escaping () -> Int = { 0 },
+         canPray: @escaping () -> Bool = { true },
          session: TeamSession? = nil,
          feed: TeamFeedStore? = nil,
          clock: @escaping () -> Date = Date.init,
@@ -338,6 +341,7 @@ import Observation
         self.grantItem = grantItem
         self.pray = pray
         self.prayerCount = prayerCount
+        self.canPray = canPray
         self.shell.events = self
         // 다시 켜도 주운 것으로 아는 아이템을 기억하고 팀원에게 전한다.
         takenItemSlots = keptSlots(Set(preferences.takenItemSlots))
@@ -507,8 +511,10 @@ import Observation
     }
 
     /// 내가 알일 때만 기도한다. 누를 때마다 한 번씩 세고 내 화면에 바로 보이며, 팀원에게 보내는 것만 연타를 제한한다.
+    /// 오늘 셀 기도를 다 했으면 세지도, 보이지도, 보내지도 않고 안내만 그 사실을 말한다.
     private func handlePrayKey() {
         guard let scene, subject().speciesID == nil else { return }
+        guard canPray() else { refreshHint(); return }
         pray()
         scene.playPray(memberID: nil)
         let now = clock()
@@ -1771,7 +1777,7 @@ import Observation
         }
         // 알일 때의 기도 안내도 다른 안내가 없을 때만 채운다.
         if text == nil, !isPhotoMode, subject().speciesID == nil, overlayModel.content == .none, !chatInput.isOpen {
-            text = L(.ko).plazaPrayHint(prayers: prayerCount())
+            text = canPray() ? L(.ko).plazaPrayHint(prayers: prayerCount()) : L(.ko).plazaPrayDoneHint(prayers: prayerCount())
         }
         if overlayModel.hint != text { overlayModel.hint = text }
     }
