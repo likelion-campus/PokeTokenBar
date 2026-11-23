@@ -49,8 +49,6 @@ import WinSDK
     private let createNameRow: WinRow
     private let createRow: WinRow
     private let createErrorRow: WinRow
-    /// The team name caption under the name row ("changing it changes it for every member").
-    private let nameCaptionRow: WinRow
     private let joinRow: WinRow
     private let joinButtonRow: WinRow
     private let joinErrorRow: WinRow
@@ -92,8 +90,11 @@ import WinSDK
         // With a code: masked code + Copy, Leave, name, switch.
         codeRow = section.addRow(rows.maskedCode ?? " ") { p, c in WinControls.button(l.teamCopyCode, in: p, ctx: c) }
         leaveRow = section.addRow(nil) { p, c in WinControls.button(l.teamLeave, in: p, ctx: c) }
-        nameRow = section.addRow(l.teamName) { p, c in WinControls.edit(.text(cue: nil), text: rows.teamName, width: 140, in: p, ctx: c) }
-        nameCaptionRow = section.addRow(nil, hint: l.teamNameSharedCaption) { _, _ in nil }
+        // The shared-name caption is the name row's hint, under the field as on the Mac (no divider between): a row of its own
+        // would add a divider and its own padding to a page held by its window count (`settings.openCost`).
+        nameRow = section.addRow(l.teamName, hint: l.teamNameSharedCaption) { p, c in
+            WinControls.edit(.text(cue: nil), text: rows.teamName, width: 140, in: p, ctx: c)
+        }
         switchRow = section.addRow(l.teamSwitch) { p, c in
             WinControls.button(rows.teamName.isEmpty ? l.teamSwitch : rows.teamName, in: p, ctx: c)
         }
@@ -134,7 +135,7 @@ import WinSDK
         incompatibleRow = section.addRow(nil, hint: l.teamIncompatiblePeer) { _, _ in nil }
         for row in [createErrorRow, joinErrorRow, nicknameErrorRow, incompatibleRow] { row.hint?.role = .error }
         captionRow.hint?.role = .secondary
-        nameCaptionRow.hint?.role = .secondary
+        nameRow.hint?.role = .secondary
         wire()
         apply()
     }
@@ -225,7 +226,7 @@ import WinSDK
         applying = true
         defer { applying = false }
         if enableRow.control?.isOn != rows.isEnabled { enableRow.control?.isOn = rows.isEnabled }
-        for row in [codeRow, leaveRow, nameRow, nameCaptionRow, switchRow] { row.isVisible = inTeam }
+        for row in [codeRow, leaveRow, nameRow, switchRow] { row.isVisible = inTeam }
         for row in [createNameRow, createRow, joinRow, joinButtonRow] { row.isVisible = noCode }
         createErrorRow.isVisible = noCode && drafts.createFailed
         joinErrorRow.isVisible = noCode && drafts.joinFailed
@@ -360,9 +361,9 @@ import WinSDK
 
     var rowsForTesting: (enable: WinRow, code: WinRow, leave: WinRow, name: WinRow, switcher: WinRow, create: WinRow, join: WinRow,
                          joinButton: WinRow, nickname: WinRow, nicknameError: WinRow, joinError: WinRow, createName: WinRow,
-                         createError: WinRow, nameCaption: WinRow) {
+                         createError: WinRow) {
         (enableRow, codeRow, leaveRow, nameRow, switchRow, createRow, joinRow, joinButtonRow, nicknameRow, nicknameErrorRow, joinErrorRow,
-         createNameRow, createErrorRow, nameCaptionRow)
+         createNameRow, createErrorRow)
     }
     var savedRowsForTesting: [WinRow] { savedRows.map(\.row) }
     var coreRowsForTesting: [WinRow] { [coreStartRow, coreEndRow, seasonRow, captionRow] }
