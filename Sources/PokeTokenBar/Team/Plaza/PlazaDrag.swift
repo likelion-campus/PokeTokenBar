@@ -58,23 +58,24 @@ extension PlazaDirection {
     }
 }
 
-/// 나를 움직이는 이모트(몸통박치기·끌어당기기·물귀신·눈덩이)를 보낸 사람마다 1초에 한 번만 받는 기록.
+/// 나를 움직이는 이모트(몸통박치기·끌어당기기·물귀신·눈덩이)를 보낸 사람마다 `receiveCooldown`에 한 번만 받는 기록.
+/// 보내는 쪽 연타 간격(`PlazaWindowController.emoteInterval`, 0.3초)보다 짧아서 정직한 연타는 맞는 대로 다 움직이고, 그보다 빨리 보내는 고친 앱만 걸린다.
 struct PlazaShove: Sendable {
-    // 조정용 상수 (명세 13, 설계자 판단·미확인)
-    static let receiveCooldown: TimeInterval = 1
-    /// 보낸 사람이 몇이든 한 `receiveCooldown` 안에 나를 움직일 수 있는 횟수. 한 앱이 여러 멤버 ID로 사람마다 1초 규칙을 피하지 못하게 한다.
+    // 조정용 상수 (명세 13). 2026-11-23 사용자 리포트로 1초 → 0.125초: 1초일 때는 연타의 2타·3타가 밀리지 않았다. `emoteInterval`보다 짧아야 한다.
+    static let receiveCooldown: TimeInterval = 0.125
+    /// 보낸 사람이 몇이든 한 `receiveCooldown` 안에 나를 움직일 수 있는 횟수. 한 앱이 여러 멤버 ID로 사람마다 받는 규칙을 피하지 못하게 한다.
     static let maxMovesPerWindow = 3
     private(set) var lastMoved: [String: Date] = [:]
 
-    /// 1초 이상 지났거나(`now − t >= receiveCooldown`) 시계가 되감긴(`now < t`) 기록을 버린다.
-    /// `sender`의 기록이 남아 있으면 거절하고 아무것도 적지 않는다(거절이 1초를 다시 시작하지 않는다). 없으면 `now`를 적고 받는다.
+    /// `receiveCooldown` 이상 지났거나(`now − t >= receiveCooldown`) 시계가 되감긴(`now < t`) 기록을 버린다.
+    /// `sender`의 기록이 남아 있으면 거절하고 아무것도 적지 않는다(거절이 그 시간을 다시 시작하지 않는다). 없으면 `now`를 적고 받는다.
     mutating func admit(_ sender: String, now: Date) -> Bool {
         guard allows(sender, now: now) else { return false }
         record(sender, now: now)
         return true
     }
 
-    /// `sender`의 1초가 아직 안 끝났는지, 그리고 모든 보낸 사람을 합쳐 1초 안에 `maxMovesPerWindow` 번 움직이지 않았는지만 본다
+    /// `sender`의 `receiveCooldown`이 아직 안 끝났는지, 그리고 모든 보낸 사람을 합쳐 그 시간 안에 `maxMovesPerWindow` 번 움직이지 않았는지만 본다
     /// (아무것도 적지 않는다). 받은 값을 적용하기 전에 묻는다.
     func allows(_ sender: String, now: Date) -> Bool {
         func isWithin(_ t: Date) -> Bool {
@@ -85,7 +86,7 @@ struct PlazaShove: Sendable {
         return lastMoved.values.filter(isWithin).count < Self.maxMovesPerWindow
     }
 
-    /// 내가 실제로 움직였을 때 `sender`의 1초를 시작한다. 지난 기록(1초 이상, 또는 시계가 되감긴 것)도 이때 버린다.
+    /// 내가 실제로 움직였을 때 `sender`의 `receiveCooldown`을 시작한다. 지난 기록(그 시간 이상, 또는 시계가 되감긴 것)도 이때 버린다.
     mutating func record(_ sender: String, now: Date) {
         lastMoved = lastMoved.filter { _, t in
             let dt = now.timeIntervalSince(t)

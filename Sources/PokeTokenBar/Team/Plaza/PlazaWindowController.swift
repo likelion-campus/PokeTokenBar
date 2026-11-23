@@ -1564,12 +1564,12 @@ import Observation
         }
     }
 
-    /// 나를 움직이는 이모트(몸통박치기·끌어당기기·물귀신·눈덩이)를 보낸 팀원마다 1초에 한 번만 움직인다. 별과 당기는 그림은 늘 보인다.
+    /// 나를 움직이는 이모트(몸통박치기·끌어당기기·물귀신·눈덩이)를 보낸 팀원마다 `PlazaShove.receiveCooldown`에 한 번만 움직인다(정직한 연타는 다 움직인다). 별과 당기는 그림은 늘 보인다.
     /// 모든 길에서 마지막 관문이다(변장 들킴 뒤, 움직이기 직전). 메타몽 복사본의 장난(`playDecoyTackle`)은 제 60초 규칙을 쓴다.
     private var shoves = PlazaShove()
 
-    /// `sender`의 1초가 비어 있으면 `move`(나를 움직이는 일)를 하고, 실제로 움직였을 때만 그 1초를 시작한다.
-    /// 벽이나 사람에 막혀 0칸이면 1초를 쓰지 않는다(그 직후의 진짜 이동까지 막지 않게).
+    /// `sender`의 그 시간이 비어 있으면 `move`(나를 움직이는 일)를 하고, 실제로 움직였을 때만 그 시간을 시작한다.
+    /// 벽이나 사람에 막혀 0칸이면 그 시간을 쓰지 않는다(그 직후의 진짜 이동까지 막지 않게).
     private func shove(by sender: String, _ move: () -> Bool) {
         guard shoves.allows(sender, now: clock()) else { return }
         if move() { shoves.record(sender, now: clock()) }
