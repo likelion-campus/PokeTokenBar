@@ -722,6 +722,8 @@ struct PlazaSceneMember: Equatable, Sendable {
 
     /// 내 붉은 기운을 켜거나 끈다. 컨트롤러가 온천 마감(`flushAfter`)과 칸 바뀜에서 부른다.
     func setMyFlushed(_ on: Bool) { myFlush.set(on, now: now()) }
+    /// 얼지 않은 연못 물(온천이 아닌 물). 여기 들어가면 식는 중이던 빨강이 바로 사라진다.
+    private func isColdWater(_ t: TilePoint) -> Bool { isWaterNow(t) && !map.isHotSpring(t) }
     private var myFlush = PlazaFlushFade(on: false, now: .distantPast)
     /// 테스트용: 내 몸통과 팀원 몸통에 입힌 붉은 기운(`layout` 이 마지막으로 쓴 값).
     var myFlushBlend: CGFloat { me.flushBlend }
@@ -2405,11 +2407,13 @@ struct PlazaSceneMember: Equatable, Sendable {
         let context = PlazaActorContext(worldHeight: worldSize.height, cameraPosition: kicked,
                                         zoom: zoom, backing: backing, viewport: size)
         let date = now()
+        if isColdWater(walker.tile) { myFlush.douse(now: date) }
         me.setFlush(myFlush.blend(at: date))
         me.place(foot: foot, pose: pose, in: context,
                  concealment: concealment(tile: walker.tile, step: walker.currentStep, actor: me, dive: myDive.level), isMe: true,
                  swimSink: swimSink(tile: walker.tile, step: walker.currentStep, actor: me), waterRect: waterRect(foot: foot),
                  hotSpring: map.isHotSpring(walker.tile))
+        for id in remotes.keys where isColdWater(remotes[id]!.motion.tile) { remotes[id]!.flush.douse(now: date) }
         for r in remotes.values {
             r.actor.setFlush(r.flush.blend(at: date))
             let p = PlazaPose.choice(facing: r.motion.facing, isWalking: r.motion.isWalking, clock: clock)
