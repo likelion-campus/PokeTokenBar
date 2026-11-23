@@ -132,6 +132,32 @@ test("refreshAll writes the most common team label, ties to the sorted first", (
   assert.equal(rows[1][2], "가");
 });
 
+test("refreshAll skips the default team names when a member renamed the team, however many kept the default", () => {
+  const { S, ss } = fresh();
+  S.setup();
+  const dept = ss.getSheetByName("부서");
+  dept.getRange(2, 1, 2, 4).setValues([["t_cccc", "", "팀 1", "2026-11-16"], ["t_dddd", "", "", "2026-11-16"]]);
+  const at = "2026-11-16T00:00:00.000Z";
+  const labels = ss.getSheetByName("팀이름");
+  labels.getRange(2, 1, 10, 4).setValues([
+    ["t_cccc", "m1", "팀 1", at], ["t_cccc", "m2", "팀 1", at], ["t_cccc", "m3", "팀 1", at],
+    ["t_cccc", "m4", "팀 1", at], ["t_cccc", "m5", "팀 2", at], ["t_cccc", "m6", "플랫폼본부", at],
+    ["t_cccc", "m7", "플랫폼", at],
+    ["t_dddd", "m1", "팀 2", at], ["t_dddd", "m2", "팀 1", at], ["t_dddd", "m3", "팀 1", at],
+  ]);
+  let rendered = null;
+  const compute = S.computeDashboard;
+  S.computeDashboard = (data, ...rest) => {
+    rendered = rendered || { c: S.departmentOf("t_cccc", data.depts), d: S.departmentOf("t_dddd", data.depts) };
+    return compute(data, ...rest);
+  };
+  S.refreshAll();
+  const rows = body(ss, "부서");
+  assert.equal(rows[0][2], "플랫폼", "a real name wins over five defaults; the tie between real names goes to the sorted first");
+  assert.equal(rows[1][2], "팀 1", "a team with only default names still shows the most common one");
+  assert.deepEqual(rendered, { c: "플랫폼", d: "" }, "the same refresh renders the new 참고팀이름");
+});
+
 test("refreshAll releases every lock, even when rendering throws", () => {
   const { S, ss } = fresh();
   S.setup();
