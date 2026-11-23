@@ -166,7 +166,7 @@ extension WindowsSelftest {
 
     typealias TeamRowSet = (enable: WinRow, code: WinRow, leave: WinRow, name: WinRow, switcher: WinRow, create: WinRow, join: WinRow,
                             joinButton: WinRow, nickname: WinRow, nicknameError: WinRow, joinError: WinRow, createName: WinRow,
-                            createError: WinRow)
+                            createError: WinRow, nameCaption: WinRow)
 
     /// The team rows NOW: joining, creating or leaving a team changes the saved list and the page builds itself again, so a row
     /// set kept from before is dead (its windows are destroyed).
@@ -521,7 +521,7 @@ extension WindowsSelftest {
         let named = team.currentTeam?.name == "디자인" && team.teamNameStamp?.name == "디자인"
         await settle()   // creating a team changes the saved list: the page builds itself again, so read the rows anew
         let cleared = rows().createName.control?.text.isEmpty ?? true
-        let caption = shown(rows().name) && rows().name.hint?.text == L(.ko).teamNameSharedCaption
+        let caption = shown(rows().nameCaption) && rows().nameCaption.hint?.text == L(.ko).teamNameSharedCaption
         let formGone = !shown(rows().createName) && !shown(rows().createError)
         r.add("settings.teamCreate", shownError && text == L(.ko).teamNameInvalid && red && none && typed && created && named && cleared && caption && formGone,
               "empty name + create: error row shown=\(shownError) with '\(text)' in the error colour=\(red), no team made=\(none); ' 디자인 ' + Enter: typed=\(typed), team created=\(created) "
