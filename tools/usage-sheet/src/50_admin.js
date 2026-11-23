@@ -48,7 +48,9 @@ function trimDataColumns(ss) {
   });
 }
 
-// For each team, the most common non-empty label; ties go to the label that sorts first.
+// For each team, the most common non-empty label; ties go to the label that sorts first. Each member names
+// the team in their own app and most keep the default (팀 1, 팀 2), so a renamed label beats the default
+// names however many members kept them; a team with only default names gets the most common one.
 function suggestedTeamNames(teamLabels) {
   var counts = new Map();
   teamLabels.forEach(function (t) {
@@ -60,9 +62,13 @@ function suggestedTeamNames(teamLabels) {
   });
   var out = new Map();
   counts.forEach(function (m, team) {
-    var best = null, bestCount = 0;
+    var best = null, bestCount = 0, bestRenamed = false;
     m.forEach(function (n, label) {
-      if (n > bestCount || (n === bestCount && label < best)) { best = label; bestCount = n; }
+      var renamed = !DEFAULT_TEAM_NAME.test(label);
+      if (best === null || (renamed && !bestRenamed) ||
+          (renamed === bestRenamed && (n > bestCount || (n === bestCount && label < best)))) {
+        best = label; bestCount = n; bestRenamed = renamed;
+      }
     });
     out.set(team, best);
   });
@@ -78,6 +84,8 @@ function writeSuggestedTeamNames(ss, data) {
   var names = suggestedTeamNames(data.teamLabels);
   var column = rows.map(function (r) { return [names.has(r[0]) ? names.get(r[0]) : r[2]]; });
   sheet.getRange(2, 3, rows.length, 1).setValues(asTextRows(column));
+  // The dashboards render from data, read before this write, so they get the new names too.
+  names.forEach(function (name, team) { if (data.depts[team]) data.depts[team].suggested = name; });
 }
 
 // Runs fn under the document lock. refreshAll uses it so two refreshes (hourly trigger, menu, seed)
