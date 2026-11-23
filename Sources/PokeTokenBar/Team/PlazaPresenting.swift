@@ -20,6 +20,7 @@ import Foundation
     func showPull(from sender: String, on target: String?)
     func showDrag(from sender: String, on target: String?, tiles: Int)
     func showTreeShake(from sender: String, level: Int, drop: ItemKind?)
+    func showFortune(memberID: String, draw: PlazaFortuneDraw)
     func showDecoyJump(from sender: String)
     func showPray(memberID: String)
     func showEmote(memberID: String, kind: TeamEmoteKind, alsoOver other: String?, overDecoy: Bool)

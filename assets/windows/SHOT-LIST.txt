@@ -29,3 +29,4 @@ plaza-hot-spring.png | windows-app | plaza-hot-spring.png
 plaza-big-tree.png | windows-app | plaza-big-tree.png
 plaza-two-trees.png | windows-app | plaza-two-trees.png
 plaza-bomb-game.png | windows-app | plaza-bomb-game.png
+plaza-fortune-cookie.png | windows-app | plaza-fortune-cookie.png

@@ -103,6 +103,26 @@ final class PlazaResourcesTests: XCTestCase {
         }
     }
 
+    func testFortuneCookieIsTheArtistsSixteenPixelCookie() throws {
+        let image = try XCTUnwrap(BundledArt.image(PlazaResources.fortuneCookieName))
+        XCTAssertEqual([image.width, image.height], [16, 16])
+        let crop = image.pixels.cropped(to: PlazaFortuneArt.cookieCrop)
+        let all = image.pixels.bytes, inside = crop.bytes
+        func opaque(_ b: [UInt8]) -> Int { stride(from: 3, to: b.count, by: 4).filter { b[$0] != 0 }.count }
+        XCTAssertEqual(opaque(all), 96)
+        XCTAssertEqual(opaque(inside), 96, "the crop holds the whole cookie")
+        let colours = Set((0..<crop.height).flatMap { y in (0..<crop.width).map { crop[$0, y] } }.filter { $0.a != 0 })
+        XCTAssertEqual(colours, Set(PlazaFortuneArt.swaps.map(\.from)), "every colour of the cookie has a swap")
+    }
+
+    func testCreditsNameTheFortuneCookieArtist() throws {
+        let credits = try text("CREDITS", "md")
+        for needle in ["ARoachIFoundOnMyPillow", "16x16 Food", "https://opengameart.org/content/16x16-food", "plaza-fortune-cookie.png", "CC0",
+                       "8e54514fd7409a5924dd4fe016ac3ed245dfb481eaa54ed81a66c733737fb625", "(289, 358)"] {
+            XCTAssertTrue(credits.contains(needle), needle)
+        }
+    }
+
     func testCreditsNameTheBombArtist() throws {
         let credits = try text("CREDITS", "md")
         for needle in ["victordelima", "16-bit animated bomb", "https://opengameart.org/content/16-bit-animated-bomb", "plaza-bomb.png", "CC0",

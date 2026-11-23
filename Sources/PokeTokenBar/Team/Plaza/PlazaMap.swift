@@ -16,11 +16,13 @@ enum PlazaTile: Character, Sendable {
     case hotSpring = "h"
     /// 큰 나무: 걸을 수 없고 물이 아니며 던진 것을 막는다. 그림은 지도에 굽지 않고 `PlazaTreeLayer` 가 그린다.
     case bigTree = "B"
+    /// 포춘쿠키 가판대: 걸을 수 없고 물이 아니며 던진 것을 막는다. 그림은 지도에 굽는다(`PlazaTileArt`).
+    case stall = "K"
 
     var isWalkable: Bool {
         switch self {
         case .grass, .flowers, .shelter, .tallGrass: true
-        case .tree, .bush, .board, .campfire, .pond, .hotSpring, .bigTree: false
+        case .tree, .bush, .board, .campfire, .pond, .hotSpring, .bigTree, .stall: false
         }
     }
 }

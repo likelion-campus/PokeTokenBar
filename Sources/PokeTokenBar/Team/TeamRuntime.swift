@@ -114,6 +114,10 @@ final class TeamRuntime {
                 plaza?.showTreeShake(from: memberID, level: TeamEmote.pushTiles(emote.pushTiles), drop: emote.treeDrop)
                 return
             }
+            if emote.kind == .fortune {
+                if let draw = PlazaFortune.accepted(emote.fortune) { plaza?.showFortune(memberID: memberID, draw: draw) }
+                return
+            }
             if emote.kind == .decoyJump {
                 plaza?.showDecoyJump(from: memberID)
                 return

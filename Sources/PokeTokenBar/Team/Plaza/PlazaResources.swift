@@ -48,6 +48,7 @@ enum PlazaResources {
     /// 김 시트의 앞 여섯 칸(32×32). 일곱째 칸은 비어 있다.
     static let steamFrames: [PlazaPixelRect] = (0..<6).map { PlazaPixelRect(x: 32 * $0, y: 0, width: 32, height: 32) }
     static let bombSheetName = "plaza-bomb"             // png, 64×16, "16-bit animated bomb" 의 네 프레임을 옆으로 이어 붙인 것. 미니게임 폭탄
+    static let fortuneCookieName = "plaza-fortune-cookie" // png, 16×16, "16x16 Food" 의 fortune_cookie.png 받은 그대로. 포춘쿠키
     /// The bomb's four 16×16 frames, the fuse spark flickering.
     static let bombFrames: [PlazaPixelRect] = (0..<4).map { PlazaPixelRect(x: 16 * $0, y: 0, width: 16, height: 16) }
 

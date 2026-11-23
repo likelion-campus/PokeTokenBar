@@ -139,11 +139,14 @@ enum TeamEmoteKind: String, Codable, CaseIterable, Sendable {
     /// 큰 나무 흔들기 (C facing the plaza's big tree): the sender's lunge, star, shake, leaves and dust, drawn only where the sender's body
     /// touches the tree. `pushTiles` is the hit's strength (1-3, 3 only with `treeDrop`). Nobody is moved. Earlier versions skip it.
     case treeShake
+    /// 포춘쿠키 (Space at the plaza stall): the sender cracked today's cookie. The cookie splits over the sender and a slip
+    /// unrolls with the line and lucky action of `TeamEmote.fortune`. Earlier versions skip it.
+    case fortune
 
     var notifiesTarget: Bool {
         switch self {
         case .heart, .lol, .party: true
-        case .exclaim, .question, .tackle, .jump, .groupPhoto, .pickup, .firework, .dance, .decoyFound, .decoyJump, .decoyTackle, .pull, .snowball, .mimicTackle, .mimicFound, .pray, .drag, .treeShake: false
+        case .exclaim, .question, .tackle, .jump, .groupPhoto, .pickup, .firework, .dance, .decoyFound, .decoyJump, .decoyTackle, .pull, .snowball, .mimicTackle, .mimicFound, .pray, .drag, .treeShake, .fortune: false
         }
     }
 
@@ -152,7 +155,7 @@ enum TeamEmoteKind: String, Codable, CaseIterable, Sendable {
     /// A new kind must choose.
     var endsSendersDance: Bool {
         switch self {
-        case .heart, .lol, .party, .exclaim, .question, .tackle, .jump, .firework, .decoyFound, .snowball, .mimicTackle, .pray, .drag, .treeShake: true
+        case .heart, .lol, .party, .exclaim, .question, .tackle, .jump, .firework, .decoyFound, .snowball, .mimicTackle, .pray, .drag, .treeShake, .fortune: true
         case .groupPhoto, .pickup, .dance, .decoyJump, .decoyTackle, .pull, .mimicFound: false
         }
     }
@@ -189,6 +192,9 @@ struct TeamEmote: Codable, Equatable, Sendable {
     /// A tree shake that dropped an item into the sender's bag: drawn falling to the sender. Left out by every other shake and kind.
     /// Unreadable values and unknown kinds become nil; earlier versions skip the frame.
     @LossyOptional var treeDrop: ItemKind?
+    /// A fortune: which line and lucky action. A receiver shows it only inside `PlazaFortune.accepted`'s bounds; unreadable
+    /// values become nil. Left out by every other kind.
+    @LossyOptional var fortune: PlazaFortuneDraw?
 
     /// A tackle pushes one to three tiles, like the three evolution stages.
     static let pushTileRange = 1...3

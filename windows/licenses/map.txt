@@ -29,6 +29,7 @@ plaza-ice-gloss.png	-	"Some 16x16 floor tiles" by ChikenwingJJA (CC0)
 plaza-ice-shatter.gif	-	"Shattering Boulder" by Spring Spring (CC0)
 plaza-steam.png	-	"Smoke Puff" by Aidan_Walker (CC0)
 plaza-bomb.png	-	"16-bit animated bomb" by victordelima (CC0)
+plaza-fortune-cookie.png	-	"16x16 Food" by ARoachIFoundOnMyPillow (CC0)
 CREDITS.md	-	credits for every plaza resource
 *-OFL.txt	-	font licence text
 CC-BY-SA-3.0.txt	-	Creative Commons BY-SA 3.0 licence text

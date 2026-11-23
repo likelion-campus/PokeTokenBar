@@ -12,6 +12,7 @@ import Foundation
     private static let takenItemSlotsKey = "team.plaza.takenItemSlots"
     private static let activityKey = "team.plaza.activity"
     private static let treeKey = "team.plaza.tree"
+    private static let fortuneDayKey = "team.plaza.fortuneDay"
 
     private let defaults: UserDefaults
 
@@ -103,6 +104,12 @@ import Foundation
             }
             defaults.set(data, forKey: Self.activityKey)
         }
+    }
+
+    /// 포춘쿠키를 마지막으로 깬 날(`PlazaActivity.dayKey`). 깬 적이 없으면 nil.
+    var fortuneDay: String? {
+        get { defaults.string(forKey: Self.fortuneDayKey) }
+        set { defaults.set(newValue, forKey: Self.fortuneDayKey) }
     }
 
     /// 나무마다 오늘 친 횟수와 받은 민트(옛 저장값은 처음 나무의 것으로 읽는다). 다시 켜도 이어 센다(`PlazaTreeDay.hit(on:)` 가 날짜를 본다). 읽을 수 없으면 nil.

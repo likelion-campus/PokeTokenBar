@@ -16,7 +16,7 @@ final class PlazaPondSweepTests: XCTestCase {
             "lily pads float on ponds only, not on the spring",
         "Team/Plaza/PlazaTileArt.swift|for single in lilySingleTiles where map.tile(at: single) == .pond {":
             "lily pads float on ponds only, not on the spring",
-        "Team/Plaza/PlazaMap.swift|case .tree, .bush, .board, .campfire, .pond, .hotSpring, .bigTree: false":
+        "Team/Plaza/PlazaMap.swift|case .tree, .bush, .board, .campfire, .pond, .hotSpring, .bigTree, .stall: false":
             "isWalkable's exhaustive switch (no default): the compiler forces every new tile kind to answer",
         "Team/Plaza/PlazaMap.swift|func isWater(_ p: TilePoint) -> Bool { tile(at: p) == .pond || tile(at: p) == .hotSpring }":
             "the one water rule",
@@ -24,7 +24,7 @@ final class PlazaPondSweepTests: XCTestCase {
             "the one hot-spring rule (art, steam, flush)",
         "Team/Plaza/PlazaMap.swift|guard let tile = PlazaTile(rawValue: ch) else { throw .unknown(ch) }":
             "parses the map rows",
-        "Team/Plaza/PlazaSnow.swift|case .tallGrass, .tree, .bush, .board, .campfire, .pond, .hotSpring, .bigTree: false":
+        "Team/Plaza/PlazaSnow.swift|case .tallGrass, .tree, .bush, .board, .campfire, .pond, .hotSpring, .bigTree, .stall: false":
             "isSnowGround's exhaustive switch (no default): water takes no snow prints",
         "Team/Plaza/PlazaHotSpring.swift|for x in 0..<map.width where map.tile(at: TilePoint(x: x, y: y)) == .hotSpring { out.append(TilePoint(x: x, y: y)) }":
             "lists the spring's tiles",
@@ -96,10 +96,10 @@ final class PlazaPondSweepTests: XCTestCase {
 
     /// Sweep A of the big-tree plan: every direct `.tree`/`.bigTree` tile check in the plaza sources is classified here.
     static let allowedTree: Set<String> = [
-        "PlazaMap.swift|case .tree, .bush, .board, .campfire, .pond, .hotSpring, .bigTree: false",
+        "PlazaMap.swift|case .tree, .bush, .board, .campfire, .pond, .hotSpring, .bigTree, .stall: false",
         "PlazaMap.swift|guard p.x >= 0, p.y >= 0, p.x < width, p.y < height else { return .tree }",
         "PlazaMap.swift|func isBigTree(_ p: TilePoint) -> Bool { tile(at: p) == .bigTree }",
-        "PlazaSnow.swift|case .tallGrass, .tree, .bush, .board, .campfire, .pond, .hotSpring, .bigTree: false",
+        "PlazaSnow.swift|case .tallGrass, .tree, .bush, .board, .campfire, .pond, .hotSpring, .bigTree, .stall: false",
         "PlazaTileArt.swift|if map.tile(at: TilePoint(x: x, y: y)) == .tree { covers = true } else { allTrees = false }",
     ]
 
