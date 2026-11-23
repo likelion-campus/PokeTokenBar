@@ -3502,3 +3502,12 @@ Found before release by three independent read-only reviews (correctness, policy
 - **부류 스윕:** 받은 칸을 그리는 다른 길은 `applyDitto` 하나다(걸을 수 있는지 보지 않고 그 칸에 그린다: 구버전이 띄운 메타몽은 가판대 위에 그려지고, 이제 팀원과 같은 처리다). 감사가 낸 "자정에 안내가 안 바뀐다" 는 사실이 아니었다: 1초 틱의 `refreshCampfire` 가 안내를 다시 그린다(가드를 넣었다가, 빼도 테스트가 통과해서 알았고 가드는 뺐다. 기존 테스트의 "저절로는 안 바뀐다" 주석이 틀렸다).
 - **영구 캡처:** `PlazaTreeLayerTests.testAnOldPeerOnTheStallIsDrawnThere`, `PlazaFortuneControllerTests.testSpaceDuringTheCrackLeavesItAlone`, `TeamRuntimeTests.testAReceivedFortuneShowsTheSlipAndABadOneShowsNothing`(실제 받기 경로), `PlazaFortuneTests.testTheFirstLinesAndActionsKeepTheirNumbers`(앞 80줄·12행동의 해시), `PlazaFortuneTests.testTheDayKeyIsGregorianOnAnyCalendar`, `testANewDayBringsANewCookie`(틱으로 자정을 넘긴다). 각 고침을 되돌리면 해당 테스트가 실패하는 것을 확인했다.
 - **규칙:** 지도에 막힌 칸 종류를 새로 만들면 `resolvedTile` 에 더한다: 이전 버전 팀원은 그 칸에 설 수 있다. 팀원에게 전해지는 날 키는 그레고리력으로 만든다. 받은 이모트의 새 분기는 `TeamRuntimeTests` 에서 실제 전송으로 밟는다. 감사 지적도 고치기 전에 재현부터 한다.
+
+## 연달아 맞아도 처음 한 번만 밀렸다: 받는 쪽 쿨다운 1초가 보내는 쪽 0.3초보다 길었다 (v2.5.637–638, 2026-11-23 사용자 리포트)
+- **증상:** 몸통박치기나 던지기를 연달아 맞으면 처음에만 밀리고 2타·3타는 충격 별만 보이고 밀리지 않았다. v2.5.636 까지는 맞는 대로 밀렸다.
+- **직접 원인:** 끌어당기기 PR(#324)이 받는 쪽 쿨다운 `PlazaShove.receiveCooldown` 을 1초로 넣었다. 보내는 쪽은 0.3초마다 칠 수 있어서(`emoteInterval`) 정직한 연타 네 번 중 세 번이 버려졌다. 쿨다운을 두는 것은 사용자 결정이었고(고친 앱의 연타를 받는 쪽에서 막는다), 1초라는 값과 눈덩이·물귀신까지 넓힌 것은 설계자 판단이었다.
+- **왜 못 걸렀나:** 명세가 값을 "설계자 판단·미확인" 이라고 표시했지만 사용자에게 따로 묻지 않고 배포했고, PR 본문의 "확인할 설계" 목록에만 적었다. 테스트는 1초를 의도로 못 박았다(`testTwoTacklesFromOneTeammateUnderASecondApartPushMeOnce`). 받는 쪽 값을 보내는 쪽이 정직하게 낼 수 있는 간격과 견줘 본 테스트가 없었다.
+- **고침:** `receiveCooldown` 을 0.125초로 줄였다(보내는 쪽 0.3초보다 짧다). 정직한 연타는 맞는 대로 다 움직이고, 그보다 빨리 보내는 고친 앱만 걸린다. 전체 상한(`maxMovesPerWindow` 3번)은 같은 시간 창을 쓰므로 함께 0.125초에 세 번이 됐다.
+- **부류 스윕:** 소스에 남은 "설계자 판단·미확인" 상수 다섯 개(몸 크기 등급, 온천 붉은색·섞는 정도, 김 개수, 낙엽 개수)는 모양만 정하고 사용자의 행동을 거절하지 않는다. 받는 쪽에서 행동을 거절하는 다른 시간 규칙(놀람 3초, 단체 사진 2초, 게임 다시 열기, 복사본 장난 60초)은 `TEAM.md` 에 적혀 있고, 정직한 연타를 받는 규칙이 아니다.
+- **영구 캡처:** `PlazaDragControllerTests.testThreeTacklesInARowFromOneTeammatePushMeThreeTimes`(쿨다운이 `emoteInterval` 보다 짧다는 단언과, 0.3초 간격 세 번이 세 번 다 민다)·`testThreeSnowballsInARowFromOneTeammatePushMeThreeTimes`. 값을 1초로 되돌리면 실패한다. 기존 쿨다운 테스트는 시간을 `receiveCooldown` 의 배수로 써서 값이 바뀌어도 규칙을 지킨다.
+- **규칙:** 사용자가 하던 행동을 거절할 수 있는 값(쿨다운, 상한)은 "미확인" 인 채로 배포하지 않는다: 넣기 전에 값을 묻는다. 받는 쪽 제한은 보내는 쪽이 정직하게 낼 수 있는 가장 빠른 간격보다 짧아야 하고, 그 간격으로 연타하는 테스트를 함께 둔다.
