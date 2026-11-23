@@ -1,7 +1,7 @@
 import XCTest
 @testable import PokeTokenBar
 
-// MARK: 알 기도하기 (위약 버튼) — 세는 것 말고는 아무것도 바꾸지 않는다.
+// MARK: 알 기도하기 — 뽑기는 바꾸지 않는다. 10번이면 부화한다(2026-11-23).
 
 private struct PrayerOfflineProvider: PokeProviding {
     func line(baseSpeciesID: Int) async throws -> EvoLine { throw URLError(.notConnectedToInternet) }
@@ -33,6 +33,61 @@ final class EggPrayerTests: XCTestCase {
         try? json.data(using: .utf8)!.write(to: url)
         return CompanionStore(provider: provider ?? StubProvider(value: line), clock: { self.now },
                               fileURL: url, rng: SeededRNG(seed: seed))
+    }
+
+    /// Egg with `eggUsage` tokens gathered (below the threshold) and `prayers` already said over it.
+    private func youngEgg(eggUsage: Int = 0, prayers: Int = 0) -> CompanionStore {
+        let url = tempURL()
+        let json = "{\"installBaselineSet\":true,\"usedSinceInstall\":10000000,\"spentTokens\":300,"
+            + "\"lastDate\":\"d\",\"active\":null,\"dex\":[],\"collectedFinals\":[],"
+            + "\"eggUsage\":\(eggUsage),\"pendingHatchID\":1"
+            + (prayers > 0 ? ",\"eggPrayers\":{\"count\":\(prayers)}" : "") + "}"
+        try? json.data(using: .utf8)!.write(to: url)
+        return CompanionStore(provider: StubProvider(value: line), clock: { self.now }, fileURL: url, rng: SeededRNG(seed: 7))
+    }
+
+    private func settled(_ condition: () -> Bool) async -> Bool {
+        for _ in 0..<2000 where !condition() { await Task.yield() }
+        return condition()
+    }
+
+    // MARK: ten prayers hatch the egg (2026-11-23)
+
+    func testNinePrayersDoNotHatchAnEggThatHasNoTokens() async {
+        XCTAssertEqual(PokemonBalance.prayersToHatch, 10)
+        let store = youngEgg()
+        for _ in 0..<9 { store.pray() }
+        await store.hatchIfNeeded()
+        XCTAssertNil(store.state.active)
+        XCTAssertEqual(store.state.eggPrayers?.count, 9)
+    }
+
+    func testTheTenthPrayerHatchesTheEggOnItsOwn() async {
+        let store = youngEgg()
+        for _ in 0..<10 { store.pray() }
+        let hatched = await settled { store.state.active != nil }
+        XCTAssertTrue(hatched, "no update tick and no other call is needed")
+        XCTAssertEqual(store.state.active?.prayers, PrayerRecord(count: 10))
+        XCTAssertNil(store.state.eggPrayers)
+    }
+
+    func testAPrayerHatchDropsTheEggsTokensAndLeavesTheTotalsAlone() async {
+        let store = youngEgg(eggUsage: 2_000_000)
+        for _ in 0..<10 { store.pray() }
+        await store.hatchIfNeeded()
+        XCTAssertEqual(store.state.active?.usedAtStage, 0, "the egg's tokens are not carried over")
+        XCTAssertEqual(store.state.eggUsage, 0)
+        XCTAssertEqual(store.state.usedSinceInstall, 10_000_000)
+        XCTAssertEqual(store.state.spentTokens, 300)
+    }
+
+    /// An egg that already had ten or more prayers before the update hatches on the next usage tick.
+    func testAnEggWithTenPrayersAlreadyHatchesOnTheNextTick() async {
+        let store = youngEgg(prayers: 12)
+        store.update(todayTokensByProvider: [:], todayDate: "d", monthTotal: 0, burnTier: .idle, limitWarning: false, hasUsageData: false)
+        let hatched = await settled { store.state.active != nil }
+        XCTAssertTrue(hatched)
+        XCTAssertEqual(store.state.active?.prayers?.count, 12)
     }
 
     private func activeStoreWithWallet() -> CompanionStore {
@@ -79,6 +134,8 @@ final class EggPrayerTests: XCTestCase {
             for _ in 0..<50 { prayed.pray() }
             await plain.hatchIfNeeded()
             await prayed.hatchIfNeeded()
+            // The tenth prayer starts the hatch itself, so the call above may find it already running.
+            _ = await settled { prayed.state.active != nil }
             XCTAssertNotNil(plain.state.active)
             XCTAssertEqual(try rollSignature(plain), try rollSignature(prayed),
                            "pending=\(pending): prayers must not alter species/rarity/shiny/nature/form/profile")

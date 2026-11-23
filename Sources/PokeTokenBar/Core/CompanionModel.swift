@@ -109,6 +109,8 @@ enum PokemonBalance {
     static let sulkAfterIdle: TimeInterval = 3 * 3600
     /// 알 부화 임계 — 이만큼 토큰을 써야 알이 깨진다(즉시 부화 대신 기대감). 초과분은 부화체 성장에 이월.
     static let eggHatchThreshold = 5_000_000
+    /// 알에 기도를 이만큼 하면 토큰을 다 모으지 않아도 부화한다(2026-11-23 사용자 결정). 알이 모은 토큰은 이월하지 않고 버린다.
+    static let prayersToHatch = 10
     static let repeatGrowthMultiplier = 2
 
     static func graduationTotal(_ rarity: Rarity) -> Int {
