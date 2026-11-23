@@ -3494,6 +3494,15 @@ Found before release by three independent read-only reviews (correctness, policy
 - **영구 캡처:** `settings.openCost` 의 창 수 예산(Windows CI 의 셀프테스트). 맥에서는 돌지 않는 코드라 CI 실행으로 확인한다.
 - **규칙:** 셀프테스트 예산은 같은 빌드에서 값이 변하지 않는 수(창 수, 메시지 수)에 건다. 시간에 따라 달라지는 수(프레임, ms)는 관측 범위에서 한 단계 이상 여유를 둔다.
 
+## 포춘쿠키 가판대: 구버전 팀원이 쉼터로 튀고, 깨는 중 Space 가 쿠키를 지우고, 받는 길과 문구 순서에 테스트가 없었다 (#340 감사, 2026-11-23)
+- **증상:** ① 2.5.638 이하 팀원이 가판대 칸(그 버전에서는 풀밭, 아이템도 놓인다)에 서면 새 버전 화면에서 쉼터로 순간이동해 그려졌다. ② 쿠키가 떠 있는 7초쯤 안에 Space 를 다시 누르면 내 화면에서 쿠키가 사라지고 쪽지만 다시 펴졌다(팀원 화면은 정상). ③ 달력이 그레고리력이 아닌 기기는 광장의 날 키(`PlazaActivity.dayKey`)가 그 달력의 숫자로 나왔다: 팀원과 키가 달라 "오늘 광장" 이 안 보이고, 윤달이 있는 달력은 한 달 떨어진 두 날이 같은 키가 된다(추정, 실기기 확인 없음).
+- **직접 원인:** ① `PlazaScene.resolvedTile` 은 걸을 수 있는 칸·물·큰 나무만 받는다. 새로 막은 칸 종류(`.stall`)를 더하면서 이 목록을 보지 않았다. ② `openFortune` 이 첫 호출에서 날을 저장하고, 두 번째 호출은 "같은 날 다시 보기" 길로 가 상태를 쪽지만 있는 것으로 덮어썼다. ③ 키를 `Calendar.current` 의 연·월·일로 만들었다.
+- **왜 못 걸렀나:** ① #327 이 큰 나무에서 같은 일을 고치고 테스트(`testAnOldPeerOnTheTrunkIsDrawnThere`)도 남겼지만, 그 테스트는 나무 칸만 본다: "막힌 칸을 새로 만들면 구버전이 그 위에 선다" 는 규칙은 기록에 없었다. ② 테스트가 쪽지가 사라진 뒤(9초 뒤)에만 두 번째 Space 를 눌렀다. ③ v2.5.637 감사가 "동등 비교만 쓰면 음력 키도 된다" 고 받아들였는데, 키가 팀원에게 전해져 비교된다는 점과 윤달은 보지 않았다. 그리고 `TeamRuntime` 의 `.fortune` 분기는 어떤 테스트도 밟지 않았다: 컨트롤러 테스트는 `showFortune` 을 직접 부르거나 `onEmote` 를 갈아끼워서, 분기를 지워도 전부 통과했다. 문구 번호는 전송값인데 순서를 고정한 테스트가 없었다.
+- **고침:** ① `resolvedTile` 이 가판대 칸도 그 자리에 그린다(`PlazaMap.isStall`). ② 쪽지가 떠 있는 동안 `openFortune` 은 아무것도 하지 않는다. ③ `PlazaActivity.dayKey` 가 `DayBoundary.dayKey`(그레고리력)를 쓴다. 호출부 전부(활동, 나무, 포춘쿠키, 카드, 목록)가 한 번에 바뀐다.
+- **부류 스윕:** 받은 칸을 그리는 다른 길은 `applyDitto` 하나다(걸을 수 있는지 보지 않고 그 칸에 그린다: 구버전이 띄운 메타몽은 가판대 위에 그려지고, 이제 팀원과 같은 처리다). 감사가 낸 "자정에 안내가 안 바뀐다" 는 사실이 아니었다: 1초 틱의 `refreshCampfire` 가 안내를 다시 그린다(가드를 넣었다가, 빼도 테스트가 통과해서 알았고 가드는 뺐다. 기존 테스트의 "저절로는 안 바뀐다" 주석이 틀렸다).
+- **영구 캡처:** `PlazaTreeLayerTests.testAnOldPeerOnTheStallIsDrawnThere`, `PlazaFortuneControllerTests.testSpaceDuringTheCrackLeavesItAlone`, `TeamRuntimeTests.testAReceivedFortuneShowsTheSlipAndABadOneShowsNothing`(실제 받기 경로), `PlazaFortuneTests.testTheFirstLinesAndActionsKeepTheirNumbers`(앞 80줄·12행동의 해시), `PlazaFortuneTests.testTheDayKeyIsGregorianOnAnyCalendar`, `testANewDayBringsANewCookie`(틱으로 자정을 넘긴다). 각 고침을 되돌리면 해당 테스트가 실패하는 것을 확인했다.
+- **규칙:** 지도에 막힌 칸 종류를 새로 만들면 `resolvedTile` 에 더한다: 이전 버전 팀원은 그 칸에 설 수 있다. 팀원에게 전해지는 날 키는 그레고리력으로 만든다. 받은 이모트의 새 분기는 `TeamRuntimeTests` 에서 실제 전송으로 밟는다. 감사 지적도 고치기 전에 재현부터 한다.
+
 ## 연달아 맞아도 처음 한 번만 밀렸다: 받는 쪽 쿨다운 1초가 보내는 쪽 0.3초보다 길었다 (v2.5.637–638, 2026-11-23 사용자 리포트)
 - **증상:** 몸통박치기나 던지기를 연달아 맞으면 처음에만 밀리고 2타·3타는 충격 별만 보이고 밀리지 않았다. v2.5.636 까지는 맞는 대로 밀렸다.
 - **직접 원인:** 끌어당기기 PR(#324)이 받는 쪽 쿨다운 `PlazaShove.receiveCooldown` 을 1초로 넣었다. 보내는 쪽은 0.3초마다 칠 수 있어서(`emoteInterval`) 정직한 연타 네 번 중 세 번이 버려졌다. 쿨다운을 두는 것은 사용자 결정이었고(고친 앱의 연타를 받는 쪽에서 막는다), 1초라는 값과 눈덩이·물귀신까지 넓힌 것은 설계자 판단이었다.

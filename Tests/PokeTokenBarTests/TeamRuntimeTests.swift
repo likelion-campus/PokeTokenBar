@@ -328,6 +328,30 @@ final class TeamRuntimeTests: XCTestCase {
         plaza.handleClose()
     }
 
+    /// A fortune from the wire reaches the scene as a slip over its sender; a slip number outside the lists shows nothing at all.
+    func testAReceivedFortuneShowsTheSlipAndABadOneShowsNothing() async {
+        let (a, b) = connectedPair()
+        let suite = "ptb.test.team.runtime.fortune.\(UUID().uuidString)"
+        let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: TestDefaults.make(suite: suite)),
+                                          loader: PlazaCharacterLoader(fetcher: NoSprites()),
+                                          nickname: { "나" }, memberID: { b.settings.memberID },
+                                          subject: { .init(speciesID: 25, isShiny: false) }, session: b.runtime.session)
+        b.runtime.plaza = plaza
+        plaza.prepareScene()
+        let sender = a.settings.memberID
+        a.runtime.session.updatePlazaPosition(inPlaza: true, tile: TilePoint(x: 20, y: 12), facing: .down, isWalking: false, isFlushed: false)
+        await settle { plaza.scene?.memberTiles[sender] != nil }
+        a.runtime.session.sendEmote(.fortune, target: nil, fortune: PlazaFortuneDraw(line: PlazaFortune.lines.count, action: 0))
+        a.runtime.session.sendEmote(.heart, target: nil)   // arrives after the bad slip
+        await settle { plaza.scene?.shownEmote(memberID: sender) == .heart }
+        XCTAssertNil(plaza.scene?.shownFortune(memberID: sender), "a line past the list draws nothing")
+        a.runtime.session.sendEmote(.fortune, target: nil, fortune: PlazaFortuneDraw(line: 3, action: 2))
+        await settle { plaza.scene?.shownFortune(memberID: sender) != nil }
+        XCTAssertEqual(plaza.scene?.shownFortune(memberID: sender)?.line, L(.ko).plazaFortuneLines[3])
+        XCTAssertNil(plaza.scene?.shownEmote(memberID: sender), "the slip is not an emote bubble")
+        plaza.handleClose()
+    }
+
     /// A teammate who does something else stops dancing on my screen; the shared moments and the Ditto copy's jump do not.
     func testARemotesActionEmoteOrChatStopsItsDance() async {
         let (a, b) = connectedPair()
