@@ -278,7 +278,7 @@ enum FloatingPetHoverText {
     /// `sulkIdle` > 0 appends how long the companion has been sulking: hours below 48 h, days from there.
     static func hoverTooltip(todayTokens: Int, limitUtilization: Double?,
                              mode: UsageStore.LimitDisplayMode, l: L, sulkIdle: TimeInterval = 0,
-                             eventLine: String? = nil, prayers: Int = 0) -> String {
+                             eventLine: String? = nil, prayers: Int = 0, prayersDoneToday: Bool = false) -> String {
         let usage = TokenFormatter.grouped(todayTokens)
         var base = l.floatingPetHoverTokensOnly(usage)
         if let pct = limitUtilization {
@@ -290,7 +290,9 @@ enum FloatingPetHoverText {
             base += " · " + (hours < 48 ? l.floatingPetHoverSulkHours(hours) : l.floatingPetHoverSulkDays(hours / 24))
         }
         if let eventLine { base += "\n" + eventLine }
-        return prayers > 0 ? base + "\n" + l.prayerHoverLine(prayers) : base
+        if prayers > 0 { base += "\n" + l.prayerHoverLine(prayers) }
+        if prayersDoneToday { base += "\n" + l.prayerDoneToday(PokemonBalance.prayersPerDay) }
+        return base
     }
 
     /// The callout's chrome (`showHoverCallout`): 11 pt text, 8 pt padding, corner radius 8, a 0.5 pt separator-coloured

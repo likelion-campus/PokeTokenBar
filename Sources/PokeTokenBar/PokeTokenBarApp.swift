@@ -159,6 +159,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             grantItem: { [companion] in companion!.receivePlazaItem($0) },
             pray: { [companion] in companion!.pray() },
             prayerCount: { [companion] in companion!.state.eggPrayers?.count ?? 0 },
+            canPray: { [companion] in companion!.canPray },
             session: teamRuntime.session, feed: teamRuntime.feed)
         navigation.onOpenPlaza = { [weak self] in self?.openPlaza() }
         teamRuntime.plaza = plaza

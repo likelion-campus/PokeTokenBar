@@ -1436,14 +1436,30 @@ final class CompanionStore {
     /// Pray over the egg. It only counts and never changes a roll — the species is
     /// usually already in `pendingHatchID` (prefetched at purchase) long before anyone prays.
     /// The `prayersToHatch`th prayer hatches the egg at once, whatever tokens it has gathered.
-    func pray() {
-        guard state.active == nil else { return }
+    /// Only `prayersPerDay` prayers count per local day; a prayer past that changes nothing and returns false.
+    @discardableResult
+    func pray() -> Bool {
+        guard canPray else { return false }
+        let day = DayBoundary.dayKey(clock(), calendar: .current)
         var record = state.eggPrayers ?? PrayerRecord(count: 0)
+        record.today = record.counted(on: day) + 1
+        record.day = day
         record.count += 1
         state.eggPrayers = record
         save()
         if isEggReady, !isHatching { Task { await hatchIfNeeded() } }
+        return true
     }
+
+    /// Prayers still counted today over the current egg; 0 with a hatched Pokémon.
+    var prayersLeftToday: Int {
+        guard state.active == nil else { return 0 }
+        let counted = state.eggPrayers?.counted(on: DayBoundary.dayKey(clock(), calendar: .current)) ?? 0
+        return max(0, PokemonBalance.prayersPerDay - counted)
+    }
+    var canPray: Bool { prayersLeftToday > 0 }
+    /// The egg has had every prayer that counts today (the hover text and the plaza hint say so).
+    var isPrayerDoneToday: Bool { state.active == nil && !canPray }
 
     // 보증 없는 기본 알 래퍼 — 기존 호출부/테스트 호환.
     var canBuyFreshEgg: Bool { canBuyEgg(nil) }
@@ -1804,7 +1820,7 @@ final class CompanionStore {
         let overflow = max(0, state.eggUsage - eggHatchThreshold)
         state.eggUsage = 0
         state.eggTier = nil   // 보증은 이 부화로 소비된다(다음 알은 다시 무보증)
-        let prayers = state.eggPrayers   // 부화체에 옮기고 알 쪽은 비운다
+        let prayers = state.eggPrayers.map { PrayerRecord(count: $0.count) }   // 부화체에 횟수만 옮기고 알 쪽은 비운다
         state.resetEggPrayers()
         // 개체 롤 — shiny(1/64, 부적 1/48)·성격(25종)은 부화 순간 확정, 진화해도 유지.
         // 알림 문구는 이 판정과 같은 분모를 보여준다.
