@@ -432,7 +432,8 @@ extension WinFloatingPet {
             l: L(companion.language),
             sulkIdle: companion.sulkIdle,
             eventLine: extras.eventPopText,
-            prayers: companion.representativeSubject.speciesID == nil ? companion.state.eggPrayers?.count ?? 0 : 0)
+            prayers: companion.representativeSubject.speciesID == nil ? companion.state.eggPrayers?.count ?? 0 : 0,
+            prayersDoneToday: companion.representativeSubject.speciesID == nil && companion.isPrayerDoneToday)
     }
 
     /// `showHoverCallout`: the callout centred above the pet with the hover text, unless speech or hearts are up.

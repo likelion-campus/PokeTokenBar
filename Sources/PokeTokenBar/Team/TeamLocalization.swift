@@ -251,6 +251,8 @@ extension L {
     var plazaShortcutPray: String { "기도(알)" }
     /// 기도한 직후 잠깐 보이는 횟수.
     func plazaPrayedHint(prayers: Int) -> String { "기도 \(prayers)번" }
+    /// 오늘 셀 기도를 다 했을 때. 알일 때의 안내 줄이 이것으로 바뀐다.
+    func plazaPrayDoneHint(prayers: Int) -> String { "오늘 기도는 다 했어요 (하루 \(PokemonBalance.prayersPerDay)번) · 기도 \(prayers)번" }
     /// 알일 때 위쪽 안내 줄. 아직 기도한 적이 없으면 방법만 보인다.
     func plazaPrayHint(prayers: Int) -> String {
         prayers > 0 ? "A를 눌러 기도하기 · 기도 \(prayers)번" : "A를 눌러 기도하기"

@@ -12,14 +12,15 @@ private struct NoPraySprites: PlazaSpriteFetching {
 
 extension PlazaPrayTests {
 
-    private func controller(_ me: Node, speciesID: Int?, prayers: Prayers, start: TilePoint? = nil) -> PlazaWindowController {
+    private func controller(_ me: Node, speciesID: Int?, prayers: Prayers, start: TilePoint? = nil,
+                            canPray: @escaping () -> Bool = { true }) -> PlazaWindowController {
         let prefs = PlazaPreferences(defaults: TestDefaults.make(suite: "plaza.pray.prefs.\(UUID())"))
         prefs.saveLastTile(start ?? map.spawn)
         return PlazaWindowController(preferences: prefs, loader: PlazaCharacterLoader(fetcher: NoPraySprites()),
                                      nickname: { "나" }, memberID: { me.settings.memberID },
                                      subject: { .init(speciesID: speciesID, isShiny: false) },
                                      myRosterEntry: { nil },
-                                     pray: { prayers.count += 1 }, prayerCount: { prayers.count },
+                                     pray: { prayers.count += 1 }, prayerCount: { prayers.count }, canPray: canPray,
                                      session: me.session, clock: { [unowned self] in now },
                                      dittoLoopSleep: ParkedDitto.loopSleep, dittoSeed: { ParkedDitto.seed },
                                      shell: PlazaHeadlessShell(), chatInput: PlazaStubChatInput())
@@ -103,6 +104,35 @@ extension PlazaPrayTests {
         XCTAssertEqual(prayers.count, 6)
         await waitUntil { other.received.emotes.count == 2 }
         XCTAssertEqual(other.received.emotes.map(\.kind), [.pray, .pray])
+    }
+
+    /// Past today's prayers the key counts nothing, shows no bubble and sends nothing; the hint says why.
+    func testPastTodaysPrayersTheKeyOnlySaysSo() async {
+        let me = node("나", character: Self.egg), other = node("민수")
+        let prayers = Prayers()
+        let c = controller(me, speciesID: nil, prayers: prayers, start: quietTile(), canPray: { prayers.count < 2 })
+        c.prepareScene()
+        await connect(me, other)
+        let scene = c.scene!
+        press(scene, prayKey)
+        now = now.addingTimeInterval(PlazaWindowController.emoteInterval * 2)
+        press(scene, prayKey)
+        XCTAssertEqual(prayers.count, 2)
+        await waitUntil { other.received.emotes.count == 2 }
+        now = now.addingTimeInterval(PlazaWindowController.prayedHintDuration)
+        c.endPrayedHintIfDue()
+        XCTAssertEqual(c.hint, "오늘 기도는 다 했어요 (하루 2번) · 기도 2번")
+
+        var t: TimeInterval = 0
+        scene.update(t)
+        while t < PlazaActor.wobbleDuration + 3 { t += 1.0 / 30; scene.update(t) }   // the earlier bubble is gone
+        now = now.addingTimeInterval(PlazaWindowController.emoteInterval * 2)
+        press(scene, prayKey)
+        XCTAssertEqual(prayers.count, 2, "not counted")
+        XCTAssertNil(scene.shownEmote(memberID: nil), "no bubble")
+        XCTAssertEqual(c.hint, "오늘 기도는 다 했어요 (하루 2번) · 기도 2번")
+        await settle()
+        XCTAssertEqual(other.received.emotes.count, 2, "nothing more goes out")
     }
 
     /// A hatched Pokémon does not pray: no count, no bubble, nothing sent, no hint.

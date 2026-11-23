@@ -111,6 +111,8 @@ enum PokemonBalance {
     static let eggHatchThreshold = 5_000_000
     /// 알에 기도를 이만큼 하면 토큰을 다 모으지 않아도 부화한다(2026-11-23 사용자 결정). 알이 모은 토큰은 이월하지 않고 버린다.
     static let prayersToHatch = 10
+    /// Prayers counted per local day (2026-11-23, the user's value): praying alone takes five days to hatch an egg.
+    static let prayersPerDay = 2
     static let repeatGrowthMultiplier = 2
 
     static func graduationTotal(_ rarity: Rarity) -> Int {
@@ -459,6 +461,19 @@ enum PokemonOdds {
 /// Purely cosmetic: no roll (species, rarity, shiny, nature, form, profile) ever reads it.
 struct PrayerRecord: Codable, Sendable, Equatable {
     var count: Int
+    /// The local day (`DayBoundary.dayKey`) of the latest counted prayer and how many were counted on it: the daily cap.
+    /// Nil on a save from before the cap and on a hatched individual, which keeps only `count`.
+    var day: String?
+    var today: Int?
+
+    init(count: Int, day: String? = nil, today: Int? = nil) {
+        self.count = count
+        self.day = day
+        self.today = today
+    }
+
+    /// Prayers already counted on `day`. Another date, earlier or later, starts from zero.
+    func counted(on day: String) -> Int { self.day == day ? max(0, today ?? 0) : 0 }
 }
 
 /// 현재 키우는 포켓몬.
