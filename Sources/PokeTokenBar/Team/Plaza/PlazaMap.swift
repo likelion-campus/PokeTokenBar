@@ -111,6 +111,7 @@ struct PlazaMap: Sendable {
 
     /// 큰 나무 칸인가. 지도 밖은 false.
     func isBigTree(_ p: TilePoint) -> Bool { tile(at: p) == .bigTree }
+    func isStall(_ p: TilePoint) -> Bool { tile(at: p) == .stall }
 
     /// 월드 픽셀 크기.
     var pixelSize: CGSize {
