@@ -307,8 +307,7 @@ private func winPaintSpyQueued(_ code: Int32, _ wParam: WPARAM, _ lParam: LPARAM
         // The same build (164 windows, 28 paints, 45 erases) measured 3, 4 and 5 frames on runners of different speed, so the
         // frame count alone cannot hold the page at its size: the window count does that exactly, and the frames keep one of slack.
         // 168 since the team-name sync (#350): the create form's name field and its label, its error row (all three hidden in
-        // this state), and the shared-name caption, a static that is the name row's hint (no row of its own). Its PR run
-        // measured 3 and 4 frames.
+        // this state), and the shared-name caption's row (one static). Its PR runs measured 3 and 4 frames.
         let settingsWindows = 168
         let settingsBad = settings.violations(maxFrames: 5, maxLayoutsOnScreen: 1, maxMs: 3000, maxStepMs: 500)
             + ((settings.report?.windows ?? 0) > settingsWindows ? ["\(settings.report?.windows ?? 0) windows made (budget \(settingsWindows))"] : [])
