@@ -36,6 +36,9 @@ extension L {
     }
     var teamEnable: String { "팀 기능 켜기" }
     var teamCreate: String { "팀 만들기" }
+    var teamCreateNamePlaceholder: String { "새 팀 이름" }
+    var teamNameInvalid: String { "팀 이름은 1~12자로 입력해 주세요" }
+    var teamNameSharedCaption: String { "바꾸면 팀원 모두의 팀 이름이 바뀌어요" }
     var teamJoin: String { "코드로 참여" }
     var teamCodePlaceholder: String { "팀 코드 붙여 넣기" }
     var teamCodeInvalid: String { "팀 코드가 올바르지 않아요" }

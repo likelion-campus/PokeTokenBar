@@ -205,11 +205,11 @@ final class TeamSettingsTests: XCTestCase {
     func testRenamingFollowsTheNicknameRulesAndIsKept() {
         let d = freshDefaults()
         let team = TeamSettings(defaults: d)
-        XCTAssertFalse(team.renameCurrentTeam("개발팀"), "no current team")
+        XCTAssertFalse(team.renameCurrentTeam("개발팀", now: Date()), "no current team")
         team.code = code(1)
-        XCTAssertTrue(team.renameCurrentTeam("  개발팀 "))
-        XCTAssertFalse(team.renameCurrentTeam(""))
-        XCTAssertFalse(team.renameCurrentTeam(String(repeating: "가", count: 13)))
+        XCTAssertTrue(team.renameCurrentTeam("  개발팀 ", now: Date()))
+        XCTAssertFalse(team.renameCurrentTeam("", now: Date()))
+        XCTAssertFalse(team.renameCurrentTeam(String(repeating: "가", count: 13), now: Date()))
         XCTAssertEqual(team.currentTeam?.name, "개발팀")
         XCTAssertEqual(TeamSettings(defaults: d).savedTeams.map(\.name), ["개발팀"])
     }
@@ -375,5 +375,126 @@ final class TeamSettingsTests: XCTestCase {
             NSHostingView(rootView: TeamSettingsSection().environment(team).frame(width: width)).fittingSize.height
         }
         XCTAssertEqual(height(width: PopoverMetrics.width - 24), height(width: 1000))
+    }
+
+    // MARK: - 팀 이름 동기화
+
+    private func stamp(_ name: String = "디자인", _ at: TimeInterval, by: String = "m") -> TeamNameStamp {
+        TeamNameStamp(name: name, changedAt: Date(timeIntervalSince1970: at), changedBy: by)
+    }
+
+    func testCreateTeamNamesAndStampsTheTeam() {
+        let s = TeamSettings(defaults: freshDefaults())
+        let now = Date(timeIntervalSince1970: 500)
+        XCTAssertTrue(s.createTeam(code: code(1), named: "  개발팀 ", now: now))
+        XCTAssertEqual(s.code, code(1))
+        XCTAssertEqual(s.currentTeam?.name, "개발팀")
+        XCTAssertEqual(s.teamNameStamp, TeamNameStamp(name: "개발팀", changedAt: now, changedBy: s.memberID))
+    }
+
+    func testCreateTeamRejectsAnInvalidNameAndChangesNothing() {
+        let s = TeamSettings(defaults: freshDefaults())
+        for bad in ["", "   ", String(repeating: "가", count: 13), "가\n나"] {
+            XCTAssertFalse(s.createTeam(code: code(1), named: bad, now: Date()), bad)
+        }
+        XCTAssertNil(s.code)
+        XCTAssertTrue(s.savedTeams.isEmpty)
+    }
+
+    func testJoiningLeavesTheDefaultNameUnstamped() {
+        let s = TeamSettings(defaults: freshDefaults())
+        s.code = code(1)
+        XCTAssertEqual(s.currentTeam?.name, "팀 1")
+        XCTAssertNil(s.teamNameStamp)
+    }
+
+    func testRenameStampsOnlyARealChange() {
+        let s = TeamSettings(defaults: freshDefaults())
+        s.code = code(1)
+        XCTAssertTrue(s.renameCurrentTeam("개발팀", now: Date(timeIntervalSince1970: 10)))
+        XCTAssertEqual(s.teamNameStamp, stamp("개발팀", 10, by: s.memberID))
+        XCTAssertTrue(s.renameCurrentTeam(" 개발팀 ", now: Date(timeIntervalSince1970: 20)))
+        XCTAssertEqual(s.teamNameStamp?.changedAt, Date(timeIntervalSince1970: 10), "the same name keeps its stamp")
+        XCTAssertFalse(s.renameCurrentTeam("", now: Date(timeIntervalSince1970: 30)))
+        XCTAssertEqual(s.teamNameStamp?.changedAt, Date(timeIntervalSince1970: 10))
+    }
+
+    func testRenameBeatsAStoredStampAheadOfThisClock() {
+        let s = TeamSettings(defaults: freshDefaults())
+        s.code = code(1)
+        XCTAssertTrue(s.adoptTeamName(stamp("디자인", 1_300), now: Date(timeIntervalSince1970: 1_000)))
+        XCTAssertTrue(s.renameCurrentTeam("개발팀", now: Date(timeIntervalSince1970: 1_000)))
+        XCTAssertEqual(s.currentTeam?.name, "개발팀")
+        XCTAssertGreaterThan(s.teamNameStamp!.changedAt, Date(timeIntervalSince1970: 1_300))
+    }
+
+    func testAdoptTeamNameLastWriterWins() {
+        let s = TeamSettings(defaults: freshDefaults())
+        s.code = code(1)
+        let now = Date(timeIntervalSince1970: 1_000)
+        XCTAssertTrue(s.adoptTeamName(stamp("가", 100, by: "b"), now: now))
+        XCTAssertEqual(s.currentTeam?.name, "가")
+        XCTAssertFalse(s.adoptTeamName(stamp("나", 99, by: "z"), now: now))      // older
+        XCTAssertFalse(s.adoptTeamName(stamp("나", 100, by: "a"), now: now))     // tie, lesser id
+        XCTAssertFalse(s.adoptTeamName(stamp("가", 100, by: "b"), now: now))     // identical
+        XCTAssertTrue(s.adoptTeamName(stamp("다", 100, by: "c"), now: now))      // tie, greater id
+        XCTAssertEqual(s.currentTeam?.name, "다")
+        XCTAssertTrue(s.adoptTeamName(stamp("라", 101, by: "a"), now: now))      // newer
+        XCTAssertEqual(s.currentTeam?.name, "라")
+    }
+
+    func testAdoptTeamNameRejectsWhatIsNotAValidName() {
+        let s = TeamSettings(defaults: freshDefaults())
+        s.code = code(1)
+        let now = Date(timeIntervalSince1970: 1_000)
+        XCTAssertFalse(s.adoptTeamName(stamp("디자인", 10_601), now: Date(timeIntervalSince1970: 10_000)), "more than 600 s ahead")
+        XCTAssertFalse(s.adoptTeamName(stamp(" 디자인", 10), now: now), "untrimmed")
+        XCTAssertFalse(s.adoptTeamName(stamp("디자인 ", 10), now: now), "untrimmed")
+        XCTAssertFalse(s.adoptTeamName(stamp(String(repeating: "가", count: 13), 10), now: now))
+        XCTAssertFalse(s.adoptTeamName(stamp("", 10), now: now))
+        XCTAssertFalse(s.adoptTeamName(stamp("디자인", 10, by: String(repeating: "x", count: 65)), now: now))
+        XCTAssertNil(s.teamNameStamp)
+        XCTAssertEqual(s.currentTeam?.name, "팀 1")
+        XCTAssertTrue(s.adoptTeamName(stamp("디자인", 1_600, by: String(repeating: "x", count: 64)), now: now), "600 s and 64 bytes are fine")
+    }
+
+    func testAdoptTeamNameWithoutATeamOrAnEntryDoesNothing() {
+        let s = TeamSettings(defaults: freshDefaults())
+        XCTAssertFalse(s.adoptTeamName(stamp("디자인", 10), now: Date(timeIntervalSince1970: 100)))
+        s.code = code(1)
+        s.leaveTeam()
+        XCTAssertFalse(s.adoptTeamName(stamp("디자인", 10), now: Date(timeIntervalSince1970: 100)))
+        XCTAssertTrue(s.savedTeams.isEmpty)
+    }
+
+    func testAnOldSavedTeamReadsAndTheStampPersists() throws {
+        let d = freshDefaults()
+        let old = #"[{"code":"\#(code(1).normalized)","name":"팀 1"}]"#
+        d.set(Data(old.utf8), forKey: "team.saved")
+        let s = TeamSettings(defaults: d)
+        XCTAssertEqual(s.savedTeams.map(\.name), ["팀 1"])
+        s.code = code(1)
+        XCTAssertTrue(s.renameCurrentTeam("개발팀", now: Date(timeIntervalSince1970: 10)))
+        XCTAssertEqual(TeamSettings(defaults: d).savedTeams.first?.nameChangedAt, Date(timeIntervalSince1970: 10))
+        XCTAssertEqual(TeamSettings(defaults: d).savedTeams.first?.nameChangedBy, s.memberID)
+    }
+
+    func testMigrationStampsOnlyRenamedNamesOnceAndLosesToANewerName() throws {
+        let d = freshDefaults()
+        let saved = [TeamSettings.SavedTeam(code: code(1).normalized, name: "개발팀"),
+                     TeamSettings.SavedTeam(code: code(2).normalized, name: "팀 7")]
+        d.set(try JSONEncoder().encode(saved), forKey: "team.saved")
+        d.set("me", forKey: "team.memberID")
+        let s = TeamSettings(defaults: d)
+        let epoch = Date(timeIntervalSince1970: 0)
+        XCTAssertEqual(s.savedTeams[0].nameChangedAt, epoch)
+        XCTAssertEqual(s.savedTeams[0].nameChangedBy, "me")
+        XCTAssertNil(s.savedTeams[1].nameChangedAt, "a default name stays unstamped")
+        // 두 번째 켜기: 도장이 이미 있으면 그대로.
+        s.code = code(1)
+        XCTAssertTrue(s.adoptTeamName(stamp("디자인", 5), now: Date(timeIntervalSince1970: 100)))
+        let again = TeamSettings(defaults: d)
+        XCTAssertEqual(again.savedTeams[0].nameChangedAt, Date(timeIntervalSince1970: 5))
+        XCTAssertEqual(again.savedTeams[0].name, "디자인")
     }
 }

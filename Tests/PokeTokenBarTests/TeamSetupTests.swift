@@ -51,4 +51,16 @@ final class TeamSetupTests: XCTestCase {
             XCTAssertTrue(TeamSetup.masked(code).contains("•"), "everything after the first group is hidden")
         }
     }
+
+    func testCreateMakesANamedTeamAndRejectsAnInvalidName() async {
+        let team = team()
+        let now = Date(timeIntervalSince1970: 700)
+        XCTAssertFalse(TeamSetup.create("", into: team, now: now))
+        XCTAssertFalse(TeamSetup.create(String(repeating: "가", count: 13), into: team, now: now))
+        XCTAssertNil(team.code)
+        XCTAssertTrue(TeamSetup.create(" 개발팀 ", into: team, now: now))
+        XCTAssertNotNil(team.code)
+        XCTAssertEqual(team.currentTeam?.name, "개발팀")
+        XCTAssertEqual(team.teamNameStamp?.changedAt, now)
+    }
 }
