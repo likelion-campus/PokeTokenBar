@@ -140,6 +140,8 @@ struct TeamSettingsSection: View {
             .overlay(RoundedRectangle(cornerRadius: 8)
                 .stroke(Color(nsColor: .separatorColor).opacity(0.6), lineWidth: 1))
         }
+        // 팀이 바뀌면(만들기·참여·나가기·다른 팀 만들기) 이전 팀에서 입력하다 만 이름은 버린다. 남기면 새 팀의 이름을 덮어쓴다.
+        .onChange(of: team.code) { teamNameDraft = nil }
     }
 
     private var scheduleRows: some View {

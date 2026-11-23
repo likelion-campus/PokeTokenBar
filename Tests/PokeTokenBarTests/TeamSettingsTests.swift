@@ -497,4 +497,46 @@ final class TeamSettingsTests: XCTestCase {
         XCTAssertEqual(again.savedTeams[0].nameChangedAt, Date(timeIntervalSince1970: 5))
         XCTAssertEqual(again.savedTeams[0].name, "디자인")
     }
+
+    /// The migration's default-name rule is the sheet's `^팀 [0-9]+$`: anything else was a rename and is stamped.
+    func testMigrationDefaultNameRuleMatchesTheSheetsPattern() throws {
+        let names = ["팀 A", "팀 1a", "팀 -1", "팀 \u{0661}", "팀 12"]
+        let d = freshDefaults()
+        let saved = names.enumerated().map { TeamSettings.SavedTeam(code: code(UInt64($0.offset + 1)).normalized, name: $0.element) }
+        d.set(try JSONEncoder().encode(saved), forKey: "team.saved")
+        let s = TeamSettings(defaults: d)
+        XCTAssertEqual(s.savedTeams.map { $0.nameChangedAt != nil }, [true, true, true, true, false])
+    }
+
+    /// Typed into the team-name field but not submitted, then the team is left, and a new one is made: the half-typed name
+    /// must not come back and rename the new team (for everyone).
+    func testAHalfTypedTeamNameDoesNotRenameTheNextTeam() throws {
+        let team = TeamSettings(defaults: freshDefaults())
+        team.isEnabled = true
+        team.nickname = "다람"
+        team.code = code(1)
+        let host = NSHostingView(rootView: TeamSettingsSection().environment(team).frame(width: 360))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 360, height: 600), styleMask: [.titled],
+                              backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        let l = L(.ko)
+        let nameField = try field(placeholder: l.teamName, in: host)
+        XCTAssertTrue(window.makeFirstResponder(nameField))
+        let editor = try XCTUnwrap(nameField.currentEditor() as? NSTextView)
+        editor.insertText("미완성", replacementRange: NSRange(location: 0, length: (editor.string as NSString).length))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        team.stepOut()   // what "다른 팀 만들기·참여" does; the view must notice the code change itself
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        host.layoutSubtreeIfNeeded()
+        try submit("디자인", in: try field(placeholder: l.teamCreateNamePlaceholder, in: host), window: window)
+        XCTAssertEqual(team.currentTeam?.name, "디자인")
+        host.layoutSubtreeIfNeeded()
+        XCTAssertEqual(try field(placeholder: l.teamName, in: host).stringValue, "디자인", "the field shows the new team's name")
+        window.contentView = nil   // the field disappears and commits
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        XCTAssertEqual(team.currentTeam?.name, "디자인")
+    }
 }
