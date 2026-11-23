@@ -1742,7 +1742,8 @@ import Observation
             text = nil
         } else if let hint = gameView.hint, overlayModel.content == .none, !chatInput.isOpen {
             text = hint   // 미니게임 중에는 누가 폭탄을 들었는지가 다른 안내보다 먼저다
-        } else if let until = prayedHintUntil, clock() < until, overlayModel.content == .none, !chatInput.isOpen {
+        } else if let until = prayedHintUntil, clock() < until, subject().speciesID == nil, overlayModel.content == .none, !chatInput.isOpen {
+            // 알일 때만: 열 번째 기도로 부화하면 횟수가 0으로 돌아가므로 "기도 0번"을 보이지 않는다.
             text = L(.ko).plazaPrayedHint(prayers: prayerCount())
         } else if let focus, overlayModel.content == .none, !chatInput.isOpen {
             text = L(.ko).plazaFocusHint(remaining: L(.ko).plazaFocusRemaining(seconds: focus.endsAt.timeIntervalSince(clock())))

@@ -81,6 +81,20 @@ final class EggPrayerTests: XCTestCase {
         XCTAssertEqual(store.state.spentTokens, 300)
     }
 
+    /// Before the prayer hatch an egg could not hatch inside the graduation caption's time; now it can.
+    func testAPrayerHatchRightAfterAGraduationClearsTheGraduationCaption() async {
+        let store = hatchReadyEgg(pending: true)
+        await store.hatchIfNeeded()
+        for stage in 0..<3 {
+            store.applyUsage(PokemonBalance.phaseThreshold(rarity: .common, totalForms: 3, stageIndex: stage))
+        }
+        XCTAssertNotNil(store.justGraduated, "test precondition: the graduation caption is up")
+        for _ in 0..<10 { store.pray() }
+        let hatched = await settled { store.state.active != nil }
+        XCTAssertTrue(hatched)
+        XCTAssertNil(store.justGraduated)
+    }
+
     /// An egg that already had ten or more prayers before the update hatches on the next usage tick.
     func testAnEggWithTenPrayersAlreadyHatchesOnTheNextTick() async {
         let store = youngEgg(prayers: 12)
