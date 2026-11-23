@@ -258,6 +258,26 @@ final class PlazaHotSpringControllerTests: XCTestCase {
         XCTAssertEqual(w.b.session.members[w.me.id]?.isFlushed, true)
     }
 
+    func testMyFadingRedIsGoneAtOnceWhenIJumpIntoAColdPond() async {
+        let map = PlazaMapData.map
+        var edge = p(5, 13)
+        while map.isWater(p(edge.x - 1, edge.y)) { edge = p(edge.x - 1, edge.y) }
+        let bank = p(edge.x - 1, edge.y)
+        XCTAssertTrue(map.isWalkable(bank), "test precondition: a bank left of the pond")
+        let w = await world(me: bank)
+        w.scene.setMyFlushed(true)
+        now += 2
+        w.scene.setMyFlushed(false)
+        now += 1
+        run(w.scene, 0.1)
+        XCTAssertGreaterThan(w.scene.myFlushBlend, 0.3, "on the bank it is still fading")
+        w.scene.handleKeyDown(keyCode: zKey, characters: "ㅁ", isRepeat: false)
+        run(w.scene, 1)
+        w.scene.handleKeyUp(keyCode: zKey)
+        XCTAssertEqual(w.scene.walker.tile, edge, "test precondition: I jumped into the pond")
+        XCTAssertEqual(w.scene.myFlushBlend, 0, accuracy: 1e-6)
+    }
+
     // MARK: - Their red
 
     func testATeammatesRedFadesOverTenSecondsAfterTheyLeave() async {
@@ -271,6 +291,18 @@ final class PlazaHotSpringControllerTests: XCTestCase {
         now += 5
         run(w.scene, 0.1)
         XCTAssertEqual(blend(w) ?? -1, 0, accuracy: 1e-6)
+    }
+
+    func testATeammatesRedIsGoneAtOnceInAColdPond() async {
+        let w = await world(me: p(23, 6), b: p(34, 17), bFlushed: true, bBeforeOpen: true)
+        run(w.scene, 0.1)
+        XCTAssertEqual(blend(w) ?? -1, 0.45, accuracy: 1e-6)
+        XCTAssertTrue(w.scene.isWaterNow(p(5, 13)), "test precondition: the left pond is open water")
+        await place(w, p(5, 13))
+        now += 1
+        run(w.scene, 0.1)
+        XCTAssertEqual(w.scene.memberTiles[w.b.id], p(5, 13), "test precondition")
+        XCTAssertEqual(blend(w) ?? -1, 0, accuracy: 1e-6, "one second out of the spring it would still be nine tenths red")
     }
 
     func testATeammateTurningRedRisesOverTwoSeconds() async {

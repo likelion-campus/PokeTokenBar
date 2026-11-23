@@ -167,6 +167,13 @@ struct PlazaFlushFade: Equatable {
         self.on = on
     }
 
+    /// 찬 연못 물에 들어가면 식는 중이던 빨강이 한 번에 사라진다(2026-11-23 사용자 결정). 켜진 동안에는 아무것도 하지 않는다.
+    mutating func douse(now: Date) {
+        guard !on, level(at: now) > 0 else { return }
+        from = 0
+        since = now
+    }
+
     func level(at now: Date) -> CGFloat {
         let t = CGFloat(now.timeIntervalSince(since))
         if t < 0 { return from }
