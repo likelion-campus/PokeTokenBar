@@ -130,7 +130,9 @@ final class PlazaItemsTests: XCTestCase {
 
     /// When the next slot comes, the scene moves on to that slot's item.
     func testTheNextSlotBringsItsOwnItem() async throws {
-        let next = try XCTUnwrap(PlazaItems.spawn(slot: slot + 1, candidates: candidates))
+        // The first later slot whose tile is still open ground: slot + 1 fell where the fortune stall now stands, and such an item is not shown.
+        let open = PlazaItems.openTiles(in: map)
+        let next = try XCTUnwrap((1...20).lazy.compactMap { PlazaItems.spawn(slot: self.slot + $0, candidates: self.candidates) }.first { open.contains($0.tile) })
         XCTAssertNotEqual(next.tile, spawn.tile, "test precondition")
         let s = scene(on: map.spawn)
         s.update(0)

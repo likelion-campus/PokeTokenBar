@@ -1420,6 +1420,19 @@ struct PlazaSceneMember: Equatable, Sendable {
         layout()
     }
 
+    /// 포춘쿠키. `memberID`가 nil이면 나. `reveal` 이면 쿠키가 갈라지는 것부터, 아니면 쪽지만 펴진다. 모르는 팀원이나 범위 밖 값이면 false.
+    @discardableResult
+    func showFortune(memberID: String?, draw: PlazaFortuneDraw, reveal: Bool) -> Bool {
+        guard let actor = actor(memberID), let text = PlazaFortune.text(draw) else { return false }
+        actor.showFortune(line: text.line, action: text.action, reveal: reveal)
+        layout()
+        return true
+    }
+    func shownFortune(memberID: String?) -> (stage: PlazaFortuneArt.Stage, line: String, action: String)? {
+        guard let actor = actor(memberID), let stage = actor.fortuneStage, let text = actor.fortuneText else { return nil }
+        return (stage, text.line, text.action)
+    }
+
     /// 지금 화면에 보이는 영역(사진 모드면 프레임 안, `photoFrame ?? visibleRect`)을 기념사진 입력으로 모은다. 그림을 아직 못 받은 캐릭터는 뺀다(알과 자리 비움은 다른 팀원처럼 찍힌다).
     func photoInput() -> PlazaPhotoInput? {
         let rect = photoFrame ?? visibleRect

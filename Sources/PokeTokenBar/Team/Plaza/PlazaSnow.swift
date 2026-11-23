@@ -16,7 +16,7 @@ enum PlazaSnow {
     static func isSnowGround(_ t: TilePoint, in map: PlazaMap) -> Bool {
         switch map.tile(at: t) {
         case .grass, .flowers, .shelter: true
-        case .tallGrass, .tree, .bush, .board, .campfire, .pond, .hotSpring, .bigTree: false
+        case .tallGrass, .tree, .bush, .board, .campfire, .pond, .hotSpring, .bigTree, .stall: false
         }
     }
 

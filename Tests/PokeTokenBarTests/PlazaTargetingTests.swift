@@ -75,7 +75,8 @@ final class PlazaTargetingTests: XCTestCase {
             XCTAssertEqual(found, LegacyPlazaTargeting.member(from: l.me, facing: l.facing, members: tiles))
             if found != nil { foundMembers += 1 }
             let hit = PlazaInteraction.target(me: me, facing: l.facing, map: map, members: l.members)
-            XCTAssertEqual(hit, LegacyPlazaInteraction.target(from: l.me, facing: l.facing, map: map, members: tiles))
+            // The fortune stall is a target the old rule never had; everything else is unchanged.
+            if hit?.target != .stall { XCTAssertEqual(hit, LegacyPlazaInteraction.target(from: l.me, facing: l.facing, map: map, members: tiles)) }
             if case .member? = hit?.target { memberHits += 1 }
             let other = p(l.me.x + Int(rng.next() % 7) - 3, l.me.y + Int(rng.next() % 7) - 3)
             for fallback in [PlazaDirection.up, .down, .left, .right] {

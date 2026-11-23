@@ -9,7 +9,7 @@ final class PlazaArtParityPixelArtTests: XCTestCase {
     private let seasons: [PlazaSeason] = [.summer, .spring, .autumn, .winter]
 
     /// The v2.5.635 map (the right pond is an ordinary pond): where the new builder must still match the legacy port.
-    private var preSpringMap: PlazaMap { try! PlazaMap(rows: PlazaMapData.rows.map { $0.replacingOccurrences(of: "h", with: "w") }) }
+    private var preSpringMap: PlazaMap { try! PlazaMap(rows: PlazaMapData.rowsBeforeTheStall.map { $0.replacingOccurrences(of: "h", with: "w") }) }
 
     private func cg(_ image: CGImage?, _ what: String = "bundled sheet") throws -> CGImage { try XCTUnwrap(image, what) }
 

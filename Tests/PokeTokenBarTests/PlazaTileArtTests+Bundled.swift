@@ -174,7 +174,7 @@ extension PlazaTileArtTests {
 
     // MARK: The hot spring
 
-    private static let oldRows = PlazaMapData.rows.map { $0.replacingOccurrences(of: "h", with: "w") }
+    private static let oldRows = PlazaMapData.rowsBeforeTheStall.map { $0.replacingOccurrences(of: "h", with: "w") }
     private func oldMap() throws -> PlazaMap { try PlazaMap(rows: Self.oldRows) }
     private func looks(_ map: PlazaMap, _ season: PlazaSeason) throws -> PlazaImage {
         let sheet = try sheet(), grass = try XCTUnwrap(PlatformPlaza.tallGrassSheet())
@@ -229,7 +229,7 @@ extension PlazaTileArtTests {
     }
 
     func testOnlyTheHotSpringChangedTheMap() throws {
-        let map = PlazaMapData.map, old = try oldMap()
+        let map = try PlazaMap(rows: PlazaMapData.rowsBeforeTheStall), old = try oldMap()   // the fortune stall came later
         let b = try XCTUnwrap(PlazaHotSpring.artBounds(in: map))
         let w = 48 * 32
         for season in allSeasons {

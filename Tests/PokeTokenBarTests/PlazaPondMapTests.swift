@@ -80,7 +80,7 @@ final class PlazaPondMapTests: XCTestCase {
     static let v2_5_635RowsSHA256 = "aa5fea86e544ac47c92365888065a8e152c5aba568eb37e1c15e691241b64847"
 
     func testTheMapIsV2_5_635sWithOnlyTheSpringAndTheTreeAdded() {
-        let joined = PlazaMapData.rows.map { $0.replacingOccurrences(of: "h", with: "w").replacingOccurrences(of: "B", with: ".") }.joined(separator: "\n")
+        let joined = PlazaMapData.rowsBeforeTheStall.map { $0.replacingOccurrences(of: "h", with: "w").replacingOccurrences(of: "B", with: ".") }.joined(separator: "\n")
         XCTAssertEqual(PlazaParityGoldens.sha256Hex(Array(joined.utf8)), Self.v2_5_635RowsSHA256)
     }
 
@@ -170,7 +170,7 @@ final class PlazaPondMapTests: XCTestCase {
         XCTAssertEqual(old.count, new.count)
         for (y, (o, n)) in zip(old, new).enumerated() {
             for (x, (a, b)) in zip(o, n).enumerated() where a != b {
-                XCTAssertTrue(b == "w" || b == "h" || b == "B", "changed to non-water at (\(x),\(y))")   // 'B': the big tree (PR 5) stands on open grass
+                XCTAssertTrue(b == "w" || b == "h" || b == "B" || b == "K", "changed to non-water at (\(x),\(y))")   // 'B': the big tree (PR 5) stands on open grass; 'K': the fortune stall too
                 XCTAssertTrue(a == "." || a == "f", "water replaced \(a) at (\(x),\(y))")
             }
         }

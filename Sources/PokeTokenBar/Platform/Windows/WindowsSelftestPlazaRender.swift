@@ -81,6 +81,15 @@ extension WindowsSelftest {
         await shoot(r, device: device, name: "plaza.shotBomb", file: "plaza-bomb-game.png", me: TilePoint(x: 17, y: 14), members: shotBombMembers, frames: 30) { scene, f in
             if f == 1 { scene.setBomb(holder: "b", isMe: false, urgent: true) }
         }
+        // The fortune stall (tiles x40-44, y3-5) two seconds after I crack today's cookie: the halves apart and the slip open.
+        let shotFortuneMembers: [PlazaSceneMember] = [
+            PlazaSceneMember(memberID: "a", nickname: "Ash", isAway: false, tile: TilePoint(x: 39, y: 7), facing: .right, isWalking: false),
+            PlazaSceneMember(memberID: "b", nickname: "Misty", isAway: false, tile: TilePoint(x: 44, y: 8), facing: .left, isWalking: false),
+        ]
+        await shoot(r, device: device, name: "plaza.shotFortune", file: "plaza-fortune-cookie.png", me: TilePoint(x: 42, y: 6), members: shotFortuneMembers, frames: 150) { scene, f in
+            if f == 1 { scene.face(.up) }
+            if f == 30 { scene.showFortune(memberID: nil, draw: PlazaFortuneDraw(line: 0, action: 0), reveal: true) }
+        }
     }
 
     /// One documentation capture: `me` and `members` (FIXTURE blocks for sprites) in the summer plaza at noon, `script` called

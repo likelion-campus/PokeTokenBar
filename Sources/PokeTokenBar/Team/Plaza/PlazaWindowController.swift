@@ -794,6 +794,25 @@ import Observation
         session?.sendEmote(.firework, target: nil, fireworkStyle: style.id)
     }
 
+    private var hasOpenedFortuneToday: Bool { preferences.fortuneDay == PlazaActivity.dayKey(clock()) }
+
+    /// 가판대에서 오늘의 포춘쿠키를 깬다. 하루에 한 번만 깨고 팀원에게 보이며, 같은 날 다시 오면 내 화면에 쪽지만 다시 펴진다.
+    private func openFortune() {
+        let day = PlazaActivity.dayKey(clock())
+        let draw = PlazaFortune.draw(day: day, memberID: memberID())
+        let isFirst = preferences.fortuneDay != day
+        guard scene?.showFortune(memberID: nil, draw: draw, reveal: isFirst) == true, isFirst else { return }
+        preferences.fortuneDay = day
+        scene?.stopDance(memberID: nil)
+        session?.sendEmote(.fortune, target: nil, fortune: draw)
+        refreshHint()   // 안내가 "다시 보기"로 바뀐다
+    }
+
+    /// 런타임이 부른다. 팀원이 포춘쿠키를 깼다. 창이 닫혀 있으면 아무것도 안 한다.
+    func showFortune(memberID: String, draw: PlazaFortuneDraw) {
+        scene?.showFortune(memberID: memberID, draw: draw, reveal: true)
+    }
+
     /// 런타임이 부른다. 팀원이 불꽃을 쐈다. 창이 닫혀 있으면 아무것도 안 한다.
     func showFirework(memberID: String, style: String?) {
         scene?.playFirework(memberID: memberID, style: style)
@@ -994,6 +1013,8 @@ import Observation
         case .board:
             feed?.markAllRead()
             openOverlay(.board)
+        case .stall:
+            openFortune()
         case .campfire:
             let free = PlazaCampfire.nearestFreeSeat(from: scene.walker.tile, occupied: scene.occupiedTiles()) != nil
             openOverlay(.campfireMenu(PlazaCampfireMenu(isJoin: isAnyoneFocusing,
@@ -1733,6 +1754,7 @@ import Observation
         } else if let hit = scene?.interactionTarget, overlayModel.content == .none, !chatInput.isOpen {
             switch hit.target {
             case .board: text = L(.ko).plazaBoardHint
+            case .stall: text = hasOpenedFortuneToday ? L(.ko).plazaFortuneAgainHint : L(.ko).plazaFortuneHint
             case .campfire: text = isAnyoneFocusing ? L(.ko).plazaCampfireJoinHint : L(.ko).plazaCampfireLightHint
             case .member(let id): text = hintName(of: id).map { L(.ko).plazaMemberHint(nickname: $0) }
             }

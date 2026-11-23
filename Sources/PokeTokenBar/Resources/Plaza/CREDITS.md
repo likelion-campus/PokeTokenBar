@@ -72,3 +72,11 @@
 - Source: https://opengameart.org/content/16-bit-animated-bomb
 - SHA-256: 80843a315cd25afef02ed7388443be3edeedd84f4fe7a83538c02dbd2c3a5f41
 - The plaza minigame's bomb: the GIF's four 16×16 frames laid side by side in one 64×16 sheet, pixels unchanged, cut at runtime.
+
+## Fortune cookie (plaza-fortune-cookie.png)
+- "16x16 Food" (`food/fortune_cookie.png`, unmodified) by ARoachIFoundOnMyPillow
+- License: CC0 (public domain)
+- Source: https://opengameart.org/content/16x16-food
+- SHA-256: 8e54514fd7409a5924dd4fe016ac3ed245dfb481eaa54ed81a66c733737fb625
+- The plaza's fortune cookie. The app cuts the 12×10 cookie out at runtime and swaps its five colours for colours of the plaza tileset (exact colour swaps, no new shapes). The pile on the stall is five copies of it, and the cracked cookie is the same picture cut in two down the middle.
+- The stall itself is the market stall at (289, 358), 83×86, in `plaza-tiles.png` (ArMM1998, CC0, above), drawn onto the map as it is.

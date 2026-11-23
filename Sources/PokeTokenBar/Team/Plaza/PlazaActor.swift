@@ -83,6 +83,23 @@ struct PlazaActorContext {
     static let chatDuration: TimeInterval = 6
     private var chatKey: (text: String, backing: CGFloat)?
     private(set) var chatText: String?
+    /// 포춘쿠키: 말풍선 자리에 쿠키가 떠올라 갈라지고 쪽지가 펴진다(`reveal`). 다시 볼 때는 쿠키 없이 쪽지만 펴진다.
+    private var fortune: (line: String, action: String, elapsed: TimeInterval, reveal: Bool)?
+    private var fortuneKey: (stage: PlazaFortuneArt.Stage, line: String, action: String, backing: CGFloat)?
+    /// 지금 보이는 포춘쿠키 단계. 없으면 nil.
+    var fortuneStage: PlazaFortuneArt.Stage? { fortune.map { Self.fortuneStage(elapsed: $0.elapsed, reveal: $0.reveal) } }
+    var fortuneText: (line: String, action: String)? { fortune.map { ($0.line, $0.action) } }
+
+    static func fortuneStage(elapsed: TimeInterval, reveal: Bool) -> PlazaFortuneArt.Stage {
+        let since = elapsed - (reveal ? PlazaFortune.splitStart : 0)
+        if since < 0 { return .whole }
+        let step = Int(since / PlazaFortune.splitStepDuration) + 1
+        return step > PlazaFortuneArt.splitSteps ? .open : .split(step)
+    }
+
+    static func fortuneDuration(reveal: Bool) -> TimeInterval {
+        (reveal ? PlazaFortune.splitStart : 0) + Double(PlazaFortuneArt.splitSteps) * PlazaFortune.splitStepDuration + PlazaFortune.readDuration
+    }
     private(set) var name: String
     private(set) var title: String?
     private(set) var nameColor: PlazaColor
@@ -192,7 +209,18 @@ struct PlazaActorContext {
     var isWet: Bool { wetRemaining > 0 }
 
     /// 캐릭터 위 말풍선은 모두 인사하기와 같은 큰 그림(1.5배)으로 그린다. 새 말풍선이 옛것을 바꾸고 시간을 처음부터 다시 잰다. 그림은 `place`에서 그린다.
+    func showFortune(line: String, action: String, reveal: Bool) {
+        emoteKind = nil
+        emoteKey = nil
+        chatText = nil
+        chatKey = nil
+        fortune = (line, action, 0, reveal)
+        fortuneKey = nil
+        emoteNode.isHidden = false
+    }
+
     func showEmote(_ kind: TeamEmoteKind) {
+        fortune = nil
         chatText = nil
         chatKey = nil
         emoteKind = kind
@@ -201,6 +229,7 @@ struct PlazaActorContext {
     }
 
     func showChat(_ text: String) {
+        fortune = nil
         emoteKind = nil
         emoteKey = nil
         chatText = text
@@ -326,7 +355,7 @@ struct PlazaActorContext {
     }
 
     /// 말풍선(이모트나 글)이 떠 있다. 춤의 ♪도 센다.
-    var isBubbleShown: Bool { emoteKind != nil || chatText != nil }
+    var isBubbleShown: Bool { emoteKind != nil || chatText != nil || fortune != nil }
 
     /// 지금 걸음의 자세. 춤추지 않으면 `rest`.
     var dancePose: PlazaDancePose {
@@ -384,6 +413,10 @@ struct PlazaActorContext {
         if wetRemaining > 0 {
             wetRemaining -= dt
             if wetRemaining <= 0 { wetNode.isHidden = true }
+        }
+        if let f = fortune {
+            fortune?.elapsed = f.elapsed + dt
+            if f.elapsed + dt >= Self.fortuneDuration(reveal: f.reveal) { hideEmote() }
         }
         if (emoteKind != nil && emoteKind != .dance) || chatText != nil {
             emoteRemaining -= dt
@@ -534,7 +567,8 @@ struct PlazaActorContext {
                                scale: Self.characterScale, shadow: shadow, shadowRect: shadowRect,
                                front: shadowIsNest && !eggSunk ? nestFrontImage : nil,
                                plate: name.isEmpty ? nil : PlazaNamePlate.image(text: name, title: title, color: nameColor, scale: 2),
-                               bubble: chatText.flatMap { PlazaChatBubble.image(text: $0, scale: 2) }
+                               bubble: fortune.flatMap { PlazaFortuneArt.image(Self.fortuneStage(elapsed: $0.elapsed, reveal: $0.reveal), line: $0.line, action: $0.action, scale: 2, withCookie: $0.reveal) }
+                                   ?? chatText.flatMap { PlazaChatBubble.image(text: $0, scale: 2) }
                                    ?? emoteKind.map { PlazaEmoteArt.image($0, scale: 2, large: true) },
                                opacity: opacity, plateBaseY: plateBaseY, sink: eggSunk ? 0 : swimSink, waterClip: swimSink > 0 ? waterClip : nil, eggSunk: eggSunk,
                                lift: dancePose.lift, squash: dancePose.squash, tilt: dancePose.tilt,
@@ -615,7 +649,7 @@ struct PlazaActorContext {
     var namePlateTop: CGFloat { plateNode.position.y + plateNode.size.height }
     /// 보이는 말풍선의 카메라 공간 사각형(아래 가운데 기준). 없으면 nil.
     var emoteFrame: CGRect? {
-        guard emoteKind != nil || chatText != nil, !emoteNode.isHidden else { return nil }
+        guard isBubbleShown, !emoteNode.isHidden else { return nil }
         return CGRect(x: emoteNode.position.x - emoteNode.size.width / 2, y: emoteNode.position.y,
                       width: emoteNode.size.width, height: emoteNode.size.height)
     }
@@ -625,6 +659,7 @@ struct PlazaActorContext {
     // MARK: - 내부
 
     private func hideEmote() {
+        fortune = nil
         emoteKind = nil
         chatText = nil
         emoteNode.isHidden = true
@@ -632,7 +667,20 @@ struct PlazaActorContext {
 
     /// 이름표 바로 위에 놓는다. 왼쪽·아래 모서리를 기기 픽셀에 맞춘다(홀수 크기 뷰포트는 반 픽셀을 보정한다).
     private func placeEmote(backing: CGFloat, viewport: CGSize) {
-        if let text = chatText {
+        var nudge = CGPoint.zero
+        if let f = fortune {
+            let stage = Self.fortuneStage(elapsed: f.elapsed, reveal: f.reveal)
+            if fortuneKey?.stage != stage || fortuneKey?.line != f.line || fortuneKey?.action != f.action || fortuneKey?.backing != backing {
+                fortuneKey = (stage, f.line, f.action, backing)
+                guard let image = PlazaFortuneArt.image(stage, line: f.line, action: f.action, scale: backing, withCookie: f.reveal) else { return hideEmote() }
+                setBubble(image, backing: backing)
+            }
+            if stage == .whole {   // 떠오른 뒤 좌우로 흔들린다
+                let rise = min(1, f.elapsed / PlazaFortune.wobbleStart)
+                nudge.y = -((1 - rise) * 12).rounded()
+                if f.elapsed > PlazaFortune.wobbleStart { nudge.x = (sin((f.elapsed - PlazaFortune.wobbleStart) * 28) * 2).rounded() }
+            }
+        } else if let text = chatText {
             if chatKey?.text != text || chatKey?.backing != backing {
                 chatKey = (text, backing)
                 guard let image = PlazaChatBubble.image(text: text, scale: backing) else { return hideEmote() }
@@ -650,10 +698,10 @@ struct PlazaActorContext {
         let halfW = viewport.width / 2, halfH = viewport.height / 2
         var origin = CGPoint(x: snapView(plateNode.position.x - emoteNode.size.width / 2 + halfW) - halfW,
                              y: snapView(namePlateTop + halfH) - halfH)
-        if chatText != nil {
+        if chatText != nil || fortune != nil {
             origin = Self.chatBubbleOrigin(origin, size: emoteNode.size, plate: plateNode.position, viewport: viewport)
         }
-        emoteNode.position = CGPoint(x: origin.x + emoteNode.size.width / 2, y: origin.y)
+        emoteNode.position = CGPoint(x: origin.x + emoteNode.size.width / 2 + nudge.x, y: origin.y + nudge.y)
     }
 
     /// 글 말풍선은 넓어서 화면 가장자리에서 잘리지 않게 안쪽으로 민다. 이름표가 화면 밖이면 누구 말인지 알 수 없으므로 같이 밖에 둔다.

@@ -82,8 +82,39 @@ enum PlazaTileArt {
                             x: b.x * tile + sx * scale, y: b.y * tile + sy * scale)
             }
         }
+        drawStall(map, &canvas)
         return canvas.image()
     }
+
+    /// 포춘쿠키 가판대: 시트의 천막 가판대를 'K' 칸들의 가운데 아래에 맞춰 놓고, 판매대 위에 쿠키 더미 둘을 올린다.
+    /// 시트가 작으면(테스트용 합성 시트) 그리지 않는다. 쿠키 그림이 없으면 가판대만 그린다.
+    private static func drawStall(_ map: PlazaMap, _ canvas: inout Canvas) {
+        let tiles = PlazaFortune.stallTiles(in: map), crop = PlazaFortune.stallCrop
+        guard let minX = tiles.map(\.x).min(), let maxX = tiles.map(\.x).max(), let maxY = tiles.map(\.y).max(),
+              crop.x + crop.width <= canvas.sheet.width, crop.y + crop.height <= canvas.sheet.height else { return }
+        let left = (minX + maxX + 1) * tile / 2 - crop.width * scale / 2
+        let top = (maxY + 1) * tile - crop.height * scale
+        for sy in 0..<crop.height {
+            for sx in 0..<crop.width {
+                canvas.plot(sheetX: crop.x + sx, sheetY: crop.y + sy, x: left + sx * scale, y: top + sy * scale)
+            }
+        }
+        guard let cookie = PlazaFortuneArt.cookie else { return }
+        let pile = PlazaFortuneArt.pile(of: cookie)
+        let art = SheetPixels(PlazaImage(bitmap: pile.art)), shadow = SheetPixels(PlazaImage(bitmap: pile.shadow))
+        for pileX in stallPileX {
+            for (source, offset) in [(shadow, 1), (art, 0)] {
+                for sy in 0..<source.height {
+                    for sx in 0..<source.width {
+                        canvas.plot(from: source, sheetX: sx, sheetY: sy,
+                                    x: left + (pileX + sx + offset) * scale, y: top + (stallPileY + sy + offset) * scale)
+                    }
+                }
+            }
+        }
+    }
+    /// 가판대 그림 안에서 쿠키 더미가 놓이는 자리(시트 픽셀, 왼쪽 위).
+    private static let stallPileX = [8, 43], stallPileY = 50
 
     /// 연잎: 연못마다 물 칸 위에 한 칸짜리와 두 칸짜리. 그 자리가 연못이 아닌 지도(작은 테스트 지도)에는 그리지 않는다. 온천에는 연잎이 없다.
     private static func drawLilyPads(_ map: PlazaMap, _ canvas: inout Canvas) {
