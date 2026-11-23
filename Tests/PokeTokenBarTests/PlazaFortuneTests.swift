@@ -175,6 +175,28 @@ final class PlazaFortuneTests: XCTestCase {
         XCTAssertEqual(A.fortuneDuration(reveal: true) - A.fortuneDuration(reveal: false), PlazaFortune.splitStart, accuracy: 1e-9)
         XCTAssertGreaterThanOrEqual(A.fortuneDuration(reveal: false) - unrolled, PlazaFortune.readDuration - 1e-9)
     }
+
+    /// Teammates send the line and action as numbers, so the order of both lists is a wire contract: new entries go at the end only.
+    /// When you append, raise the counts and keep the first-80 / first-12 hashes as they are.
+    func testTheFirstLinesAndActionsKeepTheirNumbers() async {
+        func hash(_ list: ArraySlice<String>) -> UInt64 {
+            list.joined(separator: "\n").utf8.reduce(0xcbf2_9ce4_8422_2325) { ($0 ^ UInt64($1)) &* 0x0000_0100_0000_01b3 }
+        }
+        XCTAssertGreaterThanOrEqual(L(.ko).plazaFortuneLines.count, 80)
+        XCTAssertGreaterThanOrEqual(L(.ko).plazaFortuneActions.count, 12)
+        XCTAssertEqual(hash(L(.ko).plazaFortuneLines.prefix(80)), 14_248_402_198_470_895_138)
+        XCTAssertEqual(hash(L(.ko).plazaFortuneActions.prefix(12)), 4_205_960_783_727_730_735)
+    }
+
+    /// A calendar with leap months repeats a month number, so the day is read in the Gregorian calendar whatever the device uses.
+    func testTheDayKeyIsGregorianOnAnyCalendar() async {
+        var chinese = Calendar(identifier: .chinese)
+        chinese.timeZone = TimeZone(identifier: "Asia/Seoul")!
+        var gregorian = Calendar(identifier: .gregorian)
+        gregorian.timeZone = chinese.timeZone
+        let date = gregorian.date(from: DateComponents(year: 2026, month: 11, day: 23, hour: 12))!
+        XCTAssertEqual(PlazaFortune.dayKey(date, calendar: chinese), "2026-11-23")
+    }
 }
 
 extension PlazaMapData {

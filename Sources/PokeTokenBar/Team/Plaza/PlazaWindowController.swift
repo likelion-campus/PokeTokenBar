@@ -794,11 +794,17 @@ import Observation
         session?.sendEmote(.firework, target: nil, fireworkStyle: style.id)
     }
 
-    private var hasOpenedFortuneToday: Bool { preferences.fortuneDay == PlazaActivity.dayKey(clock()) }
+    private var hasOpenedFortuneToday: Bool { preferences.fortuneDay == PlazaFortune.dayKey(clock()) }
+
+    /// 1초마다 부른다. 가판대 앞에 선 채 자정을 넘기면 안내가 "깨기"로 돌아온다.
+    func refreshFortuneHintIfDue() {
+        if case .stall = scene?.interactionTarget?.target { refreshHint() }
+    }
 
     /// 가판대에서 오늘의 포춘쿠키를 깬다. 하루에 한 번만 깨고 팀원에게 보이며, 같은 날 다시 오면 내 화면에 쪽지만 다시 펴진다.
     private func openFortune() {
-        let day = PlazaActivity.dayKey(clock())
+        guard scene?.shownFortune(memberID: nil) == nil else { return }   // 깨는 중이나 쪽지가 떠 있는 동안 다시 누르면 그대로 둔다
+        let day = PlazaFortune.dayKey(clock())
         let draw = PlazaFortune.draw(day: day, memberID: memberID())
         let isFirst = preferences.fortuneDay != day
         guard scene?.showFortune(memberID: nil, draw: draw, reveal: isFirst) == true, isFirst else { return }
@@ -1963,6 +1969,7 @@ import Observation
                 guard !Task.isCancelled, let self else { return }
                 self.endFocusIfDue()
                 self.endMimicIfDue()
+                self.refreshFortuneHintIfDue()
                 self.endPrayedHintIfDue()
                 self.tickActivity()
                 self.refreshCampfire()
