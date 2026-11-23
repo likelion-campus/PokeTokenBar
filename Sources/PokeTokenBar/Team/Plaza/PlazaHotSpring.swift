@@ -4,7 +4,7 @@ import Foundation
 /// 온천의 조정용 상수는 모두 여기에 있다.
 enum PlazaHotSpring {
     static let flushAfter: TimeInterval = 10             // 조정용 상수 (명세 13, 2026-11-22 사용자 결정: 180 → 10)
-    static let flushFade: TimeInterval = 60              // 조정용 상수 (명세 13, 위임)
+    static let flushFade: TimeInterval = 10              // 조정용 상수 (명세 13, 2026-11-23 사용자 결정: 60 → 10)
     static let flushRise: TimeInterval = 2               // 명세 8.4 구현자 재량
     static let flushBlend: CGFloat = 0.45                // 조정용 상수 (명세 13, 설계자 판단·미확인)
     static let flushColor = PlazaColor(hex: 0xE0503C)    // 조정용 상수 (명세 13, 설계자 판단·미확인)
