@@ -8,6 +8,8 @@ import WinSDK
     var nickname: String?
     var teamName: String?
     var joinFailed = false
+    /// The create-team name field's error (the Mac's `createFailed`).
+    var createFailed = false
     /// Joined by code but no nickname yet: the plaza opens when the nickname is set (the Mac's `openPlazaWhenReady`).
     var openPlazaWhenReady = false
 }
@@ -44,7 +46,11 @@ import WinSDK
     private let leaveRow: WinRow
     private let nameRow: WinRow
     private let switchRow: WinRow
+    private let createNameRow: WinRow
     private let createRow: WinRow
+    private let createErrorRow: WinRow
+    /// The team name caption under the name row ("changing it changes it for every member").
+    private let nameCaptionRow: WinRow
     private let joinRow: WinRow
     private let joinButtonRow: WinRow
     private let joinErrorRow: WinRow
@@ -87,11 +93,16 @@ import WinSDK
         codeRow = section.addRow(rows.maskedCode ?? " ") { p, c in WinControls.button(l.teamCopyCode, in: p, ctx: c) }
         leaveRow = section.addRow(nil) { p, c in WinControls.button(l.teamLeave, in: p, ctx: c) }
         nameRow = section.addRow(l.teamName) { p, c in WinControls.edit(.text(cue: nil), text: rows.teamName, width: 140, in: p, ctx: c) }
+        nameCaptionRow = section.addRow(nil, hint: l.teamNameSharedCaption) { _, _ in nil }
         switchRow = section.addRow(l.teamSwitch) { p, c in
             WinControls.button(rows.teamName.isEmpty ? l.teamSwitch : rows.teamName, in: p, ctx: c)
         }
-        // Without one: create, join, the saved teams.
+        // Without one: create (name field, button, error), join, the saved teams.
+        createNameRow = section.addRow(l.teamCreate, style: .stacked) { p, c in
+            WinControls.edit(.text(cue: l.teamCreateNamePlaceholder), text: "", width: nil, in: p, ctx: c)
+        }
         createRow = section.addRow(nil) { p, c in WinControls.button(l.teamCreate, in: p, ctx: c) }
+        createErrorRow = section.addRow(nil, hint: l.teamNameInvalid) { _, _ in nil }
         joinRow = section.addRow(l.teamJoin, style: .stacked) { p, c in
             WinControls.edit(.code(cue: l.teamCodePlaceholder), text: "", width: nil, in: p, ctx: c)
         }
@@ -121,8 +132,9 @@ import WinSDK
         captionRow = section.addRow(nil, hint: Self.caption(rows.scheduleCaption, isReady: team.isReady,
                                                              lastSent: host.usageReporter?.lastSentAt)) { _, _ in nil }
         incompatibleRow = section.addRow(nil, hint: l.teamIncompatiblePeer) { _, _ in nil }
-        for row in [joinErrorRow, nicknameErrorRow, incompatibleRow] { row.hint?.role = .error }
+        for row in [createErrorRow, joinErrorRow, nicknameErrorRow, incompatibleRow] { row.hint?.role = .error }
         captionRow.hint?.role = .secondary
+        nameCaptionRow.hint?.role = .secondary
         wire()
         apply()
     }
@@ -147,11 +159,10 @@ import WinSDK
         }
         nameRow.control?.onCommit = { [weak self] _ in self?.commitTeamName() }
         switchRow.control?.onClick = { [weak self] in self?.openSwitchMenu() }
-        createRow.control?.onClick = { [weak self] in
-            guard let self else { return }
-            var rng = SystemRandomNumberGenerator()
-            team.code = TeamCode.generate(using: &rng)
-            afterTeamChange()
+        createRow.control?.onClick = { [weak self] in self?.create() }
+        // Enter in the name field creates (the Mac's onSubmit); losing focus does not, like the join field.
+        createNameRow.control?.onCommit = { [weak self] _ in
+            if GetKeyState(0x0D /* VK_RETURN */) < 0 { self?.create() }
         }
         // Enter in the code field joins (the Mac's onSubmit); losing focus does not: a click on "코드로 참여" must find the code
         // still in the field. The kit commits a field on Enter and on focus loss alike; the Enter key is down only for Enter.
@@ -214,8 +225,9 @@ import WinSDK
         applying = true
         defer { applying = false }
         if enableRow.control?.isOn != rows.isEnabled { enableRow.control?.isOn = rows.isEnabled }
-        for row in [codeRow, leaveRow, nameRow, switchRow] { row.isVisible = inTeam }
-        for row in [createRow, joinRow, joinButtonRow] { row.isVisible = noCode }
+        for row in [codeRow, leaveRow, nameRow, nameCaptionRow, switchRow] { row.isVisible = inTeam }
+        for row in [createNameRow, createRow, joinRow, joinButtonRow] { row.isVisible = noCode }
+        createErrorRow.isVisible = noCode && drafts.createFailed
         joinErrorRow.isVisible = noCode && drafts.joinFailed
         for (row, _) in savedRows { row.isVisible = noCode }
         nicknameRow.isVisible = on
@@ -271,6 +283,17 @@ import WinSDK
         if !copyToClipboard(code.display, owner) { AppLog.write("settings: the team code could not be copied") }
     }
 
+    private func create() {
+        let text = createNameRow.control?.text ?? ""
+        drafts.createFailed = !TeamSetup.create(text, into: team, now: Date())
+        guard !drafts.createFailed else {
+            changed()
+            return
+        }
+        createNameRow.control?.text = ""
+        afterTeamChange()
+    }
+
     private func join() {
         let text = joinRow.control?.text ?? ""
         joins += 1
@@ -302,7 +325,7 @@ import WinSDK
 
     private func commitTeamName() {
         guard let draft = drafts.teamName else { return }
-        if team.renameCurrentTeam(draft) { drafts.teamName = nil }
+        if team.renameCurrentTeam(draft, now: Date()) { drafts.teamName = nil }
         if !isClosing { changed() }
     }
 
@@ -336,8 +359,10 @@ import WinSDK
     // MARK: for the selftest
 
     var rowsForTesting: (enable: WinRow, code: WinRow, leave: WinRow, name: WinRow, switcher: WinRow, create: WinRow, join: WinRow,
-                         joinButton: WinRow, nickname: WinRow, nicknameError: WinRow, joinError: WinRow) {
-        (enableRow, codeRow, leaveRow, nameRow, switchRow, createRow, joinRow, joinButtonRow, nicknameRow, nicknameErrorRow, joinErrorRow)
+                         joinButton: WinRow, nickname: WinRow, nicknameError: WinRow, joinError: WinRow, createName: WinRow,
+                         createError: WinRow, nameCaption: WinRow) {
+        (enableRow, codeRow, leaveRow, nameRow, switchRow, createRow, joinRow, joinButtonRow, nicknameRow, nicknameErrorRow, joinErrorRow,
+         createNameRow, createErrorRow, nameCaptionRow)
     }
     var savedRowsForTesting: [WinRow] { savedRows.map(\.row) }
     var coreRowsForTesting: [WinRow] { [coreStartRow, coreEndRow, seasonRow, captionRow] }

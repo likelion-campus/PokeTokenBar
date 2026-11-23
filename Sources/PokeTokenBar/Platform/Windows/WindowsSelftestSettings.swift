@@ -164,7 +164,8 @@ extension WindowsSelftest {
     }
 
     typealias TeamRowSet = (enable: WinRow, code: WinRow, leave: WinRow, name: WinRow, switcher: WinRow, create: WinRow, join: WinRow,
-                            joinButton: WinRow, nickname: WinRow, nicknameError: WinRow, joinError: WinRow)
+                            joinButton: WinRow, nickname: WinRow, nicknameError: WinRow, joinError: WinRow, createName: WinRow,
+                            createError: WinRow, nameCaption: WinRow)
 
     /// The team rows NOW: joining, creating or leaving a team changes the saved list and the page builds itself again, so a row
     /// set kept from before is dead (its windows are destroyed).
@@ -448,7 +449,7 @@ extension WindowsSelftest {
         let code = fixtureCode()
         guard await open(team: team), let page, let section = page.teamForTesting else { r.add("settings.teamJoin", false, "no page"); return }
         guard let edit = rows().join.control else { r.add("settings.teamJoin", false, "no join field"); return }
-        let visibleBefore = shown(rows().join) && shown(rows().joinButton) && shown(rows().create)
+        let visibleBefore = shown(rows().join) && shown(rows().joinButton) && shown(rows().createName) && shown(rows().create)
         // Ctrl+V of " PTB-…\r\n" (a pasted line with its white space).
         let wrote = clipboard(" \(code.display)\r\n")
         await focus(edit)

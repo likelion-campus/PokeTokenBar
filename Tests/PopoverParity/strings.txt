@@ -319,6 +319,7 @@ teamCodePlaceholder | G13j
 teamCopyCode | G13c
 teamCoreTime | G13h
 teamCreate | G13j
+teamCreateNamePlaceholder | G13j
 teamEnable | G13
 teamEnterSaved | G13s
 teamHour | G13h
@@ -326,6 +327,8 @@ teamIncompatiblePeer | G13w
 teamJoin | G13j
 teamLeave | G13c
 teamName | G13n
+teamNameInvalid | G13j
+teamNameSharedCaption | G13n
 teamNickname | G13k
 teamNicknameInvalid | G13k
 teamNotifications | G13t

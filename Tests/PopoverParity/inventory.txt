@@ -106,9 +106,9 @@ G12a | 3 | done Platform/Windows/Popover/WinPetSettingsRows.swift | UI/SettingsV
 G12b | 1 | done Platform/Windows/Popover/WinPetSettingsRows.swift | UI/SettingsView.swift | Back view switch (in the pet group on the Mac and, since Task 22, on Windows; applies to the popover sprite, the pet and the tray icon too)
 G13 | 1 | done Platform/Windows/Popover/WinTeamSection.swift | Team/UI/TeamSettingsSection.swift | Team section card (Korean only): enable switch
 G13c | 1 | done Platform/Windows/Popover/WinTeamSection.swift | Team/UI/TeamSettingsSection.swift | Team: masked code + Copy + Leave
-G13n | 1 | done Platform/Windows/Popover/WinTeamSection.swift | Team/UI/TeamSettingsSection.swift | Team: team name field (commit on Enter / page close, only when valid)
+G13n | 1 | done Platform/Windows/Popover/WinTeamSection.swift | Team/UI/TeamSettingsSection.swift | Team: team name field (commit on Enter / page close, only when valid) with the shared-name caption under it
 G13s | 1 | done Platform/Windows/Popover/WinTeamSection.swift | Team/UI/TeamSettingsSection.swift | Team: switch menu (saved teams, step out), saved teams with "enter"
-G13j | 1 | done Platform/Windows/Popover/WinTeamSection.swift | Team/UI/TeamSettingsSection.swift | Team: create, join with a code (invalid-code error; opens the plaza when ready, else after the nickname)
+G13j | 1 | done Platform/Windows/Popover/WinTeamSection.swift | Team/UI/TeamSettingsSection.swift | Team: create (new team name field, invalid-name error), join with a code (invalid-code error; opens the plaza when ready, else after the nickname)
 G13k | 1 | done Platform/Windows/Popover/WinTeamSection.swift | Team/UI/TeamSettingsSection.swift | Team: nickname field (commit on Enter / focus loss / page close, invalid error)
 G13t | 1 | done Platform/Windows/Popover/WinTeamSection.swift | Team/UI/TeamSettingsSection.swift | Team: notifications switch
 G13h | 1 | done Platform/Windows/Popover/WinTeamSection.swift | Team/UI/TeamSettingsSection.swift | Team: core time (start 1-22, end start+1-23) and season pickers, caption (default or "changed by X on date")
@@ -716,6 +716,7 @@ Team/UI/TeamSettingsSection.swift#TeamSettingsSection.error | G13
 Team/UI/TeamSettingsSection.swift#TeamSettingsSection.commitTeamName | G13n
 Team/UI/TeamSettingsSection.swift#TeamSettingsSection.switchTo | G13s
 Team/UI/TeamSettingsSection.swift#TeamSettingsSection.commitNickname | G13k
+Team/UI/TeamSettingsSection.swift#TeamSettingsSection.create | G13j
 Team/UI/TeamSettingsSection.swift#TeamSettingsSection.join | G13j
 Team/UI/TeamSettingsSection.swift#TeamSettingsSection.copy | G13c
 PokeTokenBarApp.swift#PokeTokenBarApp | A7
