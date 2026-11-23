@@ -248,7 +248,7 @@ final class PlazaHotSpringTests: XCTestCase {
         XCTAssertFalse(soak.isFlushed(now: t0 - 3600 + PlazaHotSpring.flushAfter - 1))
     }
 
-    func testTheRedRisesInTwoSecondsAndFadesOverAMinute() {
+    func testTheRedRisesInTwoSecondsAndFadesOverTenSeconds() {
         var fade = PlazaFlushFade(on: false, now: t0)
         fade.set(true, now: t0)
         XCTAssertEqual(fade.level(at: t0), 0, accuracy: 1e-9)
@@ -258,8 +258,8 @@ final class PlazaHotSpringTests: XCTestCase {
         XCTAssertEqual(fade.blend(at: t0 + 2), 0.45, accuracy: 1e-9)
         fade.set(false, now: t0 + 2)
         XCTAssertEqual(fade.level(at: t0 + 2), 1, accuracy: 1e-9)
-        XCTAssertEqual(fade.level(at: t0 + 32), 0.5, accuracy: 1e-9)
-        XCTAssertEqual(fade.level(at: t0 + 62), 0, accuracy: 1e-9)
+        XCTAssertEqual(fade.level(at: t0 + 7), 0.5, accuracy: 1e-9)
+        XCTAssertEqual(fade.level(at: t0 + 12), 0, accuracy: 1e-9)
         XCTAssertEqual(fade.level(at: t0 + 600), 0, accuracy: 1e-9, "never below 0")
     }
 
@@ -272,9 +272,9 @@ final class PlazaHotSpringTests: XCTestCase {
         let T = t0
         var fade = PlazaFlushFade(on: true, now: T - 100)
         fade.set(false, now: T)
-        fade.set(true, now: T + 30)
-        XCTAssertEqual(fade.level(at: T + 30), 0.5, accuracy: 1e-9)
-        XCTAssertEqual(fade.level(at: T + 31), 1, accuracy: 1e-9)
+        fade.set(true, now: T + 5)
+        XCTAssertEqual(fade.level(at: T + 5), 0.5, accuracy: 1e-9)
+        XCTAssertEqual(fade.level(at: T + 6), 1, accuracy: 1e-9)
         var same = fade
         same.set(true, now: T + 40)
         XCTAssertEqual(same, fade, "no change, no restart")

@@ -260,15 +260,15 @@ final class PlazaHotSpringControllerTests: XCTestCase {
 
     // MARK: - Their red
 
-    func testATeammatesRedFadesOverAMinuteAfterTheyLeave() async {
+    func testATeammatesRedFadesOverTenSecondsAfterTheyLeave() async {
         let w = await world(me: p(23, 6), b: p(34, 17), bFlushed: true, bBeforeOpen: true)
         run(w.scene, 0.1)
         XCTAssertEqual(blend(w) ?? -1, 0.45, accuracy: 1e-6, "a first sight has no rise")
         await place(w, p(31, 17))
-        now += 30
+        now += 5
         run(w.scene, 0.1)
         XCTAssertEqual(blend(w) ?? -1, 0.225, accuracy: 0.01)
-        now += 30
+        now += 5
         run(w.scene, 0.1)
         XCTAssertEqual(blend(w) ?? -1, 0, accuracy: 1e-6)
     }
@@ -289,7 +289,7 @@ final class PlazaHotSpringControllerTests: XCTestCase {
         XCTAssertEqual(blend(w) ?? -1, 0.45, accuracy: 1e-6)
         w.c.setRendering(visible: false)
         await place(w, p(31, 17))
-        now += 30
+        now += 5
         w.c.setRendering(visible: true)
         run(w.scene, 1.0 / 60)
         XCTAssertEqual(blend(w) ?? -1, 0.225, accuracy: 0.01)
