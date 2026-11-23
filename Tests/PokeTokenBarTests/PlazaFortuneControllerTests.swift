@@ -192,7 +192,7 @@ final class PlazaFortuneControllerTests: XCTestCase {
         run(w.scene, 9)
         XCTAssertEqual(w.c.hint, L(.ko).plazaFortuneAgainHint)
         now = Self.day(24, 9)
-        await gate.tick()   // standing still past midnight: the one-second tick brings the hint back
+        await gate.tick()   // standing still past midnight: the one-second tick (refreshCampfire) redraws the hint
         XCTAssertEqual(w.c.hint, L(.ko).plazaFortuneHint)
         await space(w)
         XCTAssertEqual(w.scene.shownFortune(memberID: nil)?.stage, .whole)

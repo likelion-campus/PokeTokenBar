@@ -188,14 +188,15 @@ final class PlazaFortuneTests: XCTestCase {
         XCTAssertEqual(hash(L(.ko).plazaFortuneActions.prefix(12)), 4_205_960_783_727_730_735)
     }
 
-    /// A calendar with leap months repeats a month number, so the day is read in the Gregorian calendar whatever the device uses.
+    /// A calendar with leap months repeats a month number, and teammates compare the key, so the plaza's day is read in the
+    /// Gregorian calendar whatever the device uses.
     func testTheDayKeyIsGregorianOnAnyCalendar() async {
         var chinese = Calendar(identifier: .chinese)
         chinese.timeZone = TimeZone(identifier: "Asia/Seoul")!
         var gregorian = Calendar(identifier: .gregorian)
         gregorian.timeZone = chinese.timeZone
         let date = gregorian.date(from: DateComponents(year: 2026, month: 11, day: 23, hour: 12))!
-        XCTAssertEqual(PlazaFortune.dayKey(date, calendar: chinese), "2026-11-23")
+        XCTAssertEqual(PlazaActivity.dayKey(date, calendar: chinese), "2026-11-23")
     }
 }
 

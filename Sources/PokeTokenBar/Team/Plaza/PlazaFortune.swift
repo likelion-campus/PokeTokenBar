@@ -21,9 +21,6 @@ enum PlazaFortune {
         return out
     }
 
-    /// 쪽지를 뽑는 날짜 키("yyyy-MM-dd"). 기기 달력 설정과 무관하게 그레고리력으로 읽는다(윤달이 있는 달력은 다른 날에 같은 숫자가 나온다).
-    static func dayKey(_ date: Date, calendar: Calendar = .current) -> String { DayBoundary.dayKey(date, calendar: calendar) }
-
     /// 그날 그 팀원의 쪽지. 같은 날짜와 ID면 어느 기기에서나 같다.
     static func draw(day: String, memberID: String) -> PlazaFortuneDraw {
         var rng = PlazaSplitMix64(seed: UInt64(PlazaNameColor.fnv1a("plaza-fortune-\(day)-\(memberID)")))

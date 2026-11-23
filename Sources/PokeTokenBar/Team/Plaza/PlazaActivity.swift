@@ -19,11 +19,9 @@ struct PlazaActivity: Codable, Equatable, Sendable {
 
     init(day: String) { self.day = day }
 
-    /// "yyyy-MM-dd" in the Mac's own calendar.
-    static func dayKey(_ date: Date, calendar: Calendar = .current) -> String {
-        let c = calendar.dateComponents([.year, .month, .day], from: date)
-        return String(format: "%04d-%02d-%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0)
-    }
+    /// "yyyy-MM-dd" of the local day, read in the Gregorian calendar whatever calendar the device uses: teammates compare
+    /// this key, and a calendar with leap months gives two different days the same numbers.
+    static func dayKey(_ date: Date, calendar: Calendar = .current) -> String { DayBoundary.dayKey(date, calendar: calendar) }
 
     /// The same numbers on the same day, a fresh zero on a new one.
     func rolled(to day: String) -> PlazaActivity { self.day == day ? self : PlazaActivity(day: day) }
