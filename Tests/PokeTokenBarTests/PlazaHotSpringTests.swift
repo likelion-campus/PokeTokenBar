@@ -280,6 +280,21 @@ final class PlazaHotSpringTests: XCTestCase {
         XCTAssertEqual(same, fade, "no change, no restart")
     }
 
+    func testDousingAFadingRedClearsItAtOnceAndLeavesALitOneAlone() {
+        let T = t0
+        var fade = PlazaFlushFade(on: true, now: T - 100)
+        var lit = fade
+        lit.douse(now: T)
+        XCTAssertEqual(lit, fade, "a red that is still on is not doused")
+        fade.set(false, now: T)
+        XCTAssertEqual(fade.level(at: T + 1), 0.9, accuracy: 1e-9)
+        fade.douse(now: T + 1)
+        XCTAssertEqual(fade.level(at: T + 1), 0, accuracy: 1e-9)
+        XCTAssertEqual(fade.level(at: T + 5), 0, accuracy: 1e-9)
+        fade.set(true, now: T + 5)
+        XCTAssertEqual(fade.level(at: T + 6), 0.5, accuracy: 1e-9, "it rises again from zero")
+    }
+
     func testAClockThatWentBackHoldsTheLevel() {
         let T = t0
         var fade = PlazaFlushFade(on: true, now: T - 100)
