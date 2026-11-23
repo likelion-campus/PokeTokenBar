@@ -599,6 +599,16 @@ final class TeamRuntimeTests: XCTestCase {
         await settle { b.runtime.session.members[a.settings.memberID]?.nameColor == 0x7FD4FF }
     }
 
+    /// Renaming the team (a settings change) reaches teammates without any other trigger; `observeSettings` must watch the stamp.
+    func testRenamedTeamReachesTeammates() async {
+        let (a, b) = connectedPair()
+        await settle { b.runtime.session.members[a.settings.memberID] != nil && a.runtime.session.members[b.settings.memberID] != nil }
+        for _ in 0..<50 { await Task.yield() }
+        XCTAssertNil(b.settings.teamNameStamp)
+        XCTAssertTrue(a.settings.renameCurrentTeam("개발팀", now: Date()))
+        await settle { b.settings.currentTeam?.name == "개발팀" }
+    }
+
     /// Five minutes without keyboard or mouse input is idle, checked on every tick whether or not the plaza is open.
     func testFiveMinutesWithoutInputIsIdleOnTheNextTick() async {
         var idleFor: TimeInterval = 0

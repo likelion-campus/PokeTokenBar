@@ -117,6 +117,7 @@ final class TeamWireTests: XCTestCase {
         full.schedule = PlazaSchedule(coreStart: 9, coreEnd: 18, seasonPeriod: "week",
                                       changedAt: Date(timeIntervalSince1970: 1_790_000_000.5),
                                       changedBy: "m1", changedByName: "Ash")
+        full.teamName = TeamNameStamp(name: "개발팀", changedAt: Date(timeIntervalSince1970: 1_790_000_000.5), changedBy: "m1")
         var decoder = TeamWire.FrameDecoder()
         XCTAssertEqual(try decoder.append(try TeamWire.encode(.presence(full))), [.presence(full)])
     }
@@ -725,5 +726,31 @@ final class TeamWireTests: XCTestCase {
             "hardy", "lonely", "brave", "adamant", "naughty", "bold", "docile", "relaxed", "impish", "lax",
             "timid", "hasty", "serious", "jolly", "naive", "modest", "mild", "quiet", "bashful", "rash",
             "calm", "gentle", "sassy", "careful", "quirky"])
+    }
+
+    func testTeamNameIsOptionalOnTheWire() throws {
+        let plain = String(decoding: try TeamWire.encode(.presence(presence)).dropFirst(4), as: UTF8.self)
+        XCTAssertFalse(plain.contains("teamName"))
+        var named = presence
+        named.teamName = TeamNameStamp(name: "개발팀", changedAt: Date(timeIntervalSince1970: 1_790_000_000.5), changedBy: "m1")
+        var decoder = TeamWire.FrameDecoder()
+        XCTAssertEqual(try decoder.append(try TeamWire.encode(.presence(named))), [.presence(named)])
+    }
+
+    /// A frame from before the field, or one with a teamName this version cannot read, still carries everything else.
+    func testMissingOrMalformedTeamNameDropsOnlyTheName() throws {
+        let head = #"{"presence":{"_0":{"nickname":"Ash","character":{"speciesID":25,"isShiny":false,"speciesName":"P"},"inPlaza":true,"tile":{"x":3,"y":4},"facing":"left","isWalking":true,"nameColor":16752335"#
+        let tails = ["", #","teamName":"개발팀""#, #","teamName":{"name":5,"changedAt":1790000000,"changedBy":"m"}"#,
+                     #","teamName":{"name":"A","changedAt":1790000000}"#]
+        for tail in tails {
+            var decoder = TeamWire.FrameDecoder()
+            guard case .presence(let p)? = try decoder.append(frame(head + tail + "}}}")).first else {
+                return XCTFail("presence dropped: \(tail)")
+            }
+            XCTAssertNil(p.teamName, tail)
+            XCTAssertEqual(p.nickname, "Ash")
+            XCTAssertEqual(p.tile, TilePoint(x: 3, y: 4))
+            XCTAssertEqual(p.nameColor, 16752335)
+        }
     }
 }

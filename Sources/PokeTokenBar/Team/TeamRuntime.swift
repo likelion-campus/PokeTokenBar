@@ -162,6 +162,7 @@ final class TeamRuntime {
             _ = settings.nameColor
             _ = settings.notificationsEnabled
             _ = settings.schedule
+            _ = settings.teamNameStamp
             _ = session.hasOnlinePeers
         } onChange: { [weak self] in
             Task { @MainActor in self?.observeSettings() }

@@ -122,6 +122,7 @@ final class TeamSession {
     @ObservationIgnored private var sentNickname: String?
     @ObservationIgnored private var sentNameColor: UInt32?
     @ObservationIgnored private var sentSchedule: PlazaSchedule?
+    @ObservationIgnored private var sentTeamName: TeamNameStamp?
     @ObservationIgnored private var character: TeamMonSummary?
     @ObservationIgnored private var inPlaza = false
     @ObservationIgnored private var tile: TilePoint?
@@ -185,10 +186,12 @@ final class TeamSession {
             return
         }
         if running && !codeChanged {
-            if nickname != sentNickname || settings.nameColor != sentNameColor || settings.schedule != sentSchedule {
+            if nickname != sentNickname || settings.nameColor != sentNameColor || settings.schedule != sentSchedule
+                || settings.teamNameStamp != sentTeamName {
                 sentNickname = nickname
                 sentNameColor = settings.nameColor
                 sentSchedule = settings.schedule
+                sentTeamName = settings.teamNameStamp
                 broadcast(.presence(makePresence()))
             }
             return
@@ -199,6 +202,7 @@ final class TeamSession {
         sentNickname = nickname
         sentNameColor = settings.nameColor
         sentSchedule = settings.schedule
+        sentTeamName = settings.teamNameStamp
         transport.start(code: code)
         running = true
     }
@@ -469,10 +473,18 @@ final class TeamSession {
             member.gameJoin = presence.gameJoin.flatMap { $0.utf8.count <= TeamWire.maxFieldBytes ? $0 : nil }
             members[memberID] = member
             // 코드가 막 바뀌어 이전 팀 링크가 아직 살아 있는 동안에는 받은 일정을 새 팀 몫으로 저장하지 않는다.
-            if let schedule = presence.schedule, settings.code == knownCode,
-               settings.adoptSchedule(schedule, now: clock()) {
-                sentSchedule = settings.schedule
-                broadcast(.presence(makePresence()))
+            // 팀 이름도 같다. 일정이나 이름 중 하나라도 받아들였으면 presence 는 한 번만 다시 보낸다.
+            if settings.code == knownCode {
+                var adopted = false
+                if let schedule = presence.schedule, settings.adoptSchedule(schedule, now: clock()) {
+                    sentSchedule = settings.schedule
+                    adopted = true
+                }
+                if let name = presence.teamName, settings.adoptTeamName(name, now: clock()) {
+                    sentTeamName = settings.teamNameStamp
+                    adopted = true
+                }
+                if adopted { broadcast(.presence(makePresence())) }
             }
         case .inventory(let eventIDs, let reactionIDs):
             guard links[peer]?.inventoryReplies.take(now: clock()) == true else { return }
@@ -580,6 +592,7 @@ final class TeamSession {
                      focusEndsAt: focusEndsAt,
                      isDiving: isDiving ? true : nil, evolutionStage: { let n = evolutionStage(); return n > 1 ? n : nil }(),
                      schedule: settings.code == knownCode ? settings.schedule : nil,
+                     teamName: settings.code == knownCode ? settings.teamNameStamp : nil,
                      ditto: dittoState, dittoReady: dittoReady ? true : nil, mimicOf: mimicOf, iceBreak: iceBreak, campfire: campfire,
                      activity: activity, bodySize: bodySize,
                      isFlushed: isFlushed ? true : nil, game: game, gameJoin: gameJoin)

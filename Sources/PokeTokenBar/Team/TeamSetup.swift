@@ -20,6 +20,12 @@ enum TeamSetup {
         return team.isReady ? .openPlaza : .needsNickname
     }
 
+    /// 새 코드를 만들어 이름을 붙여 그 팀에 들어간다. 이름이 올바르지 않으면 false 이고 아무것도 만들지 않는다.
+    @MainActor @discardableResult static func create(_ nameDraft: String, into team: TeamSettings, now: Date) -> Bool {
+        var rng = SystemRandomNumberGenerator()
+        return team.createTeam(code: TeamCode.generate(using: &rng), named: nameDraft, now: now)
+    }
+
     /// "PTB-ABCDE-…" 중 앞 한 묶음만 보이게 나머지를 가린다.
     static func masked(_ code: TeamCode) -> String {
         let parts = code.display.split(separator: "-").map(String.init)

@@ -58,6 +58,20 @@ final class TeamSettings {
         }
         // v2.5.602 and earlier kept only the current code.
         if let code { remember(code) }
+        // 이름이 공유되기 전에 바꿔 둔 이름은 아주 오래된 도장을 찍어 공유 이름 후보로 삼는다(새로 바꾼 이름이 이긴다).
+        // 기본 이름("팀 N")은 도장 없이 두어 보내지 않는다.
+        for i in savedTeams.indices where savedTeams[i].nameChangedAt == nil && !Self.isDefaultTeamName(savedTeams[i].name) {
+            savedTeams[i].nameChangedAt = Date(timeIntervalSince1970: 0)
+            savedTeams[i].nameChangedBy = memberID
+        }
+    }
+
+    /// `^팀 [0-9]+$` — `teamDefaultName` 의 모양이자 사용량 시트의 `DEFAULT_TEAM_NAME` 규칙.
+    private static func isDefaultTeamName(_ name: String) -> Bool {
+        let prefix = String(L(.ko).teamDefaultName(0).dropLast())   // "팀 "
+        guard name.hasPrefix(prefix) else { return false }
+        let digits = name.dropFirst(prefix.count)
+        return !digits.isEmpty && digits.allSatisfy { $0.isASCII && $0.isNumber }
     }
 
     /// The current team's schedule; nil when never changed or when there is no team.
@@ -100,6 +114,9 @@ final class TeamSettings {
     struct SavedTeam: Codable, Equatable, Identifiable {
         var code: String
         var name: String
+        /// When and by whom the name was last changed. nil for a name that was never shared (the default "팀 N").
+        var nameChangedAt: Date?
+        var nameChangedBy: String?
         var id: String { code }
     }
 
@@ -122,12 +139,52 @@ final class TeamSettings {
         code = nil
     }
 
-    /// Names the current team with the nickname rules. An invalid name changes nothing.
+    /// The current team's shared name with its stamp; nil when the name was never changed or shared, or with no team.
+    var teamNameStamp: TeamNameStamp? { currentTeam.flatMap(Self.stamp) }
+
+    private static func stamp(of team: SavedTeam) -> TeamNameStamp? {
+        guard let at = team.nameChangedAt, let by = team.nameChangedBy else { return nil }
+        return TeamNameStamp(name: team.name, changedAt: at, changedBy: by)
+    }
+
+    /// Joins a new team under a name of my choosing. An invalid name changes nothing.
     @discardableResult
-    func renameCurrentTeam(_ raw: String) -> Bool {
+    func createTeam(code newCode: TeamCode, named raw: String, now: Date) -> Bool {
+        guard let name = Self.validNickname(raw) else { return false }
+        code = newCode
+        guard let i = savedTeams.firstIndex(where: { $0.code == newCode.normalized }) else { return false }
+        savedTeams[i].name = name
+        savedTeams[i].nameChangedAt = now
+        savedTeams[i].nameChangedBy = memberID
+        return true
+    }
+
+    /// Names the current team with the nickname rules. An invalid name changes nothing. A new name is stamped so it
+    /// wins over the one the team has now; the same name keeps its stamp.
+    @discardableResult
+    func renameCurrentTeam(_ raw: String, now: Date) -> Bool {
         guard let name = Self.validNickname(raw), let current = currentTeam,
               let i = savedTeams.firstIndex(of: current) else { return false }
-        if savedTeams[i].name != name { savedTeams[i].name = name }
+        if savedTeams[i].name != name {
+            savedTeams[i].name = name
+            // 저장된 도장이 이 기기 시계보다 앞서 있어도 내 수정이 지지 않게 한다(`changeSchedule` 과 같다).
+            savedTeams[i].nameChangedAt = max(now, (current.nameChangedAt ?? .distantPast).addingTimeInterval(0.001))
+            savedTeams[i].nameChangedBy = memberID
+        }
+        return true
+    }
+
+    /// Last-writer-wins: stores `s` as the current team's name when it is valid, not from the far future, and newer.
+    @discardableResult
+    func adoptTeamName(_ s: TeamNameStamp, now: Date) -> Bool {
+        guard let current = currentTeam, let i = savedTeams.firstIndex(of: current),
+              Self.validNickname(s.name) == s.name,
+              s.changedBy.utf8.count <= 64,
+              s.changedAt <= now.addingTimeInterval(600),
+              s.isNewer(than: Self.stamp(of: current)) else { return false }
+        savedTeams[i].name = s.name
+        savedTeams[i].nameChangedAt = s.changedAt
+        savedTeams[i].nameChangedBy = s.changedBy
         return true
     }
 

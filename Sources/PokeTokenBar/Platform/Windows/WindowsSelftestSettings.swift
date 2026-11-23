@@ -60,6 +60,7 @@ extension WindowsSelftest {
         await t.keysCheck()
         await t.teamJoinCheck()
         await t.joinErrorsCheck()
+        await t.teamCreateCheck()
         await t.hangulCheck()
         await t.openPlazaCheck()
         await t.copyCheck()
@@ -164,7 +165,8 @@ extension WindowsSelftest {
     }
 
     typealias TeamRowSet = (enable: WinRow, code: WinRow, leave: WinRow, name: WinRow, switcher: WinRow, create: WinRow, join: WinRow,
-                            joinButton: WinRow, nickname: WinRow, nicknameError: WinRow, joinError: WinRow)
+                            joinButton: WinRow, nickname: WinRow, nicknameError: WinRow, joinError: WinRow, createName: WinRow,
+                            createError: WinRow)
 
     /// The team rows NOW: joining, creating or leaving a team changes the saved list and the page builds itself again, so a row
     /// set kept from before is dead (its windows are destroyed).
@@ -448,7 +450,7 @@ extension WindowsSelftest {
         let code = fixtureCode()
         guard await open(team: team), let page, let section = page.teamForTesting else { r.add("settings.teamJoin", false, "no page"); return }
         guard let edit = rows().join.control else { r.add("settings.teamJoin", false, "no join field"); return }
-        let visibleBefore = shown(rows().join) && shown(rows().joinButton) && shown(rows().create)
+        let visibleBefore = shown(rows().join) && shown(rows().joinButton) && shown(rows().createName) && shown(rows().create)
         // Ctrl+V of " PTB-…\r\n" (a pasted line with its white space).
         let wrote = clipboard(" \(code.display)\r\n")
         await focus(edit)
@@ -492,6 +494,38 @@ extension WindowsSelftest {
         // A paste with no text on the clipboard changes nothing (the kit's rule), the typed selection stays.
         r.add("settings.joinErrors", shownError && text == L(.ko).teamCodeInvalid && noCode && red,
               "'PTB-nope' + Join: error row shown=\(shownError) with the Mac's text '\(text)' in the error colour=\(red); no team joined=\(noCode)")
+        close()
+    }
+
+    // MARK: settings.teamCreate
+
+    func teamCreateCheck() async {
+        let team = newTeam("create", nickname: "다람")
+        guard await open(team: team), let edit = rows().createName.control else {
+            r.add("settings.teamCreate", false, "no page or create field")
+            return
+        }
+        // An empty name: the error row shows (in the error colour) and no team is made.
+        click(rows().create.control)
+        let shownError = await waitFor(1) { self.shown(rows().createError) }
+        let text = rows().createError.hint?.text ?? ""
+        let red = rows().createError.hint?.role == .error
+        let none = team.code == nil && team.savedTeams.isEmpty
+        // A valid name (with spaces round it) and Enter make the team under that name and empty the field.
+        await focus(edit)
+        WinKit.send(edit.hwnd, 0x00B1 /* EM_SETSEL */, 0, -1)
+        WinKit.send(edit.hwnd, 0x00C2 /* EM_REPLACESEL */, 1, text: " 디자인 ")
+        let typed = edit.text == " 디자인 "
+        if WindowsSelftest.onCI { key(0x0D) } else { click(rows().create.control) }   // Enter is a real key on CI only
+        let created = await waitFor(2) { team.code != nil }
+        let named = team.currentTeam?.name == "디자인" && team.teamNameStamp?.name == "디자인"
+        await settle()   // creating a team changes the saved list: the page builds itself again, so read the rows anew
+        let cleared = rows().createName.control?.text.isEmpty ?? true
+        let caption = shown(rows().name) && rows().name.hint?.text == L(.ko).teamNameSharedCaption
+        let formGone = !shown(rows().createName) && !shown(rows().createError)
+        r.add("settings.teamCreate", shownError && text == L(.ko).teamNameInvalid && red && none && typed && created && named && cleared && caption && formGone,
+              "empty name + create: error row shown=\(shownError) with '\(text)' in the error colour=\(red), no team made=\(none); ' 디자인 ' + Enter: typed=\(typed), team created=\(created) "
+                + "named 디자인 and stamped=\(named), field cleared=\(cleared); the shared-name caption shows in the team=\(caption); the create form is gone=\(formGone)")
         close()
     }
 

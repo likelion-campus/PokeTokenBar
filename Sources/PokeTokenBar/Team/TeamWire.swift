@@ -36,6 +36,9 @@ struct TeamPresence: Codable, Equatable, Sendable {
     var evolutionStage: Int?
     /// The team's plaza schedule as this member knows it. Left out when never changed; earlier versions ignore it.
     @LossyOptional var schedule: PlazaSchedule?
+    /// The team's shared name as this member knows it. Left out while it is only the device's default "팀 N"; unreadable
+    /// values become nil; earlier versions ignore it.
+    @LossyOptional var teamName: TeamNameStamp?
     /// The plaza Ditto, sent only by the member who hosts it. Left out otherwise; unreadable or earlier-version
     /// values become nil without hurting the rest of the frame.
     @LossyOptional var ditto: PlazaDittoState?

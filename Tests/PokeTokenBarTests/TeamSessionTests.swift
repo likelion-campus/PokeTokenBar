@@ -1281,4 +1281,92 @@ final class TeamSessionTests: XCTestCase {
         a.session.applySettings()
         XCTAssertEqual(a.presencesSent, before)
     }
+
+    // MARK: - 팀 이름 동기화
+
+    private func rawNamePresence(_ stamp: TeamNameStamp) -> TeamMessage {
+        .presence(TeamPresence(nickname: "Raw", character: Node.eevee, inPlaza: true,
+                               tile: TilePoint(x: 1, y: 1), facing: .down, isWalking: false, teamName: stamp))
+    }
+
+    func testPresenceCarriesTheTeamNameOnlyWhenStamped() async {
+        let a = node("A")
+        XCTAssertNil(a.session.makePresence().teamName, "a default name is never sent")
+        XCTAssertTrue(a.settings.renameCurrentTeam("개발팀", now: clock.now))
+        XCTAssertEqual(a.session.makePresence().teamName, a.settings.teamNameStamp)
+        XCTAssertEqual(a.session.makePresence().teamName?.name, "개발팀")
+    }
+
+    func testTeamNameChangeReachesTheOtherNode() async {
+        let a = node("A"), b = node("B")
+        connect(a, b)
+        XCTAssertTrue(a.settings.renameCurrentTeam("개발팀", now: clock.now))
+        a.session.applySettings()
+        XCTAssertEqual(b.settings.currentTeam?.name, "개발팀")
+        XCTAssertEqual(b.settings.teamNameStamp, a.settings.teamNameStamp)
+    }
+
+    func testAdoptingATeamNameResendsMyPresenceExactlyOnce() async {
+        let b = node("B")
+        let raw = RawPeer(hub: hub)
+        hub.connect(raw.transport, to: b.transport)
+        raw.hello()
+        let before = b.presencesSent
+        raw.say(rawNamePresence(TeamNameStamp(name: "디자인", changedAt: clock.now, changedBy: "x")))
+        XCTAssertEqual(b.settings.currentTeam?.name, "디자인")
+        XCTAssertEqual(b.presencesSent, before + 1)
+    }
+
+    func testAnOlderTeamNameIsNeitherAdoptedNorResent() async {
+        let b = node("B")
+        XCTAssertTrue(b.settings.renameCurrentTeam("개발팀", now: clock.now))
+        let raw = RawPeer(hub: hub)
+        hub.connect(raw.transport, to: b.transport)
+        raw.hello()
+        let before = b.presencesSent
+        raw.say(rawNamePresence(TeamNameStamp(name: "디자인", changedAt: clock.now.addingTimeInterval(-60), changedBy: "x")))
+        XCTAssertEqual(b.settings.currentTeam?.name, "개발팀")
+        XCTAssertEqual(b.presencesSent, before)
+    }
+
+    func testTeamNameIsNotStoredUnderACodeThatTheLinksDoNotBelongTo() async {
+        let a = node("A"), b = node("B")
+        connect(a, b)
+        a.settings.code = newCode()
+        XCTAssertTrue(b.settings.renameCurrentTeam("개발팀", now: clock.now))
+        b.session.applySettings()
+        XCTAssertEqual(a.settings.currentTeam?.name, "팀 2")
+        XCTAssertNil(a.settings.teamNameStamp)
+    }
+
+    /// The other direction for the name: in the window where the code has changed but the links are the old team's, my
+    /// presence must not carry the new team's name.
+    func testTeamNameIsNotSentOnLinksOfAnotherTeam() async {
+        let a = node("A"), b = node("B")
+        connect(a, b)
+        a.settings.code = newCode()
+        XCTAssertTrue(a.settings.renameCurrentTeam("개발팀", now: clock.now))   // stored under the new code
+        XCTAssertNotNil(a.settings.teamNameStamp)
+        a.session.updateTakenItemSlot(1)   // a presence broadcast on the old team's links
+        XCTAssertEqual(b.session.members[a.memberID]?.takenItemSlot, 1, "the presence did arrive")
+        XCTAssertNil(b.settings.teamNameStamp, "but without the other team's name")
+        XCTAssertEqual(b.settings.currentTeam?.name, "팀 1")
+    }
+
+    /// A presence that brings both a newer schedule and a newer name is answered with one presence, not two.
+    func testAdoptingAScheduleAndANameTogetherResendsOnce() async {
+        let b = node("B")
+        let raw = RawPeer(hub: hub)
+        hub.connect(raw.transport, to: b.transport)
+        raw.hello()
+        let before = b.presencesSent
+        let schedule = PlazaSchedule(coreStart: 8, coreEnd: 20, seasonPeriod: "week", changedAt: clock.now,
+                                     changedBy: "x", changedByName: "X")
+        raw.say(.presence(TeamPresence(nickname: "Raw", character: Node.eevee, inPlaza: true,
+                                       tile: TilePoint(x: 1, y: 1), facing: .down, isWalking: false, schedule: schedule,
+                                       teamName: TeamNameStamp(name: "디자인", changedAt: clock.now, changedBy: "x"))))
+        XCTAssertEqual(b.settings.schedule?.coreStart, 8)
+        XCTAssertEqual(b.settings.currentTeam?.name, "디자인")
+        XCTAssertEqual(b.presencesSent, before + 1)
+    }
 }

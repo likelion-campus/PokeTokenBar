@@ -11,6 +11,8 @@ struct TeamSettingsSection: View {
     private let l = L(.ko)
     @State private var joinDraft = ""
     @State private var joinFailed = false
+    @State private var createDraft = ""
+    @State private var createFailed = false
     /// The nickname being typed; the stored one changes only on submit or focus loss, and only when valid.
     @State private var nicknameDraft: String?
     @State private var teamNameDraft: String?
@@ -49,6 +51,10 @@ struct TeamSettingsSection: View {
                                 .onSubmit(commitTeamName)
                                 .onDisappear(perform: commitTeamName)
                         }
+                        Text(l.teamNameSharedCaption)
+                            .font(.caption).foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 12).padding(.bottom, 8)
                         Divider()
                         row {
                             Text(l.teamSwitch)
@@ -65,11 +71,13 @@ struct TeamSettingsSection: View {
                         }
                     } else {
                         row {
-                            Button(l.teamCreate) {
-                                var rng = SystemRandomNumberGenerator()
-                                team.code = TeamCode.generate(using: &rng)
-                            }
-                            Spacer()
+                            TextField(l.teamCreateNamePlaceholder, text: $createDraft)
+                                .textFieldStyle(.roundedBorder)
+                                .onSubmit(create)
+                            Button(l.teamCreate, action: create)
+                        }
+                        if createFailed {
+                            error(l.teamNameInvalid)
                         }
                         Divider()
                         row {
@@ -132,6 +140,8 @@ struct TeamSettingsSection: View {
             .overlay(RoundedRectangle(cornerRadius: 8)
                 .stroke(Color(nsColor: .separatorColor).opacity(0.6), lineWidth: 1))
         }
+        // 팀이 바뀌면(만들기·참여·나가기·다른 팀 만들기) 이전 팀에서 입력하다 만 이름은 버린다. 남기면 새 팀의 이름을 덮어쓴다.
+        .onChange(of: team.code) { teamNameDraft = nil }
     }
 
     private var scheduleRows: some View {
@@ -190,7 +200,7 @@ struct TeamSettingsSection: View {
 
     private func commitTeamName() {
         guard let draft = teamNameDraft else { return }
-        if team.renameCurrentTeam(draft) { teamNameDraft = nil }
+        if team.renameCurrentTeam(draft, now: Date()) { teamNameDraft = nil }
     }
 
     private func switchTo(_ saved: TeamSettings.SavedTeam) {
@@ -205,6 +215,11 @@ struct TeamSettingsSection: View {
             openPlazaWhenReady = false
             nav?.onOpenPlaza?()
         }
+    }
+
+    private func create() {
+        createFailed = !TeamSetup.create(createDraft, into: team, now: Date())
+        if !createFailed { createDraft = "" }
     }
 
     private func join() {
