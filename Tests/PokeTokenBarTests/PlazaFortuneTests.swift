@@ -177,14 +177,14 @@ final class PlazaFortuneTests: XCTestCase {
     }
 
     /// Teammates send the line and action as numbers, so the order of both lists is a wire contract: new entries go at the end only.
-    /// When you append, raise the counts and keep the first-80 / first-12 hashes as they are.
+    /// When you append, raise the counts and keep the first-200 / first-12 hashes as they are.
     func testTheFirstLinesAndActionsKeepTheirNumbers() async {
         func hash(_ list: ArraySlice<String>) -> UInt64 {
             list.joined(separator: "\n").utf8.reduce(0xcbf2_9ce4_8422_2325) { ($0 ^ UInt64($1)) &* 0x0000_0100_0000_01b3 }
         }
-        XCTAssertGreaterThanOrEqual(L(.ko).plazaFortuneLines.count, 80)
+        XCTAssertGreaterThanOrEqual(L(.ko).plazaFortuneLines.count, 200)
         XCTAssertGreaterThanOrEqual(L(.ko).plazaFortuneActions.count, 12)
-        XCTAssertEqual(hash(L(.ko).plazaFortuneLines.prefix(80)), 14_248_402_198_470_895_138)
+        XCTAssertEqual(hash(L(.ko).plazaFortuneLines.prefix(200)), 8717304623835104262)
         XCTAssertEqual(hash(L(.ko).plazaFortuneActions.prefix(12)), 4_205_960_783_727_730_735)
     }
 
