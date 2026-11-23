@@ -8,7 +8,6 @@ final class PlazaDragTests: XCTestCase {
     private func body(_ x: Int, _ y: Int, _ size: Int) -> PlazaBody { PlazaBody(foot: p(x, y), size: size) }
 
     func testTheTunablesAreTheSpecsStartingValues() {
-        XCTAssertEqual(PlazaShove.receiveCooldown, 1)
         XCTAssertEqual(TeamEmote.pushTileRange, 1...3)
     }
 
@@ -124,82 +123,5 @@ final class PlazaDragTests: XCTestCase {
         XCTAssertEqual(PlazaDrag.slide(victim: p(20, 12), puller: p(19, 12), direction: .left, pushTiles: 99, isOpen: open), 3)
         XCTAssertEqual(PlazaDrag.slide(victim: p(20, 12), puller: p(19, 12), direction: .left, pushTiles: 0, isOpen: open), 1)
         XCTAssertEqual(PlazaDrag.slide(victim: p(20, 12), puller: p(19, 12), direction: .left, pushTiles: -5, isOpen: open), 1)
-    }
-
-    // MARK: - PlazaShove
-
-    private let t0 = Date(timeIntervalSinceReferenceDate: 1_000)
-
-    func testASecondMoveWithinASecondIsRefusedAndAtASecondAdmitted() {
-        var s = PlazaShove()
-        XCTAssertTrue(s.admit("a", now: t0))
-        XCTAssertFalse(s.admit("a", now: t0.addingTimeInterval(0.99)))
-        XCTAssertTrue(s.admit("a", now: t0.addingTimeInterval(1.0)))
-    }
-
-    func testARefusedMoveDoesNotRestartTheSecond() {
-        var s = PlazaShove()
-        XCTAssertTrue(s.admit("a", now: t0))
-        XCTAssertFalse(s.admit("a", now: t0.addingTimeInterval(0.5)))
-        XCTAssertTrue(s.admit("a", now: t0.addingTimeInterval(1.0)))
-    }
-
-    func testEachSenderHasItsOwnSecond() {
-        var s = PlazaShove()
-        XCTAssertTrue(s.admit("a", now: t0))
-        XCTAssertTrue(s.admit("b", now: t0.addingTimeInterval(0.1)))
-        XCTAssertFalse(s.admit("a", now: t0.addingTimeInterval(0.2)))
-    }
-
-    func testAHundredMovesASecondAreLetThroughOnceASecond() {
-        var s = PlazaShove()
-        var admitted: [Int] = []
-        for i in 0..<300 where s.admit("a", now: t0.addingTimeInterval(Double(i) / 100)) { admitted.append(i) }
-        XCTAssertEqual(admitted, [0, 100, 200])
-    }
-
-    func testTheRecordKeepsOnlyTheLastSecond() {
-        var s = PlazaShove()
-        for i in 0..<1000 { _ = s.admit("s\(i)", now: t0.addingTimeInterval(Double(i) / 1000)) }
-        XCTAssertTrue(s.admit("x", now: t0.addingTimeInterval(2)))
-        XCTAssertEqual(Set(s.lastMoved.keys), ["x"])
-    }
-
-    func testAClockThatWentBackLetsTheMoveThrough() {
-        var s = PlazaShove()
-        XCTAssertTrue(s.admit("a", now: t0))
-        XCTAssertTrue(s.admit("a", now: t0.addingTimeInterval(-3600)))
-        XCTAssertFalse(s.admit("a", now: t0.addingTimeInterval(-3599.5)))
-    }
-
-    func testAskingNeverStartsTheSecondOnlyRecordingDoes() {
-        var s = PlazaShove()
-        XCTAssertTrue(s.allows("a", now: t0))
-        XCTAssertTrue(s.allows("a", now: t0), "asking records nothing")
-        XCTAssertTrue(s.lastMoved.isEmpty)
-        s.record("a", now: t0)
-        XCTAssertFalse(s.allows("a", now: t0.addingTimeInterval(0.99)))
-        XCTAssertTrue(s.allows("a", now: t0.addingTimeInterval(1)))
-        XCTAssertTrue(s.allows("a", now: t0.addingTimeInterval(-1)), "a clock that went back")
-    }
-
-    /// One app claiming many member IDs must not get a move per ID: across all senders only `maxMovesPerWindow` moves per second.
-    func testManySenderIDsMoveMeAtMostThreeTimesASecond() {
-        XCTAssertEqual(PlazaShove.maxMovesPerWindow, 3)
-        var s = PlazaShove()
-        var moved = 0
-        for i in 0..<10 where s.admit("sybil\(i)", now: t0.addingTimeInterval(Double(i) / 20)) { moved += 1 }
-        XCTAssertEqual(moved, 3)
-        XCTAssertEqual(s.lastMoved.count, 3, "refused moves record nothing, so the table stays at the cap")
-        // The window slides: once the first move is a second old, one more is let through.
-        XCTAssertTrue(s.admit("late", now: t0.addingTimeInterval(1.0)))
-    }
-
-    /// Ordinary play: two friends tackling in turn, each once a second, are never held by the cap.
-    func testTwoFriendsTacklingInTurnAreNeverHeldByTheCap() {
-        var s = PlazaShove()
-        for i in 0..<20 {
-            XCTAssertTrue(s.admit(i.isMultiple(of: 2) ? "a" : "b", now: t0.addingTimeInterval(Double(i) * 0.5)), "\(i)")
-        }
     }
 }
