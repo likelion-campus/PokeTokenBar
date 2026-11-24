@@ -25,11 +25,8 @@ Two things make it trustworthy:
 - `--only-use-versions-from-resolved-file` once `Package.resolved` came with the seed (about 30-60 s per swift command otherwise, and
   in a release build a re-resolve even recompiled the whole module).
 
-`Package.resolved` is tracked and pins the revision of every dependency (swift-crypto 3.15.1 and swift-asn1; the Mac manifest on `main`
-declares no dependency, so a Mac build leaves the file alone). `seed-restore.ps1` puts the committed file back after any unpack (the seed's
-copy never wins), and every swift command passes `--only-use-versions-from-resolved-file`, so a moved upstream tag or a new swift-asn1
-release cannot reach a build. To change a dependency: edit `Package.swift`, run `PTB_SHARED_ONLY=1 swift package resolve`, commit the new
-`Package.resolved` (and `build-pins.json`'s `swiftCrypto` when swift-crypto moved).
+`Package.resolved` is git-ignored on purpose and nothing pins swift-crypto (`from: "3.0.0"` in the Windows branch of Package.swift; the Mac
+manifest on `main` declares no dependency at all). The file is used only inside the seed: the clean build resolves, the seed carries the result.
 
 ## When the build is clean (no seed)
 - release mode (`release_sha`), branches `kit/*` (also a pull request from one), `clean_build=true`: the Seed step is skipped by an `if:` of the
@@ -48,7 +45,7 @@ release cannot reach a build. To change a dependency: edit `Package.swift`, run 
 - The archive may hold `.build/` and `Package.resolved` only (checked with `tar -tf` before anything is extracted); no `..`, drive letters or
   streams, no device nodes or hard links, symbolic links only inside the workspace (the real seed has one: `.build/debug`).
 - The metadata is not believed: chain length an integer below the limit, dates ordered and not in the future, a 40-hex commit, same Swift and
-  image; the seed's `Package.resolved` is never used: the committed one is restored after the unpack (a PR that changes a dependency must commit the refreshed file).
+  image; `Package.resolved` is kept only while Package.swift is the blob the seed was built with (a PR that adds a dependency resolves normally).
 - After the unpack, every file that differs between the seed's commit (fetched by id) and HEAD gets the mtime NOW (`stamp-changed.ps1`):
   llbuild needs the stable blob stamps, swift-driver judges C headers and clang modules by "newer than the last build" and a 2000-2008 stamp
   would say "unchanged". A header change costs a rebuild of the Swift files that import it (about 3.5 min); the lab proves a renamed
@@ -107,5 +104,5 @@ Everything the Windows installer is built from that the repository does not cont
 | Windows SDK | not chosen (clang takes the newest installed) | `windowsSdk` | recorded only; to pin, set `WindowsSDKVersion` in `select-msvc-toolset.ps1` |
 | Inno Setup | `scripts/windows/build-pins.json` (`innosetup`); `ensure-inno.ps1` installs that version with chocolatey when the image has another | `innoSetup`; the manifest script fails if it differs from the pin | edit `build-pins.json` (a version `choco search innosetup --exact --all-versions` lists), run light windows-app (installer + installed selftest) |
 | OpenSSL (vcpkg) | `builtin-baseline` in `windows/vcpkg.json` (a vcpkg commit: 0bcada16, 2026-10-15, holds openssl 3.6.5; the newest commit tried, 9ee11c38, failed with 'no version database entry for vcpkg-cmake' on the runner's vcpkg tool) | `openssl` from `opensslv.h`; the manifest script fails unless the selftest's runtime `openssl` is the same | `gh api repos/microsoft/vcpkg/commits/master --jq .sha` into `builtin-baseline` (the vcpkg cache key includes the file, so the next run reinstalls); check `ports/openssl/vcpkg.json` at that commit for the version; run windows.yml + light windows-app |
-| swift-crypto | pinned by the committed `Package.resolved` (revision and version; `Package.swift` still says `from: "3.0.0"`); also RECORDED and compared: `swiftCrypto` in `scripts/windows/build-pins.json` | `swiftCrypto` (from `Package.resolved`); drift is a `::warning::` in windows-app runs and a failure in release mode (manifest script and build job) | after reading swift-crypto's release notes, set `swiftCrypto` in `build-pins.json` to the new version and run windows.yml + light windows-app. Refresh the committed `Package.resolved` in the same change |
+| swift-crypto | NOT pinned in the build (`Package.swift` floats `from: "3.0.0"`, `Package.resolved` is git-ignored); RECORDED and compared: `swiftCrypto` in `scripts/windows/build-pins.json` | `swiftCrypto` (from `Package.resolved`); drift is a `::warning::` in windows-app runs and a failure in release mode (manifest script and build job) | after reading swift-crypto's release notes, set `swiftCrypto` in `build-pins.json` to the new version and run windows.yml + light windows-app. Pinning it for real (commit `Package.resolved` or an exact version) is a separate decision |
 | runner image | not pinned (`windows-latest`) | `runnerImage` in the manifest and in seed meta | n/a |

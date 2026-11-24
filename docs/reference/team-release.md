@@ -39,7 +39,7 @@ script's PID alone waits for the running step).
 manifest's `workflowSha` must equal that commit. A title and inputs alone prove nothing: a branch can carry its own copy of
 the workflow without the release pin and write any manifest. `start` ignores (and names) a run with the release title from
 another branch or commit, so a rehearsal's run on a branch is never reused by the release on `main`; `collect` stops, without
-downloading, when a run it was given did not come from the release commit. Re-run `start` (`--new <workflow>`) to get a fresh one.
+downloading, when a run it was given did not come from the release commit. Re-run `start` (`--new <workflow>`) to get a fresh one. If `main` moved after the release commit, a dispatch builds the new tip: `start` stops at once ("main moved to ..."); do not start again, pull and release the new tip.
 
 Steps (banner `[N/10]` with elapsed time): 0 arguments, branch, clean tree, HEAD, no existing tag or release, signing leaf;
 1 helper self-tests, notes check, **docs gate**; 2 start the Windows runs; 3 Mac test gate and cfprefsd guard; 4 Mac build,

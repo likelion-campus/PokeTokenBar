@@ -90,7 +90,7 @@ class FakeGitHub:
          assets uploaded so far) in place.
       A6 the REST list has every release (drafts too), newest first; releases/latest is the latest published one.
     Runs have attempts, and a dispatch cancels a pending run of the same release (concurrency group
-    <workflow>-release-<sha>, cancel-in-progress false: one running, one pending).
+    <workflow>-release-<sha>-<ref>, cancel-in-progress false: one running, one pending).
     Faults are injected with `on(predicate, effect)`: an effect returns a Result to answer instead, or None to change
     state and let the default answer follow."""
 
@@ -228,7 +228,7 @@ class FakeGitHub:
         title = ("release %s %s" % (inputs.get("release_version"), inputs.get("release_sha"))
                  if workflow != "windows-release-smoke.yml" else "windows-release-smoke")
         for run in self.runs.get(workflow, []):
-            if run["displayTitle"] == title and run["status"] in ("queued", "pending", "waiting"):
+            if run["displayTitle"] == title and run["headBranch"] == ref and run["status"] in ("queued", "pending", "waiting"):
                 run["status"], run["conclusion"] = "completed", "cancelled"  # the newer pending run replaces it
                 self.timelines.pop(run["databaseId"], None)
         # a dispatched run runs the workflow file at the head of --ref; the fake's ref heads are `ref_heads`
@@ -508,6 +508,16 @@ class StartTests(HelperTest):
         self.gh.add_run("windows.yml", branch="feat/x")
         self.assertExit(0, self.start("--ref", "feat/x"))
         self.assertEqual([], self.gh.calls_of("workflow", "run"))
+
+    def test_main_moving_before_the_dispatch_stops_with_the_right_advice(self):
+        # A dispatch builds the branch's tip. If main moved, our own run is at the new tip: say so, never "start again".
+        self.gh.ref_heads["main"] = OTHER_SHA
+        self.assertExit(1, self.start())
+        self.assertIn("main moved to %s after the release commit %s" % (OTHER_SHA, SHA), self.err)
+        self.assertIn("pull, and release the new tip", self.err)
+        self.assertNotIn("Run start again", self.err)
+        self.assertEqual(1, len(self.gh.calls_of("workflow", "run")), "stopped at the first dispatch")
+        self.assertFalse((self.tmp / "build/windows-release/runs.json").exists())
 
     def test_a_dispatched_run_that_never_appears(self):
         self.gh.appear_after = None

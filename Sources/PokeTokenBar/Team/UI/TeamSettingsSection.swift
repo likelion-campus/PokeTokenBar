@@ -244,8 +244,11 @@ enum TeamCodePasteboard {
 
     static func write(_ text: String, to pasteboard: NSPasteboard) {
         _ = pasteboard.prepareForNewContents(with: .currentHostOnly)  // clears the old contents too
-        pasteboard.setString(text, forType: .string)
-        pasteboard.setString("", forType: concealedType)
-        pasteboard.setString("", forType: transientType)
+        // One item, written in one call: there is no moment when the string is on the pasteboard without its markers.
+        let item = NSPasteboardItem()
+        item.setString(text, forType: .string)
+        item.setString("", forType: concealedType)
+        item.setString("", forType: transientType)
+        pasteboard.writeObjects([item])
     }
 }

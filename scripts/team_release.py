@@ -289,6 +289,12 @@ def wait_for_new_run(ctx, workflow_file, known_ids, title, origin=None):
         waited += APPEAR_STEP
         for run in dispatch_runs(ctx, workflow_file):
             if run.get("databaseId") not in known_ids and (title is None or run.get("displayTitle") == title):
+                if origin and run.get("headBranch") == origin[0] and run.get("headSha") != origin[1]:
+                    # Our own dispatch: a dispatch builds the branch's tip, and the tip is no longer the release commit.
+                    raise Stop(EXIT_ERROR, "%s: %s moved to %s after the release commit %s, so the run just dispatched "
+                               "(%s) builds %s's tip, not the release commit. Do not start again: pull, and release the new "
+                               "tip. %s" % (workflow_file, origin[0], run.get("headSha"), origin[1], run.get("databaseId"),
+                                            origin[0], run_url(run.get("databaseId"))))
                 if origin and origin_problem(run, *origin):
                     ctx.say("%s: ignoring run %s, it ran %s" % (workflow_file, run.get("databaseId"),
                                                                 origin_problem(run, *origin)))
