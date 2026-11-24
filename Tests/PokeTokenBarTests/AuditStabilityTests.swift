@@ -88,7 +88,7 @@ final class AuditStabilityTests: XCTestCase {
         XCTAssertLessThanOrEqual(s.state.dayLedgers?.count ?? 0, 7)
     }
 
-    func testSaveWithDayLedgersRoundTripsAndOlderSavesAndUnknownKeysStillLoad() throws {
+    func testSaveWithDayLedgersRoundTripsAndOlderSavesAndUnknownKeysStillLoad() async throws {
         var state = CompanionState()
         state.dayLedgers = ["d1": ["codex": 5]]
         let data = try JSONEncoder().encode(state)
@@ -185,7 +185,7 @@ final class AuditStabilityTests: XCTestCase {
 
     // MARK: 7. a window key names one window
 
-    func testWindowsSharingAKeyNeverGrantAndNeverTouchTheTier() {
+    func testWindowsSharingAKeyNeverGrantAndNeverTouchTheTier() async {
         let a = CandyWindow(key: "antigravity.gemini.5h", name: "A", kind: .session, utilization: 100)
         let b = CandyWindow(key: "antigravity.gemini.5h", name: "B", kind: .session, utilization: 40)
         var tier: [String: Int] = [:], epoch: [String: String] = [:]
@@ -199,7 +199,7 @@ final class AuditStabilityTests: XCTestCase {
         XCTAssertTrue(CompanionStore.evaluateCandyGrants(windows: [a, c], grantTier: &tier, windowEpoch: &epoch).isEmpty)
     }
 
-    func testUniquelyKeyedKeepsTheFirstKeyAndNumbersTheRest() {
+    func testUniquelyKeyedKeepsTheFirstKeyAndNumbersTheRest() async {
         let ws = [("a", 100.0), ("a", 10.0), ("b", 5.0), ("a", 0.0)].map {
             CandyWindow(key: $0.0, name: "n", kind: .weekly, utilization: $0.1)
         }

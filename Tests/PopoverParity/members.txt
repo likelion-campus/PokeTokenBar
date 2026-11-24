@@ -46,6 +46,7 @@ CompanionStore.failedPokemonDetailIDs | D7
 CompanionStore.filteredDexEntries | D3
 CompanionStore.filteredDexSpecies | D5
 CompanionStore.formSpecies | D7
+CompanionStore.flush | A7
 CompanionStore.grantCandies | A7
 CompanionStore.growthDifficulty | G9
 CompanionStore.growthMultiplier | C6
@@ -223,6 +224,7 @@ UsageStore.monthDailyTotals | P11
 UsageStore.monthTotalTokens | P6
 UsageStore.monthUsageCost | P6
 UsageStore.onRefresh | A7
+UsageStore.onWakeMissed | A1
 UsageStore.openCodeGoLimits | P16
 UsageStore.openCodeGoLimitsAuthExpired | P16
 UsageStore.openCodeGoLimitsStale | P27
