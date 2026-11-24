@@ -353,7 +353,7 @@ private struct PetGifFetcher: PlazaSpriteFetching {
 
     static func togglesCheck(_ r: WindowsSelftest.Recorder, _ app: WindowsAppDelegate) async {
         guard WindowsSelftest.onCI, let pet = WinFloatingPet.current, let tray = app.tray else {
-            r.add("pet.toggles", true, "skipped: CI not set (the popover takes the foreground)")
+            r.add("pet.toggles", true, "skipped: not the runner (PTB_SELFTEST_RUNNER unset) (the popover takes the foreground)")
             return
         }
         let l = app.companion.l
@@ -463,7 +463,7 @@ private struct PetGifFetcher: PlazaSpriteFetching {
 
     static func noActivateCheck(_ r: WindowsSelftest.Recorder, _ app: WindowsAppDelegate) async {
         guard WindowsSelftest.onCI, let probe = WindowsSelftestPopoverWindow.makeProbe() else {
-            r.add("pet.noActivate", true, "skipped: CI not set (real input only on the runner)")
+            r.add("pet.noActivate", true, "skipped: not the runner (PTB_SELFTEST_RUNNER unset) (real input only on the runner)")
             return
         }
         defer { probe.destroy() }
@@ -686,7 +686,7 @@ private struct PetGifFetcher: PlazaSpriteFetching {
         // a click on a hatched pet opens a closed one and does not reopen the one its press closed; a prayer or a drag leaves
         // it closed. Real input and the foreground: CI only.
         guard WindowsSelftest.onCI, let popover = app.popover else {
-            r.add("pet.clickActions", ok, notes.joined(separator: "; ") + "; with the popover: skipped (CI not set)")
+            r.add("pet.clickActions", ok, notes.joined(separator: "; ") + "; with the popover: skipped (not the runner: PTB_SELFTEST_RUNNER unset)")
             return
         }
         popover.close(.destroyed)
@@ -818,7 +818,7 @@ private struct PetGifFetcher: PlazaSpriteFetching {
 
     static func menuCheck(_ r: WindowsSelftest.Recorder, _ app: WindowsAppDelegate) async {
         guard WindowsSelftest.onCI else {
-            r.add("pet.menu", true, "skipped: CI not set (the menu takes the foreground)")
+            r.add("pet.menu", true, "skipped: not the runner (PTB_SELFTEST_RUNNER unset) (the menu takes the foreground)")
             return
         }
         let l = app.companion.l
@@ -886,7 +886,7 @@ private struct PetGifFetcher: PlazaSpriteFetching {
 
     static func zOrderCheck(_ r: WindowsSelftest.Recorder, _ app: WindowsAppDelegate) async {
         guard WindowsSelftest.onCI, let popover = app.popover else {
-            r.add("pet.zOrder", true, "skipped: CI not set (the popover takes the foreground)")
+            r.add("pet.zOrder", true, "skipped: not the runner (PTB_SELFTEST_RUNNER unset) (the popover takes the foreground)")
             return
         }
         guard let probe = WindowsSelftestPopoverWindow.makeProbe() else { r.add("pet.zOrder", false, "no probe"); return }
@@ -1204,7 +1204,7 @@ private struct PetGifFetcher: PlazaSpriteFetching {
         let parks = [POINT(x: work.left + 2, y: work.top + 2), POINT(x: work.right - 3, y: work.top + 2), POINT(x: work.left + 2, y: work.bottom - 3)]
         let park = parks.first { !windowAt($0).ours } ?? parks[0]
         if WindowsSelftest.onCI { _ = SetCursorPos(park.x, park.y) }   // real input only on the runner
-        let parkedOver = WindowsSelftest.onCI ? windowAt(park).text : "nothing (CI not set: not moved)"
+        let parkedOver = WindowsSelftest.onCI ? windowAt(park).text : "nothing (not the runner (PTB_SELFTEST_RUNNER unset): not moved)"
         let spot = CGPoint(x: CGFloat(work.left + 420), y: CGFloat(work.top + 360))
         let h = await PetHarness.make(.eggIncubating, saved: spot) { $0.asleep = true }
         defer { h.destroy() }
@@ -1396,7 +1396,7 @@ private struct PetGifFetcher: PlazaSpriteFetching {
     /// pet shown for 3 s and turned off.
     static func startIdleProbe(mode: String) {
         guard WindowsSelftest.onCI else {
-            AppLog.write("pet idle probe: CI not set; nothing shown")
+            AppLog.write("pet idle probe: not the runner (PTB_SELFTEST_RUNNER unset); nothing shown")
             return
         }
         WinFloatingPet.spriteFetcherOverride = WindowsSelftestPopoverCompanion.fixtureFetcher()

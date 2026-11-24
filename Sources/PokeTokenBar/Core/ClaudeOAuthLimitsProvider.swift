@@ -162,6 +162,7 @@ actor OAuthAccessTokenCache {
     }
 
     func accessToken(allowKeychainPrompt: Bool, bypassCache: Bool = false) async throws -> String {
+        guard !AppEnv.liveFetchForbidden else { throw LimitsError.liveFetchNotPermitted }  // a person's Windows selftest: no login file, no Keychain
         // 파일 크리덴셜(~/.claude/.credentials.json) — 키체인 무관, 프롬프트 없음.
         // 캐시 히트보다 파일을 먼저 본다. `/login` 으로 같은 팀의 다른 메일로 갈아타면 파일이
         // 새 *유효* 토큰으로 덮이는데, 만료만 보고 캐시를 돌려주면 공식 5h/주 바가 이전 계정에
@@ -267,6 +268,7 @@ actor OAuthAccessTokenCache {
     /// `extraRootFile` is set for an additional config folder: that file is the one Claude Code writes
     /// for that login, so the environment guard below does not apply.
     private nonisolated static func credentialsFileIsAccountOAuthMissing(extraRootFile: URL?) -> Bool {
+        guard !AppEnv.liveFetchForbidden else { return false }
         let url: URL
         if let extraRootFile {
             url = extraRootFile
@@ -283,6 +285,7 @@ actor OAuthAccessTokenCache {
     }
 
     private nonisolated static func readClaudeCredentialsFile(url: URL) throws -> OAuthCredentialData.Credential? {
+        guard !AppEnv.liveFetchForbidden else { throw LimitsError.liveFetchNotPermitted }
         guard let data = try? Data(contentsOf: url) else { return nil }
         guard let credential = OAuthCredentialData.credential(from: data), !credential.isExpired else {
             return nil

@@ -27,6 +27,8 @@ jobs:
   smoke:
     runs-on: windows-latest
     timeout-minutes: 70  # the installed selftest step may take 45 (one retry), as in windows-app.yml's installer job
+    env:
+      PTB_SELFTEST_RUNNER: '1'  # the selftest's runner-only group (real input, clipboard, Run key...) runs only where this is set
     steps:
       - name: Inputs
         shell: bash

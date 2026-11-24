@@ -444,6 +444,7 @@ enum LocalAdditionalUsageReader {
     /// OpenCode 2 keeps `/connect` keys in the `credential` table; older versions wrote `auth.json`,
     /// which stays the fallback. Never logged.
     static func openCodeAPIKey(integrationID: String, roots: [URL]? = nil) -> String? {
+        guard !AppEnv.liveFetchForbidden else { return nil }  // a person's Windows selftest: OpenCode's key store is not read
         for root in roots ?? defaultOpenCodeRoots {
             if let database = preferredOpenCodeDatabase(in: root) {
                 let values = query(

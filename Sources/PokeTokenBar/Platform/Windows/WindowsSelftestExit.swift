@@ -23,10 +23,11 @@ extension WindowsSelftest {
         WindowsApp.trayToRemove = tray
 
         // A peer that accepts and never admits: the transport's handshake against it never completes.
-        let peer = WinSocketLoop(deliver: { _ in })
+        let lan = WindowsSelftest.onCI   // a person's PC: loopback only, no firewall prompt
+        let peer = WinSocketLoop(deliver: { _ in }, loopbackOnly: !lan)
         peer.start()
         let code = TeamCode(parsing: "PTB-AAAA-BBBB-CCCC")!
-        let transport = WindowsTeamTransport(advertise: false)
+        let transport = WindowsTeamTransport(advertise: false, loopbackOnly: !lan)
         transport.start(code: code)
         WindowsApp.teamTransportToShutdown = transport
         let release = DispatchSemaphore(value: 0)   // never signalled: the thread stays stuck until the process ends

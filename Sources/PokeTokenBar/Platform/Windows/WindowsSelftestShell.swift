@@ -3,7 +3,7 @@ import Foundation
 import WinSDK
 
 /// Selftest group for launch at login and the update check (Task 10). The login checks write the REAL Run key (the
-/// throwaway runner profile's), but only under a scratch value name and only when `CI` is set; every path removes
+/// throwaway runner profile's), but only under a scratch value name and only on the runner (`PTB_SELFTEST_RUNNER=1`); every path removes
 /// the scratch value again, also on failure.
 extension WindowsSelftest {
     @MainActor static func shellChecks(_ r: Recorder) async {
@@ -17,7 +17,7 @@ extension WindowsSelftest {
     /// The app has been running for the whole selftest and nothing but the tray toggle writes the Run value.
     @MainActor private static func loginFirstRunCheck(_ r: Recorder) {
         guard onCI else {
-            r.add("login.firstRunOff", true, "skipped (CI not set): a person's PC may have launch at login on")
+            r.add("login.firstRunOff", true, "skipped (not the runner: PTB_SELFTEST_RUNNER unset): a person's PC may have launch at login on")
             return
         }
         let real = WindowsLoginItem()
@@ -28,7 +28,7 @@ extension WindowsSelftest {
 
     @MainActor private static func loginRealKeyCheck(_ r: Recorder) {
         guard onCI else {
-            r.add("login.realKey", true, "skipped (CI not set)")
+            r.add("login.realKey", true, "skipped (not the runner: PTB_SELFTEST_RUNNER unset)")
             return
         }
         let name = "PokeTokenBar-selftest-\(UUID().uuidString.prefix(8))"

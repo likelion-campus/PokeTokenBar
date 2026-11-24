@@ -37,6 +37,20 @@ enum WinRegistry {
         }
     }
 
+    /// The value with its registry type: restoring a `REG_DWORD` through `setBytes` would turn it into `REG_BINARY`.
+    static func typed(_ subkey: String, _ name: String) -> Read<(type: DWORD, bytes: [UInt8])> {
+        switch raw(subkey, name) {
+        case .value(let (type, bytes)): return .value((type, bytes))
+        case .missing: return .missing
+        case .failed(let code): return .failed(code)
+        }
+    }
+
+    /// 0 on success. Writes the type `typed` read.
+    static func setTyped(_ subkey: String, _ name: String, type: DWORD, bytes: [UInt8]) -> Int32 {
+        set(subkey, name, type: type, data: bytes)
+    }
+
     /// 0 on success. Creates the key when it is missing.
     static func setString(_ subkey: String, _ name: String, _ value: String) -> Int32 {
         let units = Array(value.utf16) + [0]

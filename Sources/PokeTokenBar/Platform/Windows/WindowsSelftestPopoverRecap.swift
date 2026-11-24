@@ -342,7 +342,7 @@ private struct RecapFixtureProvider: UsageProvider {
 
     private static func roundTripCheck(_ r: WindowsSelftest.Recorder, _ app: WindowsAppDelegate) async {
         guard WindowsSelftest.onCI else {
-            r.add("recap.roundTrip", true, "skipped: CI not set (the popover takes the foreground)")
+            r.add("recap.roundTrip", true, "skipped: not the runner (PTB_SELFTEST_RUNNER unset) (the popover takes the foreground)")
             return
         }
         guard let popover = app.popover, let probe = WindowsSelftestPopoverWindow.makeProbe() else {
@@ -400,7 +400,7 @@ private struct RecapFixtureProvider: UsageProvider {
     /// A recap page open and left alone (sample data in a kit window). CI only: it opens a window.
     static func startIdleProbe() {
         guard WindowsSelftest.onCI else {
-            AppLog.write("popover recap idle probe: CI not set; nothing opened")
+            AppLog.write("popover recap idle probe: not the runner (PTB_SELFTEST_RUNNER unset); nothing opened")
             return
         }
         Task { @MainActor in

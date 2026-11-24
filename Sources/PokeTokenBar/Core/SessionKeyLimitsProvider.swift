@@ -209,7 +209,7 @@ struct SessionKeyLimitsProvider: ClaudeLimitsProviding, SessionKeyManaging {
         return picked.limits
     }
 
-    func credential() -> SessionKeyCredential? { store.load() }
+    func credential() -> SessionKeyCredential? { AppEnv.liveFetchForbidden ? nil : store.load() }  // a person's Windows selftest reads no key
 
     func save(key: String, organizationID: String?) throws {
         try store.save(SessionKeyCredential(key: try SessionKeyStore.normalize(key),

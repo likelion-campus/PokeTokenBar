@@ -39,6 +39,7 @@ public struct OpenCodeGoRateLimitsProvider: OpenCodeGoLimitsProviding, Sendable 
 
     /// nil = no OpenCode Go key on this machine (not a Go subscriber).
     public func fetch() async throws -> OpenCodeGoRateLimitStatus? {
+        guard !AppEnv.liveFetchForbidden else { return nil }  // a person's Windows selftest: no key read, no request
         guard let key = apiKey() else {
             AppLog.writeIfChanged("opencode-go-limits-key", "opencode go limits: no api key")
             return nil

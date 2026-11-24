@@ -100,7 +100,7 @@ extension WindowsSelftest {
         let plainOK = plain.code == 0 && took && arrived && WinAgentLink.lastAccepted == AgentLinkRules.event(fromLink: link)
         ok = ok && plainOK
         notes.append("start with a FIXTURE link -> exit \(plain.code.map(String.init) ?? "none") in \(plain.ms) ms, taken by this app=\(took), "
-                     + (WindowsSelftest.onCI ? "on the pet's waiting bubble=\(arrived)" : "the pet: skipped (CI not set)"))
+                     + (WindowsSelftest.onCI ? "on the pet's waiting bubble=\(arrived)" : "the pet: skipped (not the runner: PTB_SELFTEST_RUNNER unset)"))
         // A link that closes its quotes and adds flags: the whole start is dropped, nothing of it is read (a second start would
         // open the popover; the selftest flag would switch the settings suite).
         let injected = #"poketokenbar://agent?state=waiting&label=selftest-inject""#
@@ -184,7 +184,7 @@ extension WindowsSelftest {
     /// keeps its own app alone.
     static func coldStartCheck(_ r: WindowsSelftest.Recorder) async {
         guard WindowsSelftest.onCI else {
-            r.add("link.coldStart", true, "skipped: CI not set (a clean start would start the app on this PC's own profile)")
+            r.add("link.coldStart", true, "skipped: not the runner (PTB_SELFTEST_RUNNER unset) (a clean start would start the app on this PC's own profile)")
             return
         }
         let base = FileManager.default.temporaryDirectory.appendingPathComponent("ptb-link-cold-\(UUID().uuidString)", isDirectory: true)
@@ -267,7 +267,7 @@ extension WindowsSelftest {
 
     static func shellCheck(_ r: WindowsSelftest.Recorder, _ app: WindowsAppDelegate, registered: Bool) async {
         guard WindowsSelftest.onCI, registered else {
-            r.add("link.shell", true, "skipped: \(WindowsSelftest.onCI ? "this copy is not the registered one" : "CI not set") (the shell would start the registered app)")
+            r.add("link.shell", true, "skipped: \(WindowsSelftest.onCI ? "this copy is not the registered one" : "not the runner (PTB_SELFTEST_RUNNER unset)") (the shell would start the registered app)")
             return
         }
         let a0 = WinAgentLink.stats.accepted, shows = app.showRequests

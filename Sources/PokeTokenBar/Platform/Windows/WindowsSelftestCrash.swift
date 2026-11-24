@@ -11,11 +11,12 @@ import WinSDK
 enum WindowsSelftestCrash {
     @MainActor static func run(_ args: [String]) -> Never {
         let mode = args.first ?? "clean"
+        let instance = WinSingleInstance.stateSuffix(stateDirectory: AppStatePaths.directory(), defaultDirectory: WindowsAppDelegate.defaultStateDirectory)
         let scratch = args.count > 1 ? URL(fileURLWithPath: args[1], isDirectory: true) : nil
         // Dumps are opt-in through the environment: a child asks for them with a third argument, else the variable is cleared (with no folder the real environment decides).
         if scratch != nil { _ = SetEnvironmentVariableW(WinStr.w("PTB_CRASH_DUMPS"), args.count > 2 && args[2] == "dumps" ? WinStr.w("1") : nil) }
         _ = SetErrorMode(0x0001 | 0x0002)  // SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX
-        WindowsCrashLog.install(version: "selftest-crash", logsDirectory: scratch ?? PlatformCompat.logsDirectory(), log: { line in
+        WindowsCrashLog.install(version: "selftest-crash", logsDirectory: scratch ?? PlatformCompat.logsDirectory(), instance: instance, log: { line in
             guard let scratch else { AppLog.write(line); return }
             let url = scratch.appendingPathComponent("child.log")
             let data = Data((line + "\n").utf8)
@@ -71,8 +72,11 @@ extension WindowsSelftest {
         }
         func count(_ needle: String, in haystack: String) -> Int { haystack.components(separatedBy: needle).count - 1 }
         func hex(_ code: DWORD?) -> String { code.map { "0x" + String($0, radix: 16, uppercase: true) } ?? "timeout" }
-        let crashLog = WindowsCrashLog.crashLogName
-        let marker = scratch.appendingPathComponent(WindowsCrashLog.markerName)
+        // The children inherit this process's PTB_STATE_DIR, so they name their files after the same state folder.
+        let instance = WinSingleInstance.stateSuffix(stateDirectory: AppStatePaths.directory(), defaultDirectory: WindowsAppDelegate.defaultStateDirectory)
+        let crashLog = WindowsCrashLog.crashLogFile(instance: instance)
+        let markerFile = WindowsCrashLog.markerFile(instance: instance)
+        let marker = scratch.appendingPathComponent(markerFile)
 
         // 1. a deliberate access violation
         let c1 = await child("av", in: scratch)
@@ -150,8 +154,8 @@ extension WindowsSelftest {
         let leftovers = ((try? FileManager.default.contentsOfDirectory(atPath: fresh.path)) ?? []).filter { $0 != "child.log" }
         let crashEmpty = text(crashLog, in: fresh).isEmpty
         r.add("crash.cleanExit", e1 == 0 && e2 == 0 && !freshLog.contains("did not end cleanly") && crashEmpty
-              && !leftovers.contains(WindowsCrashLog.markerName) && dumps(in: fresh).isEmpty,
-              "exit=\(hex(e1)),\(hex(e2)) reported_unclean=\(freshLog.contains("did not end cleanly")) marker_left=\(leftovers.contains(WindowsCrashLog.markerName)) "
+              && !leftovers.contains(markerFile) && dumps(in: fresh).isEmpty,
+              "exit=\(hex(e1)),\(hex(e2)) reported_unclean=\(freshLog.contains("did not end cleanly")) marker_left=\(leftovers.contains(markerFile)) "
                 + "crash_log_empty=\(crashEmpty) dumps=\(dumps(in: fresh).count) files=\(leftovers.sorted())")
     }
 }
