@@ -75,6 +75,30 @@ function suggestedTeamNames(teamLabels) {
   return out;
 }
 
+// A report whose team rows were dropped (a cap) is never re-sent for unchanged days, so a team that only
+// appears on older days would have no 부서 row. Adds a row for every team ID that 원본 or 한도 carries and
+// 부서 lacks, up to MAX_DEPTS_TOTAL. The 팀이름 (참고팀이름 source) rows are not backfilled: a missing
+// label only leaves the suggested name empty until a member sends that team's label again.
+// Call inside the script lock; it re-reads 부서 so an owner's row is never duplicated or touched.
+function backfillDepts(ss, data, today) {
+  var sheet = ss.getSheetByName(TAB_DEPTS);
+  if (!sheet) return;
+  var known = new Set(sheetRows(sheet, 1).map(function (r) { return r[0]; }));
+  var room = MAX_DEPTS_TOTAL - known.size;
+  var items = [];
+  var seen = new Set();
+  function want(team) {
+    if (typeof team !== "string" || !team || known.has(team) || seen.has(team) || items.length >= room) return;
+    seen.add(team);
+    items.push({ key: team, build: function () { return [team, "", "", today]; } });
+  }
+  data.usage.forEach(function (u) { want(u.team); });
+  data.limits.forEach(function (l) { want(l.team); });
+  if (!items.length) return;
+  upsertRows(sheet, COLS_DEPTS.length, function (r) { return r[0]; }, items);
+  items.forEach(function (it) { if (!data.depts[it.key]) data.depts[it.key] = { name: "", suggested: "" }; });
+}
+
 // Call inside the script lock: it re-reads 부서 so a row a report just added is kept, and it writes
 // column C only, so the owner's 부서이름 is never touched.
 function writeSuggestedTeamNames(ss, data) {
@@ -130,7 +154,10 @@ function refreshAllLocked() {
     }
   }
   var data = readAll(ss, tz);
-  withScriptLock(function () { writeSuggestedTeamNames(ss, data); });
+  withScriptLock(function () {
+    backfillDepts(ss, data, today);
+    writeSuggestedTeamNames(ss, data);
+  });
   DASHBOARD_TABS.forEach(function (d) {
     var sheet = ss.getSheetByName(d.name);
     var lastRow = renderDashboard(sheet, computeDashboard(data, d.kind, today), nowMs, tz);
@@ -177,6 +204,9 @@ function onOpen(e) {
     .addItem("지금 새로 고침", "refreshAll")
     .addItem("샘플 데이터 넣기", "seedSampleData")
     .addItem("샘플 데이터 지우기", "clearSampleData")
+    .addItem("멤버 ID 기록 지우기", "purgeMemberPrompt")
+    .addItem("팀 ID 기록 지우기", "purgeTeamPrompt")
+    .addItem("이 시각 이후 처음 본 멤버 지우기", "purgeRecentMembersPrompt")
     .addItem("Enterprise API 키 넣기", "setEnterpriseKey")
     .addItem("Enterprise API 키 지우기", "clearEnterpriseKey")
     .addToUi();
@@ -189,19 +219,141 @@ function isSampleRow(spec, row) {
   });
 }
 
-// Reads each tab, drops the sample rows and writes the rest back. Real rows keep their order.
+// Deletes the rows where drop(row) is true, each run of adjacent matches with one deleteRows call, bottom-up
+// so the indexes above stay valid. Whole rows go, so a column the owner added to the right (a note) moves
+// with its row, and nothing else on the tab is rewritten: a timeout half-way leaves only whole rows.
+// state ({ deadline: epoch ms, stopped: bool }, optional): once a run has been deleted past the deadline the
+// loop stops and sets state.stopped, leaving the remaining rows whole for another run. At least one run is
+// deleted per call, so a repeated purge always makes progress.
+// Returns how many rows went.
+function removeRowsWhere(sheet, width, drop, state) {
+  var rows = sheetRows(sheet, width);
+  var runs = [];
+  for (var i = 0; i < rows.length; i++) {
+    if (!drop(rows[i])) continue;
+    var last = runs.length ? runs[runs.length - 1] : null;
+    if (last && last.start + last.count === i) last.count++;
+    else runs.push({ start: i, count: 1 });
+  }
+  var removed = 0;
+  for (var k = runs.length - 1; k >= 0; k--) {
+    var run = runs[k];
+    // Sheets refuses to delete every non-frozen row of a tab: clear a run that covers the whole grid.
+    if (run.count >= sheet.getMaxRows() - 1) sheet.getRange(run.start + 2, 1, run.count, width).clearContent();
+    else sheet.deleteRows(run.start + 2, run.count);
+    removed += run.count;
+    if (state && Date.now() > state.deadline) { state.stopped = true; break; }
+  }
+  return removed;
+}
+
+// Drops the sample rows of every tab. Real rows keep their order.
 function removeSampleRows(ss) {
   SAMPLE_KEYS.forEach(function (spec) {
     var sheet = ss.getSheetByName(spec.tab);
-    if (!sheet) return;
-    var width = spec.cols.length;
-    var rows = sheetRows(sheet, width);
-    var kept = rows.filter(function (r) { return !isSampleRow(spec, r); });
-    if (kept.length === rows.length) return;
-    // Kept rows first, then only the leftover tail is cleared: the body is never empty in between.
-    if (kept.length) sheet.getRange(2, 1, kept.length, width).setValues(asTextRows(kept));
-    sheet.getRange(kept.length + 2, 1, rows.length - kept.length, width).clearContent();
+    if (sheet) removeRowsWhere(sheet, spec.cols.length, function (r) { return isSampleRow(spec, r); });
   });
+}
+
+// Owner purge: which column (1-based) of each tab holds the member ID or the team ID.
+var PURGE_COLUMNS = {
+  member: [[TAB_RAW, COLS_RAW, 1], [TAB_LIMITS, COLS_LIMITS, 4], [TAB_PEOPLE, COLS_PEOPLE, 1],
+    [TAB_TEAMLABELS, COLS_TEAMLABELS, 2], [TAB_DEVICES, COLS_DEVICES, 1]],
+  team: [[TAB_RAW, COLS_RAW, 5], [TAB_LIMITS, COLS_LIMITS, 5], [TAB_DEPTS, COLS_DEPTS, 1],
+    [TAB_TEAMLABELS, COLS_TEAMLABELS, 1]]
+};
+
+// Removes every row of the given member IDs (kind "member") or team IDs (kind "team") from the data tabs
+// in one pass per tab and returns { tab: rows removed } for the tabs that lost rows. ids is a Set. Call
+// inside the script lock. Removing a member's 기기 row lets that member register again.
+// state: see removeRowsWhere. After a stop the later tabs are left alone (기기 comes last, so a member
+// whose rows are only partly gone is still listed there and the next run finishes it).
+function purgeByIds(ss, kind, ids, state) {
+  var out = {};
+  PURGE_COLUMNS[kind].forEach(function (t) {
+    if (state && state.stopped) return;
+    var sheet = ss.getSheetByName(t[0]);
+    if (!sheet) return;
+    var n = removeRowsWhere(sheet, t[1].length, function (r) { return ids.has(r[t[2] - 1]); }, state);
+    if (n > 0) out[t[0]] = n;
+  });
+  return out;
+}
+
+// One ID; null when it does not have the right shape.
+function purgeById(ss, kind, id, state) {
+  var shaped = kind === "member" ? UUID_RE.test(id) : TEAM_RE.test(id);
+  if (!shaped) return null;
+  return purgeByIds(ss, kind, new Set([id]), state);
+}
+
+// The members in 기기 first seen after sinceMs, [{ id, ms }] (a flood of fake members arrives within a few hours).
+function membersFirstSeenAfter(ss, sinceMs) {
+  var sheet = ss.getSheetByName(TAB_DEVICES);
+  if (!sheet) return [];
+  return sheetRows(sheet, 3).map(function (r) { return { id: r[0], ms: cellToMs(r[2]) }; })
+    .filter(function (m) { return m.ms > sinceMs; });
+}
+
+// A purge stops cleanly after this long (the script is killed at 6 minutes); run it again to continue.
+var PURGE_TIME_BUDGET_MS = 240000;
+
+function purgeStopMessage() {
+  return "시간이 다 되어 일부만 지웠습니다. 지워진 것은 온전한 행 단위이고 시트는 깨지지 않았습니다. " +
+    "같은 메뉴를 같은 값으로 다시 실행하면 이어서 지웁니다. 끝까지 지운 뒤에 대시보드가 새로 고쳐집니다(그 전에는 메뉴 '지금 새로 고침').";
+}
+
+function purgePrompt(kind, label) {
+  var ui = SpreadsheetApp.getUi();
+  var res = ui.prompt(label + " 기록 지우기",
+    "지울 " + label + "를 붙여 넣으세요. 원본, 한도, 사람, 부서, 팀이름, 기기 탭에서 그 ID 의 행이 모두 지워지고 되돌릴 수 없습니다.",
+    ui.ButtonSet.OK_CANCEL);
+  if (res.getSelectedButton() !== ui.Button.OK) return;
+  var id = String(res.getResponseText()).trim();
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var state = { deadline: Date.now() + PURGE_TIME_BUDGET_MS, stopped: false };
+  var removed = withScriptLock(function () { return purgeById(ss, kind, id, state); });
+  if (removed === null) { ui.alert("ID 모양이 맞지 않아 아무것도 지우지 않았습니다."); return; }
+  var lines = Object.keys(removed).map(function (tab) { return tab + ": " + removed[tab] + "행"; });
+  if (state.stopped) { ui.alert(purgeStopMessage() + "\n" + lines.join("\n")); return; }
+  refreshAll();
+  ui.alert(lines.length ? "지웠습니다.\n" + lines.join("\n") : "그 ID 의 행이 없습니다.");
+}
+
+function purgeMemberPrompt() { purgePrompt("member", "멤버 ID"); }
+function purgeTeamPrompt() { purgePrompt("team", "팀 ID"); }
+
+// Bulk purge for a member flood: every member first seen after a time, in one step. It shows how many members
+// it found, the earliest and latest first-seen time and a few ID prefixes, and deletes only after the owner
+// confirms. A run that nears the time limit stops cleanly and asks to be run again.
+function purgeRecentMembersPrompt() {
+  var ui = SpreadsheetApp.getUi();
+  var res = ui.prompt("이 시각 이후 처음 본 멤버 기록 지우기",
+    "이 시각 이후 처음 본 멤버를 모두 지웁니다. 시각을 2026-11-24T15:00:00+09:00 처럼 적으세요(시간대까지 적어야 정확합니다). 먼저 몇 명인지, 가장 이른·늦은 처음 본 시각과 멤버 ID 앞부분 몇 개를 보여 주고 확인을 받습니다.",
+    ui.ButtonSet.OK_CANCEL);
+  if (res.getSelectedButton() !== ui.Button.OK) return;
+  var sinceMs = Date.parse(String(res.getResponseText()).trim());
+  if (isNaN(sinceMs)) { ui.alert("시각을 읽을 수 없어 아무것도 지우지 않았습니다."); return; }
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var found = membersFirstSeenAfter(ss, sinceMs);
+  if (!found.length) { ui.alert("그 시각 이후 처음 본 멤버가 없습니다."); return; }
+  var times = found.map(function (m) { return m.ms; });
+  var sample = found.slice(0, 5).map(function (m) { return String(m.id).slice(0, 8); }).join(", ");
+  var sure = ui.alert(found.length + "명의 멤버 기록을 지웁니다.\n" +
+    "처음 본 시각: " + msToIso(Math.min.apply(null, times)) + " ~ " + msToIso(Math.max.apply(null, times)) + "\n" +
+    "멤버 ID 앞부분: " + sample + (found.length > 5 ? " 외 " + (found.length - 5) + "명" : "") + "\n" +
+    "원본, 한도, 사람, 팀이름, 기기 탭에서 지워지고 되돌릴 수 없습니다. 앱은 이미 보낸 날을 다시 보내지 않으므로, " +
+    "진짜 팀원이 섞여 있으면 그 사람의 지난 기록은 영영 사라집니다(앞으로 쓰는 날부터 새로 쌓입니다). 계속할까요?",
+    ui.ButtonSet.OK_CANCEL);
+  if (sure !== ui.Button.OK) return;
+  var state = { deadline: Date.now() + PURGE_TIME_BUDGET_MS, stopped: false };
+  var removed = withScriptLock(function () {
+    return purgeByIds(ss, "member", new Set(found.map(function (m) { return m.id; })), state);
+  });
+  var lines = Object.keys(removed).map(function (tab) { return tab + ": " + removed[tab] + "행"; });
+  if (state.stopped) { ui.alert(purgeStopMessage() + "\n" + lines.join("\n")); return; }
+  refreshAll();
+  ui.alert("지웠습니다. (" + found.length + "명)\n" + lines.join("\n"));
 }
 
 function appendRows(sheet, width, rows) {
@@ -244,7 +396,7 @@ function seedSampleData() {
         var id = sampleMemberId(idx);
         var n = idx;
         people.push([id, nick, nowIso, "", "2.5.0", n % 3 === 2 ? "windows" : "mac"]);
-        devices.push([id, sha256Hex("sample-secret-" + n), nowIso, nowIso]);
+        devices.push([id, sha256Hex("sample-secret-" + n), nowIso, nowIso, 0, 0, 0, 0]);
         if (pi === 0) labels.push([dept.team, id, dept.label, nowIso]);
         var level = 1 + ((n * 7) % 5);   // 1..5: a spread of heavy and light users
         for (var d = firstDay; d <= todayNum; d++) {

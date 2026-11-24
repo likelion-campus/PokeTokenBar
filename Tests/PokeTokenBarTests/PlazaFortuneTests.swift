@@ -36,10 +36,13 @@ final class PlazaFortuneTests: XCTestCase {
         XCTAssertEqual(PlazaFortune.text(last)?.action, "행운의 행동 · " + PlazaFortune.actions.last!)
     }
 
-    func testEveryLineAndActionFitsOneLineOfTheSlip() async {
+    func testEveryRowOfALineAndEveryActionFitsTheSlip() async {
         XCTAssertEqual(Set(PlazaFortune.lines).count, PlazaFortune.lines.count, "no line twice")
         for line in PlazaFortune.lines {
-            XCTAssertLessThanOrEqual(PlazaFortuneArt.textWidth(line), PlazaFortuneArt.maxTextWidth, line)
+            let rows = PlazaFortuneArt.rows(line)
+            XCTAssertTrue((1...2).contains(rows.count), line)
+            XCTAssertEqual(rows.joined(separator: "\n"), line, "no empty row")
+            for row in rows { XCTAssertLessThanOrEqual(PlazaFortuneArt.textWidth(row), PlazaFortuneArt.maxTextWidth, row) }
         }
         for action in PlazaFortune.actions {
             let text = L(.ko).plazaFortuneAction(action)
@@ -131,6 +134,21 @@ final class PlazaFortuneTests: XCTestCase {
         XCTAssertEqual(pile.art[28, 6 + 4].a, 255, "the right ground cookie, mirrored")
     }
 
+    /// A long fortune is two rows: the slip is one row taller, at every stage, and both rows are drawn.
+    func testATwoRowLineMakesATallerSlipAndDrawsBothRows() async throws {
+        let action = L(.ko).plazaFortuneAction(PlazaFortune.actions[0])
+        let a = PlazaFortune.lines[0], b = PlazaFortune.lines[1], c = PlazaFortune.lines[2]
+        func image(_ line: String, _ stage: PlazaFortuneArt.Stage = .open) throws -> PlazaImage {
+            try XCTUnwrap(PlazaFortuneArt.image(stage, line: line, action: action, scale: 2))
+        }
+        let one = try image(a), two = try image(a + "\n" + b)
+        XCTAssertGreaterThan(two.height, one.height)
+        XCTAssertEqual(try image(a + "\n" + b, .whole).height, two.height, "one height, so the picture does not jump")
+        XCTAssertNotEqual(try image(a + "\n" + c).pixels, two.pixels, "the second row is drawn")
+        XCTAssertNotEqual(try image(c + "\n" + b).pixels, two.pixels, "the first row is drawn")
+        XCTAssertTrue(PlazaFortune.lines.contains { PlazaFortuneArt.rows($0).count == 2 }, "the list has two-row lines")
+    }
+
     func testTheSlipGrowsStepByStepAndOnlyTheOpenOneCarriesText() async throws {
         let line = PlazaFortune.lines[0], action = L(.ko).plazaFortuneAction(PlazaFortune.actions[0])
         func image(_ s: PlazaFortuneArt.Stage, cookie: Bool = true) throws -> PlazaImage {
@@ -183,10 +201,11 @@ final class PlazaFortuneTests: XCTestCase {
         func hash(_ list: ArraySlice<String>) -> UInt64 {
             list.joined(separator: "\n").utf8.reduce(0xcbf2_9ce4_8422_2325) { ($0 ^ UInt64($1)) &* 0x0000_0100_0000_01b3 }
         }
-        XCTAssertGreaterThanOrEqual(L(.ko).plazaFortuneLines.count, 200)
+        XCTAssertGreaterThanOrEqual(L(.ko).plazaFortuneLines.count, 300)
         XCTAssertGreaterThanOrEqual(L(.ko).plazaFortuneActions.count, 12)
         XCTAssertEqual(hash(L(.ko).plazaFortuneLines.prefix(80)), 14_248_402_198_470_895_138, "the lines 2.5.639 shipped")
-        XCTAssertEqual(hash(L(.ko).plazaFortuneLines.prefix(200)), 8717304623835104262)
+        XCTAssertEqual(hash(L(.ko).plazaFortuneLines.prefix(200)), 8717304623835104262, "the lines 2.5.640 shipped")
+        XCTAssertEqual(hash(L(.ko).plazaFortuneLines.prefix(300)), 9_238_123_669_317_192_331)
         XCTAssertEqual(hash(L(.ko).plazaFortuneActions.prefix(12)), 4_205_960_783_727_730_735)
     }
 
