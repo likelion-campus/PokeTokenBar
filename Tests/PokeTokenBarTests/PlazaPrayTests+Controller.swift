@@ -121,6 +121,7 @@ extension PlazaPrayTests {
             now = now.addingTimeInterval(PlazaWindowController.emoteInterval * 2)
         }
         XCTAssertEqual(prayers.count, 3, "every press counts")
+        XCTAssertEqual(c.hint, "오늘은 기도로 이미 부화시켰어요 · 내일 다시 기도로 부화할 수 있어요 · 기도 3번", "right after a prayer")
         XCTAssertNotNil(scene.shownEmote(memberID: nil), "the bubble shows")
         await waitUntil { other.received.emotes.count == 3 }
         XCTAssertEqual(other.received.emotes.map(\.kind), [.pray, .pray, .pray])
