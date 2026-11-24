@@ -7,12 +7,20 @@ inputs:
   installer-sha256:
     description: SHA-256 of the installer the build job made
     required: true
+  build-run-id:
+    description: DIAGNOSTIC branch only - the run that made the build artifact (an earlier run of this branch)
+    required: true
+  github-token:
+    description: DIAGNOSTIC branch only - a token that may read that run's artifacts
+    required: true
 runs:
   using: composite
   steps:
     - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4
       with:
         artifact-ids: ${{ inputs.build-artifact-id }}
+        run-id: ${{ inputs.build-run-id }}
+        github-token: ${{ inputs.github-token }}
         merge-multiple: true   # without it the artifact unpacks into path/<name>
         path: .
     - name: The unpacked build is the one the build job hashed

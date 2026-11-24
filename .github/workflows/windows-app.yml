@@ -108,6 +108,7 @@ env:
   PTB_SELFTEST_RUNNER: '1'
 jobs:
   build:
+    if: false  # DIAGNOSTIC branch: the prebuilt job hands over an earlier build
     runs-on: windows-latest
     timeout-minutes: 60  # the build, the package and the installers took about 15 min inside the one job
     outputs:
@@ -1594,41 +1595,65 @@ jobs:
             waker-hunt.json
             collected
           if-no-files-found: warn
+  prebuilt:
+    # DIAGNOSTIC: the build of run 45446214642 (this branch, product sources = main b765a5d4), so an experiment skips the 25 min build.
+    runs-on: ubuntu-latest
+    outputs:
+      iscc: success
+      level: full
+      run_id: '45446214642'
+      ptb_build_id: '14948850653'
+      installer_sha256: e020b972c63acbde5ac8688d8dc4053a7087f6d53999dacf0fcfd53aaebca5ae
+    steps:
+      - run: echo "using ptb-build 14948850653 of run 45446214642"
   updates:
-    # DIAGNOSTIC (branch diag/update-runner-loss-2): three variants of the update job, four runners each.
-    #   faithful  the job exactly as main runs it (control: does the runner loss reproduce outside release mode?)
-    #   guarded   the same steps, a detached sampler writing a file every 4 s, the in-app step limited to 10 min
-    #   beacon    the in-app update script started detached (unchanged script, every line timestamped to a file) and up to 100
-    #             beacon steps whose NAMES carry a VM sample: a step name is sent when the step starts, so they survive a lost runner
+    # DIAGNOSTIC (branch diag/update-runner-loss-2), experiment 2: the job as main runs it (it lost its runner in 1 of 4 runs of
+    # experiment 1, like 3 of 5 release runs), plus snapshots that survive a lost runner: scheduled tasks 5, 10 and 17 min into the
+    # in-app step (nothing of ours runs before they fire; deleted when the step ends) post a check run with the process table, the
+    # visible windows, the runner's own _diag logs, the event logs and the update's progress.
+    #   snap     (8 runners) nothing else
+    #   sleeper  (4 runners) also an idle detached pwsh (its own hidden console) from before the failed-update step: in experiment 1
+    #            and the earlier diagnostic, every variant with a concurrent process passed (14 of 14)
     name: Failed update and in-app update (${{ matrix.variant }} ${{ matrix.rep }})
-    needs: build
-    if: ${{ !cancelled() && needs.build.outputs.iscc == 'success' && needs.build.outputs.level == 'full' }}
+    needs: prebuilt
+    if: ${{ !cancelled() }}
     runs-on: windows-latest
     timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: read
+      checks: write
     strategy:
       fail-fast: false
       matrix:
-        variant: [faithful, guarded, beacon]
-        rep: [1, 2, 3, 4]
+        include:
+          - { rep: 1, variant: snap }
+          - { rep: 2, variant: snap }
+          - { rep: 3, variant: snap }
+          - { rep: 4, variant: snap }
+          - { rep: 5, variant: snap }
+          - { rep: 6, variant: snap }
+          - { rep: 7, variant: snap }
+          - { rep: 8, variant: snap }
+          - { rep: 9, variant: sleeper }
+          - { rep: 10, variant: sleeper }
+          - { rep: 11, variant: sleeper }
+          - { rep: 12, variant: sleeper }
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
-        with:
-          ref: ${{ inputs.release_sha }}  # empty outside release mode: the event's own commit
       - uses: ./.github/actions/windows-slice
         with:
-          build-artifact-id: ${{ needs.build.outputs.ptb_build_id }}
-          installer-sha256: ${{ needs.build.outputs.installer_sha256 }}
-      - name: DIAG start the sampler
-        if: matrix.variant == 'guarded'
+          build-artifact-id: ${{ needs.prebuilt.outputs.ptb_build_id }}
+          installer-sha256: ${{ needs.prebuilt.outputs.installer_sha256 }}
+          build-run-id: ${{ needs.prebuilt.outputs.run_id }}
+          github-token: ${{ github.token }}
+      - name: DIAG start the idle sleeper
+        if: matrix.variant == 'sleeper'
         timeout-minutes: 2
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path collected\in-app-update | Out-Null
-          $log = Join-Path (Resolve-Path collected\in-app-update).Path 'sampler.log'
-          Start-Process pwsh -ArgumentList '-NoProfile', '-File', (Join-Path $PWD 'scripts\windows\diag-sampler.ps1'), '-LogFile', $log -WindowStyle Hidden
-          Start-Sleep -Seconds 8
-          Get-Content $log -ErrorAction SilentlyContinue
-          "SHELL='$env:SHELL'"
+          $p = Start-Process pwsh -ArgumentList '-NoProfile', '-Command', 'Start-Sleep -Seconds 3000' -WindowStyle Hidden -PassThru
+          "idle sleeper pid $($p.Id)"
       # ---- failed-update-relaunch: Setup run as the in-app update runs it (/PTBRELAUNCHONFAIL=1); setup logs in collected\failed-update ----
       - name: A failed update brings the old app back
         id: failed-update-relaunch
@@ -1637,548 +1662,39 @@ jobs:
         shell: pwsh
         run: ./scripts/windows/failed-update-relaunch.ps1 -Version $env:PTB_VERSION -NextVersion $env:PTB_NEXT_VERSION
       # ---- end failed-update-relaunch ----
+      - name: DIAG schedule the snapshots (5, 10, 17 min) and post a baseline
+        if: (success() || failure())
+        timeout-minutes: 3
+        shell: pwsh
+        env:
+          DIAG_TOKEN: ${{ github.token }}
+        run: |
+          New-Item -ItemType Directory -Force -Path collected | Out-Null
+          $cfg = Join-Path $env:RUNNER_TEMP 'diag-snap.json'
+          @{ token = $env:DIAG_TOKEN; repo = $env:GITHUB_REPOSITORY; sha = $env:GITHUB_SHA; job = "$env:GITHUB_RUN_ID/${{ matrix.variant }}-${{ matrix.rep }}"; workspace = $PWD.Path } | ConvertTo-Json | Set-Content $cfg
+          $script = Join-Path $PWD 'scripts\windows\diag-snapshot.ps1'
+          pwsh -NoProfile -File $script -Config $cfg -Label baseline
+          foreach ($t in @(@{ m = 5; logon = 'Interactive' }, @{ m = 10; logon = 'S4U' }, @{ m = 17; logon = 'Interactive' })) {
+              $action = New-ScheduledTaskAction -Execute 'pwsh.exe' -Argument "-NoProfile -WindowStyle Hidden -File `"$script`" -Config `"$cfg`" -Label snap$($t.m)"
+              $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes($t.m)
+              $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType $t.logon -RunLevel Highest
+              $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes 6)
+              Register-ScheduledTask -TaskName "ptb-diag-snap$($t.m)" -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
+              "scheduled snap$($t.m) ($($t.logon)) at $((Get-Date).AddMinutes($t.m).ToUniversalTime().ToString('HH:mm:ss'))Z"
+          }
       - name: The in-app update from a loopback feed
         id: in-app-update
-        if: (success() || failure()) && env.PTB_LEVEL == 'full' && matrix.variant == 'faithful'
+        if: (success() || failure()) && env.PTB_LEVEL == 'full'
         timeout-minutes: 25  # the step takes about 3 min; a hung scenario must not hold a release run to the job limit
         shell: pwsh
         run: ./scripts/windows/in-app-update.ps1 -Version $env:PTB_VERSION -NextVersion $env:PTB_NEXT_VERSION
-      - name: The in-app update from a loopback feed (guarded, 10 min)
-        if: (success() || failure()) && env.PTB_LEVEL == 'full' && matrix.variant == 'guarded'
-        timeout-minutes: 10
-        shell: pwsh
-        run: ./scripts/windows/in-app-update.ps1 -Version $env:PTB_VERSION -NextVersion $env:PTB_NEXT_VERSION
-      - name: DIAG start the in-app update detached
-        if: (success() || failure()) && matrix.variant == 'beacon'
+      - name: DIAG remove the snapshot tasks
+        if: always()
         timeout-minutes: 2
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path collected\in-app-update | Out-Null
-          $dir = (Resolve-Path collected\in-app-update).Path
-          (Get-Date).ToUniversalTime().ToString('o') | Set-Content (Join-Path $dir 'script.start')
-          $p = Start-Process pwsh -ArgumentList '-NoProfile', '-File', (Join-Path $PWD 'scripts\windows\diag-run-detached.ps1'), '-LogFile', (Join-Path $dir 'script.log'),
-              '-Version', $env:PTB_VERSION, '-NextVersion', $env:PTB_NEXT_VERSION -WorkingDirectory $PWD -WindowStyle Hidden -PassThru
-          $p.Id | Set-Content (Join-Path $dir 'script.pid')
-          "SHELL='$env:SHELL'; detached script pid $($p.Id)"
-          "DIAG_BEACON=started pid $($p.Id)" >> $env:GITHUB_ENV
-      - name: "b001 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b002 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b003 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b004 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b005 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b006 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b007 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b008 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b009 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b010 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b011 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b012 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b013 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b014 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b015 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b016 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b017 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b018 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b019 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b020 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b021 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b022 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b023 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b024 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b025 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b026 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b027 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b028 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b029 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b030 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b031 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b032 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b033 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b034 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b035 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b036 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b037 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b038 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b039 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b040 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b041 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b042 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b043 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b044 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b045 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b046 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b047 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b048 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b049 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b050 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b051 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b052 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b053 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b054 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b055 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b056 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b057 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b058 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b059 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b060 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 8
-      - name: "b061 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 25
-      - name: "b062 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 25
-      - name: "b063 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 25
-      - name: "b064 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 25
-      - name: "b065 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 25
-      - name: "b066 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 25
-      - name: "b067 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 25
-      - name: "b068 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 25
-      - name: "b069 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 25
-      - name: "b070 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 25
-      - name: "b071 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 25
-      - name: "b072 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 25
-      - name: "b073 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 25
-      - name: "b074 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 25
-      - name: "b075 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 25
-      - name: "b076 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 25
-      - name: "b077 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 25
-      - name: "b078 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 25
-      - name: "b079 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 25
-      - name: "b080 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 25
-      - name: "b081 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 25
-      - name: "b082 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 25
-      - name: "b083 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 25
-      - name: "b084 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 25
-      - name: "b085 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 25
-      - name: "b086 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 25
-      - name: "b087 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 25
-      - name: "b088 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 25
-      - name: "b089 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 25
-      - name: "b090 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 25
-      - name: "b091 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 25
-      - name: "b092 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 25
-      - name: "b093 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 25
-      - name: "b094 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 25
-      - name: "b095 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 25
-      - name: "b096 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 25
-      - name: "b097 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 25
-      - name: "b098 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 25
-      - name: "b099 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 25
-      - name: "b100 ${{ env.DIAG_BEACON }}"
-        if: (success() || failure()) && matrix.variant == 'beacon' && env.DIAG_DONE != '1'
-        timeout-minutes: 2
-        shell: pwsh
-        run: ./scripts/windows/diag-beacon.ps1 -Wait 25
-      - name: DIAG end the detached script
-        if: (success() || failure()) && matrix.variant == 'beacon'
-        timeout-minutes: 12
-        shell: pwsh
-        run: |
-          $dir = (Resolve-Path collected\in-app-update).Path
-          $scriptPid = [int](Get-Content (Join-Path $dir 'script.pid') -Raw).Trim()
-          $p = Get-Process -Id $scriptPid -ErrorAction SilentlyContinue
-          if ($p -and -not $p.WaitForExit(600000)) { 'the detached script is still running after the beacons: ending it'; Stop-Process -Id $scriptPid -Force }
-          Get-Content (Join-Path $dir 'script.log')
-          if ((Get-Content (Join-Path $dir 'script.log') -Raw) -notmatch 'SCRIPT END ok') { throw 'the detached in-app update did not pass' }
-      - name: DIAG post-mortem
-        if: always() && matrix.variant != 'faithful'
-        timeout-minutes: 5
-        shell: pwsh
-        run: |
-          ./scripts/windows/diag-postmortem.ps1
-          if (Test-Path collected\in-app-update\sampler.log) { '---- sampler (last 40) ----'; Get-Content collected\in-app-update\sampler.log -Tail 40 }
+          Get-ScheduledTask -TaskName 'ptb-diag-snap*' -ErrorAction SilentlyContinue | ForEach-Object { "$($_.TaskName): $($_.State)"; Unregister-ScheduledTask -TaskName $_.TaskName -Confirm:$false }
+          Remove-Item -ErrorAction SilentlyContinue (Join-Path $env:RUNNER_TEMP 'diag-snap.json')
       - name: Collect logs
         timeout-minutes: 5
         if: always()
