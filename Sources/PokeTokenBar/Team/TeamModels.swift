@@ -60,7 +60,7 @@ struct TeamMonSummary: Codable, Equatable, Sendable {
     /// (it shows as an egg: nothing is fetched for it). The character still shows.
     var bounded: TeamMonSummary {
         var c = self
-        if let id = speciesID, !PokedexRegion.nationalRange.contains(id) { c.speciesID = nil }
+        if let id = speciesID, !PokedexRegion.nationalRange.contains(id) { c.speciesID = nil; c.speciesName = nil; c.form = nil }
         if (speciesName?.utf8.count ?? 0) > TeamWire.maxFieldBytes { c.speciesName = nil }
         if (form?.rawValue.utf8.count ?? 0) > TeamWire.maxFieldBytes { c.form = nil }
         return c

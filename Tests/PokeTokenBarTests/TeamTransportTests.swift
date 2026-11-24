@@ -99,6 +99,19 @@ final class TeamTransportTests: XCTestCase {
         XCTAssertNil(a.queuedBytes(of: aPeer))
     }
 
+    /// A healthy link takes what it is given, so the count goes back to zero and the next burst starts from an empty queue.
+    func testQueuedBytesDrainOnAHealthyLink() async throws {
+        let (a, _, aPeer, _) = try await contractConnectedPair(harness)
+        var downs = 0
+        a.onPeerDisconnected = { _ in downs += 1 }
+        for _ in 0..<6 { a.send(Self.bigMessage, to: aPeer) }
+        XCTAssertGreaterThan(a.queuedBytes(of: aPeer) ?? 0, 4_000_000)
+        let drained = await contractWaitUntil(10) { a.queuedBytes(of: aPeer) == 0 }
+        XCTAssertTrue(drained, "contentProcessed gave every byte back")
+        for _ in 0..<6 { a.send(Self.bigMessage, to: aPeer) }
+        XCTAssertEqual(downs, 0, "6 MB after 6 MB is not 12 MB waiting")
+    }
+
     /// The most an honest receiver leaves waiting is three full feed syncs (about 2 MB each).
     func testThreeFullFeedSyncsInOneGoAreNotDropped() async throws {
         let (a, _, aPeer, _) = try await contractConnectedPair(harness)

@@ -67,7 +67,7 @@ final class TeamSession {
     nonisolated static let profileReplyInterval: TimeInterval = 2
     /// A link that has not said `hello` by now is not a teammate. An honest app says it the moment the link is ready, so
     /// this is only the time a bad network needs; the check runs on the tick, so the link may live one tick longer.
-    static let helloDeadline: TimeInterval = 15
+    static let helloDeadline: TimeInterval = silenceLimit
     /// Rows a link may sync (`live: false`) in a burst. A full feed is 300 events and 3000 reactions in frames of 100: 33
     /// frames, and an honest peer may be asked for it `inventoryReplyBurst` (3) times at once: 99, rounded up.
     nonisolated static let syncedFrameBurst = 120
@@ -250,7 +250,8 @@ final class TeamSession {
             dropLink(peer)
         }
         for (peer, link) in links where link.memberID == nil && now.timeIntervalSince(link.connectedAt) >= Self.helloDeadline {
-            refuse(peer)
+            transport.disconnect(peer, coveredBy: nil)
+            dropLink(peer)
         }
         if presenceOwed, now.timeIntervalSince(lastAdoptionBroadcast) >= Self.adoptionBroadcastInterval {
             sendAdoptedPresence()
@@ -564,7 +565,17 @@ final class TeamSession {
                       event.authorID == settings.memberID else { continue }
                 onReactionToMine?(r, event)
             }
-        case .emote(let emote):
+        case .emote(var emote):
+            // A jump may carry an ice break, which the plaza adopts, saves and tells everyone in my next presence: the same
+            // last-writer-wins value as in a presence, so it spends the same per-link budget. Out of budget the jump
+            // still plays; the sender repeats its ice break in every presence, so the team converges.
+            if let ice = emote.iceBreak, ice != links[peer]?.lastIceBreak {
+                if links[peer]?.sharedValueChanges.take(now: clock()) == true {
+                    links[peer]?.lastIceBreak = ice
+                } else {
+                    emote.iceBreak = nil
+                }
+            }
             onEmote?(memberID, emote)
         case .chat(let chat):
             if TeamChat.prepared(chat.text) == chat.text { onChat?(memberID, chat.text, chat.isLoud ?? false) }

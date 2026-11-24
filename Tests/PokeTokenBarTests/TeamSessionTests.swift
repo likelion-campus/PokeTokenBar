@@ -136,6 +136,33 @@ final class TeamSessionTests: XCTestCase {
 
     // MARK: - News and reactions
 
+    /// A full feed (300 events, 3000 reactions) synced to an empty Mac over two links at once (a duplicate link while one is
+    /// being closed): every row arrives, none stopped by the per-link rate limit on synced frames.
+    func testAFullFeedSyncsToAnEmptyMacOverDuplicateLinks() async {
+        let a = node("A"), b = node("B")
+        let c = Calendar.current.dateComponents([.year, .month, .day], from: clock.now)
+        let day = String(format: "%04d-%02d-%02d", c.year!, c.month!, c.day!)
+        let events = (0..<TeamFeedStore.maxEvents).map {
+            TeamEvent(id: "e\($0)", authorID: "au0", authorNickname: "au", kind: .hatch, speciesID: 25, fromSpeciesID: nil,
+                      speciesName: "Pikachu", fromSpeciesName: nil, form: nil, isShiny: false, nature: nil, rarity: .common,
+                      day: day, occurredAt: clock.now.addingTimeInterval(-Double($0)))
+        }
+        _ = a.feed.insert(events)
+        let kinds: [TeamReactionKind] = [.cute, .lol, .congrats]
+        let reactions = (0..<TeamFeedStore.maxEvents).flatMap { e in
+            (0..<10).map { k in
+                TeamReaction(id: "r\(e)-\(k)", eventID: "e\(e)", authorID: "au\(k % 4)", authorNickname: "au", kind: kinds[k % 3],
+                             text: nil, createdAt: clock.now.addingTimeInterval(-Double(e * 10 + k)))
+            }
+        }
+        _ = a.feed.insert(reactions)
+        XCTAssertEqual(a.feed.reactionIDs.count, TeamFeedStore.maxReactions)
+        connect(a, b)
+        connect(b, a)
+        XCTAssertEqual(b.feed.events.count, TeamFeedStore.maxEvents)
+        XCTAssertEqual(b.feed.reactionIDs.count, TeamFeedStore.maxReactions)
+    }
+
     func testHelloThenInventorySyncFillsMissingEvents() async {
         let a = node("A"), b = node("B")
         a.session.publish(hatch())

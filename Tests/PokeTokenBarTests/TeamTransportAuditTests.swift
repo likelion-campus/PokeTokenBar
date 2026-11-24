@@ -48,8 +48,6 @@ final class TeamTransportAuditRulesTests: XCTestCase {
         var fresh = TeamLinkReceiver()
         var reconnect = TeamLinkReceiver(startingTokens: floods.startingTokens(for: "10.0.0.9", now: t0))
         let frame = try TeamWire.encode(.profileRequest)
-        let chunk = Data(count: 600_000)   // not a frame: it fails the decode before the budget, so use a real run of frames
-        _ = chunk
         let run = Data((0..<2_000).flatMap { _ in frame })
         if case .flood = fresh.receive(run, now: t0) { XCTFail("a fresh link takes a run of 2000 requests") }
         guard case .flood = reconnect.receive(run, now: t0) else { return XCTFail("the reconnect had a full burst") }
@@ -147,6 +145,25 @@ final class TeamTransportAuditRulesTests: XCTestCase {
         XCTAssertLessThanOrEqual(p.dueDials(now: t0).count, cap)
     }
 
+    func testNamesNeverConnectedGoBeforeAQuietTeammate() {
+        var p = TeamDialPlanner()
+        let cap = TeamTransportRules.maxDiscoveredNames
+        p.discovered("teammate"); p.dialStarted("teammate", peer: "p1")
+        p.connectionEnded(peer: "p1", handshakeFailed: false, now: t0)   // met, then went quiet: the oldest name in the table
+        for i in 0..<(cap - 1) { p.discovered("rogue\(i)") }
+        for i in 0..<50 { p.discovered("more\(i)") }
+        XCTAssertTrue(p.dueDials(now: t0).contains("teammate"), "a name that connected before outlasts names that never did")
+        XCTAssertFalse(p.dueDials(now: t0).contains("rogue0"))
+    }
+
+    func testAMetNameThatKeepsAnsweringIsEvictedLast() {
+        var p = TeamDialPlanner()
+        let cap = TeamTransportRules.maxDiscoveredNames
+        for i in 0..<cap { p.discovered("a\(i)") }
+        p.discovered("a0")   // answers again: not the longest quiet any more
+        XCTAssertEqual(p.discovered("new"), "a1")
+    }
+
     func testWhenEveryNameIsInUseANewOneIsNotKept() {
         var p = TeamDialPlanner()
         let cap = TeamTransportRules.maxDiscoveredNames
@@ -172,6 +189,13 @@ final class TeamTransportAuditRulesTests: XCTestCase {
         for id in [1, 25, 649] {
             XCTAssertEqual(TeamMonSummary(speciesID: id, isShiny: false, form: nil, speciesName: "x", gender: nil).bounded.speciesID, id)
         }
+    }
+
+    func testAnOutOfRangeSpeciesLosesItsNameAndFormToo() {
+        let got = TeamMonSummary(speciesID: 9_999, isShiny: false, form: nil, speciesName: "Fakemon", gender: nil).bounded
+        XCTAssertNil(got.speciesID)
+        XCTAssertNil(got.speciesName, "no name label over an egg")
+        XCTAssertNil(got.form)
     }
 
     func testADexBeyondARealOneIsCutOnReceipt() {
@@ -418,6 +442,36 @@ final class TeamLinkLimitsTests: XCTestCase {
         XCTAssertEqual(got?.dex.first?.name, "#25", "a name longer than a field reads as the number")
     }
 
+    // MARK: ice break in a jump
+
+    private func jump(_ n: Int, ice: Bool = true) -> TeamMessage {
+        var e = TeamEmote(kind: .jump, targetMemberID: nil)
+        if ice { e.iceBreak = PlazaIceBreak(at: clock.timeIntervalSince1970 - 100 + Double(n) / 1000, pond: TilePoint(x: 5, y: 5)) }
+        return .emote(e)
+    }
+
+    func testAFloodOfJumpsWithNewerIceBreaksIsAdoptedOnlyUpToTheBurst() {
+        var withIce = 0, jumps = 0
+        session.onEmote = { _, e in jumps += 1; if e.iceBreak != nil { withIce += 1 } }
+        let peer = join("flooder")
+        for n in 0..<200 { say(jump(n), from: peer) }
+        XCTAssertEqual(jumps, 200, "every jump still plays")
+        XCTAssertEqual(withIce, TeamSession.sharedValueBurst)
+    }
+
+    func testAHonestJumpThatBreaksIceStillBreaksIt() {
+        var got: [PlazaIceBreak?] = []
+        session.onEmote = { _, e in got.append(e.iceBreak) }
+        let peer = join("honest")
+        say(jump(1), from: peer)
+        say(jump(1), from: peer)   // the same ice again is not a change
+        say(jump(0, ice: false), from: peer)
+        XCTAssertEqual(got.count, 3)
+        XCTAssertNotNil(got[0])
+        XCTAssertNotNil(got[1], "a repeated value costs nothing")
+        XCTAssertNil(got[2])
+    }
+
     // MARK: hello deadline
 
     func testALinkThatNeverSaysHelloIsClosedAfterTheDeadline() async {
@@ -432,8 +486,11 @@ final class TeamLinkLimitsTests: XCTestCase {
 
     func testALinkThatSaidHelloIsNotClosedByTheDeadline() async {
         let peer = join("honest")
-        clock = clock.addingTimeInterval(TeamSession.helloDeadline + 5)
-        session.tick()
+        for _ in 0..<5 {   // 50 s: past the deadline, with the heartbeats an honest peer sends
+            clock = clock.addingTimeInterval(10)
+            say(.presence(presence(schedule: nil)), from: peer)
+            session.tick()
+        }
         XCTAssertFalse(peer.disconnected)
     }
 }

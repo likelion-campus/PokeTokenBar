@@ -160,13 +160,7 @@ final class BonjourTeamTransport: TeamTransporting {
 
     func plannedDials(now: Date) -> [String] { planner.dueDials(now: now) }
 
-    /// What the next inbound link from `address` would be admitted against (tests).
-    func inboundCounts(from address: String) -> (links: Int, unfinished: Int) {
-        let from = links.values.filter { !$0.initiatedByMe && $0.address == address }
-        return (from.count, from.filter { !$0.isReady }.count)
-    }
-
-    /// Queues bytes the way `send` accounts them, without a connection to write to (tests).
+    /// Bytes handed to the link whose `contentProcessed` has not come yet (tests).
     func queuedBytes(of peer: TeamPeerID) -> Int? { links[peer]?.queuedBytes }
 
     // MARK: lifecycle
