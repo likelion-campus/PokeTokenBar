@@ -123,20 +123,29 @@ enum WinSingleInstance {
             }
         case .otherProgram(let pid, let image):
             let name = image.map { ($0 as NSString).lastPathComponent } ?? ""
-            if let image, name.lowercased() == "poketokenbar.exe" {
+            let shown = image.map(shownPath)  // bounded and printable: a holder can sit in a path of 32,000 characters
+            if let image = shown, name.lowercased() == "poketokenbar.exe" {
                 switch language {
                 case .ko: return "PokeTokenBar가 이미 다른 위치에서 실행 중이에요(\(image)). 그 복사본을 트레이 아이콘에서 종료한 뒤 다시 시작해 주세요."
                 case .ja: return "PokeTokenBarはすでに別の場所から実行中です(\(image))。そのコピーをトレイアイコンから終了して、もう一度起動してください。"
                 default: return "Another copy of PokeTokenBar is already running from \(image). Quit that copy from its tray icon, then start this one again."
                 }
             }
-            let who = image ?? "process \(pid)"
+            let who = shown ?? "process \(pid)"
             switch language {
             case .ko: return "PokeTokenBar를 시작하지 못했어요. 한 번에 하나만 실행하는 이름(Local\\PokeTokenBar-Team)을 다른 프로그램(\(who))이 쓰고 있어요."
             case .ja: return "PokeTokenBarを起動できませんでした。同時に1つだけ実行するための名前(Local\\PokeTokenBar-Team)を別のプログラム(\(who))が使用しています。"
             default: return "PokeTokenBar could not start. The name that keeps it to one copy (Local\\PokeTokenBar-Team) is held by another program (\(who))."
             }
         }
+    }
+
+    /// The path as shown in a message box: control characters out, and at most 200 characters (a longer one keeps its leaf name).
+    static func shownPath(_ path: String) -> String {
+        let clean = String(String.UnicodeScalarView(path.unicodeScalars.filter { $0.value >= 0x20 && $0.value != 0x7F }))
+        guard clean.count > 200 else { return clean }
+        let leaf = (clean as NSString).lastPathComponent
+        return "…\\" + String(leaf.prefix(150))
     }
 }
 #endif

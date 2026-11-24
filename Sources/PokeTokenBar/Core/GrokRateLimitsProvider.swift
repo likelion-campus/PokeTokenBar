@@ -39,6 +39,7 @@ public struct GrokRateLimitsProvider: GrokLimitsProviding, Sendable {
 
     /// nil = no Grok CLI login on this machine.
     public func fetch() async throws -> GrokCreditStatus? {
+        guard !AppEnv.liveFetchForbidden else { return nil }  // a person's Windows selftest: no token read, no request
         guard let token = accessToken() else {
             AppLog.writeIfChanged("grok-limits-token", "grok limits: no grok login")
             return nil

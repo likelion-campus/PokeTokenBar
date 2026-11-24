@@ -44,9 +44,11 @@ enum WindowsSelftest {
     /// already go to the selftest's own suite. Called first thing in `WindowsApp.run`, before any store reads the folder. The runner keeps
     /// its own (ephemeral) default folder, which the installer and update checks look at.
     static func isolateStateIfNeeded(_ arguments: [String]) {
-        guard arguments.contains("--selftest"), !onCI else { return }
-        AppEnv.liveFetchForbidden = true  // a person's run never uses their credentials or sends a request for them (limits)
-        guard (ProcessInfo.processInfo.environment["PTB_STATE_DIR"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        // Every selftest process of a person's run (the children too: --selftest-second, -popover-helper, -crash, ...) shuts the live
+        // gate; the update flags are a different mechanism with their own rule.
+        guard !onCI, arguments.contains(where: { $0.hasPrefix("--selftest") && !WindowsSelftestUpdate.flags.contains($0) }) else { return }
+        AppEnv.liveFetchForbidden = true  // no credential is read and no request is sent for a person (limits, status pages)
+        guard arguments.contains("--selftest"), (ProcessInfo.processInfo.environment["PTB_STATE_DIR"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         else { return }
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("PokeTokenBar-selftest-state-\(UUID().uuidString)", isDirectory: true)
         guard (try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)) != nil else {
@@ -733,7 +735,10 @@ enum WindowsSelftest {
         let image = WinSingleInstance.imagePath(ofProcess: GetCurrentProcessId()).map { WinSingleInstance.sameExecutable($0, me) } ?? false
         let texts = [AppLanguage.en, .ko, .ja].map { WinSingleInstance.foreignHolderText(.noAnswer, language: $0) }
             + [WinSingleInstance.foreignHolderText(.otherProgram(pid: 1, image: "D:\\x\\PokeTokenBar.exe"), language: .en)]
-        let wording = Set(texts).count == 4 && texts[3].contains("Another copy of PokeTokenBar")
+        let longPath = "C:\\" + String(repeating: "a", count: 5000) + "\\PokeTokenBar.exe"
+        let bounded = WinSingleInstance.shownPath(longPath).count <= 200 && WinSingleInstance.shownPath(longPath).hasSuffix("PokeTokenBar.exe")
+            && !WinSingleInstance.shownPath("C:\\x\n\\y").contains("\n")
+        let wording = bounded && Set(texts).count == 4 && texts[3].contains("Another copy of PokeTokenBar")
         r.add("singleInstance.foreignHolder", outcome == .yielded && told == [.noAnswer] && same && other && image && wording,
               "outcome=\(outcome) told=\(told) sameExecutable(case/separator)=\(same) differs from cmd.exe=\(other) own image path matches=\(image) wording=\(wording)")
     }
