@@ -6,9 +6,9 @@ extension PlazaEmoteTests {
     /// The top-left guide lists every key the plaza answers to.
     func testShortcutGuideListsEveryKey() async {
         XCTAssertEqual(PlazaShortcutGuide.entries.map(\.key),
-                       ["방향키", "Shift", "Space", "Enter", "1–5", "Z", "X", "C", "V", "D", "F", "P G", "M", "A", "−/+"])
+                       ["방향키", "Shift", "Space", "Enter", "1–5", "Z", "X", "C", "V", "B", "D F", "P G", "M", "A", "−/+"])
         XCTAssertEqual(PlazaShortcutGuide.entries.map(\.label),
-                       ["걷기", "달리기", "말 걸기", "한마디", "말풍선", "점프 · 물놀이", "인사하기", "몸통박치기", "눈뭉치", "춤", "불꽃놀이", "사진 · 단체", "미니게임", "기도(알)", "확대·축소"])
+                       ["걷기", "달리기", "말 걸기", "한마디", "말풍선", "점프 · 물놀이", "인사하기", "몸통박치기", "눈뭉치", "끌어당기기", "춤 · 불꽃", "사진 · 단체", "미니게임", "기도(알)", "확대·축소"])
     }
 
     /// On snow days the guide gains a V row right after C.
