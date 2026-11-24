@@ -126,10 +126,9 @@ final class BinaryLocatorTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: dir) }
         #if os(Windows)
         // Windows decides "executable" by the file's content and extension, so a script written by a test is not one.
-        throw XCTSkip("an executable file cannot be faked with plain bytes on Windows")
-        #else
-        let tool = dir.appendingPathComponent("ptb-late-tool").path
+        try XCTSkipIf(true, "an executable file cannot be faked with plain bytes on Windows")
         #endif
+        let tool = dir.appendingPathComponent("ptb-late-tool").path
         let spawns = Counter()
         withFakes(shell: { _ in spawns.n += 1; return nil }) {
             XCTAssertNil(BinaryLocator.resolve("ptb-late-tool", staticPaths: [tool]))
