@@ -1,5 +1,18 @@
 import Foundation
 
+extension Int {
+    /// Addition that clamps instead of trapping. Token sums add thousands of log-derived values,
+    /// and a trap there repeats on every refresh and relaunch while the log stays on disk.
+    func saturatingAdding(_ other: Int) -> Int {
+        let (sum, overflow) = addingReportingOverflow(other)
+        return overflow ? (other > 0 ? Int.max : Int.min) : sum
+    }
+}
+
+extension Sequence where Element == Int {
+    func saturatingSum() -> Int { reduce(0) { $0.saturatingAdding($1) } }
+}
+
 // MARK: - ccusage daily
 
 struct DailyUsage: Decodable, Sendable {
@@ -168,7 +181,7 @@ struct PeriodUsage: Decodable, Sendable {
 
     init(period: String, daily: [DailyUsage]) {
         self.period = period
-        totalTokens = daily.reduce(0) { $0 + $1.totalTokens }
+        totalTokens = daily.map(\.totalTokens).saturatingSum()
         totalCost = daily.reduce(0) { $0 + $1.totalCost }
         costCoverage = daily.reduce(into: .empty) { $0.merge($1.costCoverage) }
     }

@@ -1449,7 +1449,7 @@ enum LocalAdditionalUsageReader {
             includingPropertiesForKeys: [.isRegularFileKey],
             options: [.skipsHiddenFiles, .skipsPackageDescendants]) else { return [] }
         var out: [URL] = []
-        for case let url as URL in enumerator where kiroIsJSONLSessionFile(url) {
+        for case let url as URL in enumerator where kiroIsJSONLSessionFile(url) && LocalUsageReader.isPlainLogFile(url) {
             out.append(url)
         }
         return out
@@ -1791,7 +1791,7 @@ enum LocalAdditionalUsageReader {
     private static func dateValue(_ value: Any?) -> Date? {
         guard let raw = doubleValue(value), raw.isFinite, raw > 0 else { return nil }
         let seconds = raw >= 100_000_000_000 ? raw / 1_000 : raw
-        return Date(timeIntervalSince1970: seconds)
+        return LocalUsageReader.plausibleDate(epochSeconds: seconds)
     }
 
     private static func query<T>(

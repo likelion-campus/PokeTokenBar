@@ -231,7 +231,7 @@ struct UsageRecap: Sendable {
                 let end = calendar.date(byAdding: .month, value: 1, to: start) ?? period.end
                 let keys = days(start, end).filter { $0 <= today }.map { formatter.string(from: $0) }
                 return Bucket(key: formatter.string(from: start),
-                              tokens: keys.reduce(0) { $0 + ledger.tokens(on: $1) },
+                              tokens: keys.map { ledger.tokens(on: $0) }.saturatingSum(),
                               isCurrent: start <= today && today < end,
                               hasData: keys.contains(where: known))
             }
@@ -244,7 +244,7 @@ struct UsageRecap: Sendable {
         // would read as a 40% drop against a whole month.
         let compared = isInProgress ? Array(previousDays.prefix(elapsed.count)) : previousDays
         let previousTotal = compared.first.map(ledger.covers) == true
-            ? compared.reduce(0) { $0 + ledger.tokens(on: $1) }
+            ? compared.map { ledger.tokens(on: $0) }.saturatingSum()
             : nil
 
         let graduated = dex
@@ -256,7 +256,7 @@ struct UsageRecap: Sendable {
         return UsageRecap(
             period: period,
             buckets: buckets,
-            total: elapsed.reduce(0) { $0 + $1.tokens },
+            total: elapsed.map(\.tokens).saturatingSum(),
             isInProgress: isInProgress,
             previousTotal: previousTotal,
             bestDay: elapsed.filter { $0.tokens > 0 }.max { $0.tokens < $1.tokens },

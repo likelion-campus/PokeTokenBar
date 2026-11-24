@@ -1092,7 +1092,7 @@ struct SettingsView: View {
 
         let envelope: SaveEnvelope
         do {
-            envelope = try SaveTransfer.decode(try Data(contentsOf: url))
+            envelope = try SaveImportTool.readSave(at: url)
         } catch {
             AppLog.write("save import read failed: \(error)")
             presentAlert(title: l.importSaveLabel, message: l.importErrorMessage(error), style: .warning)

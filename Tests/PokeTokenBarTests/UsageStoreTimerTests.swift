@@ -29,6 +29,10 @@ final class UsageStoreTimerTests: XCTestCase {
 
     func testPollingTimerFirstFiresAfterTheInterval() async {
         let defaults = TestDefaults.make(suite: "ptb.test.timer.first.\(UUID().uuidString)")
+        // The stored interval is clamped to 30 s at load; lower the floor so the test can use a short one.
+        let savedFloor = UsageStore.minimumRefreshInterval
+        UsageStore.minimumRefreshInterval = 0.1
+        defer { UsageStore.minimumRefreshInterval = savedFloor }
         defaults.set(0.5, forKey: "refreshInterval")
         let provider = CountingProvider()
         let store = makeHermeticUsageStore(providers: [provider], defaults: defaults)

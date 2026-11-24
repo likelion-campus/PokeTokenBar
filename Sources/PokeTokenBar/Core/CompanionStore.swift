@@ -885,7 +885,7 @@ final class CompanionStore {
     func update(todayTokensByProvider: [String: Int], todayDate: String, monthTotal: Int,
                 burnTier: BurnTier, limitWarning: Bool, hasUsageData: Bool,
                 timeSinceLastUsage: TimeInterval? = nil) {
-        let todayTokens = todayTokensByProvider.values.reduce(0, +)
+        let todayTokens = todayTokensByProvider.values.saturatingSum()
         // `hasUsageData`는 표시용 snapshot 존재 여부이고, 이 map은 오늘 날짜가 확인된
         // provider 데이터만 담는다. stale snapshot이나 today == nil carrier만 있는 refresh는
         // ledger의 기준점을 움직일 수 있는 관측으로 취급하지 않는다.
@@ -938,11 +938,11 @@ final class CompanionStore {
                         newLedger[providerID] = current
                     }
                     state.claimedTodayTokensByProvider = newLedger
-                    let delta = todayTokensByProvider.values.reduce(0, +)
+                    let delta = todayTokensByProvider.values.saturatingSum()
                     if delta > 0 {
-                        state.usedSinceInstall += delta
+                        state.usedSinceInstall = state.usedSinceInstall.saturatingAdding(delta)
                         if state.active == nil {
-                            state.eggUsage += delta
+                            state.eggUsage = state.eggUsage.saturatingAdding(delta)
                         } else {
                             applyUsage(delta)
                         }
@@ -965,14 +965,14 @@ final class CompanionStore {
                             AppLog.write("companion usage regression provider=\(providerID) date=\(todayDate) previous=\(previous) current=\(current) drop=\(previous - current) — rebased provider ledger")
                             continue
                         }
-                        delta += current - previous
+                        delta = delta.saturatingAdding(current - previous)
                         ledger[providerID] = current
                     }
                     state.claimedTodayTokensByProvider = ledger
                     if delta > 0 {
-                        state.usedSinceInstall += delta
+                        state.usedSinceInstall = state.usedSinceInstall.saturatingAdding(delta)
                         if state.active == nil {
-                            state.eggUsage += delta   // 알 인큐베이션 누적
+                            state.eggUsage = state.eggUsage.saturatingAdding(delta)   // 알 인큐베이션 누적
                         } else {
                             applyUsage(delta)
                         }
@@ -1019,7 +1019,7 @@ final class CompanionStore {
     /// 프로바이더별 ledger 는 이미 전진해 델타가 영구 유실된다. 진화 판정만 라인 로드 후로 미룬다.
     func applyUsage(_ delta: Int) {
         guard state.active != nil else { return }
-        state.active!.usedAtStage += delta
+        state.active!.usedAtStage = state.active!.usedAtStage.saturatingAdding(delta)
         reconcileActiveProfileGrowth()
         guard let line = currentLine else { save(); return }
         var guardCount = 0
@@ -1364,7 +1364,7 @@ final class CompanionStore {
     func buy(_ kind: ItemKind, count: Int = 1) -> Bool {
         guard count >= 1, count <= maxBuyCount(kind), let price = price(of: kind) else { return false }
         state.spentTokens += price * count
-        state.inventory[kind.rawValue, default: 0] += count
+        state.inventory[kind.rawValue] = state.inventory[kind.rawValue, default: 0].saturatingAdding(count)
         save()
         return true
     }
@@ -1376,7 +1376,7 @@ final class CompanionStore {
 
     /// 팀 광장에서 주운 아이템 하나를 가방에 넣는다.
     func receivePlazaItem(_ kind: ItemKind) {
-        state.inventory[kind.rawValue, default: 0] += 1
+        state.inventory[kind.rawValue] = state.inventory[kind.rawValue, default: 0].saturatingAdding(1)
         save()
     }
 
@@ -1566,7 +1566,7 @@ final class CompanionStore {
         state.candyGrantTier = grantTier
         state.candyWindowEpoch = windowEpoch
         for g in grants {
-            state.inventory[ItemKind.rareCandy.rawValue, default: 0] += g.count
+            state.inventory[ItemKind.rareCandy.rawValue] = state.inventory[ItemKind.rareCandy.rawValue, default: 0].saturatingAdding(g.count)
             // 지급 자체는 알림 여부와 무관(상태 변경). 알림은 "왜 받는지"(그 창 한도를 다 채운 수고) 명시.
             notifyCompanionEvent(l.notifCandyTitle(item: l.itemName(.rareCandy), count: g.count),
                                  l.notifCandyBody(window: g.windowName), showsOnPet: false)
@@ -2072,6 +2072,8 @@ final class CompanionStore {
     /// 그 약속을 못 지키는 채로 덮어쓰면 사용자는 되돌릴 수단 없이 진행을 잃는다.
     func applySave(_ envelope: SaveEnvelope, todayTokensByProvider: [String: Int], todayDate: String,
                    hasUsageData: Bool) throws {
+        // 읽지 못한 세이브가 있는 세션이다: 지금 상태는 빈 상태라 백업이 무의미하고 저장도 꺼져 있다.
+        guard !persistenceBlocked else { throw SaveTransferError.backupFailed }
         try backupStateBeforeImport()
         state = SaveTransfer.rebasedForThisDevice(envelope.state,
                                                   current: state,
@@ -2156,7 +2158,9 @@ final class CompanionStore {
 
     func autoSnapshotIfNeeded(now: Date? = nil) {
         let timestamp = now ?? clock()
-        let newest = availableSnapshots.first
+        // A snapshot dated after `timestamp` (written while the clock ran ahead) is not "the newest": the
+        // interval to it is negative, so counting it would stop automatic snapshots until real time passed it.
+        let newest = availableSnapshots.first { $0.date <= timestamp }
 
         guard newest == nil ||
               timestamp.timeIntervalSince(newest!.date) >= automaticSnapshotInterval
@@ -2329,7 +2333,15 @@ final class CompanionStore {
 
     // MARK: 영속
     private func load() {
-        guard let data = try? Data(contentsOf: fileURL) else { return }   // 파일 없음 = 신규 설치
+        // 파일 없음 = 신규 설치. 하지만 "있는데 못 읽음"(Windows 공유 위반·백신·EACCES)은 신규 설치가 아니다 —
+        // 빈 상태로 시작해 첫 새로고침이 save() 하면 진짜 세이브가 빈 것으로 교체된다.
+        guard FileManager.default.fileExists(atPath: fileURL.path) else { return }
+        guard let data = Self.readExisting(fileURL) else {
+            if FileManager.default.fileExists(atPath: fileURL.path) {
+                blockPersistence("companion state exists but cannot be read")
+            }
+            return
+        }
         guard let s = try? JSONDecoder().decode(CompanionState.self, from: data) else {
             // 디코드 실패(전면 손상/미래 스키마) → 원본을 .corrupt 로 백업 후 유효한 스냅샷으로 복구 시도.
             let backup = fileURL.appendingPathExtension("corrupt")
@@ -2339,9 +2351,11 @@ final class CompanionStore {
                 AppLog.write("companion state decode failed — original backed up to \(backup.lastPathComponent)")
             } catch {
                 AppLog.write("failed to move corrupt state file to \(backup.lastPathComponent): \(error)")
+                // 원본이 그대로 남았다. 이 세션이 저장하면 그 원본(손으로 고칠 수도 있는 유일한 사본)이 사라진다.
+                blockPersistence("corrupt companion state could not be moved aside")
             }
 
-            if let recovered = SaveSnapshotManager.loadLatestValidSnapshot(for: fileURL) {
+            if let recovered = SaveSnapshotManager.loadLatestValidSnapshot(for: fileURL, now: clock()) {
                 state = SaveTransfer.sanitized(recovered)
                 AppLog.write("automatically recovered companion state from snapshot")
                 save()
@@ -2356,7 +2370,26 @@ final class CompanionStore {
         // (디코드는 *성공*하므로 위의 .corrupt 복구도 발동하지 않는다). 여기서 걸면 자가 복구된다.
         state = SaveTransfer.sanitized(s)
     }
+    /// 파일이 존재하는데 읽지 못하는 순간(스캐너·쓰는 쪽의 rename 마무리)을 잠깐 재시도로 넘긴다.
+    /// `SettingsPlistGuard.readExisting` 과 같은 규칙.
+    private static func readExisting(_ url: URL, attempts: Int = 4) -> Data? {
+        for attempt in 0..<attempts {
+            if let data = try? Data(contentsOf: url) { return data }
+            if attempt < attempts - 1 { Thread.sleep(forTimeInterval: 0.05) }
+        }
+        return nil
+    }
+
+    /// 읽지 못한 세이브를 이 세션이 덮어쓰지 않도록 저장을 끈다(`SettingsPlistGuard.leftAlone` 과 같은 규칙).
+    /// 메모리 상태는 정상 동작하고, 다음 기동에서 파일이 읽히면 평소대로 돌아온다.
+    private(set) var persistenceBlocked = false
+    private func blockPersistence(_ why: String) {
+        persistenceBlocked = true
+        AppLog.write("\(why): left alone, no saves this session")
+    }
+
     private func save() {
+        guard !persistenceBlocked else { return }
         refreshRepresentativeSubject()
         checkDexCompletions()   // 보유 성장분이 영속되는 매 지점에서 세대 완성 알림을 한 번만 띄운다
         guard let data = try? JSONEncoder().encode(state) else { return }
