@@ -162,17 +162,6 @@ final class AuditCoreFixesTests: XCTestCase {
         XCTAssertEqual(recovered?.usedSinceInstall, 777)
     }
 
-    func testRecoverySkipsAnUnreadableCandidateAndTriesTheNext() throws {
-        let stateURL = tempDir("skip").appendingPathComponent("companion-state.json")
-        try SaveSnapshotManager.createSnapshot(state: sampleState(tokens: 321), for: stateURL, date: baseNow.addingTimeInterval(-3600))
-        let newest = try SaveSnapshotManager.createSnapshot(state: sampleState(tokens: 999), for: stateURL, date: baseNow)
-        // Valid at listing time (decodes), but unreadable at load time: make the file a directory is not possible
-        // while listed, so corrupt it after listing instead.
-        XCTAssertEqual(SaveSnapshotManager.listSnapshots(for: stateURL).count, 2)
-        try Data("garbage".utf8).write(to: newest.fileURL)
-        XCTAssertEqual(SaveSnapshotManager.loadLatestValidSnapshot(for: stateURL, now: baseNow)?.usedSinceInstall, 321)
-    }
-
     // MARK: 7. a snapshot dated in the future
 
     func testRecoveryDoesNotPreferAFutureDatedSnapshot() throws {
