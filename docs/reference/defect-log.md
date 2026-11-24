@@ -791,6 +791,14 @@ read_when:
   (각 가드를 빼면 실패). 스윕: 시간 차 비교는 `receiverGrace` 한쪽만 막던 것을 `isOver` 로 모았고, 테스트 전용 기록(`appliedMemberLoads`)은
   64개로 제한했다.
 
+- **팀 연결 감사(2026-11-24): 한도는 연결 하나·메시지 한 종류에만 있었고, "얼마나 자주"·"몇 바이트 쌓였나"·"어느 주소가"는 없었다.**
+  증상(코드 읽기로 확인, 실행은 안 함): ① 팀원이 `live:false` 소식 프레임을 초당 수백 개 보내면 프레임마다 `team-feed.json`(최대 약 2 MB)을 통째로 다시 쓰고 정렬을 두 번 했다(정렬 비교마다 `Calendar` 를 새로 만들었다). ② Mac 은 읽지 않는 팀원에게 보낸 바이트를 세지 않아 메모리가 계속 늘었다(Windows 는 8 MB 에서 끊었다). ③ 일정·팀 이름·모닥불·얼음깨기는 더 새 도장이면 무조건 받아 저장하고 매번 모두에게 presence 를 다시 보냈다: 한 팀원이 팀 전체를 서로 flood 로 끊게 만들 수 있었다. ④ 모르는 종류 프레임은 비용 0, 끊긴 주소는 곧바로 새 4 MB 를 받고, hello 를 안 하는 링크가 128 칸을 차지했다. ⑤ 확성기는 자기 신고 member ID 별로만 제한돼 ID 를 바꾸면 무제한이었다. ⑥ 팀원이 보낸 `speciesID` 가 어떤 정수든 GitHub 스프라이트 요청이 됐다. ⑦ 인증 안 된 한 주소가 미완료 연결 32개를 채워 팀원을 막을 수 있었다. ⑧ 지워지지 않는 DNS-SD 이름이 표에 끝없이 쌓였다. ⑨ 받은 프로필의 도감은 길이 제한이 없었다.
+  **왜 못 걸렀나:** 앞선 팀 입력 항목들이 "값이 범위 안인가"(문자열 길이, 날짜 창, 개수)를 막았는데, 그 방어는 한 프레임의 크기만 봤다. 같은 합법 프레임을 많이 보내는 입력(되풀이 비용)과 상대가 읽지 않는 출력(쌓이는 양)은 어느 테스트도 만들지 않았다. `TeamFeedStoreTests` 는 "프레임당 저장 한 번"을 오히려 못 박았다. Windows 에만 있던 8 MB 한도는 Mac 에 같은 값이 있는지 대조한 적이 없다(`TeamTransportContract` 는 양쪽 같은 시나리오만 돌려 한쪽에만 있는 한도를 못 본다).
+  **고침(값은 정직한 클라이언트가 보내는 최대에서 뽑았다, 이름 있는 상수):** `TeamFeedStore.saveDelay`(팀원 프레임은 2초 뒤 한 번에, 내 소식은 즉시, 종료 때 `flush`)·정렬 키는 한 번만 계산·`TeamSession.syncedFrameBurst` 120 + `syncedFramesPerSecond` 2·`TeamTransportRules.maxQueuedBytes` 8 MB(Mac 도 `contentProcessed` 로 센다)·`TeamSession.sharedValueBurst` 20 + `sharedValueInterval` 4초와 `adoptionBroadcastInterval` 2초로 합친 presence·`FrameDecoder.lastFrameCount`(건너뛴 프레임도 `frameCost`)와 복사 없는 오프셋·`helloDeadline` 15초·`maxUnfinishedInboundPerAddress` 8·`maxLinksPerAddress` 32·`TeamFloodMemory`(끊긴 주소는 10분간 쌓은 만큼만 토큰으로 시작)·`TeamNotifier.megaphoneBurst` 10 + 2초당 1개와 표 정리·`TeamMonSummary.bounded` 의 종 범위·`SpriteStore` 가 404 를 앞면도 기억·`PlazaWindowController.memberLoadTasks`(새 로드가 이전 것을 취소)·`maxDiscoveredNames` 1024(계획표와 Windows DNS-SD 표, 가장 오래된 것부터 버림)·`TeamMemberProfile.bounded`.
+  **부류 스윕:** 받은 값을 저장·다시 보내는 곳(일정, 팀 이름, 모닥불, 얼음깨기)은 모두 presence 한 길을 지나므로 그 길에서 한 번에 막았다. 도달 불가라 가드를 안 넣은 것: 모닥불·얼음깨기를 플라자 컨트롤러가 따로 받는 길은 `TeamSession` 이 돌려주는 멤버 상태를 읽을 뿐이라 같은 한도를 지난다. 키 도출(7번)은 소유자가 두기로 했다.
+  **영구 캡처:** `TeamTransportAuditTests.swift`(한도마다 "넘치게 보내는 피어"와 "정직하게 가장 많이 보내는 피어"를 짝으로), `TeamTransportTests.testALinkWithTooManyBytesWaitingIsDropped`/`testThreeFullFeedSyncsInOneGoAreNotDropped`, `TeamNotificationsTests` 의 확성기 두 건, 계약 테스트 `unfinishedInboundLinksAreCapped`(주소 한 곳 기준으로 바꿈). 가드를 하나씩 되돌려 해당 테스트가 실패하는 것을 확인했다.
+  **규칙:** 피어에게서 오는 것은 크기·범위뿐 아니라 **횟수**(프레임당 비용 × 속도), **주소당 몫**, 그리고 **내가 보낸 뒤 쌓이는 양**을 따로 따진다. 새 한도는 정직한 클라이언트의 최대(예: 전체 소식 동기 99프레임, 한 주소 뒤 팀원 열여섯 명)를 이름 붙은 상수의 주석에 적고, 그 최대를 보내는 테스트를 함께 둔다. 한 플랫폼에만 있는 한도는 다른 쪽에도 있는지 대조한다.
+
 ## 빌드·도구체인
 
 - **`Sendable` 여부는 SDK마다 다르다 — 파일 범위 전역에는 값 타입만 둔다.** 메타몽 PR(#88)이 테스트 파일 맨 위에
