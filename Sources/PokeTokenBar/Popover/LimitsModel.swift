@@ -504,7 +504,7 @@ struct LimitsBuilder {
         return out
     }
 
-    /// Twin of `PopoverView.claudeLimitsRefreshRow`: the user's one-tap refresh (automatic polls never read the token).
+    /// Twin of `PopoverView.claudeLimitsRefreshRow`: the user's one-tap refresh (automatic polls read the token only through the `security` tool, and not at all where it cannot).
     var claudeLimitsRefreshRow: RefreshRowModel {
         RefreshRowModel(
             // The row also shows for another account's pending refresh: only call the values stale when the default

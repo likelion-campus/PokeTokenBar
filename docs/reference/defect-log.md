@@ -1132,15 +1132,27 @@ read_when:
   실사용자 매 업그레이드) 항목 ACL 이 안 맞아 접근 허용 프롬프트를 유발한다 — **no-UI 쿼리로도 이 ACL
   프롬프트는 억제 안 됨**(#58). 토큰류는 인메모리 캐시 + 파일(`~/.claude/.credentials.json`) 재취득으로
   처리하고, 앱 전용 keychain 캐시 항목을 새로 만들지 말 것.
-- **자동 폴링은 Claude 키체인을 절대 읽지 마라(키체인 읽기는 사용자 동작 전용).** no-UI 쿼리
+- **자동 폴링은 앱 자신의 Keychain API 로 Claude 키체인을 절대 읽지 마라(`SecItemCopyMatching` 은 사용자 동작 전용).** no-UI 쿼리
   (`kSecUseAuthenticationUIFail`/`LAContext`)는 '인증' 프롬프트만 억제할 뿐 **잠긴·미승인 login 키체인의
   '암호 입력' 다이얼로그는 못 막는다** — 실측: 캐시 만료 폴 도중 `SecItemCopyMatching` 이 13초간 블록하며
   팝업(토큰 만료 시점마다 하루 몇 회, 아침 등). self-signed 앱은 '항상 허용' 승인도 불안정. → 타이머 경로
-  `fetch(allowKeychainPrompt: false)` 는 캐시+파일만 쓰고 키체인은 건드리지 않는다(`OAuthLimitsProvider`
-  의 `guard allowKeychainPrompt` 가 키체인 읽기 앞에 위치). 키체인 읽기는 명시적 사용자 버튼
+  `fetch(allowKeychainPrompt: false)` 는 파일 → 캐시 → `/usr/bin/security`(아래) 순으로 읽고 앱 자신의 `SecItemCopyMatching` 은 부르지 않는다
+  (`OAuthAccessTokenCache.accessToken` 의 `guard allowKeychainPrompt` 가 앱 API 읽기 앞에 위치). 앱 API 로 키체인을 읽는 건 명시적 사용자 버튼
   (설정 갱신·팝오버 `claudeLimitsRefreshRow`, `refreshLimitTokenFromKeychain`)에서만. 파일이 유효
-  토큰을 들고 있으면 매 자동 폴이 그걸 다시 읽고, 파일이 없을 때만 캐시가 버티다가 만료 후 stale.
-  회귀 가드: `testAutoRefreshUsesNoPromptPathManualUsesPromptPath`. (완전 근절은 Developer ID
+  토큰을 들고 있으면 매 자동 폴이 그걸 다시 읽는다. 회귀 가드: `testAutomaticPathNeverQueriesTheKeychain`(앱 API 0회)·
+  `testAutoRefreshUsesNoPromptPathManualUsesPromptPath`.
+  **자동 경로의 유일한 읽기(맥, 2026-11):** `/usr/bin/security find-generic-password -s <service> -a <NSUserName()> -w`
+  (없으면 `-a` 없이 한 번 더)를 `OAuthAccessTokenCache.readClaudeKeychainViaSecurityTool` 이 실행한다. Claude Code 가 항목을 이 도구로
+  만들고 읽어 항목의 복호화 ACL 이 `/usr/bin/security` 를 신뢰하므로 다이얼로그가 없다(앱은 self-signed 라 신뢰 못 받음).
+  가드(순서, 하나라도 걸리면 프로세스 없이 nil): 접근 끔 → 시험 이음매 없고 번들 앱 아님(`swift test` 가 개발자 키체인을 안 읽게) →
+  꺼짐(시간 초과 3 s 또는 종료 코드 0·44 밖 — 사용자가 다이얼로그를 거절한 것일 수 있다 — 이면 앱 재시작·사용자 갱신 버튼까지) → 기본 키체인 잠김(`SecKeychainGetStatus`; 잠기면 `security` 가 잠금 해제 다이얼로그를 띄운다; 확인한 키체인 경로를 `security` 인자로 넘겨 같은 파일만 검색).
+  stdout·토큰·계정 이름은 로그에 남기지 않는다. **자격증명 탐지 5-whys:** 증상 — 회사 사용량 시트에 맥 사용자 다수가 "플랜 정보 없음".
+  직접원인 — 키체인에만 로그인이 있는 맥은 자동 폴이 키체인을 안 읽어(위 규칙) 갱신 버튼을 누르기 전·앱 재시작 후·토큰 만료(약 8 h) 뒤엔 한도가 없어
+  한도 행이 전송되지 않았다. 왜 못 걸렀나 — 리포터 테스트는 한도를 주입하고, 개발자 맥에는 `~/.claude/.credentials.json` 이 있어 닷푸딩에선 늘 한도가
+  있었으며, 키체인만 있는 맥을 아무도 확인하지 않았다. 가드 — `KeychainToolReadTests`(도구 경유 읽기·`-a` 폴백·접근 끔·잠김·시간 초과 후 꺼짐·만료·여러
+  서비스·번들 아님·예상 밖 종료 코드, 가드마다 제거 시 실패 확인, 실제 `/usr/bin/security` 로 없는 서비스 → 종료 44, 실제 러너 시간 초과·stdout 캡처).
+  `Credential` 은 `description`/`debugDescription` 에서 토큰을 가린다(시험 실패 메시지가 토큰을 찍던 일 방지); 시험은 UUID 서비스 이름만 쓴다.
+  (완전 근절은 Developer ID
   notarization 으로 '항상 허용' 승인을 안정화하는 것뿐 — 신뢰된 서명 신원이라야 ACL 승인이 지속된다.
   미도입.)
 - **Claude Keychain '항상 허용'은 ACL 리셋으로 유지되지 않는다 — 비간섭 상시 `(?)` 도움말로 세션 키 등록을 유도.**
@@ -1173,7 +1185,7 @@ read_when:
 - **인메모리 토큰 캐시는 만료만 보면 안 된다 — 원본 파일이 다른 유효 토큰으로 바뀌었는지도 본다.**
   `/login` 으로 계정을 갈아타면 `~/.claude/.credentials.json` 이 새 토큰으로 덮이지만, 캐시가 옛
   토큰의 `expiresAt` 까지 그걸 무시하면 공식 5h/주 바가 이전 계정에 붙고 컴패니언 EXP 만 로컬
-  jsonl 로 계속 오른다(#227). 자동 폴은 키체인을 안 읽으므로 **파일 peek 를 캐시 히트보다 앞에**
+  jsonl 로 계속 오른다(#227). 자동 폴은 캐시가 유효하면 키체인(도구)을 읽지 않으므로 **파일 peek 를 캐시 히트보다 앞에**
   둔다. 파일이 없거나 `"claudeAiOauth": null` 이면 캐시를 유지(로그아웃·`CLAUDE_CONFIG_DIR` 잔여
   파일 — 기존 `credentialsFileIsAccountOAuthMissing` 과 같은 이유). 같은 부류: Antigravity
   `jetski-standalone-oauth-token` 은 파일 로드 시 `expiresAt=nil` 이라 캐시가 만료로 풀리지 않는다.
