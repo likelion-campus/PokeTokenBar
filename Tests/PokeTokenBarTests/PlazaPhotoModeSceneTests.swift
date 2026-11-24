@@ -232,8 +232,12 @@ final class PlazaPhotoModeSceneTests: XCTestCase {
         scene.onFireworkKey = { c.firework += 1 }
         scene.onEmoteKey = { _ in c.emote += 1 }
         scene.onCloseRequest = { c.close += 1 }
+        var drags = 0
+        scene.onDragKey = { drags += 1 }
         scene.enterPhotoMode()
         for code: UInt16 in [49, 35, 36, 8, 5, 6, 7, 3, 18] { XCTAssertEqual(down(scene, code), .swallowed) }
+        _ = down(scene, 11)
+        XCTAssertEqual(drags, 0, "B pulls nobody in photo mode")
         XCTAssertEqual(c.photo, 2)
         XCTAssertEqual(c.interact, 0)
         XCTAssertEqual(c.chat, 0)
