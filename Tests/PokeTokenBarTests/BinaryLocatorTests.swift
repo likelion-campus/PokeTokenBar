@@ -155,6 +155,51 @@ final class BinaryLocatorTests: XCTestCase {
         }
     }
 
+    func testNotFoundIsLookedForAgainOnAManualRefresh() {
+        let spawns = Counter()
+        withFakes(shell: { _ in spawns.n += 1; return nil }) {
+            _ = BinaryLocator.resolve("ptb-absent-tool4", staticPaths: [])
+            _ = BinaryLocator.resolve("ptb-absent-tool4", staticPaths: [])
+            XCTAssertEqual(spawns.n, 1)
+            BinaryLocator.forgetNotFound()
+            _ = BinaryLocator.resolve("ptb-absent-tool4", staticPaths: [])
+            XCTAssertEqual(spawns.n, 2, "a person pressed refresh: ask the shell again")
+            _ = BinaryLocator.resolve("ptb-absent-tool4", staticPaths: [])
+            XCTAssertEqual(spawns.n, 2)
+        }
+    }
+
+    func testForgetNotFoundKeepsWhatWasFound() {
+        let spawns = Counter()
+        withFakes(shell: { _ in spawns.n += 1; return "/bin/sh" }) {
+            XCTAssertEqual(BinaryLocator.resolve("ptb-found-tool", staticPaths: []), "/bin/sh")
+            BinaryLocator.forgetNotFound()
+            XCTAssertEqual(BinaryLocator.resolve("ptb-found-tool", staticPaths: []), "/bin/sh")
+            XCTAssertEqual(spawns.n, 1)
+        }
+    }
+
+    func testNotFoundIsLookedForAgainOnlyOncePerRecheckInterval() {
+        let spawns = Counter()
+        let savedNow = BinaryLocator.now
+        let clock = Clock()
+        BinaryLocator.now = { clock.now }
+        defer { BinaryLocator.now = savedNow }
+        withFakes(shell: { _ in spawns.n += 1; return nil }) {
+            _ = BinaryLocator.resolve("ptb-absent-tool5", staticPaths: [])
+            clock.now.addTimeInterval(BinaryLocator.notFoundRecheckInterval - 60)
+            _ = BinaryLocator.resolve("ptb-absent-tool5", staticPaths: [])
+            XCTAssertEqual(spawns.n, 1, "still inside the interval")
+            clock.now.addTimeInterval(120)
+            _ = BinaryLocator.resolve("ptb-absent-tool5", staticPaths: [])
+            XCTAssertEqual(spawns.n, 2, "a tool installed later through nvm/fnm is found without a relaunch")
+            _ = BinaryLocator.resolve("ptb-absent-tool5", staticPaths: [])
+            XCTAssertEqual(spawns.n, 2, "the interval restarts from the last look")
+        }
+    }
+
+    final class Clock: @unchecked Sendable { var now = Date(timeIntervalSince1970: 1_700_000_000) }
+
     func testShellWaitIsNotHeldUnderTheCacheLock() {
         // A slow shell for one binary must not block a lookup of another (the lock is not held while waiting).
         let started = DispatchSemaphore(value: 0), release = DispatchSemaphore(value: 0)

@@ -231,6 +231,7 @@ UsageStore.openCodeGoLimitsStale | P27
 UsageStore.openCodeGoLimitsUpdatedAt | P27
 UsageStore.providerStatus | P14
 UsageStore.refresh | A3
+UsageStore.refreshByUser | A3
 UsageStore.refreshAntigravityLimitsFromKeychain | P25
 UsageStore.refreshInterval | G3
 UsageStore.refreshLimitTokenFromKeychain | P18

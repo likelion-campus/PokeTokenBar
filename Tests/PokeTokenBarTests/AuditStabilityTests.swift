@@ -1,4 +1,5 @@
 import XCTest
+import Observation
 @testable import PokeTokenBar
 
 private struct StabilityOfflineProvider: PokeProviding {
@@ -34,72 +35,20 @@ final class AuditStabilityTests: XCTestCase {
                  burnTier: .idle, limitWarning: false, hasUsageData: true)
     }
 
-    // MARK: 4. the ledger credits a day once
+    // MARK: save format
 
-    func testGoingBackToAnUnseenDayCreditsNothingAndComingBackCreditsOnlyTheDifference() async {
-        let s = makeStore(tempURL())
-        use(s, ["codex": 0], date: "2026-11-25")
-        use(s, ["codex": 400], date: "2026-11-25")
-        XCTAssertEqual(s.state.usedSinceInstall, 400)
-
-        // Time zone travel: the same usage now sits under the previous day key.
-        use(s, ["codex": 900], date: "2026-11-24")
-        XCTAssertEqual(s.state.usedSinceInstall, 400, "a day key that moves backwards is not a new day")
-        // Back home: 150 more tokens since the first visit.
-        use(s, ["codex": 550], date: "2026-11-25")
-        XCTAssertEqual(s.state.usedSinceInstall, 550, "only the 150 that are new on that day")
-    }
-
-    func testFlippingTheClockBackAndForthDoesNotMintTokens() async {
-        let s = makeStore(tempURL())
-        use(s, ["codex": 0], date: "d2")
-        use(s, ["codex": 300], date: "d2")
-        use(s, ["codex": 100], date: "d3")   // a real rollover: credited in full once
-        XCTAssertEqual(s.state.usedSinceInstall, 400)
-        for _ in 0..<5 {
-            use(s, ["codex": 300], date: "d2")
-            use(s, ["codex": 100], date: "d3")
-        }
-        XCTAssertEqual(s.state.usedSinceInstall, 400, "each flip used to credit a whole day again")
-    }
-
-    func testReturningToAKnownDayCreditsTheUsageThatCameInBetween() async {
-        let s = makeStore(tempURL())
-        use(s, ["codex": 0], date: "d1")
-        use(s, ["codex": 100], date: "d1")
-        use(s, ["codex": 30], date: "d2")
-        XCTAssertEqual(s.state.usedSinceInstall, 130)
-        use(s, ["codex": 130], date: "d1")   // 30 more were used on d1 (say, in another time zone's evening)
-        XCTAssertEqual(s.state.usedSinceInstall, 160)
-    }
-
-    func testForwardRolloverStillCreditsTheWholeNewDay() async {
-        let s = makeStore(tempURL())
-        use(s, ["codex": 0], date: "d1")
-        use(s, ["codex": 200], date: "d1")
-        use(s, ["codex": 100], date: "d2")
-        XCTAssertEqual(s.state.usedSinceInstall, 300)
-    }
-
-    func testDayLedgersKeepOnlyTheLastFewDays() async {
-        let s = makeStore(tempURL())
-        use(s, ["codex": 0], date: "d00")
-        for day in 1...12 { use(s, ["codex": 10], date: String(format: "d%02d", day)) }
-        XCTAssertLessThanOrEqual(s.state.dayLedgers?.count ?? 0, 7)
-    }
-
-    func testSaveWithDayLedgersRoundTripsAndOlderSavesAndUnknownKeysStillLoad() async throws {
+    func testSaveRoundTripsTheMarkerAndOlderSavesAndUnknownKeysStillLoad() async throws {
         var state = CompanionState()
-        state.dayLedgers = ["d1": ["codex": 5]]
+        state.usedSinceInstall = 5
         let data = try JSONEncoder().encode(state)
-        XCTAssertEqual(try JSONDecoder().decode(CompanionState.self, from: data).dayLedgers, ["d1": ["codex": 5]])
+        XCTAssertEqual(try JSONDecoder().decode(CompanionState.self, from: data).formatVersion,
+                       CompanionState.currentFormatVersion)
 
-        // A save from before this field: no dayLedgers, no formatVersion, plus a key a future build might add.
+        // A save from before the marker, plus a key a future build might add: both load.
         let old = Data(#"{"usedSinceInstall":42,"someFutureKey":{"a":1}}"#.utf8)
         let decoded = try JSONDecoder().decode(CompanionState.self, from: old)
         XCTAssertEqual(decoded.usedSinceInstall, 42)
-        XCTAssertNil(decoded.dayLedgers)
-        XCTAssertEqual(decoded.formatVersion, CompanionState.currentFormatVersion)
+        XCTAssertEqual(decoded.formatVersion, 0, "read as found; the store writes its own on the next save")
     }
 
     // MARK: 2. update() writes only what changed
@@ -126,7 +75,7 @@ final class AuditStabilityTests: XCTestCase {
         use(s, ["codex": 0], date: "d1")
         use(s, ["codex": 100], date: "d1")
         try Data("sentinel".utf8).write(to: url)
-        use(s, ["codex": 100], date: "d0")   // backwards, nothing credited, but the key and the archive changed
+        use(s, ["codex": 100], date: "d0")   // the day key changed (a rollover credits the day, as before)
         XCTAssertEqual(try JSONDecoder().decode(CompanionState.self, from: Data(contentsOf: url)).lastDate, "d0")
     }
 
@@ -152,28 +101,50 @@ final class AuditStabilityTests: XCTestCase {
         XCTAssertEqual(try JSONDecoder().decode(CompanionState.self, from: Data(contentsOf: url)).usedSinceInstall, 100)
     }
 
-    // MARK: 8. a newer save is not overwritten
+    // MARK: 8. a newer save is kept aside once, then saving goes on
 
-    func testSaveFromANewerFormatIsLeftAloneAndNotSnapshotted() async throws {
-        let url = tempURL()
+    private func newerFile(_ url: URL, marker: Int) throws -> Data {
         var state = CompanionState()
         state.usedSinceInstall = 777
-        state.formatVersion = CompanionState.currentFormatVersion + 1
-        let original = try JSONEncoder().encode(state)
-        try original.write(to: url)
-
-        let s = makeStore(url)
-        XCTAssertTrue(s.persistenceBlocked)
-        XCTAssertEqual(s.state.usedSinceInstall, 777, "the in-memory state still runs")
-        s.receivePlazaItem(.rareCandy)
-        use(s, ["codex": 0], date: "d1")
-        use(s, ["codex": 100], date: "d1")
-        s.flush()
-        XCTAssertEqual(try Data(contentsOf: url), original, "a downgraded build must not rewrite the newer file")
-        XCTAssertThrowsError(try s.createManualSnapshot(), "a lossy snapshot would push out the newer build's own")
+        state.formatVersion = marker
+        let data = try JSONEncoder().encode(state)
+        try data.write(to: url)
+        return data
     }
 
-    func testCurrentAndMarkerlessSavesLoadAndWriteTheMarker() async throws {
+    func testSaveFromANewerFormatIsCopiedAsideOnceAndSavingContinues() async throws {
+        let url = tempURL()
+        let newer = CompanionState.currentFormatVersion + 1
+        let original = try newerFile(url, marker: newer)
+        let copy = url.deletingLastPathComponent().appendingPathComponent("companion-state.newer-\(newer).json")
+
+        let s = makeStore(url)
+        XCTAssertFalse(s.persistenceBlocked, "a downgrade must keep earning and saving")
+        XCTAssertEqual(s.state.usedSinceInstall, 777)
+        XCTAssertEqual(try Data(contentsOf: copy), original, "the newer file, byte for byte")
+
+        s.receivePlazaItem(.rareCandy)
+        let saved = try JSONDecoder().decode(CompanionState.self, from: Data(contentsOf: url))
+        XCTAssertEqual(saved.formatVersion, CompanionState.currentFormatVersion, "this build writes its own marker")
+        XCTAssertNoThrow(try s.createManualSnapshot())
+
+        // The next launch reads this build's own marker: no new copy, the first copy untouched.
+        try FileManager.default.removeItem(at: copy)
+        _ = makeStore(url)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: copy.path), "its own save is never judged newer")
+    }
+
+    func testAnExistingCopyIsNeverOverwritten() async throws {
+        let url = tempURL()
+        let newer = CompanionState.currentFormatVersion + 1
+        _ = try newerFile(url, marker: newer)
+        let copy = url.deletingLastPathComponent().appendingPathComponent("companion-state.newer-\(newer).json")
+        try Data("the first copy".utf8).write(to: copy)
+        _ = makeStore(url)
+        XCTAssertEqual(try Data(contentsOf: copy), Data("the first copy".utf8))
+    }
+
+    func testOwnAndMarkerlessSavesMakeNoCopyAndGetTheMarker() async throws {
         let url = tempURL()
         try Data(#"{"usedSinceInstall":5}"#.utf8).write(to: url)   // before the marker existed
         let s = makeStore(url)
@@ -181,6 +152,8 @@ final class AuditStabilityTests: XCTestCase {
         s.receivePlazaItem(.rareCandy)
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
         XCTAssertEqual(json["formatVersion"] as? Int, CompanionState.currentFormatVersion)
+        let names = try FileManager.default.contentsOfDirectory(atPath: url.deletingLastPathComponent().path)
+        XCTAssertFalse(names.contains { $0.contains("newer") })
     }
 
     // MARK: 7. a window key names one window
@@ -199,11 +172,51 @@ final class AuditStabilityTests: XCTestCase {
         XCTAssertTrue(CompanionStore.evaluateCandyGrants(windows: [a, c], grantTier: &tier, windowEpoch: &epoch).isEmpty)
     }
 
-    func testUniquelyKeyedKeepsTheFirstKeyAndNumbersTheRest() async {
+    func testUniquelyKeyedNumbersCollidersWithoutAnIdentityByPosition() async {
         let ws = [("a", 100.0), ("a", 10.0), ("b", 5.0), ("a", 0.0)].map {
             CandyWindow(key: $0.0, name: "n", kind: .weekly, utilization: $0.1)
         }
         XCTAssertEqual(CandyWindow.uniquelyKeyed(ws).map(\.key), ["a", "a#2", "b", "a#3"])
         XCTAssertEqual(CandyWindow.uniquelyKeyed(ws).map(\.utilization), [100, 10, 5, 0])
+    }
+
+    /// The window that keeps the plain key is chosen by the provider's own id, not by the order it listed them in,
+    /// so a saved tier on the plain key stays with the same window when the order changes.
+    func testUniquelyKeyedKeysByIdentityWhateverTheOrder() async {
+        func window(_ id: String, _ utilization: Double) -> CandyWindow {
+            CandyWindow(key: "antigravity.gemini.5h", name: id, kind: .session, utilization: utilization, identity: id)
+        }
+        let a = CandyWindow.uniquelyKeyed([window("g-2", 100), window("g-1", 40)])
+        let b = CandyWindow.uniquelyKeyed([window("g-1", 40), window("g-2", 100)])
+        XCTAssertEqual(Dictionary(uniqueKeysWithValues: a.map { ($0.name, $0.key) }),
+                       Dictionary(uniqueKeysWithValues: b.map { ($0.name, $0.key) }))
+        XCTAssertEqual(a.first { $0.name == "g-1" }?.key, "antigravity.gemini.5h")
+        XCTAssertEqual(a.first { $0.name == "g-2" }?.key, "antigravity.gemini.5h#g-2")
+    }
+
+    func testAPersistedPlainKeyKeepsItsTierWhenNothingCollides() async {
+        let w = CandyWindow(key: "codex.pro.primary", name: "n", kind: .session, utilization: 100, identity: "pro")
+        XCTAssertEqual(CandyWindow.uniquelyKeyed([w]).map(\.key), ["codex.pro.primary"])
+        var tier = ["codex.pro.primary": 1], epoch: [String: String] = [:]
+        XCTAssertTrue(CompanionStore.evaluateCandyGrants(windows: CandyWindow.uniquelyKeyed([w]),
+                                                         grantTier: &tier, windowEpoch: &epoch).isEmpty,
+                      "already granted before the upgrade: no second grant")
+    }
+
+    // MARK: update() does not fire observers for equal values
+
+    func testAnUnchangedPollDoesNotFireTheStoreObservers() async {
+        let s = makeStore(tempURL())
+        use(s, ["codex": 0], date: "d1")
+        use(s, ["codex": 100], date: "d1")
+        final class Fired: @unchecked Sendable { var n = 0 }
+        let fired = Fired()
+        withObservationTracking({
+            _ = s.state
+            _ = s.displayState
+            _ = s.sulkIdle
+        }, onChange: { fired.n += 1 })
+        use(s, ["codex": 100], date: "d1")
+        XCTAssertEqual(fired.n, 0, "equal writes still fire @Observable and re-show the floating pet each poll")
     }
 }

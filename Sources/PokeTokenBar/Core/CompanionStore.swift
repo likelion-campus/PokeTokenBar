@@ -901,8 +901,6 @@ final class CompanionStore {
 
     // MARK: 갱신 (AppDelegate 가 UsageStore 값으로 호출)
 
-    /// How many past day keys keep their ledger (`CompanionState.dayLedgers`).
-    private static let dayLedgerLimit = 7
     /// `update()` rewrites the save only when its ledger/usage fields changed, but never goes longer than this
     /// without one: a mutation path that forgot to save loses at most this much, not everything.
     private static let idleSaveInterval: TimeInterval = 600
@@ -962,37 +960,14 @@ final class CompanionStore {
                     // 이전 날짜의 숫자는 비교에 사용할 수 없으므로, 알려진 provider의 새 날짜 기준을
                     // 0으로 열어 둔다. 이후 복구된 현재 날짜 값은 그 날짜의 실제 사용량으로 적립되고,
                     // 같은 날짜의 부분 응답에서는 이 기준을 그대로 보존한다.
-                    //
-                    // 날짜 키가 **뒤로** 가는 경우(표준 시간대 이동·시계를 되돌림)는 새 날이 아니다. 떠나는 날의
-                    // 기준값을 `dayLedgers` 에 남기고, 돌아온 날은 그 기준값과의 차이만 적립한다(처음 보는
-                    // 과거 날짜는 기준만 잡고 적립하지 않는다). 안 그러면 시계를 한 번 뒤로 돌릴 때마다 하루치가
-                    // 다시 적립된다.
-                    let departing = state.lastDate
-                    var archive = state.dayLedgers ?? [:]
-                    if !departing.isEmpty {
-                        var kept = archive[departing] ?? [:]
-                        for (providerID, value) in state.claimedTodayTokensByProvider ?? [:] {
-                            kept[providerID] = max(kept[providerID] ?? 0, value)
-                        }
-                        archive[departing] = kept
-                    }
-                    let movesBackwards = !departing.isEmpty && todayDate < departing
-                    let known = archive[todayDate]
                     state.lastDate = todayDate
                     var newLedger = Dictionary(uniqueKeysWithValues:
                         state.claimedTodayTokensByProvider!.keys.map { ($0, 0) })
-                    var delta = 0
                     for (providerID, current) in todayTokensByProvider {
                         newLedger[providerID] = current
-                        if let known {
-                            delta = delta.saturatingAdding(max(0, current - (known[providerID] ?? 0)))
-                        } else if !movesBackwards {
-                            delta = delta.saturatingAdding(current)
-                        }
                     }
                     state.claimedTodayTokensByProvider = newLedger
-                    for key in archive.keys.sorted(by: >).dropFirst(Self.dayLedgerLimit) { archive[key] = nil }
-                    state.dayLedgers = archive
+                    let delta = todayTokensByProvider.values.saturatingSum()
                     if delta > 0 {
                         state.usedSinceInstall = state.usedSinceInstall.saturatingAdding(delta)
                         if state.active == nil {
@@ -1022,7 +997,7 @@ final class CompanionStore {
                         delta = delta.saturatingAdding(current - previous)
                         ledger[providerID] = current
                     }
-                    state.claimedTodayTokensByProvider = ledger
+                    if state.claimedTodayTokensByProvider != ledger { state.claimedTodayTokensByProvider = ledger }   // an equal write still fires @Observable
                     if delta > 0 {
                         state.usedSinceInstall = state.usedSinceInstall.saturatingAdding(delta)
                         if state.active == nil {
@@ -1060,10 +1035,13 @@ final class CompanionStore {
            a.usedAtStage >= stageThreshold(for: a) {
             Task { await revealDitto() }
         }
-        displayState = computeState(burnTier: burnTier, limitWarning: limitWarning,
-                                    hasUsageData: hasUsageData, today: todayTokens,
-                                    timeSinceLastUsage: idle)
-        sulkIdle = displayState == .sulk ? idle ?? 0 : 0
+        // Guarded: an equal assignment still fires @Observable, and the floating pet re-shows itself on every one.
+        let newDisplayState = computeState(burnTier: burnTier, limitWarning: limitWarning,
+                                           hasUsageData: hasUsageData, today: todayTokens,
+                                           timeSinceLastUsage: idle)
+        if displayState != newDisplayState { displayState = newDisplayState }
+        let newSulkIdle: TimeInterval = newDisplayState == .sulk ? idle ?? 0 : 0
+        if sulkIdle != newSulkIdle { sulkIdle = newSulkIdle }
         // Every poll lands here, usually with nothing to write: re-encoding the whole save (and rescanning the dex)
         // several times per refresh is pure waste. The fields this method changes are compared; every other
         // mutating path saves itself, and the interval keeps a forgotten one from losing more than minutes.
@@ -2431,18 +2409,24 @@ final class CompanionStore {
         // 불러오기 경계와 같은 정규화를 디스크에서 읽을 때도 건다. 불러오기만 막으면 **이미 저장된**
         // 극단값은 그대로 남아, 앱이 매 기동마다 같은 값을 읽어 산술 트랩으로 죽는 상태를 못 벗어난다
         // (디코드는 *성공*하므로 위의 .corrupt 복구도 발동하지 않는다). 여기서 걸면 자가 복구된다.
+        keepCopyOfNewerSave(marker: s.formatVersion)
         state = SaveTransfer.sanitized(s)
-        leaveNewerSaveAlone(s)
     }
 
-    /// A save written by a newer build can hold values this build decodes leniently into something smaller
-    /// (an unknown form becomes an egg, unknown dex entries vanish). Saving that would overwrite the only
-    /// full copy, and the snapshots would follow within days. The in-memory state still runs; nothing is
-    /// written or snapshotted this session, and the newer build reads its own file again.
-    private func leaveNewerSaveAlone(_ decoded: CompanionState) {
-        guard decoded.formatVersion > CompanionState.currentFormatVersion else { return }
-        blockPersistence("companion state is from a newer version (format \(decoded.formatVersion), this build \(CompanionState.currentFormatVersion))")
-        statePlaceholder = true
+    /// A save written by a newer build can hold values this build decodes leniently into something smaller (an unknown
+    /// form becomes an egg, unknown dex entries vanish) and then rewrites. Keep the file as the newer build wrote it, once,
+    /// next to the original, and carry on as before: blocking saves would lose every purchase and day of tokens at quit.
+    private func keepCopyOfNewerSave(marker: Int) {
+        guard marker > CompanionState.currentFormatVersion else { return }
+        let copy = fileURL.deletingLastPathComponent()
+            .appendingPathComponent("companion-state.newer-\(marker).json")
+        guard !FileManager.default.fileExists(atPath: copy.path) else { return }
+        do {
+            try FileManager.default.copyItem(at: fileURL, to: copy)
+            AppLog.write("companion state is from a newer version (format \(marker), this build \(CompanionState.currentFormatVersion)): copy kept as \(copy.lastPathComponent)")
+        } catch {
+            AppLog.write("companion state is from a newer version (format \(marker)): could not keep a copy (\(error.localizedDescription))")
+        }
     }
     /// 디코드 실패(전면 손상/미래 스키마) → 원본을 .corrupt 로 백업 후 유효한 스냅샷으로 복구 시도.
     /// 기동 때(`load`)와 늦게 읽힌 세이브가 디코드되지 않을 때(`adoptUnreadableSaveIfReadable`) 같은 규칙.
@@ -2512,8 +2496,8 @@ final class CompanionStore {
         persistenceBlocked = false
         statePlaceholder = false
         if let s = try? JSONDecoder().decode(CompanionState.self, from: data) {
+            keepCopyOfNewerSave(marker: s.formatVersion)
             state = SaveTransfer.sanitized(s)
-            leaveNewerSaveAlone(s)
             if let rescale = pendingGrowthRescale {
                 rescaleBankedGrowth(from: rescale.from, to: rescale.to)
                 save()
@@ -2535,6 +2519,7 @@ final class CompanionStore {
         lastSavedAt = clock()
         refreshRepresentativeSubject()
         checkDexCompletions()   // 보유 성장분이 영속되는 매 지점에서 세대 완성 알림을 한 번만 띄운다
+        if state.formatVersion != CompanionState.currentFormatVersion { state.formatVersion = CompanionState.currentFormatVersion }   // this build always writes its own marker
         guard !persistenceBlocked else { return }   // 메모리 쪽 효과(아이콘·알림)는 막지 않고 디스크 쓰기만 막는다
         guard let data = try? JSONEncoder().encode(state) else { return }
         try? PlatformCompat.atomicWrite(data, to: fileURL)   // 부분 쓰기 손상 방지(펫 상태)

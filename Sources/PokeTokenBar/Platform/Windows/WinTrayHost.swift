@@ -138,7 +138,7 @@ import WinSDK
         lastAction = action
         switch action {
         case .refresh:
-            Task { await store.refresh() }
+            Task { await store.refreshByUser() }
         case .openLogFolder:
             let folder = PlatformCompat.logsDirectory()
             try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)

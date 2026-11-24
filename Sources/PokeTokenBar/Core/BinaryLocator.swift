@@ -7,17 +7,22 @@ import Foundation
 /// 바이너리별로 1회 캐시(셸 호출 비용 회피).
 enum BinaryLocator {
     private static let lock = NSLock()
-    private struct Cached { let path: String?; let override: String? }
+    private struct Cached { let path: String?; let override: String?; let at: Date }
     private nonisolated(unsafe) static var cache: [String: Cached] = [:]
     /// 테스트 seam — 실제 로그인 셸을 띄우지 않고 spawn 횟수를 센다. 프로덕션은 `shellResolve`.
     nonisolated(unsafe) static var shellResolver: (String) -> String? = { shellResolve($0) }
+    /// 미탐지 기억을 셸로 다시 확인하는 최소 간격 — nvm/fnm 처럼 정적 경로 밖에 나중에 설치한 도구를 재기동 없이 만난다.
+    /// 예전 10분 TTL 의 비용(하루 종일 셸)은 6시간 주기로 낮춘다.
+    static let notFoundRecheckInterval: TimeInterval = 6 * 3600
+    /// 테스트 seam — 현재 시각.
+    nonisolated(unsafe) static var now: () -> Date = { Date() }
     /// 테스트 seam — 사용자 수동 지정값(UserDefaults "<binary>Path") 읽기.
     nonisolated(unsafe) static var overrideReader: (String) -> String? = { UserDefaults.standard.string(forKey: "\($0)Path") }
 
     /// `binary` 의 절대경로(없으면 nil). 스레드 세이프.
-    /// 로그인 셸 spawn 은 바이너리당 **프로세스 생애 1회** — 미탐지도 그대로 기억한다(주기 TTL 로 다시 띄우면
-    /// codex 를 안 쓰는 사용자의 인터랙티브 `.zshrc` 를 하루 종일 돌린다). 다시 보는 신호는 셋뿐이다:
-    /// 앱 재기동, 수동 지정값 변경, 그리고 셸 없이 되는 정적 경로 재확인(매 호출, stat 몇 번).
+    /// 미탐지도 오래 기억한다(짧은 TTL 로 다시 띄우면 codex 를 안 쓰는 사용자의 인터랙티브 `.zshrc` 를 하루 종일 돌린다).
+    /// 셸로 다시 보는 신호는 넷뿐이다: 앱 재기동, 수동 지정값 변경, UI 의 수동 새로고침(`forgetNotFound`),
+    /// 마지막 확인 뒤 `notFoundRecheckInterval`(6시간). 그 사이에는 셸 없이 되는 정적 경로 재확인만 한다(매 호출, stat 몇 번).
     /// 셸 대기(최대 8초)는 **락 밖**에서 한다 — 경합 시 중복 계산이 락 뒤에 줄 서는 것보다 낫다.
     /// `staticPaths`: 셸 해석 전에 먼저 확인할 알려진 설치 경로.
     static func resolve(_ binary: String, staticPaths: [String]) -> String? {
@@ -30,16 +35,16 @@ enum BinaryLocator {
                 // stale 방어 — 해석 후 앱 삭제/교체(Codex.app 업데이트 등)로 경로 소멸 시 재해석.
                 if PlatformCompat.isExecutableFile(atPath: path) { return path }
                 AppLog.write("\(binary) cached path gone, re-resolving: \(path)")
-            } else if hit.override == override {
+            } else if hit.override == override, now().timeIntervalSince(hit.at) < notFoundRecheckInterval {
                 // 이미 셸까지 물어 미탐지로 확정 — 셸 없이 되는 확인만 다시 한다(그새 정적 경로에 설치됐을 수 있음).
                 guard let found = locate(binary, staticPaths: staticPaths, override: override, allowShell: false) else { return nil }
-                store(binary, Cached(path: found, override: override))
+                store(binary, Cached(path: found, override: override, at: now()))
                 AppLog.write("\(binary) resolved: \(found)")
                 return found
             }
         }
         let result = locate(binary, staticPaths: staticPaths, override: override, allowShell: true)
-        store(binary, Cached(path: result, override: override))
+        store(binary, Cached(path: result, override: override, at: now()))
         AppLog.write(result.map { "\(binary) resolved: \($0)" } ?? "\(binary) NOT found on PATH")
         return result
     }
@@ -65,6 +70,12 @@ enum BinaryLocator {
         var env = base
         env[pathKey] = merged
         return env
+    }
+
+    /// 사용자가 UI 에서 직접 새로고침했다: 미탐지로 기억한 것만 잊어, 다음 조회가 셸로 다시 찾게 한다.
+    static func forgetNotFound() {
+        lock.lock(); defer { lock.unlock() }
+        cache = cache.filter { $0.value.path != nil }
     }
 
     /// 설정 변경/재탐지 시 캐시 무효화.
@@ -163,7 +174,8 @@ enum BinaryLocator {
         let deadline = Date().addingTimeInterval(8)
         while process.isRunning && Date() < deadline { Thread.sleep(forTimeInterval: 0.05) }
         if process.isRunning {
-            process.terminate()
+            PlatformCompat.terminate(process)
+            PlatformCompat.forceKillIfStillRunning(process)   // an interactive shell ignores SIGTERM; without this it is orphaned
             try? handle.close()            // 리더 스레드 해제 — 안 닫으면 영구 블록된 채 남는다.
             AppLog.write("\(label) timed out")
             return nil

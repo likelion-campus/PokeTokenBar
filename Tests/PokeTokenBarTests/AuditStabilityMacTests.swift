@@ -4,14 +4,29 @@ import XCTest
 /// The Mac half of the stability audit batch: the display-awake flags and the team transport's missed wake.
 @MainActor
 final class AuditStabilityMacTests: XCTestCase {
-    // MARK: 1. the awake flag follows the platform, not only the notifications
+    // MARK: 1. the awake flag follows the platform, with #350's stale-suspension rule
 
-    func testAwakeFlagIsCorrectedWhenAWakeNotificationWasMissed() {
-        XCTAssertEqual(AppDelegate.displayAwakeCorrection(current: false, displaysAsleep: false), true,
+    private let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+
+    func testASleepNotificationIsNotUndoneSecondsLaterByADisplayThatNeverReportsSleep() {
+        // screensDidSleep arrived (flag asleep), the display query says awake (virtual display), 10 seconds later.
+        XCTAssertNil(AppDelegate.displayAwakeCorrection(current: false, displaysAsleep: false,
+                                                        asleepSince: t0, now: t0.addingTimeInterval(10)))
+    }
+
+    func testAMissedWakeIsCorrectedOnceTheSleepIsStale() {
+        XCTAssertEqual(AppDelegate.displayAwakeCorrection(current: false, displaysAsleep: false,
+                                                          asleepSince: t0, now: t0.addingTimeInterval(300)), true,
                        "screensDidWake never came: the sprite and the pet stayed stopped")
-        XCTAssertEqual(AppDelegate.displayAwakeCorrection(current: true, displaysAsleep: true), false)
-        XCTAssertNil(AppDelegate.displayAwakeCorrection(current: true, displaysAsleep: false))
-        XCTAssertNil(AppDelegate.displayAwakeCorrection(current: false, displaysAsleep: true))
+        XCTAssertNil(AppDelegate.displayAwakeCorrection(current: false, displaysAsleep: true,
+                                                        asleepSince: t0, now: t0.addingTimeInterval(3_000)))
+    }
+
+    func testAMissedSleepIsCorrectedAtOnce() {
+        XCTAssertEqual(AppDelegate.displayAwakeCorrection(current: true, displaysAsleep: true,
+                                                          asleepSince: nil, now: t0), false)
+        XCTAssertNil(AppDelegate.displayAwakeCorrection(current: true, displaysAsleep: false,
+                                                        asleepSince: nil, now: t0))
     }
 
     // MARK: 1b. a transport suspended by willSleep starts again without didWake
