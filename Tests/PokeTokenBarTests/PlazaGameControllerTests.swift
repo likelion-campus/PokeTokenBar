@@ -380,6 +380,10 @@ final class PlazaGameControllerTests: XCTestCase {
         XCTAssertEqual(w.scene.gameMarks[""], .alive)
         XCTAssertEqual(w.c.minimapDots.first { $0.id == w.b.id }?.game, .out)
         XCTAssertTrue(w.c.gameStatus?.hasSuffix("탈락 가") == true, w.c.gameStatus ?? "nil")
+        // The game goes on without them, and they stay sooty for all of it: past the time the soot lasts by itself.
+        for _ in 0..<Int(2 * PlazaActor.sootDuration / 0.05) { t += 0.05; w.scene.update(t) }
+        XCTAssertEqual(w.scene.gameMarks[w.b.id], .out, "test precondition: the game is still on")
+        XCTAssertEqual(w.scene.sootAmount(memberID: w.b.id), PlazaActor.sootBlend)
     }
 
     /// When the game is over nobody is marked any more.
