@@ -32,30 +32,14 @@
 - "Water gun fight art" (`waterballoon.png`, unmodified) by rrcaseyr
 - License: CC-BY-SA 3.0 (https://creativecommons.org/licenses/by-sa/3.0/). This file is not under the app's MIT license. — full text: CC-BY-SA-3.0.txt
 - Source: https://opengameart.org/content/water-gun-fight-art
-- Was the plaza's summer throw until the balloons below replaced it. It is no longer drawn; the file stays as a soft-alpha fixture of the Mac/Windows decode parity tests.
-
-## Balloons (plaza-balloons.png)
-- "Balloon Pop Sprite" by Kris Occhipinti (metalx1000). Attribution notice: Balloon Sprite by Kris Occhipinti
-- License: CC-BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/). This file is not under the app's MIT license.
-- Source: https://opengameart.org/content/balloon-pop-sprite
-- Changes: the first frame (16×21, the balloon and its knot without the string) of five of the work's sheets, set side by side as one 80×21 strip in the order red, blue, green, yellow, purple. No pixel is redrawn. The strip is a derivative and stays under CC-BY-SA 4.0.
-- Source files and their SHA-256: `balloon_red_1.png` `5f4142580e6cfc88ea39754d81e3d843d6e5e086fd7384a98520edb8a924ec95`, `balloon_blue_3.png` `f803035a2f2fa8c1d849deb5d2f79a2548f427ffa35201fb6fd154fce97d3976`, `balloon_green_3.png` `421c8c11971f7358cb4e593398534e1604d2873774c559f4cccfe94e33a14dcf`, `balloon_yellow.png` `92db0dea39ee48220714ba429949d723f7e531694dc6091e72038ef38f6d3b87`, `balloon_purple_1.png` `52f9dea1c5743ee63bffd3f84a9662257210c9f55de332ff7647b5ac25b1d277`
-- Thrown in the plaza's summer, one colour after another. The app draws each cell as it is.
-
-## Cherry blossom (plaza-sakura.png)
-- "Spring VFX Pack" (`20250519bloomingSakura-Sheet.png`) by Gabriel "tiopalada" Lima
-- License: CC0 1.0 (https://creativecommons.org/publicdomain/zero/1.0/)
-- Source: https://opengameart.org/content/spring-vfx-pack
-- Source file SHA-256: 7c124d006ac3967cd17e77b9f139f473b0a9211aef14754a7d2359031cbe9189
-- Changes: one light pink blossom, the 76×68 area at (490, 874) of the sheet, brought down to 18×16: first from the sheet's 2× to the art's own 38×34 (every 2×2 block is one pixel), then to half of that by keeping every second pixel in each direction (the pixel at odd x and odd y). No pixel is redrawn; the halving drops three of every four pixels of the artist's blossom.
-- Thrown in the plaza's spring. The app draws it as it is.
+- Thrown in the plaza's summer. The app draws it as it is.
 
 ## Leaf clumps (plaza-leaf-sheet.png)
 - "[LPC] Leaf Recolor" (`lpc leaf recolors.png`, unmodified) by William Thompson, leaves recoloured from Johann Charlot's "Shoot'em up graphic kit", a Liberated Pixel Cup work
 - License: CC-BY-SA 3.0 (https://creativecommons.org/licenses/by-sa/3.0/), chosen from the work's CC-BY-SA 3.0 / GPL 3.0 dual licence. This file is not under the app's MIT license. — full text: CC-BY-SA-3.0.txt
 - Source: https://opengameart.org/content/lpc-leaf-recolor
 - SHA-256: 4ad08bd59fbd202e7193befe3c40cd19a144a87ce30b06e5171a89753a874c17
-- Autumn throws the red and orange clump at (33, 33), 17×15, cut from the sheet at runtime and drawn as it is. The cut cell is a derivative and stays under CC-BY-SA 3.0.
+- Spring throws the pink clump at (33, 129) and autumn the red and orange clump at (33, 33), each 17×15, cut from the sheet at runtime and drawn as they are. The cut cells are a derivative and stay under CC-BY-SA 3.0.
 
 ## Ice cracks (plaza-ice-cracks.png)
 - "Ice Mountains Tileset" (`ice_mountain_tileset.png`, unmodified) by CookieEfedu

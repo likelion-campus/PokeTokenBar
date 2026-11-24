@@ -5,7 +5,7 @@ enum PlazaShortcutGuide {
     /// 키와 하는 일. 장면이 받는 키와 같아야 한다.
     static var entries: [(key: String, label: String)] { entries(season: .winter) }
 
-    /// D와 F는 한 줄이다(줄을 더하면 안내판이 가장 작은 창보다 높아진다). C 바로 뒤의 V는 계절마다 던지는 것이 다르다(눈뭉치, 꽃잎 뭉치, 물풍선, 낙엽 뭉치).
+    /// D와 F는 한 줄이다(줄을 더하면 안내판이 가장 작은 창보다 높아진다). C 바로 뒤의 V는 계절마다 던지는 것이 다르다(눈뭉치, 벚꽃잎, 풍선, 낙엽 뭉치).
     static func entries(season: PlazaSeason) -> [(key: String, label: String)] {
         let l = L(.ko)
         var rows: [(key: String, label: String)] = [

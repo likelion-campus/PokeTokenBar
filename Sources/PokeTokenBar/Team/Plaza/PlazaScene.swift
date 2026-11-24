@@ -465,7 +465,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         self.footprintLayer = PlazaFootprintLayer(worldHeight: map.pixelSize.height)
         self.snowballLayer = PlazaSnowballLayer(worldHeight: map.pixelSize.height)
         // 처음 보이는 계절(`shownSeason`)의 그림으로 시작한다. `refreshSnowDay`는 계절이 바뀔 때만 그림을 바꾼다.
-        snowballLayer.setArt(PlazaSnowballArt.art(.summer, balls: PlazaScene.ballImages[.summer] ?? []))
+        snowballLayer.setArt(PlazaSnowballArt.art(.summer, balls: [PlazaScene.ballImages[.summer]].compactMap { $0 }))
         self.walker = PlazaWalker(tile: start)
         self.lastReported = (start, .down, false)
         self.nickname = nickname
@@ -2291,21 +2291,30 @@ struct PlazaSceneMember: Equatable, Sendable {
     /// 테스트용: 지금 그리는 지도 그림.
     var shownMapImage: PlazaImage { mapImage }
 
-    /// 계절마다 던지는 공 그림들. 프로세스당 파일마다 한 번 읽고(필요하면 한 칸씩 잘라), 없는 계절은 눈 격자 공으로 던진다.
-    private static let ballImages: [PlazaSeason: [PlazaSnowballArt.Piece]] = {
-        var out: [PlazaSeason: [PlazaSnowballArt.Piece]] = [:]
-        var files: [String: PlazaImage] = [:]
+    /// 계절마다 던지는 공 그림. 프로세스당 한 번 읽고(필요하면 한 칸을 잘라), 없는 계절은 눈 격자 공으로 던진다.
+    private static let ballImages: [PlazaSeason: PlazaImage] = {
+        var out: [PlazaSeason: PlazaImage] = [:]
         for season in PlazaSeason.allCases {
-            out[season] = PlazaResources.ballSources(season).compactMap { source -> PlazaSnowballArt.Piece? in
-                let file = files[source.name]
-                    ?? PlatformPlaza.graphics.assetURL(source.name, ext: "png").flatMap { PlatformPlaza.graphics.decodeImage(at: $0) }
-                files[source.name] = file
-                let image = source.crop.map { file?.cropping(to: $0) } ?? file
-                return image.map { ($0, source.scale) }
-            }
+            guard let source = PlazaResources.ballSource(season),
+                  let file = PlatformPlaza.graphics.assetURL(source.name, ext: "png").flatMap({ PlatformPlaza.graphics.decodeImage(at: $0) })
+            else { continue }
+            out[season] = source.crop.map { file.cropping(to: $0) } ?? file
         }
         return out
     }()
+
+    /// 받아 온 아이템 그림으로 만든 공(봄 꽃잎, 여름 풍선. `PlazaThrowItems`). 있으면 번들 그림 대신 던진다.
+    private var itemBalls: [PlazaSeason: [PlazaImage]] = [:]
+    private func balls(_ season: PlazaSeason) -> [PlazaImage] {
+        itemBalls[season] ?? [PlazaScene.ballImages[season]].compactMap { $0 }
+    }
+
+    /// 받아 온 아이템 그림을 그 계절의 공으로 쓴다. 지금 그 계절이면 날고 있는 것도 다음 프레임부터 새 그림이다.
+    func setItemBalls(_ images: [PlazaImage], for season: PlazaSeason) {
+        guard !images.isEmpty else { return }
+        itemBalls[season] = images
+        if shownSeason == season { snowballLayer.setArt(PlazaSnowballArt.art(season, balls: images)) }
+    }
 
     /// 계절과 보이는 모습을 맞춘다. `update`(달력을 따르는 계절은 날이 바뀌며 바뀐다)와 계절 변경, 컨트롤러가 부른다.
     func refreshSnowDay() {
@@ -2323,7 +2332,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         if let grass { tallGrassLayer?.setArt(grass) }
         shownSeason = s
         for layer in treeLayers { layer.setSeason(s) }
-        snowballLayer.setArt(PlazaSnowballArt.art(s, balls: PlazaScene.ballImages[s] ?? []))
+        snowballLayer.setArt(PlazaSnowballArt.art(s, balls: balls(s)))
         if s != .winter { footprintLayer.removeAll() }
         refreshIce(hit: nil)
         onSeasonChange?(s)

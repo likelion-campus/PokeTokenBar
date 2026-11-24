@@ -100,7 +100,7 @@ enum PlazaSnowball {
     }
 }
 
-/// 던지는 것과 터짐 그림. 공은 계절마다 번들 파일 그림(봄 벚꽃, 여름 다섯 색 풍선, 가을 낙엽 뭉치)이고, 파일이 없으면 눈 입자 격자에 그림자 한 칸을 덧붙인 공이다.
+/// 던지는 것과 터짐 그림. 공은 계절마다 번들 파일 그림이고, 파일이 없으면 눈 입자 격자에 그림자 한 칸을 덧붙인 공이다.
 /// 터짐 조각은 겨울 눈 알갱이, 봄 꽃잎, 여름 물방울 색 알갱이, 가을 낙엽이다.
 enum PlazaSnowballArt {
     typealias Palette = [Character: (r: UInt8, g: UInt8, b: UInt8)]
@@ -141,9 +141,12 @@ enum PlazaSnowballArt {
         let burst: [Piece]
     }
 
-    /// `balls`(그 계절의 파일 그림들과 배율)가 있으면 공은 그 그림 그대로, 없으면 그 계절 색의 눈 격자 공이다.
+    /// 그림 한 픽셀의 월드 픽셀 수. 파일 그림은 높이 12~20 월드 픽셀로 날도록 10픽셀 이하면 2배다.
+    static func ballScale(_ image: PlazaImage) -> CGFloat { image.height <= 10 ? 2 : 1 }
+
+    /// `balls`(그 계절의 그림들)가 있으면 공은 그 그림 그대로, 없으면 그 계절 색의 눈 격자 공이다.
     /// 터짐 조각: 겨울·여름은 눈 격자 셋(그림자 포함, 그 계절 색), 봄은 꽃잎, 가을은 낙엽.
-    static func art(_ season: PlazaSeason = .winter, balls: [Piece] = []) -> Art {
+    static func art(_ season: PlazaSeason = .winter, balls: [PlazaImage] = []) -> Art {
         let snow = PlazaWeatherArt.grids(.snow).map {
             (image: PlazaWeatherArt.image(shaded($0), palette: palette(season)), scale: PlazaSnowball.cell)
         }
@@ -157,6 +160,6 @@ enum PlazaSnowballArt {
             let l = PlazaWeatherArt.images(.leaves)
             burst = [l[0], l[2], l[4]].map { ($0, PlazaSnowball.cell) }
         }
-        return Art(balls: balls.isEmpty ? [snow[0]] : balls, burst: burst)
+        return Art(balls: balls.isEmpty ? [snow[0]] : balls.map { ($0, ballScale($0)) }, burst: burst)
     }
 }

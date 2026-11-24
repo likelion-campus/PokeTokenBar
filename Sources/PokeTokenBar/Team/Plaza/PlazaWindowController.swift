@@ -24,6 +24,10 @@ import Observation
     private let evolutionStage: () -> Int
     /// 종 번호의 타입 목록. 물 타입이면 잠수를 더 오래 한다. 못 구하면 nil.
     private let pokemonTypes: (Int) async -> [String]?
+    /// 포켓몬 아이템 그림을 이름으로 받는다(캐시에 없으면 내려받는다). 봄·여름에 던지는 것이다.
+    private let throwItem: (String) async -> PlazaImage?
+    /// 받은 아이템 그림으로 만든 공. 한 번 받으면 광장을 다시 열어도 그대로 쓴다.
+    private var throwBalls: [PlazaSeason: [PlazaImage]] = [:]
     /// 광장에서 주운 아이템을 가방에 넣는다.
     private let grantItem: (ItemKind) -> Void
     /// 내 알에 기도 한 번을 더한다(데스크톱 펫에서 알을 누르는 것과 같은 횟수).
@@ -289,6 +293,7 @@ import Observation
          schedule: @escaping () -> PlazaSchedule? = { nil },
          evolutionStage: @escaping () -> Int = { 1 },
          pokemonTypes: @escaping (Int) async -> [String]? = { _ in nil },
+         throwItem: @escaping (String) async -> PlazaImage? = { _ in nil },
          grantItem: @escaping (ItemKind) -> Void = { _ in },
          pray: @escaping () -> Void = {},
          prayerCount: @escaping () -> Int = { 0 },
@@ -341,6 +346,7 @@ import Observation
         self.chooseNameColor = chooseNameColor
         self.evolutionStage = evolutionStage
         self.pokemonTypes = pokemonTypes
+        self.throwItem = throwItem
         self.grantItem = grantItem
         self.pray = pray
         self.prayerCount = prayerCount
@@ -407,6 +413,7 @@ import Observation
                            tallGrass: Self.tallGrassArt(), pondVisuals: Self.cachedHasTileSheet,
                            iceArt: Self.iceArt())
         s.now = clock   // 낮밤·날씨도 컨트롤러와 같은 시계를 쓴다
+        applyThrowItems(to: s)
         for m in session?.members.values.map({ $0 }) ?? [] { learnIceBreak(m.iceBreak) }
         s.setIceBreak(iceBreak)
         s.onIceLanding = { [weak self] in self?.learnIceBreak($0, hit: $1) }
@@ -2531,6 +2538,22 @@ import Observation
                 await sleep(Self.spriteRetryDelay)
                 guard !Task.isCancelled, let self, generation == self.refreshGeneration else { return }
                 await self.loadCharacter(attempt: attempt + 1)
+            }
+        }
+    }
+
+    /// 봄·여름에 던질 아이템 그림을 장면에 넘긴다: 이미 받은 것은 바로, 아닌 것은 받아서. 받지 못하면 번들 그림 그대로이고,
+    /// 광장을 다시 열 때 다시 받아 본다.
+    private func applyThrowItems(to s: PlazaScene) {
+        for season in PlazaSeason.allCases {
+            if let balls = throwBalls[season] { s.setItemBalls(balls, for: season); continue }
+            guard let name = PlazaThrowItems.itemName(season) else { continue }
+            Task { [weak self] in
+                guard let self, let item = await throwItem(name) else { return }
+                let balls = PlazaThrowItems.balls(season, item: item)
+                guard !balls.isEmpty else { return }
+                throwBalls[season] = balls
+                scene?.setItemBalls(balls, for: season)
             }
         }
     }
