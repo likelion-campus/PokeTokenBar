@@ -1,8 +1,9 @@
 name: windows
 # Builds and tests the shared (non-Apple) part of the app on Windows. Informational: not a required check.
 # Release mode (stage 8; scripts/team_release.py dispatches it): -f release_sha=<40 hex> -f release_version=<x.y.z> tests
-# exactly that commit after the "Release pin" step (as in windows-app.yml), in its own never-cancelled concurrency group, and
+# exactly that commit after the "Release pin" step (as in windows-app.yml), in its own never-cancelled concurrency group (release_sha and ref), and
 # a passing run ends with the artifact windows-tests (windows-tests.json: executed, skipped and failure counts and cleanBuild, 7 days).
+# (team_release.py only accepts a run whose head commit is release_sha, so the pin step's "main moved but identical" tolerance never applies to an accepted run.)
 # Job graph: build (debug build of everything incl. the tests, incremental from the seed of the last windows-port run, fails fast on
 # compile errors) -> test x4 (shards by test class, `swift test --skip-build`) and render (plaza harness) in parallel -> result (sums
 # the shards, fails unless every listed test ran exactly once, writes windows-tests in release mode).
@@ -31,7 +32,7 @@ permissions:
   contents: read
   actions: read   # the seed (.build of the last windows-port run) is an artifact of another run
 concurrency:
-  group: ${{ inputs.release_sha != '' && format('windows-release-{0}', inputs.release_sha) || format('windows-{0}', github.ref) }}
+  group: ${{ inputs.release_sha != '' && format('windows-release-{0}-{1}', inputs.release_sha, github.ref) || format('windows-{0}', github.ref) }}
   cancel-in-progress: ${{ inputs.release_sha == '' && github.ref != 'refs/heads/windows-port' }}
 jobs:
   build:
