@@ -7,8 +7,8 @@ import Security
 
 /// 모든 Keychain 조회의 단일 통로.
 ///
-/// `allowKeychainPrompt: false` 는 "프롬프트를 띄우지 않는다"가 아니라 **"Keychain 을 아예
-/// 조회하지 않는다"** 는 계약이다 — no-UI 쿼리로도 잠긴·미승인 login 키체인의 암호 다이얼로그는
+/// `allowKeychainPrompt: false` 는 "프롬프트를 띄우지 않는다"가 아니라 **"이 앱이 Keychain API 로 아예
+/// 조회하지 않는다"** 는 계약이다(자동 경로의 유일한 읽기는 `KeychainToolReader` 의 `/usr/bin/security`) — no-UI 쿼리로도 잠긴·미승인 login 키체인의 암호 다이얼로그는
 /// 억제되지 않기 때문이다(`OAuthLimitsProvider` 의 실측: 13초 블록 + 팝업).
 ///
 /// 그 계약을 규약이 아니라 가드로 만들려면 조회 횟수를 셀 수 있어야 한다. 프로바이더가
@@ -45,23 +45,45 @@ enum KeychainToolReader {
     /// `run` 호출 수(시험 이음매 포함) — "프로세스를 시작하지 않았다" 를 세는 가드용.
     nonisolated(unsafe) private(set) static var runCount = 0
 
-    /// 기본 키체인이 잠겼으면 `security` 가 잠금 해제 다이얼로그를 띄운다. 이 두 호출은 프롬프트하지 않는다.
-    /// 오류는 모두 "열려 있지 않음".
-    static func isDefaultKeychainUnlocked() -> Bool {
-        if let keychainUnlockedForTesting { return keychainUnlockedForTesting }
-        var keychain: SecKeychain?
-        guard SecKeychainCopyDefault(&keychain) == errSecSuccess, let keychain else { return false }
-        var status: SecKeychainStatus = 0
-        guard SecKeychainGetStatus(keychain, &status) == errSecSuccess else { return false }
-        return status & SecKeychainStatus(kSecUnlockStateStatus) != 0
+    enum Outcome {
+        case finished(status: Int32, stdout: Data)
+        case timedOut
+        case failed
     }
 
-    /// nil 은 시간 초과(또는 실행 실패).
-    static func run(arguments: [String]) async -> (status: Int32, stdout: Data)? {
+    /// 기본 키체인이 열려 있으면 그 경로를, 잠겼거나 경로를 못 읽으면 nil. 열림 확인과 `security` 의 검색 대상이
+    /// 같은 파일이 되도록 호출부가 이 경로를 인자로 넘긴다(잠긴 다른 키체인의 다이얼로그를 피한다).
+    /// 잠기면 `security` 가 잠금 해제 다이얼로그를 띄운다. 이 호출들은 프롬프트하지 않는다.
+    static func unlockedDefaultKeychainPath() -> String? {
+        if let keychainUnlockedForTesting {
+            return keychainUnlockedForTesting ? "/tmp/ptb-test-default.keychain-db" : nil
+        }
+        var keychain: SecKeychain?
+        guard SecKeychainCopyDefault(&keychain) == errSecSuccess, let keychain else { return nil }
+        var status: SecKeychainStatus = 0
+        guard SecKeychainGetStatus(keychain, &status) == errSecSuccess,
+              status & SecKeychainStatus(kSecUnlockStateStatus) != 0 else { return nil }
+        var length: UInt32 = 1024
+        var buffer = [CChar](repeating: 0, count: Int(length))
+        guard SecKeychainGetPath(keychain, &length, &buffer) == errSecSuccess, length > 0 else { return nil }
+        return String(cString: buffer)
+    }
+
+    static func run(arguments: [String]) async -> Outcome {
         runCount += 1
-        if let runForTesting { return await runForTesting(arguments) }
-        return try? await ProcessRunner.runCapturingStdout(
-            binary: "/usr/bin/security", arguments: arguments, timeout: timeout)
+        if let runForTesting {
+            guard let result = await runForTesting(arguments) else { return .timedOut }
+            return .finished(status: result.status, stdout: result.stdout)
+        }
+        do {
+            let result = try await ProcessRunner.runCapturingStdout(
+                binary: "/usr/bin/security", arguments: arguments, timeout: timeout)
+            return .finished(status: result.status, stdout: result.stdout)
+        } catch RunnerError.timeout {
+            return .timedOut
+        } catch {
+            return .failed
+        }
     }
 }
 

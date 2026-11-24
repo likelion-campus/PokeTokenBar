@@ -2,7 +2,7 @@ import XCTest
 @testable import PokeTokenBar
 
 // A claude.ai session key per additional Claude folder. Without one, a folder's limits come from its
-// Keychain token, which automatic polls never read, so they stopped at every token expiry.
+// Keychain token, which automatic polls read only through `/usr/bin/security` (not the Keychain API), so where that cannot read it they stopped at every token expiry.
 
 // MARK: Stubs
 
@@ -110,7 +110,7 @@ final class AccountSessionKeyChainTests: XCTestCase {
         XCTAssertNotEqual(work.fileURL, store.fileURL)
     }
 
-    /// The point of the key: an automatic poll, which never reads the Keychain, still loads the account.
+    /// The point of the key: an automatic poll, which never uses the Keychain API, still loads the account.
     func testAnAutomaticPollUsesTheFolderKeyInsteadOfItsToken() async throws {
         try saveKey(organizationID: "org-personal")
         let token = ScriptedLimits([.failure(.keychainInteractionNotAllowed)])

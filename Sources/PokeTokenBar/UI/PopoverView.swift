@@ -462,8 +462,8 @@ struct PopoverView: View {
                       !store.disableKeychainAccess,
                       store.claudeLimitsMissing || store.claudeLimitsStale || store.additionalLimitsPending
                         || store.additionalLimitsStale {
-                // 자동 폴링은 Keychain 을 안 읽으므로(팝업 방지), 최초/만료 후 공식 한도는 이 원탭으로
-                // 사용자가 직접 갱신한다. 프롬프트가 뜨더라도 사용자 행동에 의한 것이라 예상 가능하다.
+                // 자동 폴링은 Keychain API 를 안 부르고 `/usr/bin/security` 로만 읽으므로(팝업 방지), 그게 못 읽는 경우(키체인 잠김 등)의
+                // 최초/만료 후 공식 한도는 이 원탭으로 사용자가 직접 갱신한다. 프롬프트가 뜨더라도 사용자 행동에 의한 것이라 예상 가능하다.
                 claudeLimitsRefreshRow
             }
             if selectedSnapshot?.providerID == "claude_code" {

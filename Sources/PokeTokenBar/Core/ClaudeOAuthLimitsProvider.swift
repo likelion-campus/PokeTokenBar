@@ -195,6 +195,7 @@ actor OAuthAccessTokenCache {
                 : LimitsError.keychainInteractionNotAllowed
         }
 
+        Self.resumeKeychainToolReads()
         // 사용자 동작 경로: 무프롬프트로 먼저 시도(과거 '항상 허용'했다면 조용히 성공), 안 되면 프롬프트를
         // 동반해 읽어 최초 1회 '항상 허용'을 유도한다.
         if let credential = Self.readClaudeKeychainSilently(services: keychainServices) {

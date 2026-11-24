@@ -305,7 +305,7 @@ extension L {
     }
 
     /// `onlyOnPress`: "Auto-refresh reads the Claude Code login the same way Claude Code does, with no pop-up. If limits still
-    /// don't show, press this to read it again (macOS may ask once)". Windows reads the sign-in file on every refresh anyway (no prompt); the button reads it again now.
+    /// don't show, press this to read it again (macOS may ask)". Windows reads the sign-in file on every refresh anyway (no prompt); the button reads it again now.
     var winOnlyOnPress: String {
         t("Claude 로그인 파일(~/.claude/.credentials.json)을 지금 다시 읽어요. 토큰 만료 후 이 버튼으로 한도 갱신",
           "Reads Claude's sign-in file (~/.claude/.credentials.json) again right now. Refresh limits here after the token expires",

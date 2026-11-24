@@ -17,7 +17,7 @@ enum RunnerError: Error, CustomStringConvertible {
 }
 
 /// Process 실행 지점은 이 파일 하나로 제한한다.
-/// 현재 유일한 용도는 Codex app-server rate-limit read(JSON-RPC) — usage 집계는 로컬 로그 직파싱.
+/// 용도: Codex app-server rate-limit read(JSON-RPC), 그리고 `/usr/bin/security` 한 번 실행(`runCapturingStdout`) — usage 집계는 로컬 로그 직파싱.
 enum ProcessRunner {
     /// newline-delimited JSON-RPC 서버에 요청을 보내고 특정 id의 `result` JSON만 반환.
     /// Codex app-server가 stdout에 로그/notification을 섞어 내보낼 수 있어 line 단위로 필터링한다.
@@ -113,28 +113,28 @@ enum ProcessRunner {
 
     /// 한 번 실행하고 stdout 을 받는다(상태 코드는 던지지 않고 돌려준다). 시간이 넘으면 종료하고
     /// `RunnerError.timeout`. 환경은 부모 것 그대로 — 호출부는 PATH 가 필요 없는 절대 경로 도구만 쓴다.
+    /// stdout 은 파이프로 받는다(자격증명이 디스크에 닿지 않게). 파이프 버퍼보다 큰 출력이 자식을 막지 않도록
+    /// 실행 중에 동시에 읽고, 자식이 끝나거나 죽으면 EOF 로 읽기가 끝난다.
     static func runCapturingStdout(
         binary: String,
         arguments: [String],
         timeout: TimeInterval
     ) async throws -> (status: Int32, stdout: Data) {
-        let outURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("poketokenbar-\(UUID().uuidString).out")
-        FileManager.default.createFile(atPath: outURL.path, contents: nil)
-        defer { try? FileManager.default.removeItem(at: outURL) }
-
         let process = Process()
         process.executableURL = URL(fileURLWithPath: binary)
         process.arguments = arguments
         process.qualityOfService = .userInitiated
-        let stdoutHandle = try FileHandle(forWritingTo: outURL)
-        defer { try? stdoutHandle.close() }
-        process.standardOutput = stdoutHandle
+        let pipe = Pipe()
+        process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
         process.standardInput = FileHandle.nullDevice
         defer { if process.isRunning { PlatformCompat.terminate(process) } }
 
         try process.run()
+        // 부모의 쓰기 끝을 닫아야 자식이 끝났을 때 EOF 가 온다.
+        try? pipe.fileHandleForWriting.close()
+        let reader = pipe.fileHandleForReading
+        let readTask = Task.detached { reader.readDataToEndOfFile() }
         let deadline = Date().addingTimeInterval(timeout)
         while process.isRunning, Date() < deadline {
             try await Task.sleep(nanoseconds: 20_000_000)
@@ -144,7 +144,7 @@ enum ProcessRunner {
             PlatformCompat.forceKillIfStillRunning(process)
             throw RunnerError.timeout(binary)
         }
-        return (process.terminationStatus, (try? Data(contentsOf: outURL)) ?? Data())
+        return (process.terminationStatus, await readTask.value)
     }
 
     /// 실패 경로에서 stderr 마지막 300자를 로그로 — "exit 1" 만으로는 원인 규명이 불가능했던

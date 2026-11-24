@@ -25,37 +25,64 @@ extension OAuthAccessTokenCache {
 
     /// 자동 경로의 유일한 Claude Keychain 읽기: Claude Code 가 쓰는 `/usr/bin/security` 로 읽는다.
     /// 항목 ACL 이 이 도구를 신뢰하므로 다이얼로그가 없다(`SecItemCopyMatching` 은 쓰지 않는다).
-    /// 가드(순서): 접근 끔 → 시험 이음매/번들 아님 → 시간 초과로 꺼짐 → 키체인 잠김. 어느 하나라도 걸리면 프로세스 없이 nil.
-    /// 로그에는 종료 코드만 — 출력·토큰·계정 이름은 남기지 않는다.
+    /// 가드(순서): 접근 끔 → 시험 이음매/번들 아님 → 꺼짐(시간 초과·예상 밖 종료 코드) → 기본 키체인 잠김.
+    /// 어느 하나라도 걸리면 프로세스 없이 nil. 종료 코드 0·44(항목 없음) 말고는 다이얼로그를 사용자가 거절한 것일 수 있어
+    /// 시간 초과처럼 앱을 다시 켤 때까지(또는 사용자 갱신 버튼까지) 끈다.
+    /// 로그에는 종료 코드·바이트 수만 — 출력·토큰·계정 이름은 남기지 않는다.
     nonisolated static func readClaudeKeychainViaSecurityTool(
         services: [String]) async -> OAuthCredentialData.Credential?
     {
+        let logKey = "claude-keychain-tool"
         if KeychainAccessGate.isDisabled { return nil }
         if KeychainToolReader.runForTesting == nil, !AppEnv.isBundledApp { return nil }
-        if KeychainToolReader.isSuspended { return nil }
-        guard KeychainToolReader.isDefaultKeychainUnlocked() else { return nil }
+        if KeychainToolReader.isSuspended {
+            AppLog.writeIfChanged(logKey, "claude keychain tool read: skipped, suspended")
+            return nil
+        }
+        guard let keychainPath = KeychainToolReader.unlockedDefaultKeychainPath() else {
+            AppLog.writeIfChanged(logKey, "claude keychain tool read: skipped, default keychain locked or unavailable")
+            return nil
+        }
 
         for service in services {
-            let withAccount = ["find-generic-password", "-s", service, "-a", NSUserName(), "-w"]
-            let anyAccount = ["find-generic-password", "-s", service, "-w"]
+            let withAccount = ["find-generic-password", "-s", service, "-a", NSUserName(), "-w", keychainPath]
+            let anyAccount = ["find-generic-password", "-s", service, "-w", keychainPath]
             for arguments in [withAccount, anyAccount] {
-                guard let result = await KeychainToolReader.run(arguments: arguments) else {
+                switch await KeychainToolReader.run(arguments: arguments) {
+                case .timedOut:
                     KeychainToolReader.isSuspended = true
                     AppLog.write("claude keychain tool read timed out; automatic keychain reads off until restart")
                     return nil
-                }
-                if result.status != 0 {
-                    AppLog.writeIfChanged("claude-keychain-tool", "claude keychain tool read: exit \(result.status)")
-                    continue
-                }
-                if let credential = OAuthCredentialData.credential(from: result.stdout), !credential.isExpired {
+                case .failed:
+                    AppLog.writeIfChanged(logKey, "claude keychain tool read: could not run the tool")
+                    return nil
+                case .finished(let status, let stdout):
+                    if status == 44 { continue }
+                    if status != 0 {
+                        KeychainToolReader.isSuspended = true
+                        AppLog.write("claude keychain tool read: exit \(status); automatic keychain reads off until restart")
+                        return nil
+                    }
+                    guard let credential = OAuthCredentialData.credential(from: stdout) else {
+                        AppLog.writeIfChanged(logKey, "claude keychain tool read: unparsable (\(stdout.count) bytes)")
+                        break
+                    }
+                    if credential.isExpired {
+                        AppLog.writeIfChanged(logKey, "claude keychain tool read: credential expired")
+                        break
+                    }
                     return credential
                 }
-                break  // 읽혔지만 만료·형식 오류: -a 없는 재시도는 같은 항목이라 다음 서비스로
+                // 읽혔지만 쓸 수 없는 출력(만료·형식 오류): -a 없는 재시도로 다른 항목을 찾지 않고 다음 서비스로 간다 —
+                // 흔한 만료 경우에 프로세스 하나를 아끼는 선택이다.
+                break
             }
         }
         return nil
     }
+
+    /// 사용자 갱신 버튼이 자동 도구 읽기의 꺼짐을 푼다(그 경로는 프롬프트가 허용된 사용자 동작).
+    nonisolated static func resumeKeychainToolReads() { KeychainToolReader.isSuspended = false }
 
     nonisolated static func readClaudeKeychain(
         service: String, allowKeychainPrompt: Bool) throws -> OAuthCredentialData.Credential
