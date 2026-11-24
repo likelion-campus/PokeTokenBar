@@ -228,7 +228,7 @@ pokemonGrowthPercentHint | G10
 pokemonIndividual | D7
 possibleAbilities | D7
 prayerBornWith | D7
-prayerDoneToday | F2
+prayerHatchUsedToday | F2
 prayerHoverLine | F2
 prayerReachedHeaven | D7
 providerStatusLabel | P14
