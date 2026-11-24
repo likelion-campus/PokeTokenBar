@@ -296,7 +296,7 @@ struct HomeModel: Equatable, Sendable {
         case .refreshClaudeLimits: Task { await store.refreshLimitTokenFromKeychain() }
         case .refreshAntigravityLimits: Task { await store.refreshAntigravityLimitsFromKeychain() }
         case .openSessionKeySettings: state.openSessionKeySettings()
-        case .refresh: Task { await store.refresh() }
+        case .refresh: Task { await store.refreshByUser() }
         case .toggleFloatingPet: store.floatingPetEnabled.toggle()
         case .showSettings: state.showSettings = true
         case .quit: quit()

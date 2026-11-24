@@ -269,7 +269,13 @@ enum SpriteVisibleTop {
     /// decides the anchor. Raised arms, ears and tails at the sides must not.
     private static let centralBand: ClosedRange<Double> = 0.35...0.65
     /// Opaque-row scan results, per decoded image. Frames and the egg are decoded once, then reused.
-    nonisolated(unsafe) private static let cache = NSCache<NSImage, NSNumber>()
+    /// NSCache retains its keys, so without a count limit every re-decoded frame image stays alive as a key
+    /// after the bounded animation cache evicted it (the pet re-decodes 10-55 frames per hide/show).
+    nonisolated(unsafe) static let cache: NSCache<NSImage, NSNumber> = {
+        let cache = NSCache<NSImage, NSNumber>()
+        cache.countLimit = 128
+        return cache
+    }()
 
     /// Distance (pt) from the box top to the first visible row of an image that is aspect-fit
     /// and centred in a `box`×`box` slot. `opaqueTopFraction` is the share of the image height
