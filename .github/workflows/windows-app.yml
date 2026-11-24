@@ -1596,22 +1596,17 @@ jobs:
             collected
           if-no-files-found: warn
   prebuilt:
-    # DIAGNOSTIC: the build of run 45446214642 (this branch, product sources = main b765a5d4), so an experiment skips the 25 min build.
+    # DIAGNOSTIC: the updates jobs take an earlier run's build (matrix: v640 = release run 45212572510 of v2.5.640, v642 = run
+    # 45446214642 of this branch, product sources = main b765a5d4); nothing is built here.
     runs-on: ubuntu-latest
-    outputs:
-      iscc: success
-      level: full
-      run_id: '45446214642'
-      ptb_build_id: '14948850653'
-      installer_sha256: e020b972c63acbde5ac8688d8dc4053a7087f6d53999dacf0fcfd53aaebca5ae
     steps:
-      - run: echo "using ptb-build 14948850653 of run 45446214642"
+      - run: echo "builds from runs 45212572510 (v2.5.640) and 45446214642 (v2.5.642)"
   updates:
-    # DIAGNOSTIC (branch diag/update-runner-loss-2), experiment 3: the job as main runs it on twelve runners (it lost its runner in
-    # 1 of 4 runs of experiment 1 and 3 of 12 of experiment 2). Scheduled tasks (nothing of ours runs between them) post check runs
-    # that survive a lost runner: a positive control before the in-app step (proves the channel on that runner), a heartbeat every
-    # 30 s from the in-app step on (via curl.exe and via .NET), and full snapshots 3, 8 and 12 min in. Removed when the step ends.
-    name: Failed update and in-app update (hb ${{ matrix.rep }})
+    # DIAGNOSTIC (branch diag/update-runner-loss-2), experiment 4: is the lost runner new in 2.5.641? The same job (as main runs it)
+    # on 24 runners at once, alternating the v2.5.640 build and the v2.5.642 build, scripts identical (unchanged since v2.5.639).
+    # Scheduled tasks post heartbeats (check runs, curl.exe): a control before the in-app step, then 8, 16, 24, 32, 40 and 48 s into it,
+    # then every 30 s; removed when the step ends.
+    name: Failed update and in-app update (${{ matrix.build }} ${{ matrix.rep }})
     needs: prebuilt
     if: ${{ !cancelled() }}
     runs-on: windows-latest
@@ -1623,14 +1618,38 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        rep: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+        include:
+          - { rep: 1, build: v640, run: '45212572510', artifact: '14839137110', sha: bbcf95c2059bca65f84a954564b667e80e7d2f35efc74c71a77530b458a31460 }
+          - { rep: 2, build: v642, run: '45446214642', artifact: '14948850653', sha: e020b972c63acbde5ac8688d8dc4053a7087f6d53999dacf0fcfd53aaebca5ae }
+          - { rep: 3, build: v640, run: '45212572510', artifact: '14839137110', sha: bbcf95c2059bca65f84a954564b667e80e7d2f35efc74c71a77530b458a31460 }
+          - { rep: 4, build: v642, run: '45446214642', artifact: '14948850653', sha: e020b972c63acbde5ac8688d8dc4053a7087f6d53999dacf0fcfd53aaebca5ae }
+          - { rep: 5, build: v640, run: '45212572510', artifact: '14839137110', sha: bbcf95c2059bca65f84a954564b667e80e7d2f35efc74c71a77530b458a31460 }
+          - { rep: 6, build: v642, run: '45446214642', artifact: '14948850653', sha: e020b972c63acbde5ac8688d8dc4053a7087f6d53999dacf0fcfd53aaebca5ae }
+          - { rep: 7, build: v640, run: '45212572510', artifact: '14839137110', sha: bbcf95c2059bca65f84a954564b667e80e7d2f35efc74c71a77530b458a31460 }
+          - { rep: 8, build: v642, run: '45446214642', artifact: '14948850653', sha: e020b972c63acbde5ac8688d8dc4053a7087f6d53999dacf0fcfd53aaebca5ae }
+          - { rep: 9, build: v640, run: '45212572510', artifact: '14839137110', sha: bbcf95c2059bca65f84a954564b667e80e7d2f35efc74c71a77530b458a31460 }
+          - { rep: 10, build: v642, run: '45446214642', artifact: '14948850653', sha: e020b972c63acbde5ac8688d8dc4053a7087f6d53999dacf0fcfd53aaebca5ae }
+          - { rep: 11, build: v640, run: '45212572510', artifact: '14839137110', sha: bbcf95c2059bca65f84a954564b667e80e7d2f35efc74c71a77530b458a31460 }
+          - { rep: 12, build: v642, run: '45446214642', artifact: '14948850653', sha: e020b972c63acbde5ac8688d8dc4053a7087f6d53999dacf0fcfd53aaebca5ae }
+          - { rep: 13, build: v640, run: '45212572510', artifact: '14839137110', sha: bbcf95c2059bca65f84a954564b667e80e7d2f35efc74c71a77530b458a31460 }
+          - { rep: 14, build: v642, run: '45446214642', artifact: '14948850653', sha: e020b972c63acbde5ac8688d8dc4053a7087f6d53999dacf0fcfd53aaebca5ae }
+          - { rep: 15, build: v640, run: '45212572510', artifact: '14839137110', sha: bbcf95c2059bca65f84a954564b667e80e7d2f35efc74c71a77530b458a31460 }
+          - { rep: 16, build: v642, run: '45446214642', artifact: '14948850653', sha: e020b972c63acbde5ac8688d8dc4053a7087f6d53999dacf0fcfd53aaebca5ae }
+          - { rep: 17, build: v640, run: '45212572510', artifact: '14839137110', sha: bbcf95c2059bca65f84a954564b667e80e7d2f35efc74c71a77530b458a31460 }
+          - { rep: 18, build: v642, run: '45446214642', artifact: '14948850653', sha: e020b972c63acbde5ac8688d8dc4053a7087f6d53999dacf0fcfd53aaebca5ae }
+          - { rep: 19, build: v640, run: '45212572510', artifact: '14839137110', sha: bbcf95c2059bca65f84a954564b667e80e7d2f35efc74c71a77530b458a31460 }
+          - { rep: 20, build: v642, run: '45446214642', artifact: '14948850653', sha: e020b972c63acbde5ac8688d8dc4053a7087f6d53999dacf0fcfd53aaebca5ae }
+          - { rep: 21, build: v640, run: '45212572510', artifact: '14839137110', sha: bbcf95c2059bca65f84a954564b667e80e7d2f35efc74c71a77530b458a31460 }
+          - { rep: 22, build: v642, run: '45446214642', artifact: '14948850653', sha: e020b972c63acbde5ac8688d8dc4053a7087f6d53999dacf0fcfd53aaebca5ae }
+          - { rep: 23, build: v640, run: '45212572510', artifact: '14839137110', sha: bbcf95c2059bca65f84a954564b667e80e7d2f35efc74c71a77530b458a31460 }
+          - { rep: 24, build: v642, run: '45446214642', artifact: '14948850653', sha: e020b972c63acbde5ac8688d8dc4053a7087f6d53999dacf0fcfd53aaebca5ae }
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
       - uses: ./.github/actions/windows-slice
         with:
-          build-artifact-id: ${{ needs.prebuilt.outputs.ptb_build_id }}
-          installer-sha256: ${{ needs.prebuilt.outputs.installer_sha256 }}
-          build-run-id: ${{ needs.prebuilt.outputs.run_id }}
+          build-artifact-id: ${{ matrix.artifact }}
+          installer-sha256: ${{ matrix.sha }}
+          build-run-id: ${{ matrix.run }}
           github-token: ${{ github.token }}
       # ---- failed-update-relaunch: Setup run as the in-app update runs it (/PTBRELAUNCHONFAIL=1); setup logs in collected\failed-update ----
       - name: A failed update brings the old app back
@@ -1649,7 +1668,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path collected | Out-Null
           $cfg = Join-Path $env:RUNNER_TEMP 'diag-snap.json'
-          @{ token = $env:DIAG_TOKEN; repo = $env:GITHUB_REPOSITORY; sha = $env:GITHUB_SHA; job = "$env:GITHUB_RUN_ID/hb-${{ matrix.rep }}"; workspace = $PWD.Path } | ConvertTo-Json | Set-Content $cfg
+          @{ token = $env:DIAG_TOKEN; repo = $env:GITHUB_REPOSITORY; sha = $env:GITHUB_SHA; job = "$env:GITHUB_RUN_ID/${{ matrix.build }}-${{ matrix.rep }}"; workspace = $PWD.Path } | ConvertTo-Json | Set-Content $cfg
           $hb = Join-Path $PWD 'scripts\windows\diag-heartbeat.ps1'
           $snap = Join-Path $PWD 'scripts\windows\diag-snapshot.ps1'
           $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes 4) -MultipleInstances Parallel
@@ -1667,11 +1686,10 @@ jobs:
           "control task: last run $($info.LastRunTime) result 0x$('{0:X}' -f $info.LastTaskResult)"
           Unregister-ScheduledTask -TaskName 'ptb-diag-control' -Confirm:$false
           $t0 = Get-Date
-          Add-Task 'ptb-diag-hbA' $hb 'hbA' $t0.AddSeconds(15) -Repeat
-          Add-Task 'ptb-diag-hbB' $hb 'hbB' $t0.AddSeconds(45) -Repeat
-          Add-Task 'ptb-diag-snap3' $snap 'snap3' $t0.AddMinutes(3)
-          Add-Task 'ptb-diag-snap8' $snap 'snap8' $t0.AddMinutes(8)
-          Add-Task 'ptb-diag-snap12' $snap 'snap12' $t0.AddMinutes(12) -Logon S4U
+          foreach ($s in 8, 16, 24, 32, 40, 48) { Add-Task "ptb-diag-hb$s" $hb "hb$s" $t0.AddSeconds($s + 2) }
+          Add-Task 'ptb-diag-hbA' $hb 'hbA' $t0.AddSeconds(62) -Repeat
+          Add-Task 'ptb-diag-hbB' $hb 'hbB' $t0.AddSeconds(92) -Repeat
+          Add-Task 'ptb-diag-snap4' $snap 'snap4' $t0.AddMinutes(4)
       - name: The in-app update from a loopback feed
         id: in-app-update
         if: (success() || failure()) && env.PTB_LEVEL == 'full'
@@ -1699,7 +1717,7 @@ jobs:
         if: always()
         with:
           overwrite: true
-          name: windows-app-updates-hb-${{ matrix.rep }}
+          name: windows-app-updates-${{ matrix.build }}-${{ matrix.rep }}
           retention-days: 7
           path: |
             collected
