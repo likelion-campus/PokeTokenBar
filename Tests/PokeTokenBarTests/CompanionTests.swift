@@ -1462,20 +1462,21 @@ final class CompanionStoreTests: XCTestCase {
     /// once the file is readable, and the real pet's line must load without waiting for the stale hatch.
     func testAdoptedSaveIsNotOverwrittenByAPlaceholderEraHatch() async throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-adopt-race-\(UUID().uuidString).json")
-        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: url.path); try? FileManager.default.removeItem(at: url) }
+        defer { try? FileManager.default.removeItem(at: url) }
         let saved = #"{"active":{"baseID":1,"pathIDs":[1],"stageIndex":0,"usedAtStage":42,"rarity":"common","totalForms":1,"nature":"adamant"},"installBaselineSet":true}"#
         try Data(saved.utf8).write(to: url)
-        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: url.path)
-        try XCTSkipIf(FileManager.default.isReadableFile(atPath: url.path), "permissions are not enforced here (root)")
+        let faults = FileFaults()
+        faults.unreadable = true
 
         let provider = FirstRequestSuspendedProvider(value: linear3)
-        let s = CompanionStore(provider: provider, clock: { fixedNow }, fileURL: url, rng: SeededRNG(seed: 7))
+        let s = CompanionStore(provider: provider, clock: { fixedNow }, fileURL: url, rng: SeededRNG(seed: 7),
+                               fileAccess: faults.access)
         XCTAssertTrue(s.statePlaceholder)
         let staleHatch = Task { @MainActor in await s.hatch(baseID: 1) }
         let suspended = await waitUntilAsync { await provider.isSuspended() }
         XCTAssertTrue(suspended, "premise: the placeholder-era hatch is waiting on its line fetch")
 
-        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: url.path)
+        faults.unreadable = false
         s.update(todayTokensByProvider: ["test": 0], todayDate: "d1", monthTotal: 0,
                  burnTier: .idle, limitWarning: false, hasUsageData: true)
         XCTAssertFalse(s.persistenceBlocked)

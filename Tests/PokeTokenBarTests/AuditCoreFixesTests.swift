@@ -9,6 +9,21 @@ private struct AuditOfflineProvider: PokeProviding {
     func baseSpecies(id: Int) async throws -> BaseSpecies? { throw AuditStubError.unavailable }
 }
 
+/// Makes the companion save unreadable or unmovable on any OS (permission bits do not block a read or a rename
+/// on Windows), so the same branches run everywhere.
+final class FileFaults: @unchecked Sendable {
+    var unreadable = false
+    var moveFails = false
+    var access: CompanionFileAccess {
+        CompanionFileAccess(
+            read: { [self] url in unreadable ? nil : try? Data(contentsOf: url) },
+            move: { [self] from, to in
+                if moveFails { throw CocoaError(.fileWriteNoPermission) }
+                try FileManager.default.moveItem(at: from, to: to)
+            })
+    }
+}
+
 /// Regression tests for the local-file audit batch (core). Every test runs on temp directories only.
 @MainActor
 final class AuditCoreFixesTests: XCTestCase {
@@ -113,13 +128,13 @@ final class AuditCoreFixesTests: XCTestCase {
         let url = dir.appendingPathComponent("companion-state.json")
         let original = try JSONEncoder().encode(sampleState(tokens: 12_345))
         try original.write(to: url)
-        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: url.path)
-        try XCTSkipIf(FileManager.default.isReadableFile(atPath: url.path), "permissions are not enforced here (root)")
+        let faults = FileFaults()
+        faults.unreadable = true
 
-        let store = CompanionStore(provider: AuditOfflineProvider(), clock: { self.baseNow }, fileURL: url)
+        let store = CompanionStore(provider: AuditOfflineProvider(), clock: { self.baseNow }, fileURL: url,
+                                   fileAccess: faults.access)
         XCTAssertTrue(store.persistenceBlocked)
 
-        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: url.path)
         XCTAssertThrowsError(try store.createManualSnapshot(), "an empty placeholder must not become a snapshot")
         XCTAssertTrue(SaveSnapshotManager.listSnapshots(for: url).isEmpty)
         store.receivePlazaItem(.rareCandy)   // would save() over the real file
@@ -135,46 +150,47 @@ final class AuditCoreFixesTests: XCTestCase {
     }
 
     func testCorruptSaveThatCannotBeMovedAsideIsLeftAloneAsAPlaceholder() async throws {
-        let dir = tempDir("corrupt-move")
-        let url = dir.appendingPathComponent("companion-state.json")
+        let url = tempDir("corrupt-move").appendingPathComponent("companion-state.json")
         let garbage = Data("{ not json".utf8)
         try garbage.write(to: url)
-        // A read-only directory: the original can be read but not renamed to `.corrupt`.
-        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: dir.path)
-        try XCTSkipIf(FileManager.default.isWritableFile(atPath: dir.path), "permissions are not enforced here (root)")
+        let faults = FileFaults()
+        faults.moveFails = true
 
-        let store = CompanionStore(provider: AuditOfflineProvider(), clock: { self.baseNow }, fileURL: url)
+        let store = CompanionStore(provider: AuditOfflineProvider(), clock: { self.baseNow }, fileURL: url,
+                                   fileAccess: faults.access)
         XCTAssertTrue(store.persistenceBlocked)
         XCTAssertTrue(store.statePlaceholder, "nothing was recovered, so the state is the empty placeholder")
         XCTAssertEqual(try Data(contentsOf: url), garbage, "the original must be untouched")
         XCTAssertThrowsError(try store.createManualSnapshot(), "a snapshot of the placeholder would push out real ones")
+        store.receivePlazaItem(.rareCandy)
+        XCTAssertEqual(try Data(contentsOf: url), garbage, "no save over it either")
     }
 
     func testCorruptSaveRecoveredFromASnapshotKeepsSnapshotting() async throws {
-        let dir = tempDir("corrupt-move-recovered")
-        let url = dir.appendingPathComponent("companion-state.json")
+        let url = tempDir("corrupt-move-recovered").appendingPathComponent("companion-state.json")
         try SaveSnapshotManager.createSnapshot(state: sampleState(tokens: 4_321), for: url, date: baseNow.addingTimeInterval(-3600))
         let garbage = Data("{ not json".utf8)
         try garbage.write(to: url)
-        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: dir.path)
-        try XCTSkipIf(FileManager.default.isWritableFile(atPath: dir.path), "permissions are not enforced here (root)")
+        let faults = FileFaults()
+        faults.moveFails = true
 
-        let store = CompanionStore(provider: AuditOfflineProvider(), clock: { self.baseNow }, fileURL: url)
+        let store = CompanionStore(provider: AuditOfflineProvider(), clock: { self.baseNow }, fileURL: url,
+                                   fileAccess: faults.access)
         XCTAssertTrue(store.persistenceBlocked)
         XCTAssertFalse(store.statePlaceholder, "the state came from a real snapshot")
         XCTAssertEqual(store.state.usedSinceInstall, 4_321)
         XCTAssertEqual(try Data(contentsOf: url), garbage)
-        XCTAssertNoThrow(try store.createManualSnapshot())   // `.snapshots` is its own writable folder
+        XCTAssertNoThrow(try store.createManualSnapshot())
     }
 
     func testUnreadableSaveIsAdoptedOnceItBecomesReadable() async throws {
-        let dir = tempDir("adopt")
-        let url = dir.appendingPathComponent("companion-state.json")
+        let url = tempDir("adopt").appendingPathComponent("companion-state.json")
         try JSONEncoder().encode(sampleState(tokens: 12_345)).write(to: url)
-        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: url.path)
-        try XCTSkipIf(FileManager.default.isReadableFile(atPath: url.path), "permissions are not enforced here (root)")
+        let faults = FileFaults()
+        faults.unreadable = true
 
-        let store = CompanionStore(provider: AuditOfflineProvider(), clock: { self.baseNow }, fileURL: url)
+        let store = CompanionStore(provider: AuditOfflineProvider(), clock: { self.baseNow }, fileURL: url,
+                                   fileAccess: faults.access)
         XCTAssertTrue(store.statePlaceholder)
         XCTAssertThrowsError(try store.createManualSnapshot())
         func refresh() {
@@ -185,7 +201,7 @@ final class AuditCoreFixesTests: XCTestCase {
         XCTAssertTrue(store.persistenceBlocked)
         XCTAssertEqual(store.state.usedSinceInstall, 0)
 
-        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: url.path)
+        faults.unreadable = false
         refresh()
         XCTAssertFalse(store.persistenceBlocked)
         XCTAssertFalse(store.statePlaceholder)
@@ -213,10 +229,11 @@ final class AuditCoreFixesTests: XCTestCase {
         XCTAssertNotEqual(expected, 100_000, "premise: the narrowed difficulty reprices the bank")
 
         let url = try fileWithPet("rescale-adopt")
-        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: url.path)
-        try XCTSkipIf(FileManager.default.isReadableFile(atPath: url.path), "permissions are not enforced here (root)")
-        let store = CompanionStore(provider: AuditOfflineProvider(), clock: { self.baseNow }, fileURL: url, defaults: makeSuite())
-        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: url.path)
+        let faults = FileFaults()
+        faults.unreadable = true
+        let store = CompanionStore(provider: AuditOfflineProvider(), clock: { self.baseNow }, fileURL: url,
+                                   defaults: makeSuite(), fileAccess: faults.access)
+        faults.unreadable = false
         store.update(todayTokensByProvider: [:], todayDate: "2026-01-01", monthTotal: 0,
                      burnTier: .idle, limitWarning: false, hasUsageData: false)
         XCTAssertEqual(store.state.active?.usedAtStage, expected)
@@ -227,12 +244,13 @@ final class AuditCoreFixesTests: XCTestCase {
         let url = dir.appendingPathComponent("companion-state.json")
         try SaveSnapshotManager.createSnapshot(state: sampleState(tokens: 777), for: url, date: baseNow.addingTimeInterval(-3600))
         try JSONEncoder().encode(sampleState(tokens: 1)).write(to: url)
-        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: url.path)
-        try XCTSkipIf(FileManager.default.isReadableFile(atPath: url.path), "permissions are not enforced here (root)")
-        let store = CompanionStore(provider: AuditOfflineProvider(), clock: { self.baseNow }, fileURL: url)
+        let faults = FileFaults()
+        faults.unreadable = true
+        let store = CompanionStore(provider: AuditOfflineProvider(), clock: { self.baseNow }, fileURL: url,
+                                   fileAccess: faults.access)
         XCTAssertTrue(store.persistenceBlocked)
 
-        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: url.path)
+        faults.unreadable = false
         let garbage = Data("{ not json".utf8)
         try garbage.write(to: url)
         store.update(todayTokensByProvider: [:], todayDate: "2026-01-01", monthTotal: 0,

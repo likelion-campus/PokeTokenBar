@@ -1,6 +1,16 @@
 import Foundation
 import Observation
 
+/// 세이브 파일을 읽고 옮기는 두 동작의 이음매. 운영체제마다 "읽기 실패"·"이름 바꾸기 실패" 를 만드는 방법(권한 비트·
+/// 잠금)이 달라, 테스트가 같은 가지를 어디서나 밟도록 실패를 주입할 수 있게 한다. 프로덕션은 `.live`.
+struct CompanionFileAccess {
+    var read: (URL) -> Data?
+    var move: (URL, URL) throws -> Void
+    static let live = CompanionFileAccess(
+        read: { try? Data(contentsOf: $0) },
+        move: { try FileManager.default.moveItem(at: $0, to: $1) })
+}
+
 /// 게임 상태의 출처. 설치 이후 토큰 사용량으로 포켓몬을 진화시키고, 최종체 + 추가 임계 도달 시
 /// 도감(라인 전체)에 보존 + 새 알. 진화 트리/희귀도/이름은 PokeProviding 으로 런타임 주입.
 @MainActor
@@ -48,6 +58,7 @@ final class CompanionStore {
     private let detailProvider: (any PokemonDetailProviding)?
     private let clock: () -> Date
     private let fileURL: URL
+    private let fileAccess: CompanionFileAccess
     private var rng: any RandomNumberGenerator
     private let dittoDisguiseRollingEnabled: Bool
     /// Fired at hatch / evolve / graduate / Ditto reveal. Not gated by app bundle or notification
@@ -80,7 +91,9 @@ final class CompanionStore {
          fileURL: URL? = nil,
          rng: any RandomNumberGenerator = SystemRandomNumberGenerator(),
          dittoDisguiseRollingEnabled: Bool = AppEnv.isBundledApp,
-         defaults: UserDefaults = .standard) {
+         defaults: UserDefaults = .standard,
+         fileAccess: CompanionFileAccess = .live) {
+        self.fileAccess = fileAccess
         self.provider = provider
         self.detailProvider = detailProvider ?? (provider as? any PokemonDetailProviding)
         self.clock = clock
@@ -2357,7 +2370,7 @@ final class CompanionStore {
         // 파일 없음 = 신규 설치. 하지만 "있는데 못 읽음"(Windows 공유 위반·백신·EACCES)은 신규 설치가 아니다 —
         // 빈 상태로 시작해 첫 새로고침이 save() 하면 진짜 세이브가 빈 것으로 교체된다.
         guard FileManager.default.fileExists(atPath: fileURL.path) else { return }
-        guard let data = Self.readExisting(fileURL) else {
+        guard let data = readExisting(fileURL) else {
             if FileManager.default.fileExists(atPath: fileURL.path) {
                 blockPersistence("companion state exists but cannot be read")
                 statePlaceholder = true
@@ -2380,7 +2393,7 @@ final class CompanionStore {
         let backup = fileURL.appendingPathExtension("corrupt")
         try? FileManager.default.removeItem(at: backup)
         do {
-            try FileManager.default.moveItem(at: fileURL, to: backup)
+            try fileAccess.move(fileURL, backup)
             AppLog.write("companion state decode failed — original backed up to \(backup.lastPathComponent)")
         } catch {
             AppLog.write("failed to move corrupt state file to \(backup.lastPathComponent): \(error)")
@@ -2401,9 +2414,9 @@ final class CompanionStore {
 
     /// 파일이 존재하는데 읽지 못하는 순간(스캐너·쓰는 쪽의 rename 마무리)을 잠깐 재시도로 넘긴다.
     /// `SettingsPlistGuard.readExisting` 과 같은 규칙.
-    private static func readExisting(_ url: URL, attempts: Int = 4) -> Data? {
+    private func readExisting(_ url: URL, attempts: Int = 4) -> Data? {
         for attempt in 0..<attempts {
-            if let data = try? Data(contentsOf: url) { return data }
+            if let data = fileAccess.read(url) { return data }
             if attempt < attempts - 1 { Thread.sleep(forTimeInterval: 0.05) }
         }
         return nil
@@ -2435,7 +2448,7 @@ final class CompanionStore {
             AppLog.write("companion state is gone: saves back on")
             return
         }
-        guard let data = try? Data(contentsOf: fileURL) else { return }
+        guard let data = fileAccess.read(fileURL) else { return }
         unreadableSavePending = false
         // 기동과 똑같이 시작한다: 막힘을 풀고, 디코드되면 받아들이고, 안 되면 .corrupt 로 옮겨 스냅샷에서 복구한다
         // (옮기지 못하면 그 핸들러가 다시 막는다).
