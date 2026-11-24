@@ -169,12 +169,23 @@ final class BinaryLocatorTests: XCTestCase {
         }
     }
 
-    func testForgetNotFoundKeepsWhatWasFound() {
+    func testForgetNotFoundKeepsWhatWasFound() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("ptb-bin-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        #if os(Windows)
+        let tool = dir.appendingPathComponent("ptb-found-tool.cmd").path
+        let body = "@echo off\r\n"
+        #else
+        let tool = dir.appendingPathComponent("ptb-found-tool").path
+        let body = "#!/bin/sh\n"
+        #endif
+        FileManager.default.createFile(atPath: tool, contents: Data(body.utf8), attributes: [.posixPermissions: 0o755])
         let spawns = Counter()
-        withFakes(shell: { _ in spawns.n += 1; return "/bin/sh" }) {
-            XCTAssertEqual(BinaryLocator.resolve("ptb-found-tool", staticPaths: []), "/bin/sh")
+        withFakes(shell: { _ in spawns.n += 1; return tool }) {
+            XCTAssertEqual(BinaryLocator.resolve("ptb-found-tool", staticPaths: []), tool)
             BinaryLocator.forgetNotFound()
-            XCTAssertEqual(BinaryLocator.resolve("ptb-found-tool", staticPaths: []), "/bin/sh")
+            XCTAssertEqual(BinaryLocator.resolve("ptb-found-tool", staticPaths: []), tool)
             XCTAssertEqual(spawns.n, 1)
         }
     }
