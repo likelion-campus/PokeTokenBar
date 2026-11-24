@@ -141,7 +141,6 @@ final class ZeroUsageHomeRenderingTests: XCTestCase {
             cursorLimitsProvider: QuietHomeCursor(), statusProvider: QuietHomeStatus(),
             autoRefresh: false, defaults: defaults)
         await store.refresh(scheduleEmptyRetry: false)
-        print("QUIETHOME-DIAG start history=\(history) lang=\(language.rawValue) costs=\(String(describing: costs)) now=\(Date()) tz=\(TimeZone.current.identifier) locale=\(Locale.current.identifier) firstWeekday=\(Calendar.current.firstWeekday) day=\(day) today=\(LocalUsageReader.todayKey()) week=\(weekKey) todayTokens=\(store.todayTotalTokens) monthTokens=\(store.monthTotalTokens) trend=\(store.dailyTrendWindow.rawValue) trendDays=\(store.dailyTrendTotals.count) hasHistory=\(store.hasDailyTrendHistory) streak=\(store.currentStreak.days)")
         XCTAssertEqual(store.todayTotalTokens, 0)
         XCTAssertEqual(store.monthTotalTokens, costs != nil ? 17_900_000 : series.reduce(0) { $0 + $1.totalTokens })
 
@@ -189,12 +188,14 @@ final class ZeroUsageHomeRenderingTests: XCTestCase {
             companion.l.title(for: store.dailyTrendWindow).replacingOccurrences(of: " ", with: ""),
             companion.l.dailyTrend.replacingOccurrences(of: " ", with: ""),
         ]
-        // The caption shares a text line with the date readout ("11. 24. (화) 0"), so the OCR's top reading of that line
-        // can garble the caption on one date and not on the next. Accept the caption in any of the 10 candidates; the
-        // empty-history case below still proves the caption is absent when no chart is drawn.
         let chartVisible = (request.results ?? []).contains { observation in
-            observation.topCandidates(10).contains { candidate in
-                chartCaptions.contains { candidate.string.replacingOccurrences(of: " ", with: "").contains($0) }
+            // CI ranks "일벌" before "일별" at the same confidence. Vision returns at most 10 candidates.
+            // Match the exact caption only within this observation's most confident tie.
+            let alternatives = observation.topCandidates(10)
+            guard let maximumConfidence = alternatives.first?.confidence else { return false }
+            return alternatives.contains { candidate in
+                candidate.confidence == maximumConfidence
+                    && chartCaptions.contains { candidate.string.replacingOccurrences(of: " ", with: "").contains($0) }
             }
         }
         let candidates = (request.results ?? []).enumerated().map { index, observation in
@@ -204,10 +205,12 @@ final class ZeroUsageHomeRenderingTests: XCTestCase {
             return "observation \(index) bbox=\(NSStringFromRect(observation.boundingBox)): \(alternatives)"
         }.joined(separator: "\n")
         let diagnostics = "OCR revision=\(request.revision) pixels=\(bitmap.pixelsWide)x\(bitmap.pixelsHigh)\n\(candidates)"
-        print("QUIETHOME-DIAG ocr \(Self.ascii(diagnostics))")
-        print("QUIETHOME-DIAG flags chartVisible=\(chartVisible) scale=\(CGFloat(bitmap.pixelsWide) / bounds.width) screens=\(NSScreen.screens.map { $0.backingScaleFactor }) labels=\([companion.l.todayTokens, companion.l.thisWeek, companion.l.thisMonth].map { normalizedText.contains($0.replacingOccurrences(of: " ", with: "")) })")
+        // CI read "이번 주 2.1M" as "미번 주 2.1M" (confidence 0.5, every candidate) on a Tuesday, while the same label read
+        // fine beside "920K" on a Monday: the week total follows the weekday, and 이/미 is a glyph pair Vision confuses.
+        // This asserts that the period rows are drawn, not which of the two glyphs Vision picks.
+        let labelText = normalizedText.replacingOccurrences(of: "미번", with: "이번")
         for label in [companion.l.todayTokens, companion.l.thisWeek, companion.l.thisMonth] {
-            XCTAssertTrue(normalizedText.contains(label.replacingOccurrences(of: " ", with: "")),
+            XCTAssertTrue(labelText.contains(label.replacingOccurrences(of: " ", with: "")),
                           "Missing visible \(Self.ascii(label)): \(Self.ascii(text))\n\(Self.ascii(diagnostics))")
         }
         if costs == .source {
@@ -244,6 +247,5 @@ final class ZeroUsageHomeRenderingTests: XCTestCase {
                 : (history ? "ko-zero-today-with-history.png" : "ko-zero-all-periods.png")
             try XCTUnwrap(bitmap.representation(using: .png, properties: [:])).write(to: directory.appendingPathComponent(name))
         }
-        print("QUIETHOME-DIAG end history=\(history) lang=\(language.rawValue) costs=\(String(describing: costs))")
     }
 }
