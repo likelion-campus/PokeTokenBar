@@ -450,7 +450,7 @@ final class TeamLinkLimitsTests: XCTestCase {
         return .emote(e)
     }
 
-    func testAFloodOfJumpsWithNewerIceBreaksIsAdoptedOnlyUpToTheBurst() {
+    func testAFloodOfJumpsWithNewerIceBreaksIsAdoptedOnlyUpToTheBurst() async {
         var withIce = 0, jumps = 0
         session.onEmote = { _, e in jumps += 1; if e.iceBreak != nil { withIce += 1 } }
         let peer = join("flooder")
@@ -459,7 +459,7 @@ final class TeamLinkLimitsTests: XCTestCase {
         XCTAssertEqual(withIce, TeamSession.sharedValueBurst)
     }
 
-    func testAHonestJumpThatBreaksIceStillBreaksIt() {
+    func testAHonestJumpThatBreaksIceStillBreaksIt() async {
         var got: [PlazaIceBreak?] = []
         session.onEmote = { _, e in got.append(e.iceBreak) }
         let peer = join("honest")
