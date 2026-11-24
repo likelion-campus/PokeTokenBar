@@ -11,7 +11,7 @@
 #   upgradeRunning  the installer job's "Upgrade over a running instance" (which lost its runner twice, 2026-11-17/18) as a loop:
 #              vN started, closed, started again; vN+1's Setup (/VERYSILENT) closes it and starts vN+1; then vN again
 param([Parameter(Mandatory)] [ValidateSet('appSetup', 'fakeSetup', 'pwshSetup', 'upgradeRunning')] [string]$Arm,
-      [Parameter(Mandatory)] [string]$Version, [Parameter(Mandatory)] [string]$NextVersion, [int]$Minutes = 9)
+      [Parameter(Mandatory)] [string]$Version, [Parameter(Mandatory)] [string]$NextVersion, [int]$Minutes = 9, [string[]]$SetupExtra = @())
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot/ci-helpers.ps1"
 $dir = (Resolve-Path 'collected\in-app-update').Path
@@ -70,7 +70,11 @@ while ((Get-Date) -lt $start.AddMinutes($Minutes)) {
             $p, $h = Start-App $exe; Start-Sleep -Seconds 3; Close-App $p $h
             $old, $null = Start-App $exe
             Phase $i "upgrade over the running app $($old.Id)"
-            $code = Invoke-Setup $setupNext @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/CURRENTUSER', '/NORESTART', "/LOG=`"$(Join-Path $dir 'loop-upgrade.log')`"")
+            $code = Invoke-Setup $setupNext (@('/VERYSILENT', '/SUPPRESSMSGBOXES', '/CURRENTUSER', '/NORESTART', "/LOG=`"$(Join-Path $dir 'loop-upgrade.log')`"") + $SetupExtra)
+            # What Inno's own Restart Manager pass found, per iteration (the heartbeats post the newest lines).
+            Copy-Item (Join-Path $dir 'loop-upgrade.log') (Join-Path $dir "loop-upgrade-$i.log") -ErrorAction SilentlyContinue
+            Select-String -Path (Join-Path $dir 'loop-upgrade.log') -Pattern 'RestartManager|Restart Manager|applications|Shutting down' -ErrorAction SilentlyContinue | Where-Object { $_.Line -notmatch 'found no applications|files to register|Calling RestartManager|RmGetList finished' } |
+                ForEach-Object { "i=$i $($_.Line)" } | Add-Content (Join-Path $dir 'rm-found.txt')
             Phase $i "upgrade exit $code; old exited=$($old.HasExited)"
             $new = Wait-OtherApp -NotIds @($old.Id) -Seconds 20
             Phase $i "new app $(if ($new) { $new[0].Id } else { 'none' }) version $(Get-InstalledVersion)"

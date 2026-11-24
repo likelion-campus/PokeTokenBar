@@ -1601,13 +1601,14 @@ jobs:
     steps:
       - run: echo "build of run 45446214642"
   updates:
-    # DIAGNOSTIC (branch diag/update-runner-loss-2), experiment 7: a Setup that meets a RUNNING app. 24 runners, 9 min loops:
-    #   upgradeRunning  the installer job's "Upgrade over a running instance" (lost its runner twice on windows-port) repeated
-    #   upgradeRmOff    the same with every installer rebuilt with CloseApplications=no (Inno's Restart Manager pass off)
-    #   appSetup        the ok scenario's update repeated (the app downloads vN+1 and starts its Setup, which installs and relaunches)
-    # Experiment 6 lost none of 12 runners on Setup without an app (pwshSetup, ~25 loops each) or the app's side without an install
-    # (fakeSetup, ~60 loops each), and 1 of 6 on the unchanged script. Heartbeats every 30 s (Interactive / S4U tasks) carry the phase.
-    name: Setup meets a running app (${{ matrix.arm }} ${{ matrix.rep }})
+    # DIAGNOSTIC (branch diag/update-runner-loss-2), experiment 8: what Inno's Restart Manager pass finds, and the fix. 24 runners:
+    #   rmOnProbe     the upgrade-over-a-running-app loop (lost 4 of 10 in experiment 7; 0 of 10 with CloseApplications=no), plus a
+    #                 probe asking the Restart Manager every 200 ms who uses the app's .exe/.dll files (it never shuts anything down)
+    #   noCloseProbe  the same loop with /NOCLOSEAPPLICATIONS on Setup's command line, plus the probe
+    #   rmOnPlain     the loop unchanged (replication)
+    #   fixFaithful   the job as main runs it (failed-update step, then the in-app step, both unchanged) with every installer built
+    #                 with CloseApplications=no: the proposed fix; must be green on all of them
+    name: RM probe and fix (${{ matrix.arm }} ${{ matrix.rep }})
     needs: prebuilt
     if: ${{ !cancelled() }}
     runs-on: windows-latest
@@ -1620,30 +1621,30 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { rep: 1, arm: upgradeRunning }
-          - { rep: 2, arm: upgradeRmOff }
-          - { rep: 3, arm: upgradeRunning }
-          - { rep: 4, arm: upgradeRmOff }
-          - { rep: 5, arm: appSetup }
-          - { rep: 6, arm: upgradeRunning }
-          - { rep: 7, arm: upgradeRmOff }
-          - { rep: 8, arm: upgradeRunning }
-          - { rep: 9, arm: upgradeRmOff }
-          - { rep: 10, arm: appSetup }
-          - { rep: 11, arm: upgradeRunning }
-          - { rep: 12, arm: upgradeRmOff }
-          - { rep: 13, arm: upgradeRunning }
-          - { rep: 14, arm: upgradeRmOff }
-          - { rep: 15, arm: appSetup }
-          - { rep: 16, arm: upgradeRunning }
-          - { rep: 17, arm: upgradeRmOff }
-          - { rep: 18, arm: upgradeRunning }
-          - { rep: 19, arm: upgradeRmOff }
-          - { rep: 20, arm: appSetup }
-          - { rep: 21, arm: upgradeRunning }
-          - { rep: 22, arm: upgradeRmOff }
-          - { rep: 23, arm: upgradeRunning }
-          - { rep: 24, arm: upgradeRmOff }
+          - { rep: 1, arm: fixFaithful }
+          - { rep: 2, arm: rmOnProbe }
+          - { rep: 3, arm: noCloseProbe }
+          - { rep: 4, arm: rmOnPlain }
+          - { rep: 5, arm: fixFaithful }
+          - { rep: 6, arm: rmOnProbe }
+          - { rep: 7, arm: noCloseProbe }
+          - { rep: 8, arm: rmOnPlain }
+          - { rep: 9, arm: fixFaithful }
+          - { rep: 10, arm: rmOnProbe }
+          - { rep: 11, arm: noCloseProbe }
+          - { rep: 12, arm: rmOnPlain }
+          - { rep: 13, arm: fixFaithful }
+          - { rep: 14, arm: rmOnProbe }
+          - { rep: 15, arm: noCloseProbe }
+          - { rep: 16, arm: rmOnPlain }
+          - { rep: 17, arm: fixFaithful }
+          - { rep: 18, arm: rmOnProbe }
+          - { rep: 19, arm: noCloseProbe }
+          - { rep: 20, arm: fixFaithful }
+          - { rep: 21, arm: rmOnProbe }
+          - { rep: 22, arm: noCloseProbe }
+          - { rep: 23, arm: fixFaithful }
+          - { rep: 24, arm: fixFaithful }
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
       - uses: ./.github/actions/windows-slice
@@ -1652,8 +1653,8 @@ jobs:
           installer-sha256: e020b972c63acbde5ac8688d8dc4053a7087f6d53999dacf0fcfd53aaebca5ae
           build-run-id: '45446214642'
           github-token: ${{ github.token }}
-      - name: DIAG rebuild the installers with CloseApplications=no (upgradeRmOff arm)
-        if: matrix.arm == 'upgradeRmOff'
+      - name: DIAG rebuild the installers with CloseApplications=no (fixFaithful arm, the proposed fix)
+        if: matrix.arm == 'fixFaithful'
         timeout-minutes: 10
         shell: pwsh
         run: |
@@ -1699,13 +1700,31 @@ jobs:
           $t0 = Get-Date
           Add-Task 'ptb-diag-hbA' 'hbAI' $t0.AddSeconds(15) -Repeat
           Add-Task 'ptb-diag-hbB' 'hbBS' $t0.AddSeconds(45) -Repeat -Logon S4U
-      - name: DIAG the update part, repeated
-        if: (success() || failure())
-        timeout-minutes: 30
+      - name: A failed update brings the old app back
+        if: (success() || failure()) && matrix.arm == 'fixFaithful'
+        timeout-minutes: 25  # about 8 min
+        shell: pwsh
+        run: ./scripts/windows/failed-update-relaunch.ps1 -Version $env:PTB_VERSION -NextVersion $env:PTB_NEXT_VERSION
+      - name: The in-app update from a loopback feed
+        if: (success() || failure()) && matrix.arm == 'fixFaithful'
+        timeout-minutes: 25  # the step takes about 3 min; a hung scenario must not hold a release run to the job limit
+        shell: pwsh
+        run: ./scripts/windows/in-app-update.ps1 -Version $env:PTB_VERSION -NextVersion $env:PTB_NEXT_VERSION
+      - name: DIAG the Restart Manager probe and the upgrade loop
+        if: (success() || failure()) && matrix.arm != 'fixFaithful'
+        timeout-minutes: 15
         shell: pwsh
         run: |
-          $arm = if ('${{ matrix.arm }}' -eq 'upgradeRmOff') { 'upgradeRunning' } else { '${{ matrix.arm }}' }
-          ./scripts/windows/diag-update-loop.ps1 -Arm $arm -Version $env:PTB_VERSION -NextVersion $env:PTB_NEXT_VERSION -Minutes 9
+          . ./scripts/windows/ci-helpers.ps1
+          $dir = (Resolve-Path collected\in-app-update).Path
+          if ('${{ matrix.arm }}' -ne 'rmOnPlain') {
+              $probe = Start-Process pwsh -ArgumentList '-NoProfile', '-File', (Join-Path $PWD 'scripts\windows\diag-rm-probe.ps1'), '-Folder', $PtbInstallDir, '-LogFile', (Join-Path $dir 'rm-probe.log'), '-Minutes', '11' -WindowStyle Hidden -PassThru
+              "Restart Manager probe pid $($probe.Id)"
+          }
+          $extra = if ('${{ matrix.arm }}' -eq 'noCloseProbe') { @('/NOCLOSEAPPLICATIONS') } else { @() }
+          ./scripts/windows/diag-update-loop.ps1 -Arm upgradeRunning -Version $env:PTB_VERSION -NextVersion $env:PTB_NEXT_VERSION -Minutes 9 -SetupExtra $extra
+          '---- what Inno found (rm-found.txt) ----'; Get-Content (Join-Path $dir 'rm-found.txt') -ErrorAction SilentlyContinue | Select-Object -First 40
+          '---- what the probe found (rm-probe.log) ----'; Get-Content (Join-Path $dir 'rm-probe.log') -ErrorAction SilentlyContinue | Select-Object -First 60
       - name: DIAG remove the heartbeat tasks
         if: always()
         timeout-minutes: 2

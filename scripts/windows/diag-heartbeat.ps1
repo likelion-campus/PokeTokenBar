@@ -22,6 +22,10 @@ Get-CimInstance Win32_Process -Filter "Name LIKE 'PokeTokenBar%' OR Name LIKE 'u
     $lines.Add("  proc $($_.ProcessId)<-$($_.ParentProcessId) $($_.Name) $(if ($_.CreationDate) { $_.CreationDate.ToUniversalTime().ToString('HH:mm:ss') }) :: $cl")
 }
 $dir = Join-Path $cfg.workspace 'collected\in-app-update'
+foreach ($f in 'rm-probe.log', 'rm-found.txt') {
+    $pf = Join-Path $dir $f
+    if (Test-Path $pf) { Get-Content $pf -Tail 3 -ErrorAction SilentlyContinue | ForEach-Object { $lines.Add("  ${f}: $(if ($_.Length -gt 300) { $_.Substring(0, 300) } else { $_ })") } }
+}
 $phase = Join-Path $dir 'iteration.txt'
 if (Test-Path $phase) { $lines.Add("phase: $((Get-Content $phase -Raw -ErrorAction SilentlyContinue).Trim())") }
 $newest = Get-ChildItem $dir -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTime | Select-Object -Last 6
