@@ -1601,13 +1601,13 @@ jobs:
     steps:
       - run: echo "build of run 45446214642"
   updates:
-    # DIAGNOSTIC (branch diag/update-runner-loss-2), experiment 6: which part of the update takes the VM down? 24 runners, 4 arms:
-    #   control    in-app-update.ps1 unchanged, three times in a row (as experiment 5)
-    #   rmOff      the same, every installer rebuilt with CloseApplications=no (Inno's Restart Manager pass off)
-    #   fakeSetup  9 min of: the app downloads a "Setup" (a copy of dllhost.exe), checks and starts it, leaves (the app's side alone)
-    #   pwshSetup  9 min of: vN baseline, then vN+1's Setup started from pwsh as the app starts it (Setup's side alone, no app)
-    # Heartbeats every 30 s alternate Interactive and S4U scheduled tasks (with the newest Setup log's last lines).
-    name: Update parts (${{ matrix.arm }} ${{ matrix.rep }})
+    # DIAGNOSTIC (branch diag/update-runner-loss-2), experiment 7: a Setup that meets a RUNNING app. 24 runners, 9 min loops:
+    #   upgradeRunning  the installer job's "Upgrade over a running instance" (lost its runner twice on windows-port) repeated
+    #   upgradeRmOff    the same with every installer rebuilt with CloseApplications=no (Inno's Restart Manager pass off)
+    #   appSetup        the ok scenario's update repeated (the app downloads vN+1 and starts its Setup, which installs and relaunches)
+    # Experiment 6 lost none of 12 runners on Setup without an app (pwshSetup, ~25 loops each) or the app's side without an install
+    # (fakeSetup, ~60 loops each), and 1 of 6 on the unchanged script. Heartbeats every 30 s (Interactive / S4U tasks) carry the phase.
+    name: Setup meets a running app (${{ matrix.arm }} ${{ matrix.rep }})
     needs: prebuilt
     if: ${{ !cancelled() }}
     runs-on: windows-latest
@@ -1620,30 +1620,30 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { rep: 1, arm: control }
-          - { rep: 2, arm: rmOff }
-          - { rep: 3, arm: fakeSetup }
-          - { rep: 4, arm: pwshSetup }
-          - { rep: 5, arm: control }
-          - { rep: 6, arm: rmOff }
-          - { rep: 7, arm: fakeSetup }
-          - { rep: 8, arm: pwshSetup }
-          - { rep: 9, arm: control }
-          - { rep: 10, arm: rmOff }
-          - { rep: 11, arm: fakeSetup }
-          - { rep: 12, arm: pwshSetup }
-          - { rep: 13, arm: control }
-          - { rep: 14, arm: rmOff }
-          - { rep: 15, arm: fakeSetup }
-          - { rep: 16, arm: pwshSetup }
-          - { rep: 17, arm: control }
-          - { rep: 18, arm: rmOff }
-          - { rep: 19, arm: fakeSetup }
-          - { rep: 20, arm: pwshSetup }
-          - { rep: 21, arm: control }
-          - { rep: 22, arm: rmOff }
-          - { rep: 23, arm: fakeSetup }
-          - { rep: 24, arm: pwshSetup }
+          - { rep: 1, arm: upgradeRunning }
+          - { rep: 2, arm: upgradeRmOff }
+          - { rep: 3, arm: upgradeRunning }
+          - { rep: 4, arm: upgradeRmOff }
+          - { rep: 5, arm: appSetup }
+          - { rep: 6, arm: upgradeRunning }
+          - { rep: 7, arm: upgradeRmOff }
+          - { rep: 8, arm: upgradeRunning }
+          - { rep: 9, arm: upgradeRmOff }
+          - { rep: 10, arm: appSetup }
+          - { rep: 11, arm: upgradeRunning }
+          - { rep: 12, arm: upgradeRmOff }
+          - { rep: 13, arm: upgradeRunning }
+          - { rep: 14, arm: upgradeRmOff }
+          - { rep: 15, arm: appSetup }
+          - { rep: 16, arm: upgradeRunning }
+          - { rep: 17, arm: upgradeRmOff }
+          - { rep: 18, arm: upgradeRunning }
+          - { rep: 19, arm: upgradeRmOff }
+          - { rep: 20, arm: appSetup }
+          - { rep: 21, arm: upgradeRunning }
+          - { rep: 22, arm: upgradeRmOff }
+          - { rep: 23, arm: upgradeRunning }
+          - { rep: 24, arm: upgradeRmOff }
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
       - uses: ./.github/actions/windows-slice
@@ -1652,8 +1652,8 @@ jobs:
           installer-sha256: e020b972c63acbde5ac8688d8dc4053a7087f6d53999dacf0fcfd53aaebca5ae
           build-run-id: '45446214642'
           github-token: ${{ github.token }}
-      - name: DIAG rebuild the installers with CloseApplications=no (rmOff arm)
-        if: matrix.arm == 'rmOff'
+      - name: DIAG rebuild the installers with CloseApplications=no (upgradeRmOff arm)
+        if: matrix.arm == 'upgradeRmOff'
         timeout-minutes: 10
         shell: pwsh
         run: |
@@ -1704,17 +1704,8 @@ jobs:
         timeout-minutes: 30
         shell: pwsh
         run: |
-          if ('${{ matrix.arm }}' -in 'control', 'rmOff') {
-              $bad = @()
-              foreach ($i in 1..3) {
-                  "iteration $i at $((Get-Date).ToUniversalTime().ToString('HH:mm:ss'))Z" | Set-Content collected\in-app-update\iteration.txt
-                  "==== iteration $i ===="
-                  try { ./scripts/windows/in-app-update.ps1 -Version $env:PTB_VERSION -NextVersion $env:PTB_NEXT_VERSION } catch { $bad += $i; "iteration ${i}: $($_.Exception.Message)" }
-              }
-              if ($bad.Count) { "iterations with a failed scenario: $($bad -join ', ')" }
-          } else {
-              ./scripts/windows/diag-update-loop.ps1 -Arm '${{ matrix.arm }}' -Version $env:PTB_VERSION -NextVersion $env:PTB_NEXT_VERSION -Minutes 9
-          }
+          $arm = if ('${{ matrix.arm }}' -eq 'upgradeRmOff') { 'upgradeRunning' } else { '${{ matrix.arm }}' }
+          ./scripts/windows/diag-update-loop.ps1 -Arm $arm -Version $env:PTB_VERSION -NextVersion $env:PTB_NEXT_VERSION -Minutes 9
       - name: DIAG remove the heartbeat tasks
         if: always()
         timeout-minutes: 2

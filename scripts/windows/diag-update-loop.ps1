@@ -8,7 +8,9 @@
 #              (the app's side alone)
 #   pwshSetup  vN installed; Setup of vN+1 started from pwsh as the app starts it (the in-app switches, the Logs folder as working
 #              folder, a Path of System32 and Windows only), no app involved (Setup's side alone)
-param([Parameter(Mandatory)] [ValidateSet('appSetup', 'fakeSetup', 'pwshSetup')] [string]$Arm,
+#   upgradeRunning  the installer job's "Upgrade over a running instance" (which lost its runner twice, 2026-11-17/18) as a loop:
+#              vN started, closed, started again; vN+1's Setup (/VERYSILENT) closes it and starts vN+1; then vN again
+param([Parameter(Mandatory)] [ValidateSet('appSetup', 'fakeSetup', 'pwshSetup', 'upgradeRunning')] [string]$Arm,
       [Parameter(Mandatory)] [string]$Version, [Parameter(Mandatory)] [string]$NextVersion, [int]$Minutes = 9)
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot/ci-helpers.ps1"
@@ -62,7 +64,17 @@ while ((Get-Date) -lt $start.AddMinutes($Minutes)) {
     $feed = $null
     try {
         Clear-UpdateMarks
-        if ($Arm -eq 'pwshSetup') {
+        if ($Arm -eq 'upgradeRunning') {
+            if ((Get-InstalledVersion) -ne $Version) { Install-Baseline $i }
+            Phase $i 'plain app'
+            $p, $h = Start-App $exe; Start-Sleep -Seconds 3; Close-App $p $h
+            $old, $null = Start-App $exe
+            Phase $i "upgrade over the running app $($old.Id)"
+            $code = Invoke-Setup $setupNext @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/CURRENTUSER', '/NORESTART', "/LOG=`"$(Join-Path $dir 'loop-upgrade.log')`"")
+            Phase $i "upgrade exit $code; old exited=$($old.HasExited)"
+            $new = Wait-OtherApp -NotIds @($old.Id) -Seconds 20
+            Phase $i "new app $(if ($new) { $new[0].Id } else { 'none' }) version $(Get-InstalledVersion)"
+        } elseif ($Arm -eq 'pwshSetup') {
             if ((Get-InstalledVersion) -ne $Version) { Install-Baseline $i }
             Phase $i 'setup'
             $old = $env:Path; $env:Path = 'C:\Windows\System32;C:\Windows'

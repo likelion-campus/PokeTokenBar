@@ -22,9 +22,11 @@ Get-CimInstance Win32_Process -Filter "Name LIKE 'PokeTokenBar%' OR Name LIKE 'u
     $lines.Add("  proc $($_.ProcessId)<-$($_.ParentProcessId) $($_.Name) $(if ($_.CreationDate) { $_.CreationDate.ToUniversalTime().ToString('HH:mm:ss') }) :: $cl")
 }
 $dir = Join-Path $cfg.workspace 'collected\in-app-update'
+$phase = Join-Path $dir 'iteration.txt'
+if (Test-Path $phase) { $lines.Add("phase: $((Get-Content $phase -Raw -ErrorAction SilentlyContinue).Trim())") }
 $newest = Get-ChildItem $dir -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTime | Select-Object -Last 6
 $lines.Add("in-app files: $(($newest | ForEach-Object { "$($_.Name)@$($_.LastWriteTimeUtc.ToString('HH:mm:ss'))" }) -join ' ')")
-$setupLog = @(Get-ChildItem (Join-Path $cfg.workspace 'collected\in-app-update\*'), (Join-Path $env:LOCALAPPDATA 'PokeTokenBar\Logs\*') -File -Include '*-baseline.log', 'loop-baseline.log', 'update-*.log' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime | Select-Object -Last 1)
+$setupLog = @(Get-ChildItem (Join-Path $cfg.workspace 'collected\in-app-update\*'), (Join-Path $env:LOCALAPPDATA 'PokeTokenBar\Logs\*') -File -Include '*-baseline.log', 'loop-baseline.log', 'loop-upgrade.log', 'update-*.log' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime | Select-Object -Last 1)
 if ($setupLog) { $lines.Add("setup log $($setupLog[0].Name)@$($setupLog[0].LastWriteTimeUtc.ToString('HH:mm:ss')):"); Get-Content $setupLog[0].FullName -Tail 4 | ForEach-Object { $lines.Add("  setup: $(if ($_.Length -gt 200) { $_.Substring(0, 200) } else { $_ })") } }
 $app = Join-Path $env:LOCALAPPDATA 'PokeTokenBar\Logs\PokeTokenBar.log'
 if (Test-Path $app) {
