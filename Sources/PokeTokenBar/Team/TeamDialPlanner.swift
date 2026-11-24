@@ -10,6 +10,8 @@ struct TeamDialPlanner {
     static let refusalCooldown: TimeInterval = 300
 
     private struct Entry {
+        /// Arrival order, to tell the oldest name from the newest.
+        var order = 0
         var found = true
         var activePeer: TeamPeerID?
         var coveredBy: TeamPeerID?
@@ -17,12 +19,28 @@ struct TeamDialPlanner {
     }
 
     private var entries: [String: Entry] = [:]
+    private var orderCounter = 0
     /// Which endpoint name each dialed connection belongs to. Kept after the connection ends so that
     /// `cover` works in either order.
     private var nameForPeer: [TeamPeerID: String] = [:]
 
-    mutating func discovered(_ name: String) {
-        if entries[name] == nil { entries[name] = Entry() } else { entries[name]?.found = true }
+    /// Returns the name forgotten to make room, if any. Anyone on the network can advertise names without end, so at
+    /// `maxDiscoveredNames` the oldest name nothing is using (no dial, no cover) goes first; when every name is in use the
+    /// new one is not kept.
+    @discardableResult
+    mutating func discovered(_ name: String) -> String? {
+        guard entries[name] == nil else { entries[name]?.found = true; return nil }
+        var evicted: String?
+        if entries.count >= TeamTransportRules.maxDiscoveredNames {
+            guard let oldest = entries.filter({ $0.value.activePeer == nil && $0.value.coveredBy == nil })
+                .min(by: { $0.value.order < $1.value.order })?.key else { return name }
+            entries[oldest] = nil
+            nameForPeer = nameForPeer.filter { $0.value != oldest }
+            evicted = oldest
+        }
+        orderCounter += 1
+        entries[name] = Entry(order: orderCounter)
+        return evicted
     }
 
     /// Forgets the name unless a running dial, a cover or a cooldown still needs it, so the names a rogue service

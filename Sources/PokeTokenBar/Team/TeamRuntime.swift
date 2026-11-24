@@ -27,6 +27,9 @@ final class TeamRuntime {
     private var tickTask: Task<Void, Never>?
     private var activity: AnyObject?
 
+    /// Writes what the feed still holds back (it saves teammates' rows a moment after they arrive). The app calls this when it quits.
+    func flush() { feed.flush() }
+
     var isHoldingActivity: Bool { activity != nil }
     var isTicking: Bool { tickTask != nil }
 

@@ -7,10 +7,11 @@ struct TeamTokenBucket {
     private var tokens: Double
     private var last: Date?
 
-    init(capacity: Double, perSecond: Double) {
+    /// `startingTokens` below `capacity` makes a bucket that begins partly spent.
+    init(capacity: Double, perSecond: Double, startingTokens: Double? = nil) {
         self.capacity = capacity
         self.perSecond = perSecond
-        tokens = capacity
+        tokens = min(max(startingTokens ?? capacity, 0), capacity)
     }
 
     /// Spends `amount` if it is all there. A refusal spends nothing.

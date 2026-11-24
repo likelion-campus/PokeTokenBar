@@ -107,8 +107,25 @@ private final class BrowseContext: CallbackContext {
         let now = Date()
         namesLock.lock()
         for a in answers { answeredAt[a.name] = a.ttl > 0 ? now : nil }
+        trimLocked()
         namesLock.unlock()
         if let observe = WinDNSSD.answerObserver { for a in answers { observe(a.name, a.ttl) } }
+    }
+
+    /// Anyone on the network can answer for any number of names that are never withdrawn: past `maxDiscoveredNames` the
+    /// ones answered longest ago are dropped (a dropped name that answers again is a `.found` again). Holds `namesLock`.
+    private func trimLocked() {
+        if known.count > TeamTransportRules.maxDiscoveredNames {
+            for name in TeamTransportRules.evictionVictims(known, answeredAt: answeredAt, limit: TeamTransportRules.maxDiscoveredNames) {
+                known.remove(name); answeredAt[name] = nil
+            }
+        }
+        if answeredAt.count > TeamTransportRules.maxDiscoveredNames {
+            for name in TeamTransportRules.evictionVictims(Set(answeredAt.keys), answeredAt: answeredAt,
+                                                           limit: TeamTransportRules.maxDiscoveredNames) {
+                answeredAt[name] = nil
+            }
+        }
     }
 
     func lastAnswer(_ name: String) -> Date? { namesLock.lock(); defer { namesLock.unlock() }; return answeredAt[name] }
@@ -126,6 +143,7 @@ private final class BrowseContext: CallbackContext {
         guard isOpen, !incoming.isEmpty else { return }
         namesLock.lock()
         let events = WinDNSSD.changes(incoming, known: &known)
+        trimLocked()
         namesLock.unlock()
         WinDNSSD.noteRepeats(incoming.count - events.count)
         guard !events.isEmpty else { return }

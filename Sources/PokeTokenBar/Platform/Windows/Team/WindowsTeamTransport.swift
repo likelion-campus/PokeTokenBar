@@ -92,10 +92,16 @@ final class WindowsTeamTransport: TeamTransporting {
         let initiatedByMe: Bool
         /// nil while a service name is being resolved (the link already counts as an unfinished dial).
         var conn: WinConnID?
-        var receiver = TeamLinkReceiver()
+        var receiver: TeamLinkReceiver
+        /// The remote host of an inbound link (no port, no scope), the key of the per-address limits; nil for a dial.
+        let address: String?
         var isReady = false
         var handshakeTimer: Task<Void, Never>?
-        init(initiatedByMe: Bool) { self.initiatedByMe = initiatedByMe }
+        init(initiatedByMe: Bool, address: String? = nil, startingTokens: Double? = nil) {
+            self.initiatedByMe = initiatedByMe
+            self.address = address
+            receiver = TeamLinkReceiver(startingTokens: startingTokens)
+        }
     }
 
     private enum DiscoveryPart: String { case registration, browse }
@@ -122,6 +128,7 @@ final class WindowsTeamTransport: TeamTransporting {
     private var peerForConn: [WinConnID: TeamPeerID] = [:]
     private var endpoints: [String: WinTeamEndpoint] = [:]
     private var planner = TeamDialPlanner()
+    private var floods = TeamFloodMemory()
     /// The name each running dial came from, and each name's streak of dials that found no service.
     private var dialName: [TeamPeerID: String] = [:]
     private var absence: [String: (count: Int, since: Date)] = [:]
@@ -430,7 +437,7 @@ final class WindowsTeamTransport: TeamTransporting {
             guard !isMine(name) else { return }
             foundAt[name] = clock()
             endpoints[name] = .service(name)
-            planner.discovered(name)
+            if let evicted = planner.discovered(name) { forgetName(evicted) }
             dialDue()
         case .lost(let name):
             guard !isMine(name) else { return }
@@ -506,6 +513,14 @@ final class WindowsTeamTransport: TeamTransporting {
         failures = [:]
         for task in retryTasks.values { task.cancel() }
         retryTasks = [:]
+    }
+
+    /// A name the planner made room by dropping: out of every table that holds it, and out of DNS-SD's repeat filter.
+    private func forgetName(_ name: String) {
+        endpoints[name] = nil
+        foundAt[name] = nil
+        absence[name] = nil
+        dnssd?.forget(name)
     }
 
     private func isMine(_ name: String) -> Bool { name == instanceName || name == registeredName }
@@ -614,16 +629,21 @@ final class WindowsTeamTransport: TeamTransporting {
     private func accept(_ conn: WinConnID) {
         guard let loop else { return }
         let current = loop.listenerGeneration(of: conn).flatMap { listenGenerations[$0] } == generation
+        let address = loop.remoteHost(of: conn).map(TeamTransportRules.addressKey)
+        let same = links.values.filter { !$0.initiatedByMe && address != nil && $0.address == address }
         guard running, current, TeamTransportRules.admitsInbound(
             linkCount: links.count,
             unfinishedInbound: links.values.filter({ !$0.initiatedByMe && !$0.isReady }).count,
-            linkLimit: linkLimit) else {
+            linkLimit: linkLimit,
+            linksFromAddress: same.count,
+            unfinishedFromAddress: same.filter { !$0.isReady }.count) else {
             loop.close(conn)
             trace?(.refusedInbound)
             return
         }
         let id = UUID().uuidString
-        let link = Link(initiatedByMe: false)
+        let link = Link(initiatedByMe: false, address: address,
+                        startingTokens: address.flatMap { floods.startingTokens(for: $0, now: clock()) })
         link.conn = conn
         links[id] = link
         peerForConn[conn] = id
@@ -705,6 +725,7 @@ final class WindowsTeamTransport: TeamTransporting {
             return
         case .flood:
             AppLog.write("team: dropped a connection that sent too much")
+            if let address = link.address { floods.noteFlood(from: address, now: clock()) }
             trace?(.closed(peer: id, reason: "flood"))
             onPeerBadFrame?(id)
             finish(id, handshakeFailed: false, refused: true)

@@ -22,6 +22,11 @@ final class TeamNotifier {
     static let bigNoticeBurst = 3
     static let bigNoticeInterval: TimeInterval = 20
     private var bigNotices = TeamTokenBucket(capacity: Double(bigNoticeBurst), perSecond: 1 / bigNoticeInterval)
+    /// Every member may use the megaphone once a minute, and a modified app can be any number of members. All members
+    /// together: 10 at once, then one every 2 seconds (30 a minute, a team of thirty all shouting in the same minute).
+    static let megaphoneBurst = 10
+    static let megaphoneRefillInterval: TimeInterval = 2
+    private var megaphones = TeamTokenBucket(capacity: Double(megaphoneBurst), perSecond: 1 / megaphoneRefillInterval)
 
     init(settings: TeamSettings, poster: TeamNotificationPosting, isPlazaFrontmost: @escaping () -> Bool,
          showInPlaza: @escaping (String) -> Void, clock: @escaping () -> Date = Date.init) {
@@ -78,6 +83,8 @@ final class TeamNotifier {
         guard settings.notificationsEnabled else { return }
         let now = clock()
         if let last = lastMegaphone[member.memberID], now.timeIntervalSince(last) < Self.megaphoneInterval { return }
+        guard megaphones.take(now: now) else { return }
+        lastMegaphone = lastMegaphone.filter { now.timeIntervalSince($0.value) < Self.megaphoneInterval }   // only the recent ones matter
         lastMegaphone[member.memberID] = now
         show(L(.ko).teamMegaphoneNotice(nickname: member.nickname, text: text))
     }
@@ -88,6 +95,7 @@ final class TeamNotifier {
         guard settings.notificationsEnabled, !isPlazaFrontmost(), !isFocusing() else { return }
         let now = clock()
         if let last = lastGameInvite[member.memberID], now.timeIntervalSince(last) < Self.megaphoneInterval { return }
+        lastGameInvite = lastGameInvite.filter { now.timeIntervalSince($0.value) < Self.megaphoneInterval }
         lastGameInvite[member.memberID] = now
         post(L(.ko).teamGameInviteNotice(nickname: member.nickname, game: game))
     }

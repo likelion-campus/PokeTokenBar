@@ -26,12 +26,18 @@ final class BonjourTeamTransport: TeamTransporting {
     private final class Link {
         let connection: NWConnection
         let initiatedByMe: Bool
-        var receiver = TeamLinkReceiver()
+        var receiver: TeamLinkReceiver
+        /// The remote host of an inbound link (no port, no scope), the key of the per-address limits; nil for a dial.
+        let address: String?
+        /// Bytes given to `NWConnection.send` whose `contentProcessed` has not come yet.
+        var queuedBytes = 0
         var isReady = false
         var handshakeTimer: DispatchWorkItem?
-        init(connection: NWConnection, initiatedByMe: Bool) {
+        init(connection: NWConnection, initiatedByMe: Bool, address: String?, startingTokens: Double?) {
             self.connection = connection
             self.initiatedByMe = initiatedByMe
+            self.address = address
+            receiver = TeamLinkReceiver(startingTokens: startingTokens)
         }
     }
 
@@ -50,6 +56,7 @@ final class BonjourTeamTransport: TeamTransporting {
     private var links: [TeamPeerID: Link] = [:]
     private var endpoints: [String: NWEndpoint] = [:]
     private var planner = TeamDialPlanner()
+    private var floods = TeamFloodMemory()
     private var observers: [NSObjectProtocol] = []
     private let reachability = NetworkReachabilityMonitor()
 
@@ -100,12 +107,20 @@ final class BonjourTeamTransport: TeamTransporting {
             AppLog.write("team: frame not sent (\(error))")
             return
         }
+        // A peer that stops reading leaves everything we send it in Network.framework's buffer: past the limit the link goes.
+        guard link.queuedBytes + frame.count <= TeamTransportRules.maxQueuedBytes else {
+            AppLog.write("team: dropped a connection that stopped reading")
+            finish(peer, handshakeFailed: false)
+            return
+        }
+        link.queuedBytes += frame.count
         let generation = generation
+        let size = frame.count
         link.connection.send(content: frame, completion: .contentProcessed { [weak self] error in
-            guard error != nil else { return }
             MainActor.assumeIsolated {
                 guard let self, self.generation == generation else { return }
-                self.finish(peer, handshakeFailed: false)
+                self.links[peer]?.queuedBytes -= size
+                if error != nil { self.finish(peer, handshakeFailed: false) }
             }
         })
     }
@@ -139,11 +154,20 @@ final class BonjourTeamTransport: TeamTransporting {
     /// Feeds a discovery result to the dial planner as the Bonjour browser would.
     func injectDiscovered(_ name: String, endpoint: NWEndpoint) {
         endpoints[name] = endpoint
-        planner.discovered(name)
+        if let evicted = planner.discovered(name) { endpoints[evicted] = nil }
         dialDue()
     }
 
     func plannedDials(now: Date) -> [String] { planner.dueDials(now: now) }
+
+    /// What the next inbound link from `address` would be admitted against (tests).
+    func inboundCounts(from address: String) -> (links: Int, unfinished: Int) {
+        let from = links.values.filter { !$0.initiatedByMe && $0.address == address }
+        return (from.count, from.filter { !$0.isReady }.count)
+    }
+
+    /// Queues bytes the way `send` accounts them, without a connection to write to (tests).
+    func queuedBytes(of peer: TeamPeerID) -> Int? { links[peer]?.queuedBytes }
 
     // MARK: lifecycle
 
@@ -317,7 +341,7 @@ final class BonjourTeamTransport: TeamTransporting {
     private func found(_ result: NWBrowser.Result) {
         guard let name = serviceName(result) else { return }
         endpoints[name] = result.endpoint
-        planner.discovered(name)
+        if let evicted = planner.discovered(name) { endpoints[evicted] = nil }
     }
 
     private func lost(_ result: NWBrowser.Result) {
@@ -348,14 +372,21 @@ final class BonjourTeamTransport: TeamTransporting {
     @discardableResult
     private func adopt(_ connection: NWConnection, initiatedByMe: Bool, generation: Int) -> TeamPeerID {
         let id = UUID().uuidString
-        if !initiatedByMe, !TeamTransportRules.admitsInbound(
-            linkCount: links.count,
-            unfinishedInbound: links.values.filter({ !$0.initiatedByMe && !$0.isReady }).count,
-            linkLimit: linkLimit) {
-            connection.cancel()
-            return id
+        let address = initiatedByMe ? nil : Self.addressKey(of: connection.endpoint)
+        if !initiatedByMe {
+            let same = links.values.filter { !$0.initiatedByMe && address != nil && $0.address == address }
+            if !TeamTransportRules.admitsInbound(
+                linkCount: links.count,
+                unfinishedInbound: links.values.filter({ !$0.initiatedByMe && !$0.isReady }).count,
+                linkLimit: linkLimit,
+                linksFromAddress: same.count,
+                unfinishedFromAddress: same.filter { !$0.isReady }.count) {
+                connection.cancel()
+                return id
+            }
         }
-        let link = Link(connection: connection, initiatedByMe: initiatedByMe)
+        let link = Link(connection: connection, initiatedByMe: initiatedByMe, address: address,
+                        startingTokens: address.flatMap { floods.startingTokens(for: $0, now: Date()) })
         links[id] = link
         connection.stateUpdateHandler = { [weak self] state in
             MainActor.assumeIsolated {
@@ -413,6 +444,7 @@ final class BonjourTeamTransport: TeamTransporting {
                         return
                     case .flood:
                         AppLog.write("team: dropped a connection that sent too much")
+                        if let address = link.address { self.floods.noteFlood(from: address, now: Date()) }
                         self.onPeerBadFrame?(id)
                         self.finish(id, handshakeFailed: false, refused: true)
                         return
@@ -429,6 +461,11 @@ final class BonjourTeamTransport: TeamTransporting {
                 }
             }
         }
+    }
+
+    private static func addressKey(of endpoint: NWEndpoint) -> String? {
+        guard case .hostPort(let host, _) = endpoint else { return nil }
+        return TeamTransportRules.addressKey("\(host)")
     }
 
     /// Ends one connection. `report` is false when the owner asked for it.

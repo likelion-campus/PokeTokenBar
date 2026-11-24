@@ -66,7 +66,7 @@ final class WinSocketLoop: @unchecked Sendable {
     static let connectAttemptTimeout: TimeInterval = 4
     /// Bytes queued for one link and not yet taken by the socket. Twice the receive burst: an honest receiver
     /// cuts a sender off long before this, so only a peer that stopped reading reaches it.
-    static let maxQueuedBytes = 2 * Int(TeamTransportRules.receiveBurst)
+    static let maxQueuedBytes = TeamTransportRules.maxQueuedBytes
     /// Inbound connections reported but not yet answered. At this many (only while the main thread is behind), the
     /// listener is not polled, so a connection flood waits in the kernel backlog instead of becoming sockets of ours.
     static let maxAwaitingAdmission = 64
@@ -246,6 +246,8 @@ private final class WinSocketEngine: @unchecked Sendable {
     private var negotiatedByID: [WinConnID: WinSocketLoop.Negotiated] = [:]
     /// Which listener generation accepted each live inbound connection (written by the I/O thread at accept).
     private var acceptedBy: [WinConnID: Int] = [:]
+    /// The remote host (numeric text, no port) of each live inbound connection, written at accept.
+    private var remoteHosts: [WinConnID: String] = [:]
     struct Counters {
         var threadID: DWORD = 0
         var pollReturns = 0
@@ -290,6 +292,8 @@ private final class WinSocketEngine: @unchecked Sendable {
     func negotiated(_ id: WinConnID) -> WinSocketLoop.Negotiated? { locked { negotiatedByID[id] } }
 
     func listenerGeneration(of id: WinConnID) -> Int? { locked { acceptedBy[id] } }
+
+    func remoteHost(of id: WinConnID) -> String? { locked { remoteHosts[id] } }
 
     // MARK: lifecycle
 
@@ -547,11 +551,12 @@ private final class WinSocketEngine: @unchecked Sendable {
 
     /// I/O thread: a new inbound connection is registered as live and announced in one step, so a `closeAll` on
     /// the main thread either covers it (epoch) or comes after the owner heard of it.
-    private func announce(_ id: WinConnID, listener generation: Int) -> Int {
+    private func announce(_ id: WinConnID, listener generation: Int, remoteHost: String?) -> Int {
         lock.lock()
         let e = epoch
         live.insert(id)
         acceptedBy[id] = generation
+        remoteHosts[id] = remoteHost
         mailbox.append(Posted(event: .accepted(id), listenGeneration: nil))
         let schedule = !flushScheduled
         flushScheduled = true
@@ -858,7 +863,8 @@ private final class WinSocketEngine: @unchecked Sendable {
                 continue
             }
             let id = Self.newID()
-            let c = Conn(id: id, epoch: announce(id, listener: l.generation), phase: .awaitingAdmission)
+            let c = Conn(id: id, epoch: announce(id, listener: l.generation, remoteHost: Sock.peerHost(s)),
+                         phase: .awaitingAdmission)
             c.socket = s
             c.context = l.context
             conns[id] = c
@@ -1097,7 +1103,7 @@ private final class WinSocketEngine: @unchecked Sendable {
         guard !c.closed else { return }
         c.closed = true
         conns[c.id] = nil
-        locked { negotiatedByID[c.id] = nil; acceptedBy[c.id] = nil }
+        locked { negotiatedByID[c.id] = nil; acceptedBy[c.id] = nil; remoteHosts[c.id] = nil }
         if c.phase == .awaitingAdmission { awaitingAdmission -= 1 }
         let graceful: Bool
         switch reason {
@@ -1224,6 +1230,16 @@ private enum Sock {
         case .ipv4: return "\(a.host):\(a.port)"
         case .ipv6: return "[\(a.host)\(a.interfaceIndex != 0 ? "%\(a.interfaceIndex)" : "")]:\(a.port)"
         }
+    }
+
+    /// The connected peer's address as numeric text without port or scope, for the per-address limits.
+    static func peerHost(_ s: SOCKET) -> String? {
+        var buffer = [UInt8](repeating: 0, count: 128)
+        var length: Int32 = 128
+        let r = buffer.withUnsafeMutableBytes { getpeername(s, $0.baseAddress!.assumingMemoryBound(to: sockaddr.self), &length) }
+        guard r == 0, let a = buffer.withUnsafeBytes({ WinSocketAddress(sockaddr: $0.baseAddress!, length: Int(length)) })
+        else { return nil }
+        return a.host
     }
 
     static func loopback4(port: UInt16) -> [UInt8] {
