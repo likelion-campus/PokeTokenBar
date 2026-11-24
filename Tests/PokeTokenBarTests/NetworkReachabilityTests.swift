@@ -93,4 +93,29 @@ final class NetworkReachabilityTests: XCTestCase {
         }
         monitor.stop()
     }
+
+    /// `onReconnected` is written on the main actor and read on the monitor queue; both go through the lock
+    /// (audit-stability #9). Readers and writers hammer it; an unlocked read of the closure reference can retain a
+    /// half-released closure and crash.
+    func testOnReconnectedSurvivesConcurrentSwaps() {
+        let monitor = NetworkReachabilityMonitor()
+        let group = DispatchGroup()
+        for worker in 0..<4 {
+            DispatchQueue.global().async(group: group) {
+                for i in 0..<200_000 {
+                    if i % 2 == 0 {
+                        monitor.onReconnected = { _ = worker &+ i }
+                    } else {
+                        monitor.onReconnected = nil
+                    }
+                }
+            }
+            DispatchQueue.global().async(group: group) {
+                for _ in 0..<200_000 { monitor.onReconnected?() }
+            }
+        }
+        XCTAssertEqual(group.wait(timeout: .now() + 60), .success)
+        monitor.onReconnected = nil
+        XCTAssertNil(monitor.onReconnected)
+    }
 }

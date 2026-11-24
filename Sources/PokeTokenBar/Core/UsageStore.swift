@@ -802,14 +802,14 @@ final class UsageStore {
                     key: "codex.\(bucketKey).primary",
                     name: "\(bucketName) \(l.codexWindow(primary.windowDurationMins))",
                     kind: Self.windowClass(minutes: primary.windowDurationMins),
-                    utilization: Double(primary.usedPercent)))
+                    utilization: Double(primary.usedPercent), identity: bucket.limitId))
             }
             if let secondary = bucket.secondary {
                 windows.append(CandyWindow(
                     key: "codex.\(bucketKey).secondary",
                     name: "\(bucketName) \(l.codexWindow(secondary.windowDurationMins))",
                     kind: Self.windowClass(minutes: secondary.windowDurationMins),
-                    utilization: Double(secondary.usedPercent)))
+                    utilization: Double(secondary.usedPercent), identity: bucket.limitId))
             }
         }
         for group in antigravityLimits?.groups ?? [] {
@@ -822,7 +822,7 @@ final class UsageStore {
                     name: "\(groupTitle) \(l.fiveHourSession)",
                     kind: .session,
                     utilization: fiveHour.usedPercent,
-                    epoch: epoch))
+                    epoch: epoch, identity: fiveHour.bucketId))
             }
             if let weekly = group.weeklyBucket {
                 let epoch = weekly.resetDate.map { ISO8601DateFormatter().string(from: $0) } ?? weekly.resetTime
@@ -831,10 +831,10 @@ final class UsageStore {
                     name: "\(groupTitle) \(l.weekly)",
                     kind: .weekly,
                     utilization: weekly.usedPercent,
-                    epoch: epoch))
+                    epoch: epoch, identity: weekly.bucketId))
             }
         }
-        return windows
+        return CandyWindow.uniquelyKeyed(windows)
     }
 
     /// `named`: next to other accounts, the notification says whose limit it is.
@@ -1087,8 +1087,13 @@ final class UsageStore {
         guard pollingSuspended, !displaysAsleep() else { return false }
         AppLog.write("polling resumed without screensDidWake (\(reason))")
         clearPollingSuspension()
+        onWakeMissed?()
         return true
     }
+
+    /// Called when the screens are found awake although `screensDidWake` never came, so the owner can
+    /// re-derive its own awake flags (the menu-bar sprite and the floating pet stop on the same notification).
+    var onWakeMissed: (@MainActor () -> Void)?
 
     func runSuspendedPollingProbe() async {
         guard clearStaleSuspension(reason: "probe") else { return }
@@ -1101,6 +1106,12 @@ final class UsageStore {
     }
 
     // MARK: 갱신
+
+    /// A refresh the person asked for (button, menu): also lets a tool that was not found earlier be looked for again.
+    func refreshByUser() async {
+        BinaryLocator.forgetNotFound()
+        await refresh()
+    }
 
     func refresh(scheduleEmptyRetry: Bool = true) async {
         // 진행 중이면 드롭하지 말고 예약 — 완료 후 1회 재실행(코얼레싱). 수동모드(interval 0)에서 키체인

@@ -42,7 +42,7 @@ UI/PopoverView.swift#CapsuleTabBar.body | Popover/LimitsModel.swift#CapsuleTab |
 UI/PopoverView.swift#PopoverView.providerRow | Popover/HomeModel.swift#HomeBuilder.providerRow | pin 6087c095f3a1c401
 UI/PopoverView.swift#PopoverView.tokenTypeLabel | Popover/HomeModel.swift#HomeBuilder.providerRow | pin e1ddd03278b4c088
 UI/PopoverView.swift#PopoverView.providerStatusBanner | Popover/HomeModel.swift#HomeBuilder.providerStatusBanner | pin 246c370d0dc0956f
-UI/PopoverView.swift#PopoverView.footer | Popover/HomeModel.swift#HomeBuilder.footer | pin ecdd77c53dabceed
+UI/PopoverView.swift#PopoverView.footer | Popover/HomeModel.swift#HomeBuilder.footer | pin b932a2273092383b
 UI/PopoverView.swift#PopoverView.limitsSection | Popover/LimitsModel.swift#LimitsBuilder.limitsSection | pin d5b3f10e54221905
 UI/PopoverView.swift#PopoverView.claudeKeychainHelpButton | Popover/LimitsModel.swift#LimitsBuilder.claudeKeychainHelpButton | pin ecc94551d83b71ca
 UI/PopoverView.swift#PopoverView.sessionKeyExpiredNotice | Popover/LimitsModel.swift#LimitsBuilder.sessionKeyExpiredNotice | pin aeb9bff3801f2bdd

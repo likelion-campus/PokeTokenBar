@@ -53,6 +53,12 @@ final class BonjourTeamTransport: TeamTransporting {
     private var listener: NWListener?
     private var browser: NWBrowser?
     private var redialTimer: Timer?
+    /// When `willSleep` suspended us; nil while running. A `didWake` that never arrives must not leave the plaza empty
+    /// until relaunch: a reachability event or the recovery timer after `wakeRecoveryDelay` starts us again.
+    private var sleptAt: Date?
+    private var wakeRecoveryTimer: Timer?
+    static let wakeRecoveryDelay: TimeInterval = 60
+    var clock: () -> Date = { Date() }
     private var links: [TeamPeerID: Link] = [:]
     private var endpoints: [String: NWEndpoint] = [:]
     private var planner = TeamDialPlanner()
@@ -167,6 +173,8 @@ final class BonjourTeamTransport: TeamTransporting {
 
     private func begin() {
         guard let code else { return }
+        sleptAt = nil
+        wakeRecoveryTimer?.invalidate(); wakeRecoveryTimer = nil
         running = true
         instanceName = TeamTransportRules.newInstanceName()
         planner = TeamDialPlanner()
@@ -190,6 +198,7 @@ final class BonjourTeamTransport: TeamTransporting {
         generation += 1
         running = false
         redialTimer?.invalidate(); redialTimer = nil
+        wakeRecoveryTimer?.invalidate(); wakeRecoveryTimer = nil
         listener?.cancel(); listener = nil
         listenerIsReady = false
         browser?.cancel(); browser = nil
@@ -210,14 +219,37 @@ final class BonjourTeamTransport: TeamTransporting {
     }
 
     func restart() {
-        guard wanted, running else { return }
+        guard wanted else { return }
+        if !running {
+            // Suspended by `willSleep` and no `didWake` since: a network event a minute later says we are awake.
+            recoverFromMissedWake()
+            return
+        }
         suspend()
         // The owner may have stopped or restarted us from inside `onPeerDisconnected`.
         guard wanted, !running else { return }
         begin()
     }
 
-    func handleWillSleep() { suspend() }
+    func handleWillSleep() {
+        suspend()
+        guard wanted, !running else { return }
+        sleptAt = clock()
+        wakeRecoveryTimer?.invalidate()
+        // A wall-clock fire date: after a sleep whose wake was missed it is due on the first run-loop pass.
+        let timer = Timer(fire: Date(timeIntervalSinceNow: Self.wakeRecoveryDelay), interval: 0, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated { self?.recoverFromMissedWake() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        wakeRecoveryTimer = timer
+    }
+
+    /// Starts again when a suspension from `willSleep` is older than `wakeRecoveryDelay` (the wake was missed).
+    func recoverFromMissedWake() {
+        guard wanted, !running, let sleptAt, clock().timeIntervalSince(sleptAt) >= Self.wakeRecoveryDelay else { return }
+        AppLog.write("team: restarted without didWake")
+        begin()
+    }
 
     func handleDidWake() {
         guard wanted, !running else { return }

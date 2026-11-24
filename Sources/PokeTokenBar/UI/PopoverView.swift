@@ -1129,7 +1129,7 @@ struct PopoverView: View {
                 // enrichment/한도(네트워크)까지 기다리는 스피너가 데이터보다 오래 돌아 불필요해 보였다.
                 // 중복 클릭은 refresh() 의 재진입 guard 가 무시하고, 피드백은 아래 "Updated" 시각이 준다.
                 Button {
-                    Task { await store.refresh() }
+                    Task { await store.refreshByUser() }
                 } label: {
                     Image(systemName: "arrow.clockwise")
                 }

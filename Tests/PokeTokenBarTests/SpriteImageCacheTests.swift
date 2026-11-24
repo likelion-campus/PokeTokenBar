@@ -187,4 +187,9 @@ final class SpriteImageCacheTests: XCTestCase {
         XCTAssertNotNil(staticOnly)
         XCTAssertTrue(SpriteLoader.cachedImage(speciesID: 1000, directory: dir) === staticOnly)
     }
+
+    /// NSCache retains its keys: without a count limit every re-decoded frame image stays alive (audit-stability #10).
+    func testVisibleTopCacheHasACountLimit() {
+        XCTAssertEqual(SpriteVisibleTop.cache.countLimit, 128)
+    }
 }
