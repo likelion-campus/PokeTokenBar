@@ -1596,17 +1596,16 @@ jobs:
             collected
           if-no-files-found: warn
   prebuilt:
-    # DIAGNOSTIC: the updates jobs take an earlier run's build (matrix: v640 = release run 45212572510 of v2.5.640, v642 = run
-    # 45446214642 of this branch, product sources = main b765a5d4); nothing is built here.
+    # DIAGNOSTIC: the updates jobs take the build of run 45446214642 (this branch, product sources = main b765a5d4).
     runs-on: ubuntu-latest
     steps:
-      - run: echo "builds from runs 45212572510 (v2.5.640) and 45446214642 (v2.5.642)"
+      - run: echo "build of run 45446214642"
   updates:
-    # DIAGNOSTIC (branch diag/update-runner-loss-2), experiment 4: is the lost runner new in 2.5.641? The same job (as main runs it)
-    # on 24 runners at once, alternating the v2.5.640 build and the v2.5.642 build, scripts identical (unchanged since v2.5.639).
-    # Scheduled tasks post heartbeats (check runs, curl.exe): a control before the in-app step, then 8, 16, 24, 32, 40 and 48 s into it,
-    # then every 30 s; removed when the step ends.
-    name: Failed update and in-app update (${{ matrix.build }} ${{ matrix.rep }})
+    # DIAGNOSTIC (branch diag/update-runner-loss-2), experiment 5: does the lost runner need http.sys? The in-app update script,
+    # unchanged, run four times in a row in the step's own pwsh on 20 runners; in half of them update-feed-server.ps1 is replaced
+    # by diag-feed-tcp.ps1 (the same feed from user-mode sockets instead of HttpListener = http.sys). No failed-update step first
+    # (the script builds its TESTFAIL installers itself). Heartbeats every 30 s alternate Interactive and S4U scheduled tasks.
+    name: In-app update x4 (${{ matrix.feed }} ${{ matrix.rep }})
     needs: prebuilt
     if: ${{ !cancelled() }}
     runs-on: windows-latest
@@ -1619,71 +1618,59 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { rep: 1, build: v640, run: '45212572510', artifact: '14839137110', sha: bbcf95c2059bca65f84a954564b667e80e7d2f35efc74c71a77530b458a31460 }
-          - { rep: 2, build: v642, run: '45446214642', artifact: '14948850653', sha: e020b972c63acbde5ac8688d8dc4053a7087f6d53999dacf0fcfd53aaebca5ae }
-          - { rep: 3, build: v640, run: '45212572510', artifact: '14839137110', sha: bbcf95c2059bca65f84a954564b667e80e7d2f35efc74c71a77530b458a31460 }
-          - { rep: 4, build: v642, run: '45446214642', artifact: '14948850653', sha: e020b972c63acbde5ac8688d8dc4053a7087f6d53999dacf0fcfd53aaebca5ae }
-          - { rep: 5, build: v640, run: '45212572510', artifact: '14839137110', sha: bbcf95c2059bca65f84a954564b667e80e7d2f35efc74c71a77530b458a31460 }
-          - { rep: 6, build: v642, run: '45446214642', artifact: '14948850653', sha: e020b972c63acbde5ac8688d8dc4053a7087f6d53999dacf0fcfd53aaebca5ae }
-          - { rep: 7, build: v640, run: '45212572510', artifact: '14839137110', sha: bbcf95c2059bca65f84a954564b667e80e7d2f35efc74c71a77530b458a31460 }
-          - { rep: 8, build: v642, run: '45446214642', artifact: '14948850653', sha: e020b972c63acbde5ac8688d8dc4053a7087f6d53999dacf0fcfd53aaebca5ae }
-          - { rep: 9, build: v640, run: '45212572510', artifact: '14839137110', sha: bbcf95c2059bca65f84a954564b667e80e7d2f35efc74c71a77530b458a31460 }
-          - { rep: 10, build: v642, run: '45446214642', artifact: '14948850653', sha: e020b972c63acbde5ac8688d8dc4053a7087f6d53999dacf0fcfd53aaebca5ae }
-          - { rep: 11, build: v640, run: '45212572510', artifact: '14839137110', sha: bbcf95c2059bca65f84a954564b667e80e7d2f35efc74c71a77530b458a31460 }
-          - { rep: 12, build: v642, run: '45446214642', artifact: '14948850653', sha: e020b972c63acbde5ac8688d8dc4053a7087f6d53999dacf0fcfd53aaebca5ae }
-          - { rep: 13, build: v640, run: '45212572510', artifact: '14839137110', sha: bbcf95c2059bca65f84a954564b667e80e7d2f35efc74c71a77530b458a31460 }
-          - { rep: 14, build: v642, run: '45446214642', artifact: '14948850653', sha: e020b972c63acbde5ac8688d8dc4053a7087f6d53999dacf0fcfd53aaebca5ae }
-          - { rep: 15, build: v640, run: '45212572510', artifact: '14839137110', sha: bbcf95c2059bca65f84a954564b667e80e7d2f35efc74c71a77530b458a31460 }
-          - { rep: 16, build: v642, run: '45446214642', artifact: '14948850653', sha: e020b972c63acbde5ac8688d8dc4053a7087f6d53999dacf0fcfd53aaebca5ae }
-          - { rep: 17, build: v640, run: '45212572510', artifact: '14839137110', sha: bbcf95c2059bca65f84a954564b667e80e7d2f35efc74c71a77530b458a31460 }
-          - { rep: 18, build: v642, run: '45446214642', artifact: '14948850653', sha: e020b972c63acbde5ac8688d8dc4053a7087f6d53999dacf0fcfd53aaebca5ae }
-          - { rep: 19, build: v640, run: '45212572510', artifact: '14839137110', sha: bbcf95c2059bca65f84a954564b667e80e7d2f35efc74c71a77530b458a31460 }
-          - { rep: 20, build: v642, run: '45446214642', artifact: '14948850653', sha: e020b972c63acbde5ac8688d8dc4053a7087f6d53999dacf0fcfd53aaebca5ae }
-          - { rep: 21, build: v640, run: '45212572510', artifact: '14839137110', sha: bbcf95c2059bca65f84a954564b667e80e7d2f35efc74c71a77530b458a31460 }
-          - { rep: 22, build: v642, run: '45446214642', artifact: '14948850653', sha: e020b972c63acbde5ac8688d8dc4053a7087f6d53999dacf0fcfd53aaebca5ae }
-          - { rep: 23, build: v640, run: '45212572510', artifact: '14839137110', sha: bbcf95c2059bca65f84a954564b667e80e7d2f35efc74c71a77530b458a31460 }
-          - { rep: 24, build: v642, run: '45446214642', artifact: '14948850653', sha: e020b972c63acbde5ac8688d8dc4053a7087f6d53999dacf0fcfd53aaebca5ae }
+          - { rep: 1, feed: httpsys }
+          - { rep: 2, feed: tcp }
+          - { rep: 3, feed: httpsys }
+          - { rep: 4, feed: tcp }
+          - { rep: 5, feed: httpsys }
+          - { rep: 6, feed: tcp }
+          - { rep: 7, feed: httpsys }
+          - { rep: 8, feed: tcp }
+          - { rep: 9, feed: httpsys }
+          - { rep: 10, feed: tcp }
+          - { rep: 11, feed: httpsys }
+          - { rep: 12, feed: tcp }
+          - { rep: 13, feed: httpsys }
+          - { rep: 14, feed: tcp }
+          - { rep: 15, feed: httpsys }
+          - { rep: 16, feed: tcp }
+          - { rep: 17, feed: httpsys }
+          - { rep: 18, feed: tcp }
+          - { rep: 19, feed: httpsys }
+          - { rep: 20, feed: tcp }
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
       - uses: ./.github/actions/windows-slice
         with:
-          build-artifact-id: ${{ matrix.artifact }}
-          installer-sha256: ${{ matrix.sha }}
-          build-run-id: ${{ matrix.run }}
+          build-artifact-id: '14948850653'
+          installer-sha256: e020b972c63acbde5ac8688d8dc4053a7087f6d53999dacf0fcfd53aaebca5ae
+          build-run-id: '45446214642'
           github-token: ${{ github.token }}
-      # ---- failed-update-relaunch: Setup run as the in-app update runs it (/PTBRELAUNCHONFAIL=1); setup logs in collected\failed-update ----
-      - name: A failed update brings the old app back
-        id: failed-update-relaunch
-        if: (success() || failure()) && env.PTB_LEVEL == 'full'
-        timeout-minutes: 25  # about 8 min
+      - name: DIAG serve the feed from user-mode sockets (tcp arm)
+        if: matrix.feed == 'tcp'
         shell: pwsh
-        run: ./scripts/windows/failed-update-relaunch.ps1 -Version $env:PTB_VERSION -NextVersion $env:PTB_NEXT_VERSION
-      # ---- end failed-update-relaunch ----
-      - name: DIAG schedule the control, the heartbeats and the snapshots
+        run: Copy-Item scripts\windows\diag-feed-tcp.ps1 scripts\windows\update-feed-server.ps1 -Force; 'update-feed-server.ps1 is now the TcpListener feed'
+      - name: DIAG schedule the controls and the heartbeats
         if: (success() || failure())
         timeout-minutes: 5
         shell: pwsh
         env:
           DIAG_TOKEN: ${{ github.token }}
         run: |
-          New-Item -ItemType Directory -Force -Path collected | Out-Null
+          New-Item -ItemType Directory -Force -Path collected\in-app-update | Out-Null
           $cfg = Join-Path $env:RUNNER_TEMP 'diag-snap.json'
-          @{ token = $env:DIAG_TOKEN; repo = $env:GITHUB_REPOSITORY; sha = $env:GITHUB_SHA; job = "$env:GITHUB_RUN_ID/${{ matrix.build }}-${{ matrix.rep }}"; workspace = $PWD.Path } | ConvertTo-Json | Set-Content $cfg
+          @{ token = $env:DIAG_TOKEN; repo = $env:GITHUB_REPOSITORY; sha = $env:GITHUB_SHA; job = "$env:GITHUB_RUN_ID/${{ matrix.feed }}-${{ matrix.rep }}"; workspace = $PWD.Path } | ConvertTo-Json | Set-Content $cfg
           $hb = Join-Path $PWD 'scripts\windows\diag-heartbeat.ps1'
-          $snap = Join-Path $PWD 'scripts\windows\diag-snapshot.ps1'
           $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes 4) -MultipleInstances Parallel
-          function Add-Task([string]$Name, [string]$Script, [string]$Label, [datetime]$At, [string]$Logon = 'Interactive', [switch]$Repeat) {
-              $action = New-ScheduledTaskAction -Execute "$env:ProgramFiles\PowerShell\7\pwsh.exe" -Argument "-NoProfile -WindowStyle Hidden -File `"$Script`" -Config `"$cfg`" -Label $Label"
-              $trigger = if ($Repeat) { New-ScheduledTaskTrigger -Once -At $At -RepetitionInterval (New-TimeSpan -Minutes 1) -RepetitionDuration (New-TimeSpan -Minutes 40) } else { New-ScheduledTaskTrigger -Once -At $At }
+          function Add-Task([string]$Name, [string]$Label, [datetime]$At, [string]$Logon = 'Interactive', [switch]$Repeat) {
+              $action = New-ScheduledTaskAction -Execute "$env:ProgramFiles\PowerShell\7\pwsh.exe" -Argument "-NoProfile -WindowStyle Hidden -File `"$hb`" -Config `"$cfg`" -Label $Label"
+              $trigger = if ($Repeat) { New-ScheduledTaskTrigger -Once -At $At -RepetitionInterval (New-TimeSpan -Minutes 1) -RepetitionDuration (New-TimeSpan -Minutes 45) } else { New-ScheduledTaskTrigger -Once -At $At }
               $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType $Logon -RunLevel Highest
               Register-ScheduledTask -TaskName $Name -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
               "scheduled $Name ($Logon$(if ($Repeat) { ', every minute' })) at $($At.ToUniversalTime().ToString('HH:mm:ss'))Z"
           }
-          # Positive control: the same task path, before the in-app step; its check run must arrive.
-          # Positive controls: the same task paths (an Interactive one and an S4U one, which runs outside the desktop session), before
-          # the in-app step; both check runs must arrive.
-          Add-Task 'ptb-diag-control' $hb 'control' (Get-Date).AddSeconds(30)
-          Add-Task 'ptb-diag-controlS4U' $hb 'controlS4U' (Get-Date).AddSeconds(35) -Logon S4U
+          Add-Task 'ptb-diag-control' 'control' (Get-Date).AddSeconds(25)
+          Add-Task 'ptb-diag-controlS4U' 'controlS4U' (Get-Date).AddSeconds(30) -Logon S4U
           $deadline = (Get-Date).AddSeconds(110)
           foreach ($name in 'ptb-diag-control', 'ptb-diag-controlS4U') {
               do { Start-Sleep -Seconds 5; $info = Get-ScheduledTaskInfo -TaskName $name } while ((Get-Date) -lt $deadline -and ($info.LastTaskResult -eq 267011 -or $info.LastTaskResult -eq 267009))
@@ -1691,18 +1678,21 @@ jobs:
               Unregister-ScheduledTask -TaskName $name -Confirm:$false
           }
           $t0 = Get-Date
-          # Interactive (I) and S4U (S, outside the desktop session) alternate: a lost desktop session stops only the I ones.
-          foreach ($s in 8, 16, 24, 32, 40, 48) { if ($s % 16) { Add-Task "ptb-diag-hb$s" $hb "hb${s}I" $t0.AddSeconds($s + 2) } else { Add-Task "ptb-diag-hb$s" $hb "hb${s}S" $t0.AddSeconds($s + 2) -Logon S4U } }
-          Add-Task 'ptb-diag-hbA' $hb 'hbAI' $t0.AddSeconds(62) -Repeat
-          Add-Task 'ptb-diag-hbB' $hb 'hbBS' $t0.AddSeconds(92) -Repeat -Logon S4U
-          Add-Task 'ptb-diag-snap4' $snap 'snap4' $t0.AddMinutes(4)
-      - name: The in-app update from a loopback feed
-        id: in-app-update
-        if: (success() || failure()) && env.PTB_LEVEL == 'full'
-        timeout-minutes: 25  # the step takes about 3 min; a hung scenario must not hold a release run to the job limit
+          Add-Task 'ptb-diag-hbA' 'hbAI' $t0.AddSeconds(15) -Repeat
+          Add-Task 'ptb-diag-hbB' 'hbBS' $t0.AddSeconds(45) -Repeat -Logon S4U
+      - name: The in-app update from a loopback feed, four times
+        if: (success() || failure())
+        timeout-minutes: 30
         shell: pwsh
-        run: ./scripts/windows/in-app-update.ps1 -Version $env:PTB_VERSION -NextVersion $env:PTB_NEXT_VERSION
-      - name: DIAG remove the snapshot tasks
+        run: |
+          $bad = @()
+          foreach ($i in 1..4) {
+              "iteration $i at $((Get-Date).ToUniversalTime().ToString('HH:mm:ss'))Z" | Set-Content collected\in-app-update\iteration.txt
+              "==== iteration $i ===="
+              try { ./scripts/windows/in-app-update.ps1 -Version $env:PTB_VERSION -NextVersion $env:PTB_NEXT_VERSION } catch { $bad += $i; "iteration ${i}: $($_.Exception.Message)" }
+          }
+          if ($bad.Count) { throw "iterations with a failed scenario: $($bad -join ', ')" }
+      - name: DIAG remove the heartbeat tasks
         if: always()
         timeout-minutes: 2
         shell: pwsh
@@ -1717,13 +1707,12 @@ jobs:
           New-Item -ItemType Directory -Force -Path collected | Out-Null
           Copy-Item -ErrorAction SilentlyContinue (Join-Path $env:LOCALAPPDATA 'PokeTokenBar\Logs\*') collected
           Copy-Item -ErrorAction SilentlyContinue (Join-Path $env:LOCALAPPDATA '*.plist') collected
-          Copy-Item -ErrorAction SilentlyContinue install.log, install-next.log, uninstall.log collected
           Get-ChildItem collected | ForEach-Object { $_.Name }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         if: always()
         with:
           overwrite: true
-          name: windows-app-updates-${{ matrix.build }}-${{ matrix.rep }}
+          name: windows-app-updates-${{ matrix.feed }}-${{ matrix.rep }}
           retention-days: 7
           path: |
             collected
