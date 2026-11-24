@@ -57,7 +57,7 @@ enum WindowsSelftest {
     }
 
     /// Removes that folder as the selftest exits (only the one this process made).
-    static func removeTemporaryState() {
+    @MainActor static func removeTemporaryState() {
         guard let dir = temporaryStateDirectory else { return }
         temporaryStateDirectory = nil
         try? FileManager.default.removeItem(at: dir)
