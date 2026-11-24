@@ -11,8 +11,9 @@
 # build -MaxAgeHours old (for every consumer: PRs and dispatches too; a failed scheduled clean build cannot keep an old seed in use);
 # another Swift version or runner image; anything about the seed is invalid, hangs, or cannot be unpacked or compared with its commit.
 # Callers that must never use a seed (release mode, kit/* branches, clean_build) do not call this script at all (a workflow `if:`).
-# Package.resolved is git-ignored on purpose (.gitignore) and nothing pins swift-crypto (`from: "3.0.0"`, Windows manifest branch only; the
-# Mac manifest on main has no dependency). It is used only inside the seed, and only while Package.swift is the file the seed was built with.
+# Package.resolved is tracked: it pins the revision of every dependency (swift-crypto and its swift-asn1; the Mac manifest on main has no
+# dependency, so the Mac never uses it). The commit's file always wins over the seed's copy; after changing the dependencies in Package.swift,
+# refresh it with `PTB_SHARED_ONLY=1 swift package resolve` and commit it, or the build (which passes --only-use-versions-from-resolved-file) fails.
 # Usage: seed-restore.ps1 -Workflow windows.yml -Artifact ptb-seed-debug [-Branch windows-port] [-MaxChain 8] [-MaxAgeHours 24]
 # Needs env GH_TOKEN (actions: read), GITHUB_REPOSITORY; reads GITHUB_EVENT_NAME, GITHUB_BASE_REF, GITHUB_REF_NAME, GITHUB_WORKSPACE.
 param([Parameter(Mandatory)][string]$Workflow, [Parameter(Mandatory)][string]$Artifact, [string]$Branch = 'windows-port',
@@ -26,7 +27,8 @@ function Out-Result([string]$clean, [string]$reason, [string]$run) {
 }
 function Go-Clean([string]$reason, [string]$run) {
     # Whatever a half-used seed left behind goes: a clean build starts from nothing.
-    Remove-Item -Recurse -Force .build, Package.resolved, seed-in, seed-prev-meta.json -ErrorAction SilentlyContinue
+    Remove-Item -Recurse -Force .build, seed-in, seed-prev-meta.json -ErrorAction SilentlyContinue
+    git checkout -- Package.resolved   # tracked: a clean build uses the committed pins, never the file a half-used seed left
     & ./scripts/windows/restore-mtimes.ps1 | Out-Null
     Out-Result 'true' $reason $run
 }
@@ -74,7 +76,9 @@ $problems = @(Test-SeedArchive $names $verbose $env:GITHUB_WORKSPACE)
 if ($problems.Count -gt 0) { Go-Clean "the archive of run $seed was refused: $($problems | Select-Object -First 3)" $seed; return }
 
 try { ./scripts/windows/build-seed.ps1 -Unpack seed-in/seed.tar.zst } catch { Go-Clean "the seed of run $seed could not be unpacked: $($_.Exception.Message)" $seed; return }
-if (-not $verdict.UseResolved) { Remove-Item Package.resolved -ErrorAction SilentlyContinue; "Package.swift changed since the seed: Package.resolved is not used" }
+# Package.resolved is tracked (it pins the dependency revisions): the commit's file always wins over the seed's copy, so a seed can never change what is linked.
+git checkout -- Package.resolved
+if (-not $verdict.UseResolved) { "Package.swift changed since the seed: the seed's Package.resolved is not used (the committed one is)" }
 try { & ./scripts/windows/stamp-changed.ps1 -Base $meta.sha } catch { Go-Clean "the seed's commit could not be compared with this one: $($_.Exception.Message)" $seed; return }
 Copy-Item seed-in/seed-meta.json seed-prev-meta.json
 Out-Result 'false' "incremental on the seed of run $seed" $seed

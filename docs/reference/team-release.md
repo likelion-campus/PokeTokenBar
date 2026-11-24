@@ -34,6 +34,13 @@ the long part; the Mac gate runs meanwhile). Start the Windows runs early to sav
 end a turn waiting for it: poll the log in chunks. Stop a background release through its process group (a signal to the
 script's PID alone waits for the running step).
 
+**Which Windows run is used:** the helper takes a run only when GitHub says it ran the release commit on the release branch
+(`headBranch` is the branch the script runs on, `main` for a real release; `headSha` equals the release commit), and the
+manifest's `workflowSha` must equal that commit. A title and inputs alone prove nothing: a branch can carry its own copy of
+the workflow without the release pin and write any manifest. `start` ignores (and names) a run with the release title from
+another branch or commit, so a rehearsal's run on a branch is never reused by the release on `main`; `collect` stops, without
+downloading, when a run it was given did not come from the release commit. Re-run `start` (`--new <workflow>`) to get a fresh one.
+
 Steps (banner `[N/10]` with elapsed time): 0 arguments, branch, clean tree, HEAD, no existing tag or release, signing leaf;
 1 helper self-tests, notes check, **docs gate**; 2 start the Windows runs; 3 Mac test gate and cfprefsd guard; 4 Mac build,
 zip, universal check; 5 collect and verify the Windows installer (manifest, hash); 6 fill the notes; 7-8 publish (draft,

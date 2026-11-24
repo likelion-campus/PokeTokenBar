@@ -231,7 +231,21 @@ struct TeamSettingsSection: View {
     }
 
     private func copy(_ code: TeamCode) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(code.display, forType: .string)
+        TeamCodePasteboard.write(code.display, to: .general)
+    }
+}
+
+/// 팀 코드는 비밀이다 — Windows 복사(`WinTextClipboard.write(secret: true)`)와 같은 격으로 쓴다.
+/// `.currentHostOnly` 는 유니버설 클립보드(다른 Apple 기기)로 안 나가게 하고, nspasteboard.org 의 Concealed/Transient 표식은
+/// 클립보드 관리자(Raycast, Maccy, Paste, Alfred 등)가 기록·동기화하지 않게 한다.
+enum TeamCodePasteboard {
+    static let concealedType = NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")
+    static let transientType = NSPasteboard.PasteboardType("org.nspasteboard.TransientType")
+
+    static func write(_ text: String, to pasteboard: NSPasteboard) {
+        _ = pasteboard.prepareForNewContents(with: .currentHostOnly)  // clears the old contents too
+        pasteboard.setString(text, forType: .string)
+        pasteboard.setString("", forType: concealedType)
+        pasteboard.setString("", forType: transientType)
     }
 }
