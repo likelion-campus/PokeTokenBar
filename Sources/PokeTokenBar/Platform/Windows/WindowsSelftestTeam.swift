@@ -25,6 +25,10 @@ extension WindowsSelftest {
               "OPENSSL_CONF=\(conf ?? "unset")\(conf != nil ? " (breaks OpenSSL if loaded)" : ""); TLS context built=\(built); "
                 + "baked-in OPENSSLDIR=\(WinTLS.configDirectory) (never read: OPENSSL_INIT_NO_LOAD_CONFIG)")
         let code = TeamCode.generate(using: &rng)
+        guard onCI else {  // a person's PC: no LAN listener, no mDNS advertisement
+            await teamLoopbackChecks(r, code)
+            return
+        }
         let a = SelftestMember("SelfA", code: code), b = SelftestMember("SelfB", code: code)
         defer { a.end(); b.end() }
         let t0 = Date()
@@ -129,6 +133,35 @@ extension WindowsSelftest {
                 + "still_linked=\(linked) busy_threads=[\(sample.busy)]")
     }
 
+    /// A person's PC: two members listen on `[::1]` only, never advertise, and one dials the other directly (`connect(to:)`), so the
+    /// run opens nothing the LAN can see and raises no firewall prompt. The checks that need DNS-SD (restart, a wrong-code member's
+    /// cooldown, the idle window, the goodbye) run on the runner only.
+    @MainActor private static func teamLoopbackChecks(_ r: Recorder, _ code: TeamCode) async {
+        let a = SelftestMember("SelfA", code: code, lan: false), b = SelftestMember("SelfB", code: code, lan: false)
+        defer { a.end(); b.end() }
+        a.start(); b.start()
+        let listening = await waitUntil(timeout: 10) { a.transport.listenerPort != nil && b.transport.listenerPort != nil }
+        if listening, let port = b.transport.listenerPort { a.transport.connect(to: .hostPort("::1", port)) }
+        var joined = false
+        if listening {
+            joined = await waitUntil(timeout: 30) {
+                a.session.members.count == 1 && b.session.members.count == 1 && a.transport.linkCount == 1 && b.transport.linkCount == 1
+            }
+        }
+        let tls = a.transport.peerIDs.first.flatMap { a.transport.negotiated($0) }
+        var presence = false
+        if joined {
+            a.session.updatePlazaPosition(inPlaza: true, tile: TilePoint(x: 3, y: 4), facing: .down, isWalking: false, isFlushed: false)
+            presence = await waitUntil(timeout: 5) { b.session.members[a.settings.memberID]?.inPlaza == true }
+        }
+        r.add("team.loopbackExchange", joined && presence && tls?.cipher == "PSK-AES128-GCM-SHA256",
+              "two members on [::1] only (no mDNS, no LAN listener): listening=\(listening) joined=\(joined) links a=\(a.transport.linkCount) "
+                + "b=\(b.transport.linkCount); tls=\(tls?.version ?? "-") \(tls?.cipher ?? "-") remote=\(tls?.peer ?? "-"); presence a->b=\(presence)")
+        for name in ["team.discoverAndExchange", "team.restartRelinks", "team.wrongCodeRefused", "team.idle", "team.stopIsSeen"] {
+            r.add(name, true, "skipped: not on the runner (it needs DNS-SD and a listener on the LAN; a person's PC opens neither)")
+        }
+    }
+
     private static func fmt2(_ value: Double) -> String { String(format: "%.2f", value) }
 }
 
@@ -147,7 +180,8 @@ extension WindowsSelftest {
     private(set) var disconnects = 0
     private var ended = false
 
-    init(_ name: String, code: TeamCode) {
+    /// `lan: false` (a person's PC): loopback listener, no advertisement; the caller links the members with `connect(to:)`.
+    init(_ name: String, code: TeamCode, lan: Bool = true) {
         suite = "ptb.selftest.team.\(name).\(UUID().uuidString)"
         defaults = UserDefaults(suiteName: suite) ?? UserDefaults()
         settings = TeamSettings(defaults: defaults)
@@ -156,7 +190,7 @@ extension WindowsSelftest {
         settings.isEnabled = true
         dir = FileManager.default.temporaryDirectory.appendingPathComponent("ptb-selftest-team-\(UUID().uuidString)")
         let feed = TeamFeedStore(fileURL: dir.appendingPathComponent("team-feed.json"), myMemberID: settings.memberID)
-        transport = WindowsTeamTransport(advertise: true, events: nil, reachability: SilentReachability())
+        transport = WindowsTeamTransport(advertise: lan, loopbackOnly: !lan, events: nil, reachability: SilentReachability())
         let memberID = settings.memberID
         session = TeamSession(settings: settings, feed: feed, transport: transport, profileProvider: {
             TeamMemberProfile(memberID: memberID, nickname: name,

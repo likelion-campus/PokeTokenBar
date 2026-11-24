@@ -101,6 +101,7 @@ final class WindowsTeamTransport: TeamTransporting {
     private enum DiscoveryPart: String { case registration, browse }
 
     private let advertise: Bool
+    private let loopbackOnly: Bool
     private let linkLimit: Int
     let timing: Timing
     private let clock: @MainActor () -> Date
@@ -151,11 +152,12 @@ final class WindowsTeamTransport: TeamTransporting {
     var advertisedName: String? { running ? (registeredName ?? instanceName) : nil }
 
     /// - Parameters:
+    ///   - loopbackOnly: listen on `[::1]` only (the selftest on a person's PC); the caller dials with `connect(to:)`, so pair it with `advertise: false`.
     ///   - events: sleep and wake (the app passes the platform's; nil = the platform's if it is the Windows one).
     ///   - reachability: a reconnect restarts the transport, as on the Mac (nil = a `WindowsReachabilityMonitor`).
     ///   - resolve, discovery, clock, log: test seams (nil = `WinDNSSD`; the clock drives the dial planner and the
     ///     absence rule).
-    init(advertise: Bool = true, linkLimit: Int = TeamTransportRules.maxLinks,
+    init(advertise: Bool = true, loopbackOnly: Bool = false, linkLimit: Int = TeamTransportRules.maxLinks,
          events: WindowsSystemEvents? = nil, reachability: (any ReachabilityMonitoring)? = nil,
          resolve: Resolver? = nil, discovery: DiscoveryFactory? = nil,
          handshakeTimeout: TimeInterval = TeamTransportRules.handshakeTimeout,
@@ -165,6 +167,7 @@ final class WindowsTeamTransport: TeamTransporting {
          clock: @escaping @MainActor () -> Date = { Date() },
          log: @escaping @MainActor (String) -> Void = { AppLog.write($0) }) {
         self.advertise = advertise
+        self.loopbackOnly = loopbackOnly
         self.linkLimit = linkLimit
         self.events = events ?? (Platform.current.events as? WindowsSystemEvents)
         self.reachability = reachability ?? WindowsReachabilityMonitor()
@@ -385,7 +388,7 @@ final class WindowsTeamTransport: TeamTransporting {
 
     private func socketLoopStarted() -> WinSocketLoop? {
         if let loop { return loop }
-        let loop = WinSocketLoop(deliver: { [weak self] event in self?.handle(event) })
+        let loop = WinSocketLoop(deliver: { [weak self] event in self?.handle(event) }, loopbackOnly: loopbackOnly)
         guard loop.start() else { return nil }   // logged by the loop; the next begin() makes a new one
         self.loop = loop
         return loop

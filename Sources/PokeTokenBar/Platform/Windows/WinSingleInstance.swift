@@ -17,9 +17,14 @@ enum WinSingleInstance {
     /// settings suite of that folder (`TeamSettings.suiteName`), so two QA instances with their own
     /// `PTB_STATE_DIR` can run side by side, as on the Mac.
     @MainActor static func mutexName(stateDirectory: URL, defaultDirectory: URL) -> String {
-        let base = "Local\\PokeTokenBar-Team"
-        guard let suite = TeamSettings.suiteName(for: stateDirectory, defaultDirectory: defaultDirectory) else { return base }
-        return base + "-" + String(suite.dropFirst("ptb.team.".count))
+        "Local\\PokeTokenBar-Team" + stateSuffix(stateDirectory: stateDirectory, defaultDirectory: defaultDirectory)
+    }
+
+    /// Empty for the default state folder, `-<path hash>` for another: what tells instances apart in the mutex name and in the crash
+    /// marker and crash log names (`WindowsCrashLog`).
+    @MainActor static func stateSuffix(stateDirectory: URL, defaultDirectory: URL) -> String {
+        guard let suite = TeamSettings.suiteName(for: stateDirectory, defaultDirectory: defaultDirectory) else { return "" }
+        return "-" + String(suite.dropFirst("ptb.team.".count))
     }
 
     /// `quietly`: an `--autostart` copy (the Run key at sign-in) that finds the app already running yields without asking it

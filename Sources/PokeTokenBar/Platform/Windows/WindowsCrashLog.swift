@@ -20,6 +20,11 @@ import WinSDK
 enum WindowsCrashLog {
     static let markerName = "PokeTokenBar.running"
     static let crashLogName = "PokeTokenBar.crash.log"
+    /// The marker and the crash log of one instance. `instance` is the state folder's suffix (`WinSingleInstance.stateSuffix`: empty for
+    /// the default folder, `-<hash>` for another), so two instances with their own `PTB_STATE_DIR` do not share a marker (the second
+    /// would report a crash that did not happen and clear the first's) or a crash log (it would drain and delete the first's).
+    static func markerFile(instance: String = "") -> String { "PokeTokenBar\(instance).running" }
+    static func crashLogFile(instance: String = "") -> String { "PokeTokenBar\(instance).crash.log" }
     static let stderrName = "PokeTokenBar.stderr.log"
     static let dumpPrefix = "PokeTokenBar-"
     static let keptDumps = 3
@@ -32,12 +37,12 @@ enum WindowsCrashLog {
     nonisolated(unsafe) private static var ownedMarkers = Set<String>()
 
     /// Once, as early as possible at launch (right after the single-instance check).
-    static func install(version: String, logsDirectory: URL = PlatformCompat.logsDirectory(),
+    static func install(version: String, logsDirectory: URL = PlatformCompat.logsDirectory(), instance: String = "",
                         log: @escaping (String) -> Void = { AppLog.write($0) }, installHandlers: Bool = true) {
-        prepare(logsDirectory: logsDirectory, dumpsOptedIn: dumpsOptedIn, log: log)
+        prepare(logsDirectory: logsDirectory, dumpsOptedIn: dumpsOptedIn, instance: instance, log: log)
         guard installHandlers else { return }
         version.withCString { ptb_crash_set_version($0) }
-        let crash = WinStr.w(WinPath.native(logsDirectory.appendingPathComponent(crashLogName)))
+        let crash = WinStr.w(WinPath.native(logsDirectory.appendingPathComponent(crashLogFile(instance: instance))))
         let dumps = WinStr.w(WinPath.native(logsDirectory))
         let installed = crash.withUnsafeBufferPointer { c in
             dumps.withUnsafeBufferPointer { d in ptb_crash_install(c.baseAddress, d.baseAddress, nil) }
@@ -49,10 +54,10 @@ enum WindowsCrashLog {
     }
 
     /// The file part of `install`, without touching the process (the unit tests call this one).
-    static func prepare(logsDirectory: URL, dumpsOptedIn: Bool, log: (String) -> Void) {
+    static func prepare(logsDirectory: URL, dumpsOptedIn: Bool, instance: String = "", log: (String) -> Void) {
         try? FileManager.default.createDirectory(at: logsDirectory, withIntermediateDirectories: true)
-        drainCrashLog(in: logsDirectory, log: log)
-        let marker = logsDirectory.appendingPathComponent(markerName)
+        drainCrashLog(in: logsDirectory, instance: instance, log: log)
+        let marker = logsDirectory.appendingPathComponent(markerFile(instance: instance))
         if FileManager.default.fileExists(atPath: marker.path) {
             log("previous session did not end cleanly (crash, kill or power loss). The crash record, if any, follows; "
                 + "minidumps (only when PTB_CRASH_DUMPS=1) are in the log folder.")
@@ -66,11 +71,11 @@ enum WindowsCrashLog {
 
     /// A clean exit: remove the marker(s) THIS process wrote (a helper process that exits through `WindowsApp.exit`
     /// must not clear the running app's marker). With a folder, only that folder's marker.
-    static func markClean(logsDirectory: URL? = nil) {
+    static func markClean(logsDirectory: URL? = nil, instance: String = "") {
         var markers: [String] = []
         lock.lock()
         if let logsDirectory {
-            let path = logsDirectory.appendingPathComponent(markerName).path
+            let path = logsDirectory.appendingPathComponent(markerFile(instance: instance)).path
             if ownedMarkers.remove(path) != nil { markers = [path] }
         } else {
             markers = Array(ownedMarkers)
@@ -83,8 +88,8 @@ enum WindowsCrashLog {
     }
 
     /// Merges what the last session wrote while dying into the main log, then removes the file.
-    private static func drainCrashLog(in directory: URL, log: (String) -> Void) {
-        let url = directory.appendingPathComponent(crashLogName)
+    private static func drainCrashLog(in directory: URL, instance: String, log: (String) -> Void) {
+        let url = directory.appendingPathComponent(crashLogFile(instance: instance))
         guard let data = try? Data(contentsOf: url), !data.isEmpty else { return }
         let text = String(decoding: data.prefix(16 * 1024), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
         if !text.isEmpty { log("previous session crash record: \(text)") }

@@ -62,7 +62,7 @@ on:
         description: 'Capture run: draw the popover pages in this appearance (dark, light or highcontrast = a simulated High Contrast Black) in the bundle selftest (PTB_SELFTEST_APPEARANCE); empty = the runner as it is'
         default: ''
       off_ci_selftest:
-        description: "Also run the bundle selftest as on a person's PC (CI unset): every CI-only check must report skipped and nothing system-wide may change (cursor, Run key, text size, high contrast, clipboard, keyboard layouts, settings files)"
+        description: "Also run the bundle selftest as on a person's PC (CI set, the runner flag and PTB_STATE_DIR unset): every runner-only check must report skipped and nothing system-wide may change (cursor, Run key, text size, high contrast, clipboard, keyboard layouts, settings files, the companion save and team feed)"
         type: boolean
         default: false
       diagnostics:
@@ -101,6 +101,9 @@ env:
   PTB_FAST: ${{ inputs.release_sha == '' && inputs.fast == 'true' }}
   PTB_STALL_HUNT: ${{ inputs.release_sha == '' && inputs.stall_hunt || '0' }}
   PTB_NET_BURST: ${{ inputs.release_sha == '' && inputs.net_burst == true }}
+  # The selftest's runner-only group (real input, clipboard, keyboard layouts, Run key, High Contrast, a joined team, LAN listeners) runs
+  # only where this is "1". Nothing but the workflows sets it: a person's shell may have CI set to anything.
+  PTB_SELFTEST_RUNNER: '1'
 jobs:
   build:
     runs-on: windows-latest
@@ -380,7 +383,7 @@ jobs:
           $env:OPENSSL_CONF = $conf
           ./scripts/windows/run-selftest.ps1 -Exe bundle\PokeTokenBar.exe -Out st.json -ExpectStrategy cfRunLoopWithMessages -DumpUi (Join-Path $PWD 'ui-dump')
       # --- selftest user-PC safety: the selftest as a person runs it (begin) ---
-      - name: Selftest as on a person's PC (CI unset); nothing system-wide changes
+      - name: Selftest as on a person's PC (CI set, no runner flag, no state folder); nothing system-wide changes
         if: inputs.off_ci_selftest == true && inputs.release_sha == ''
         timeout-minutes: 30
         shell: pwsh
@@ -399,6 +402,7 @@ jobs:
                   systemUsesLight   = Reg 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize' 'SystemUsesLightTheme'
                   keyboardLayouts   = (Get-ItemProperty 'HKCU:\Keyboard Layout\Preload' -ErrorAction SilentlyContinue | Out-String).Trim()
                   clipboard         = (Get-Clipboard -Raw -ErrorAction SilentlyContinue)
+                  stateFiles        = ((Get-ChildItem (Join-Path $env:LOCALAPPDATA 'PokeTokenBar') -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -in 'companion-state.json', 'team-feed.json' } | ForEach-Object { "$($_.Name):$($_.Length):$($_.LastWriteTimeUtc.Ticks)" } | Sort-Object) -join ';')
                   settingsFiles     = ((Get-ChildItem (Join-Path $env:LOCALAPPDATA '*') -Filter '*.plist*' -File -ErrorAction SilentlyContinue | ForEach-Object Name | Sort-Object) -join ';')
               }
           }
@@ -406,10 +410,12 @@ jobs:
           $before = Snapshot
           $env:Path = 'C:\Windows\System32;C:\Windows'
           $env:CLAUDE_CONFIG_DIR = Join-Path $env:PTB_FIXTURE 'claude'
-          $env:PTB_STATE_DIR = Join-Path $env:PTB_FIXTURE 'state'
+          Remove-Item Env:PTB_STATE_DIR -ErrorAction SilentlyContinue   # a person's run has none: the selftest must use a temporary state folder
           $env:PTB_SELFTEST_EXPECT_TODAY_TOKENS = '3702'
-          Remove-Item Env:CI -ErrorAction SilentlyContinue   # onCI is "CI is set": a person's PC has none
-          if ($env:CI) { throw 'CI is still set' }
+          # The runner flag is what makes the runner-only group run. CI stays set on purpose: a person's shell may have it (defect log, F1).
+          Remove-Item Env:PTB_SELFTEST_RUNNER -ErrorAction SilentlyContinue
+          if ($env:PTB_SELFTEST_RUNNER) { throw 'the runner flag is still set' }
+          if (-not $env:CI) { throw 'CI should be set here: the selftest must not read it' }
           ./scripts/windows/run-selftest.ps1 -Exe bundle\PokeTokenBar.exe -Out st-noci.json -ExpectStrategy cfRunLoopWithMessages
           $exit = $LASTEXITCODE
           $after = Snapshot
@@ -1236,13 +1242,21 @@ jobs:
           $env:Path = 'C:\Windows\System32;C:\Windows'
           $exe = (Resolve-Path bundle\PokeTokenBar.exe).Path
           $logs = Join-Path $env:LOCALAPPDATA 'PokeTokenBar\Logs'
-          Remove-Item -ErrorAction SilentlyContinue (Join-Path $logs 'PokeTokenBar-*.dmp'), (Join-Path $logs 'PokeTokenBar.crash.log'), (Join-Path $logs 'PokeTokenBar.running')
+          # The marker and the crash log are named after the state folder (PokeTokenBar-<hash>.running / .crash.log; the default folder has
+          # no hash), so side-by-side instances do not share them. The children and the relaunch use one state folder, and the folder holds
+          # nothing else of this run's: clear every marker and record first, and the one that appears afterwards is this instance's.
+          $env:PTB_STATE_DIR = Join-Path $env:PTB_FIXTURE 'state-crash'
+          New-Item -ItemType Directory -Force -Path $env:PTB_STATE_DIR | Out-Null
+          Remove-Item -ErrorAction SilentlyContinue (Join-Path $logs 'PokeTokenBar-*.dmp'), (Join-Path $logs 'PokeTokenBar*.crash.log'), (Join-Path $logs 'PokeTokenBar*.running')
           $p = Start-Process -FilePath $exe -ArgumentList @('--selftest-crash', 'fatalError') -PassThru
           $null = $p.Handle
           if (-not $p.WaitForExit(60000)) { Stop-Process -Id $p.Id -Force; throw 'the crash child did not end in 60 s' }
           'crash child exit: 0x{0:X8}' -f $p.ExitCode
           if ($p.ExitCode -eq 0) { throw 'the crash child exited 0' }
-          $record = Get-Content (Join-Path $logs 'PokeTokenBar.crash.log') -Raw
+          $crashLogs = @(Get-ChildItem $logs -File -Filter 'PokeTokenBar*.crash.log')
+          if ($crashLogs.Count -ne 1) { throw "expected one crash log, found: $($crashLogs.Name -join ', ')" }
+          if ($crashLogs[0].Name -eq 'PokeTokenBar.crash.log') { throw 'the crash log is not named after the state folder' }
+          $record = Get-Content $crashLogs[0].FullName -Raw
           $record
           if ($record -notmatch '\[CRASH\] exception 0x[0-9A-F]{8} at 0x') { throw 'no crash record' }
           if ($record -notmatch '\[CRASH\] dump=off') { throw 'the record does not say dumps are off' }
@@ -1258,10 +1272,9 @@ jobs:
           $dumps = @(Get-ChildItem $logs -Filter 'PokeTokenBar-*.dmp')
           "dumps: $($dumps.Name -join ', ') ($($dumps | ForEach-Object Length))"
           if ($dumps.Count -ne 1 -or $dumps[0].Length -le 0) { throw 'no minidump with PTB_CRASH_DUMPS=1' }
-          if (-not (Test-Path (Join-Path $logs 'PokeTokenBar.running'))) { throw 'the running marker is gone after a crash' }
+          $markers = @(Get-ChildItem $logs -File -Filter 'PokeTokenBar*.running')
+          if ($markers.Count -ne 1 -or $markers[0].Name -eq 'PokeTokenBar.running') { throw "the running marker is gone after a crash or not named after the state folder: $($markers.Name -join ', ')" }
           if ((Get-Content (Join-Path $logs 'PokeTokenBar.stderr.log') -Raw) -notmatch 'selftest crash') { throw 'stderr.log lacks the fatalError message' }
-          $env:PTB_STATE_DIR = Join-Path $env:PTB_FIXTURE 'state-crash'
-          New-Item -ItemType Directory -Force -Path $env:PTB_STATE_DIR | Out-Null
           $app = Start-Process -FilePath $exe -PassThru
           $null = $app.Handle
           $h = [IntPtr]::Zero
@@ -1279,8 +1292,8 @@ jobs:
           foreach ($needle in 'previous session did not end cleanly', 'previous session crash record: [CRASH] exception') {
               if ($main -notmatch [regex]::Escape($needle)) { throw "the main log lacks: $needle" }
           }
-          if (Test-Path (Join-Path $logs 'PokeTokenBar.running')) { throw 'the marker is still there after a clean exit' }
-          if ((Get-Item (Join-Path $logs 'PokeTokenBar.crash.log')).Length -ne 0) { throw 'the crash record was not drained' }
+          if (Test-Path $markers[0].FullName) { throw 'the marker is still there after a clean exit' }
+          if ((Get-Item $crashLogs[0].FullName).Length -ne 0) { throw 'the crash record was not drained' }
           'relaunch reported the crash and ended cleanly'
       - name: Collect logs
         timeout-minutes: 5

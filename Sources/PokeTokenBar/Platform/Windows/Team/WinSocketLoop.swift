@@ -78,13 +78,16 @@ final class WinSocketLoop: @unchecked Sendable {
 
     private let engine: WinSocketEngine
 
-    /// - Parameter deliver: runs on the main queue, once per event, in order.
+    /// - Parameters:
+    ///   - deliver: runs on the main queue, once per event, in order.
+    ///   - loopbackOnly: the listener binds `[::1]` instead of `[::]` (the selftest on a person's PC: nothing on the LAN, no firewall prompt).
     init(deliver: @escaping @MainActor (WinSocketEvent) -> Void,
          connectTimeout: TimeInterval = WinSocketLoop.connectAttemptTimeout,
          maxQueuedBytes: Int = WinSocketLoop.maxQueuedBytes,
+         loopbackOnly: Bool = false,
          log: @escaping @Sendable (String) -> Void = { AppLog.write($0) }) {
         engine = WinSocketEngine(deliver: deliver, connectTimeoutMs: UInt64(max(1, connectTimeout * 1000)),
-                                 maxQueued: maxQueuedBytes, log: log)
+                                 maxQueued: maxQueuedBytes, loopbackOnly: loopbackOnly, log: log)
     }
 
     /// The I/O thread holds the engine, not this handle, so dropping the handle cannot leave the thread running.
@@ -221,6 +224,7 @@ private final class WinSocketEngine: @unchecked Sendable {
     private let deliver: @MainActor (WinSocketEvent) -> Void
     private let connectTimeoutMs: UInt64
     private let maxQueued: Int
+    private let loopbackOnly: Bool
 
     // Shared between the caller and the I/O thread, under `lock`.
     private let lock = NSLock()
@@ -277,8 +281,9 @@ private final class WinSocketEngine: @unchecked Sendable {
 
     private let log: @Sendable (String) -> Void
 
-    init(deliver: @escaping @MainActor (WinSocketEvent) -> Void, connectTimeoutMs: UInt64, maxQueued: Int,
+    init(deliver: @escaping @MainActor (WinSocketEvent) -> Void, connectTimeoutMs: UInt64, maxQueued: Int, loopbackOnly: Bool = false,
          log: @escaping @Sendable (String) -> Void = { AppLog.write($0) }) {
+        self.loopbackOnly = loopbackOnly
         self.log = log
         self.deliver = deliver
         self.connectTimeoutMs = connectTimeoutMs
@@ -803,9 +808,10 @@ private final class WinSocketEngine: @unchecked Sendable {
             post(.listenFailed(WSAGetLastError()), listenGeneration: generation)
             return
         }
-        var any = [UInt8](repeating: 0, count: 28)   // [::]:port
+        var any = [UInt8](repeating: 0, count: 28)   // [::]:port, or [::1]:port when loopbackOnly
         any[0] = UInt8(WS.afInet6)
         any[2] = UInt8(port >> 8); any[3] = UInt8(port & 0xff)
+        if loopbackOnly { any[23] = 1 }   // sin6_addr (bytes 8...23) = ::1
         guard Sock.setOption(s, WS.ipprotoIPv6, WS.ipv6V6Only, 0),
               Sock.setOption(s, WS.solSocket, WS.soExclusiveAddrUse, 1),   // no other socket may bind our port
               Sock.bindTo(s, any),

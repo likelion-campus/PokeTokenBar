@@ -426,7 +426,7 @@ enum WinEditKind: Equatable, Sendable {
                msg.pointee.wParam == WPARAM(VK_RETURN) || (msg.pointee.wParam == WPARAM(VK_ESCAPE) && c.claimsEscape?() == true) { code |= 0x0004 }  // DLGC_WANTALLKEYS
             return code
         case UINT(WM_KEYDOWN) where c.onKey != nil && wParam != WPARAM(VK_RETURN):  // stage 7 Task 12
-            return c.onKey?(Int(wParam)) == true ? 0 : nil
+            return c.onKey?(Int(truncatingIfNeeded: wParam)) == true ? 0 : nil
         case 0x0020 where c.showsHandCursor && Int(lParam) & 0xFFFF == 1 /* HTCLIENT */:  // WM_SETCURSOR (stage 7 Task 20)
             _ = SetCursor(LoadCursorW(nil, UnsafePointer<WCHAR>(bitPattern: 32649 /* IDC_HAND */)))
             return 1
@@ -665,7 +665,8 @@ enum WinClipboardText {
     }
 
     private static func notify(_ lParam: LPARAM) -> LRESULT? {
-        guard let header = UnsafeMutablePointer<NMHDR>(bitPattern: Int(lParam)), let c = WinControl.control(header.pointee.hwndFrom) else { return nil }
+        guard WinMessagePointer.readable(lParam, bytes: MemoryLayout<NMHDR>.size) != nil,
+              let header = UnsafeMutablePointer<NMHDR>(bitPattern: Int(lParam)), let c = WinControl.control(header.pointee.hwndFrom) else { return nil }
         let code = Int32(bitPattern: header.pointee.code)
         if code == -12 /* NM_CUSTOMDRAW */, c.usesCustomDraw { return WinCustomDraw.handle(c, header) }  // visual polish K3
         switch (c.kind, code) {

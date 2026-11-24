@@ -30,6 +30,7 @@ public enum WindowsApp {
     }
 
     @MainActor private static func run(_ arguments: [String]) -> Never {
+        WindowsSelftest.isolateStateIfNeeded(arguments)  // a person's --selftest never touches their real save
         WinTimeZone.publishSystemZone()  // before anything reads TimeZone.current (its own Windows lookup fails on a localized zone name)
         if arguments.contains("--version") {
             try? FileHandle.standardOutput.write(contentsOf: Data(((WindowsInstall.version ?? "0.0.0-dev") + "\n").utf8))
@@ -74,6 +75,11 @@ public enum WindowsApp {
             let out = arguments.firstIndex(of: "--selftest-out").flatMap { $0 + 1 < arguments.count ? arguments[$0 + 1] : nil }
                 .map { URL(fileURLWithPath: $0) }
                 ?? FileManager.default.temporaryDirectory.appendingPathComponent("PokeTokenBar-selftest.json")
+            if let why = SelftestOutputTarget.refusal(for: out) {
+                AppLog.write("selftest: \(why)")
+                try? FileHandle.standardOutput.write(contentsOf: Data((why + "\n").utf8))
+                WindowsApp.exit(2, .selftest)
+            }
             WindowsSelftest.start(app, writingTo: out)
         }
         // The idle gate's plaza windows (WindowsSelftestPlaza.swift). Not a `--selftest…` flag on purpose: those switch the app to
@@ -154,7 +160,10 @@ extension WindowsApp {
         popoverToClose?.close(.quit)  // stage 7 Task 4
         WinDefaultsSync.flushNow()
         WindowsCrashLog.markClean()
-        if reason == .selftest { WinDefaultsSync.removeSelftestSuiteFile() }  // the selftest's own, empty settings file (nothing of a person's)
+        if reason == .selftest {
+            WinDefaultsSync.removeSelftestSuiteFile()  // the selftest's own, empty settings file (nothing of a person's)
+            WindowsSelftest.removeTemporaryState()
+        }
         if let line = WinPlazaLive.openPlazaLine { AppLog.write(line) }  // an open plaza's counters (idle measurements read them)
         AppLog.writeAndFlush("exit code=\(code) reason=\(reason.rawValue)")
         trayToRemove?.remove()
@@ -230,7 +239,8 @@ private func crtExit(_ code: Int32) -> Never {
             AppLog.writeAndFlush("--selftest-second: no running instance held \(mutexName)")
             return false
         }
-        WindowsCrashLog.install(version: WindowsInstall.version ?? "0.0.0-dev")  // 3
+        WindowsCrashLog.install(version: WindowsInstall.version ?? "0.0.0-dev",
+                                instance: WinSingleInstance.stateSuffix(stateDirectory: AppStatePaths.directory(), defaultDirectory: Self.defaultStateDirectory))  // 3
         PlazaStoreSpriteFetcher.report = { AppLog.write($0) }   // fix/windows-pet-still: what the GIF loader finds, in the log
         Self.setPerMonitorDpiAwareness()  // 4
         loopStrategy = WinMainLoop.prepare()  // 5

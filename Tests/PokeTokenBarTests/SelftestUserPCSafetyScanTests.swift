@@ -20,6 +20,7 @@ final class SelftestUserPCSafetyScanTests: XCTestCase {
         ("BringWindowToTop(", "raises a window over the user's"),
         ("WinRegistry.setBytes(", "writes the registry"),
         ("WinRegistry.setString(", "writes the registry"),
+        ("WinRegistry.setTyped(", "writes the registry"),
         ("WinRegistry.deleteValue(", "deletes a registry value"),
         ("WinRegistry.deleteTree(", "deletes a registry tree"),
         ("SystemParametersInfoW(", "reads or SETS a system-wide setting"),
