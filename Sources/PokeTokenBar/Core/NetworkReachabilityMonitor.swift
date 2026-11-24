@@ -12,7 +12,13 @@ final class NetworkReachabilityMonitor: @unchecked Sendable {
     private let cooldown: TimeInterval
     private let clock: @Sendable () -> Date
 
-    var onReconnected: (@Sendable () -> Void)?
+    private var _onReconnected: (@Sendable () -> Void)?
+    /// Written from the main actor and read on the monitor queue: both sides go through `lock`
+    /// (an unlocked swap of a closure reference can be read half-released).
+    var onReconnected: (@Sendable () -> Void)? {
+        get { lock.lock(); defer { lock.unlock() }; return _onReconnected }
+        set { lock.lock(); defer { lock.unlock() }; _onReconnected = newValue }
+    }
 
     init(cooldown: TimeInterval = 5.0, clock: @escaping @Sendable () -> Date = { Date() }) {
         self.cooldown = cooldown
@@ -59,7 +65,7 @@ final class NetworkReachabilityMonitor: @unchecked Sendable {
         if shouldTrigger {
             lastTriggeredAt = now
         }
-        let callback = onReconnected
+        let callback = _onReconnected
         lock.unlock()
 
         if shouldTrigger {

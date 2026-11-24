@@ -7,29 +7,46 @@ import Foundation
 /// 바이너리별로 1회 캐시(셸 호출 비용 회피).
 enum BinaryLocator {
     private static let lock = NSLock()
-    private struct Cached { let path: String?; let at: Date }
+    private struct Cached { let path: String?; let override: String? }
     private nonisolated(unsafe) static var cache: [String: Cached] = [:]
-    /// 미탐지(nil) 캐시 재해석 주기 — 상주 앱이 실행 중 codex 설치 시 반영. 성공 캐시는 영구(경로 소멸 시만 재해석).
-    private static let notFoundTTL: TimeInterval = 600
+    /// 테스트 seam — 실제 로그인 셸을 띄우지 않고 spawn 횟수를 센다. 프로덕션은 `shellResolve`.
+    nonisolated(unsafe) static var shellResolver: (String) -> String? = { shellResolve($0) }
+    /// 테스트 seam — 사용자 수동 지정값(UserDefaults "<binary>Path") 읽기.
+    nonisolated(unsafe) static var overrideReader: (String) -> String? = { UserDefaults.standard.string(forKey: "\($0)Path") }
 
-    /// `binary` 의 절대경로(없으면 nil). 스레드 세이프, 1회 해석 후 캐시.
+    /// `binary` 의 절대경로(없으면 nil). 스레드 세이프.
+    /// 로그인 셸 spawn 은 바이너리당 **프로세스 생애 1회** — 미탐지도 그대로 기억한다(주기 TTL 로 다시 띄우면
+    /// codex 를 안 쓰는 사용자의 인터랙티브 `.zshrc` 를 하루 종일 돌린다). 다시 보는 신호는 셋뿐이다:
+    /// 앱 재기동, 수동 지정값 변경, 그리고 셸 없이 되는 정적 경로 재확인(매 호출, stat 몇 번).
+    /// 셸 대기(최대 8초)는 **락 밖**에서 한다 — 경합 시 중복 계산이 락 뒤에 줄 서는 것보다 낫다.
     /// `staticPaths`: 셸 해석 전에 먼저 확인할 알려진 설치 경로.
     static func resolve(_ binary: String, staticPaths: [String]) -> String? {
-        lock.lock(); defer { lock.unlock() }
-        if let hit = cache[binary] {
+        let override = overrideReader(binary)
+        lock.lock()
+        let hit = cache[binary]
+        lock.unlock()
+        if let hit {
             if let path = hit.path {
                 // stale 방어 — 해석 후 앱 삭제/교체(Codex.app 업데이트 등)로 경로 소멸 시 재해석.
                 if PlatformCompat.isExecutableFile(atPath: path) { return path }
                 AppLog.write("\(binary) cached path gone, re-resolving: \(path)")
-            } else if Date().timeIntervalSince(hit.at) < notFoundTTL {
-                return nil   // 최근 미탐지 — TTL 내엔 셸 resolve 비용 회피
+            } else if hit.override == override {
+                // 이미 셸까지 물어 미탐지로 확정 — 셸 없이 되는 확인만 다시 한다(그새 정적 경로에 설치됐을 수 있음).
+                guard let found = locate(binary, staticPaths: staticPaths, override: override, allowShell: false) else { return nil }
+                store(binary, Cached(path: found, override: override))
+                AppLog.write("\(binary) resolved: \(found)")
+                return found
             }
-            // else: 미탐지 캐시가 TTL 지남 → 재해석(그새 설치됐을 수 있음)
         }
-        let result = locate(binary, staticPaths: staticPaths)
-        cache[binary] = Cached(path: result, at: Date())
+        let result = locate(binary, staticPaths: staticPaths, override: override, allowShell: true)
+        store(binary, Cached(path: result, override: override))
         AppLog.write(result.map { "\(binary) resolved: \($0)" } ?? "\(binary) NOT found on PATH")
         return result
+    }
+
+    private static func store(_ binary: String, _ value: Cached) {
+        lock.lock(); defer { lock.unlock() }
+        cache[binary] = value
     }
 
     /// 자식 프로세스용 PATH 보강 — GUI 앱의 최소 PATH 로는 mise/asdf shim 이 내부에서
@@ -79,9 +96,9 @@ enum BinaryLocator {
         commonToolDirectories().flatMap { PlatformCompat.executableCandidates("\($0)/\(binary)") }
     }
 
-    private static func locate(_ binary: String, staticPaths: [String]) -> String? {
+    private static func locate(_ binary: String, staticPaths: [String], override: String?, allowShell: Bool) -> String? {
         // 0) 사용자 수동 지정
-        if let override = UserDefaults.standard.string(forKey: "\(binary)Path"),
+        if let override,
            !override.isEmpty, PlatformCompat.isExecutableFile(atPath: override) {
             return override
         }
@@ -90,7 +107,8 @@ enum BinaryLocator {
             return hit
         }
         // 2) 로그인+인터랙티브 셸 PATH 해석 (mise activate / nvm / fnm 등은 .zshrc 에서 PATH 주입)
-        return PlatformCompat.searchProcessPath(binary, environment: ProcessInfo.processInfo.environment) ?? shellResolve(binary)
+        if let onPath = PlatformCompat.searchProcessPath(binary, environment: ProcessInfo.processInfo.environment) { return onPath }
+        return allowShell ? shellResolver(binary) : nil
     }
 
     /// 사용자 로그인 셸을 인터랙티브+로그인으로 띄워 `command -v <binary>` 결과를 받는다.

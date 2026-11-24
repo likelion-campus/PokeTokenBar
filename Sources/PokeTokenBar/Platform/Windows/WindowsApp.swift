@@ -128,6 +128,8 @@ extension WindowsApp {
     @MainActor static var teamTransportToShutdown: WindowsTeamTransport?
     /// Set at launch; `exit` writes the feed rows still waiting for their delay.
     @MainActor static var teamRuntimeToFlush: TeamRuntime?
+    /// Set at launch; `exit` writes the companion save (`update()` skips unchanged saves).
+    @MainActor static var companionToFlush: CompanionStore?
     /// Stage 7 Task 4: set at launch; `exit` closes an open popover first, so its page commits a changed field (D5) before the
     /// settings are saved.
     @MainActor static var popoverToClose: WinPopover?
@@ -156,6 +158,7 @@ extension WindowsApp {
         popoverToClose?.close(.quit)  // stage 7 Task 4
         WinDefaultsSync.flushNow()
         teamRuntimeToFlush?.flush()
+        companionToFlush?.flush()
         WindowsCrashLog.markClean()
         if reason == .selftest { WinDefaultsSync.removeSelftestSuiteFile() }  // the selftest's own, empty settings file (nothing of a person's)
         if let line = WinPlazaLive.openPlazaLine { AppLog.write(line) }  // an open plaza's counters (idle measurements read them)
@@ -267,6 +270,7 @@ private func crtExit(_ code: Int32) -> Never {
         WinUILanguage.migrateStoredLanguage(companion: companion, defaults: defaults)  // before the first read of companion.language
         self.store = store
         self.companion = companion
+        WindowsApp.companionToFlush = companion
         // The update check starts at step 14 (`WindowsUpdates`); the tray menu reads it.
         Task { await companion.preparePokemonProfiles() }
         store.localizationLanguage = companion.language

@@ -834,7 +834,7 @@ final class UsageStore {
                     epoch: epoch))
             }
         }
-        return windows
+        return CandyWindow.uniquelyKeyed(windows)
     }
 
     /// `named`: next to other accounts, the notification says whose limit it is.
@@ -1087,8 +1087,13 @@ final class UsageStore {
         guard pollingSuspended, !displaysAsleep() else { return false }
         AppLog.write("polling resumed without screensDidWake (\(reason))")
         clearPollingSuspension()
+        onWakeMissed?()
         return true
     }
+
+    /// Called when the screens are found awake although `screensDidWake` never came, so the owner can
+    /// re-derive its own awake flags (the menu-bar sprite and the floating pet stop on the same notification).
+    var onWakeMissed: (@MainActor () -> Void)?
 
     func runSuspendedPollingProbe() async {
         guard clearStaleSuspension(reason: "probe") else { return }

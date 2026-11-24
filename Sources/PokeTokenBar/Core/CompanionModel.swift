@@ -314,6 +314,20 @@ struct CandyWindow: Sendable {
         self.utilization = utilization
         self.epoch = epoch
     }
+
+    /// Keys must name exactly one window: two windows sharing a key share one grant tier, so one at 100% grants
+    /// and the other (below 100%) re-arms it, and the next poll grants again. The first window keeps its plain
+    /// key (so saved tiers still match); later ones get `#2`, `#3`, ... in provider order.
+    static func uniquelyKeyed(_ windows: [CandyWindow]) -> [CandyWindow] {
+        var seen: [String: Int] = [:]
+        return windows.map { w in
+            let n = seen[w.key, default: 0] + 1
+            seen[w.key] = n
+            guard n > 1 else { return w }
+            return CandyWindow(key: "\(w.key)#\(n)", name: w.name, kind: w.kind,
+                               utilization: w.utilization, epoch: w.epoch)
+        }
+    }
 }
 
 /// 사탕 지급 1건(순수 판정 결과) — 부수효과(인벤토리·알림)와 분리해 테스트 가능하게.
@@ -719,6 +733,15 @@ struct CompanionState: Codable, Sendable {
     var notifiedDexCompletions: Set<String> = []
     // 완성 추적 첫 실행 시드 완료 — 기능 출시 전 이미 완성한 세대에 알림 폭주를 막는다(candyFeatureSeeded 패턴).
     var dexCompletionsSeeded = false
+    /// Last few days' ledgers (day key → provider high-water marks), kept when the day key changes. A key that
+    /// moves backwards (time zone travel, a clock toggled back) must credit only what is new on that day,
+    /// never the whole day again. nil in saves written before this field; older builds ignore the key.
+    var dayLedgers: [String: [String: Int]]? = nil
+    /// Save format marker. Bump it whenever a build starts writing something an older build cannot decode
+    /// (a new enum case in `active`/`dex`, ...): the older build then leaves the file alone instead of
+    /// decoding it leniently and overwriting what it dropped. Absent = a save from before the marker (0).
+    static let currentFormatVersion = 1
+    var formatVersion = CompanionState.currentFormatVersion
 
     init() {}
 
@@ -762,6 +785,10 @@ struct CompanionState: Codable, Sendable {
         candyFeatureSeeded = c.lenient(Bool.self, forKey: .candyFeatureSeeded, default: false)
         notifiedDexCompletions = c.lenient(Set<String>.self, forKey: .notifiedDexCompletions, default: [])
         dexCompletionsSeeded = c.lenient(Bool.self, forKey: .dexCompletionsSeeded, default: false)
+        dayLedgers         = c.lenientOptional([String: [String: Int]].self, forKey: .dayLedgers)
+        // A save from before the marker is older than the current format, never newer: it is rewritten with it.
+        formatVersion      = max(CompanionState.currentFormatVersion,
+                                 c.lenient(Int.self, forKey: .formatVersion, default: 0))
     }
 
     /// 졸업 기록 또는 현재 개체가 실제로 도달한 단계에 이 종이 포함되는가.

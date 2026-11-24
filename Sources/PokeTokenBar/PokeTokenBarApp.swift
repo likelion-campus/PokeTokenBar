@@ -66,6 +66,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         plaza?.persistState()
         teamRuntime?.flush()
+        companion?.flush()   // update() skips unchanged saves; quit writes whatever is current
     }
 
     func applicationWillFinishLaunching(_ notification: Notification) {
@@ -315,6 +316,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     private func applyState() {
         guard let button = statusItem.button else { return }
+        reconcileDisplayAwake()
         updateCompanion()
         // Recomputed on every refresh, so a tier that moves with the clock redraws even when the text doesn't.
         Self.applyMenuText(MenuBarContent.lines(store: store, companion: companion),
@@ -810,12 +812,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         workspace.addObserver(forName: NSWorkspace.screensDidWakeNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.setDisplayAwake(true) }
         }
+        store.onWakeMissed = { [weak self] in self?.reconcileDisplayAwake() }   // the 5-minute suspended probe
         // 메뉴바가 가려지면(풀스크린 등으로 occlusion) 애니메이션 정지, 다시 보이면 재개.
         NotificationCenter.default.addObserver(
             forName: NSWindow.didChangeOcclusionStateNotification, object: nil, queue: .main
         ) { [weak self] _ in
             Task { @MainActor in self?.syncMenuAnimation() }
         }
+    }
+
+    /// `screensDidWake` can go missing (the #350 poll fix found it in the wild), and then the flag stays false for
+    /// good: the menu sprite never animates and the floating pet is hidden until relaunch. The platform's own
+    /// "displays are asleep" answer is the truth; the notifications only make the change arrive sooner.
+    private func reconcileDisplayAwake() {
+        guard let awake = Self.displayAwakeCorrection(current: displayAwake,
+                                                       displaysAsleep: Platform.current.events.displaysAreAsleep) else { return }
+        AppLog.write("display awake flag corrected to \(awake) without a notification")
+        setDisplayAwake(awake)
+    }
+
+    /// The new value for the awake flag when it disagrees with the platform, nil when it already matches.
+    nonisolated static func displayAwakeCorrection(current: Bool, displaysAsleep: Bool) -> Bool? {
+        current == !displaysAsleep ? nil : !displaysAsleep
     }
 
     private func setDisplayAwake(_ awake: Bool) {
