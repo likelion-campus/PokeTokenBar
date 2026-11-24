@@ -3,9 +3,9 @@ import Observation
 
 /// 세이브 파일을 읽고 옮기는 두 동작의 이음매. 운영체제마다 "읽기 실패"·"이름 바꾸기 실패" 를 만드는 방법(권한 비트·
 /// 잠금)이 달라, 테스트가 같은 가지를 어디서나 밟도록 실패를 주입할 수 있게 한다. 프로덕션은 `.live`.
-struct CompanionFileAccess {
-    var read: (URL) -> Data?
-    var move: (URL, URL) throws -> Void
+struct CompanionFileAccess: Sendable {
+    var read: @Sendable (URL) -> Data?
+    var move: @Sendable (URL, URL) throws -> Void
     static let live = CompanionFileAccess(
         read: { try? Data(contentsOf: $0) },
         move: { try FileManager.default.moveItem(at: $0, to: $1) })
