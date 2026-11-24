@@ -124,7 +124,11 @@ final class BinaryLocatorTests: XCTestCase {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("ptb-bin-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
+        #if os(Windows)
+        let tool = dir.appendingPathComponent("ptb-late-tool.exe").path   // Windows runs only files with an executable extension
+        #else
         let tool = dir.appendingPathComponent("ptb-late-tool").path
+        #endif
         let spawns = Counter()
         withFakes(shell: { _ in spawns.n += 1; return nil }) {
             XCTAssertNil(BinaryLocator.resolve("ptb-late-tool", staticPaths: [tool]))
