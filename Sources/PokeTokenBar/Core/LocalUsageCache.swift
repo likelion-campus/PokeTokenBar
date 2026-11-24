@@ -403,7 +403,12 @@ actor LocalUsageCache {
             // .meta.json 등을 스캔/빈 blob 으로 캐시하지 않도록 스코프 제한.
             guard url.pathExtension == "jsonl" || (allowJSON && url.pathExtension == "json") else { continue }
             if let include, !include(url) { continue }
-            guard LocalUsageReader.isPlainLogFile(url) else { continue }
+            guard LocalUsageReader.isPlainLogFile(url) else {
+                // Never read a link or special file. What an earlier plain read cached stays (a file swapped for
+                // a moment must not zero usage already known), as with any other transient read failure below.
+                if let blob = cache[url.path] { result.append(contentsOf: annotate?(url, blob.attributedEntries) ?? blob.attributedEntries) }
+                continue
+            }
             guard let v = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey]),
                   let mtime = v.contentModificationDate, mtime >= since else { continue }
             let size = v.fileSize ?? 0

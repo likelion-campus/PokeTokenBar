@@ -270,12 +270,14 @@ final class AuditCoreFixesTests: XCTestCase {
         try makeLink(root.appendingPathComponent("rollout-x.jsonl"), to: target)
 
         let cache = LocalUsageCache(claudeRoot: root, fileURL: cacheFile)
-        XCTAssertTrue(cache.claudeEntries(modifiedSince: .distantPast).isEmpty)
+        let linked = await cache.claudeEntries(modifiedSince: .distantPast)
+        XCTAssertTrue(linked.isEmpty)
         XCTAssertTrue(LocalUsageReader.codexRolloutFiles(in: root).isEmpty)
 
         // The same line in a regular file is counted (the guard is not just "return nothing").
         try (claudeLine(id: "b") + "\n").write(to: root.appendingPathComponent("plain.jsonl"), atomically: true, encoding: .utf8)
-        XCTAssertEqual(LocalUsageCache(claudeRoot: root, fileURL: cacheFile).claudeEntries(modifiedSince: .distantPast).count, 1)
+        let plain = await LocalUsageCache(claudeRoot: root, fileURL: cacheFile).claudeEntries(modifiedSince: .distantPast)
+        XCTAssertEqual(plain.count, 1)
     }
 
     /// A Claude file larger than the read cap is still fully counted: each refresh resumes where the last stopped.
@@ -290,7 +292,7 @@ final class AuditCoreFixesTests: XCTestCase {
         let cache = LocalUsageCache(claudeRoot: root, fileURL: tempDir("capcache").appendingPathComponent("c.json"))
         var counts: [Int] = []
         for _ in 0..<60 {
-            counts.append(cache.claudeEntries(modifiedSince: .distantPast).count)
+            counts.append(await cache.claudeEntries(modifiedSince: .distantPast).count)
             if counts.last == 40 { break }
         }
         XCTAssertEqual(counts.last, 40, "every line is counted eventually: \(counts)")
