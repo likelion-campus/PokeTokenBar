@@ -63,6 +63,48 @@ final class ZeroUsageHomeRenderingTests: XCTestCase {
         try await render(history: true, language: .de, costs: .unavailable)
     }
 
+
+    /// The quiet-day month: every day before `day` has usage, `day` itself (today) has none.
+    /// A pure function of the date so the date sweep below can feed it any day.
+    static func quietSeries(monthPrefix: String, day: Int, history: Bool) -> [DailyUsage] {
+        (0..<day).map { offset in
+            let tokens = history && offset < day - 1 ? (offset % 6 + 1) * 230_000 : 0
+            return DailyUsage(date: String(format: "%@-%02d", monthPrefix, offset + 1), inputTokens: tokens,
+                              outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0,
+                              totalTokens: tokens, totalCost: 0)
+        }
+    }
+
+    /// The condition `MonthDailyTrend` uses to draw bars: some column in the window has tokens.
+    static func drawsBars(series: [DailyUsage], today: String, window: DailyTrendWindow) -> Bool {
+        (DailyTrendMetrics.columns(series: series, today: today, window: window).map(\.tokens).max() ?? 0) > 0
+    }
+
+    func testQuietDayBarsAreDrawnOnEveryCalendarDate() async {
+        // Every day of every month of 2026 (all seven weekdays start a month) plus a leap February.
+        let months = (1...12).map { (2026, $0) } + [(2028, 2)]
+        for (year, month) in months {
+            let first = Calendar(identifier: .gregorian).date(from: DateComponents(year: year, month: month, day: 1))!
+            let length = Calendar(identifier: .gregorian).range(of: .day, in: .month, for: first)!.count
+            let prefix = String(format: "%04d-%02d", year, month)
+            for day in 1...length {
+                let today = String(format: "%@-%02d", prefix, day)
+                for window in DailyTrendWindow.allCases {
+                    let drawn = Self.drawsBars(series: Self.quietSeries(monthPrefix: prefix, day: day, history: true),
+                                               today: today, window: window)
+                    XCTAssertEqual(drawn, day > 1, "\(today) \(window)")
+                    XCTAssertFalse(Self.drawsBars(series: Self.quietSeries(monthPrefix: prefix, day: day, history: false),
+                                                  today: today, window: window), "\(today) \(window) empty history")
+                }
+            }
+        }
+    }
+
+    /// Failure messages and diagnostics carry OCR text; escape everything outside ASCII so the runner's log keeps the line.
+    static func ascii(_ text: String) -> String {
+        text.unicodeScalars.map { $0.isASCII && ($0.value >= 32 || $0 == "\n") ? String($0) : "\\u{\(String($0.value, radix: 16))}" }.joined()
+    }
+
     private func render(history: Bool, language: AppLanguage = .ko, costs: CostCoverage? = nil) async throws {
         let suite = "QuietHome-\(UUID())"
         let defaults = try XCTUnwrap(TestDefaults.make(suite: suite))
@@ -78,14 +120,8 @@ final class ZeroUsageHomeRenderingTests: XCTestCase {
                          burnTier: .idle, limitWarning: false, hasUsageData: false)
         let formatter = LocalUsageReader.localDayFormatter()
         let now = Date()
-        let monthStart = LocalUsageReader.startOfMonth(now)
         let day = Calendar.current.component(.day, from: now)
-        let series = (0..<day).map { offset in
-            let date = Calendar.current.date(byAdding: .day, value: offset, to: monthStart)!
-            let tokens = history && offset < day - 1 ? (offset % 6 + 1) * 230_000 : 0
-            return DailyUsage(date: formatter.string(from: date), inputTokens: tokens, outputTokens: 0,
-                              cacheCreationTokens: 0, cacheReadTokens: 0, totalTokens: tokens, totalCost: 0)
-        }
+        let series = Self.quietSeries(monthPrefix: LocalUsageReader.monthKey(now), day: day, history: history)
         let weekKey = formatter.string(from: LocalUsageReader.startOfWeek(now))
         let enrichment = ProviderEnrichment(blocksOK: true,
             weekTotal: costs != nil
@@ -169,32 +205,39 @@ final class ZeroUsageHomeRenderingTests: XCTestCase {
             return "observation \(index) bbox=\(NSStringFromRect(observation.boundingBox)): \(alternatives)"
         }.joined(separator: "\n")
         let diagnostics = "OCR revision=\(request.revision) pixels=\(bitmap.pixelsWide)x\(bitmap.pixelsHigh)\n\(candidates)"
+        // CI read "이번 주 2.1M" as "미번 주 2.1M" (confidence 0.5, every candidate) on a Tuesday, while the same label read
+        // fine beside "920K" on a Monday: the week total follows the weekday, and 이/미 is a glyph pair Vision confuses.
+        // This asserts that the period rows are drawn, not which of the two glyphs Vision picks.
+        let labelText = normalizedText.replacingOccurrences(of: "미번", with: "이번")
         for label in [companion.l.todayTokens, companion.l.thisWeek, companion.l.thisMonth] {
-            XCTAssertTrue(normalizedText.contains(label.replacingOccurrences(of: " ", with: "")),
-                          "Missing visible \(label): \(text)\n\(diagnostics)")
+            XCTAssertTrue(labelText.contains(label.replacingOccurrences(of: " ", with: "")),
+                          "Missing visible \(Self.ascii(label)): \(Self.ascii(text))\n\(Self.ascii(diagnostics))")
         }
         if costs == .source {
             // A split currency value creates separate OCR observations; do not join their digits.
             for amount in ["$31.64", "$121.30"] {
                 XCTAssertTrue((request.results ?? []).contains {
                     $0.topCandidates(1).first?.string.replacingOccurrences(of: " ", with: "").contains(amount) == true
-                }, "Split or missing period cost \(amount) in \(language.rawValue): \(text)\n\(diagnostics)")
+                }, "Split or missing period cost \(amount) in \(language.rawValue): \(Self.ascii(text))\n\(Self.ascii(diagnostics))")
             }
         }
         if costs == .unavailable {
             let unavailable = companion.l.costUnavailable.replacingOccurrences(of: " ", with: "")
             XCTAssertEqual((request.results ?? []).filter {
                 $0.topCandidates(1).first?.string.replacingOccurrences(of: " ", with: "").contains(unavailable) == true
-            }.count, 2, "Both unavailable period costs must stay visible\n\(diagnostics)")
+            }.count, 2, "Both unavailable period costs must stay visible\n\(Self.ascii(diagnostics))")
         }
         if costs == nil {
             // The original quiet-day fixtures own chart coverage; cost fixtures target the period row.
             if history && day > 1 {
+                XCTAssertTrue(Self.drawsBars(series: store.dailyTrendTotals, today: LocalUsageReader.todayKey(),
+                                             window: store.dailyTrendWindow),
+                              "The store's trend window has no bars to draw")
                 XCTAssertTrue(chartVisible,
-                              "Historical chart missing: \(text)\n\(diagnostics)")
+                              "Historical chart missing: \(Self.ascii(text))\n\(Self.ascii(diagnostics))")
             } else {
                 XCTAssertFalse(chartVisible,
-                               "Empty history must not invent a chart\n\(diagnostics)")
+                               "Empty history must not invent a chart\n\(Self.ascii(diagnostics))")
             }
         }
         if let output = ProcessInfo.processInfo.environment["PTB_ZERO_USAGE_SCREENSHOT_DIR"] {
