@@ -46,7 +46,7 @@ enum LocalUsageReader {
         var claudeSessionIDs: [String] {
             Array(Set((sessionIDs ?? []) + (sessionID.map { [$0] } ?? []))).sorted()
         }
-        var total: Int { input + output + cacheWrite + cacheRead }
+        var total: Int { input.saturatingAdding(output).saturatingAdding(cacheWrite).saturatingAdding(cacheRead) }
     }
 
     struct Bucket {
