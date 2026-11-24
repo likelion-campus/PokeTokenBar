@@ -2660,6 +2660,28 @@ read_when:
   **회귀 점검:** `failed-update-relaunch` 의 `appDoesNotClose`·`uninstallAppDoesNotClose`(30 초 근처에 스스로 끝남), `Invoke-Setup`(`ci-helpers.ps1`);
   결함 주입(`MsgBox` 되돌리기)에서 두 시나리오가 120 초 제한에 걸린다.
 
+- **lost runner in the update jobs — 실행 중이거나 막 닫힌 앱을 만난 Setup 의 Restart Manager 단계가 GitHub 호스트 VM 을 통째로 잃게 했다 (2026-11-17 부터, 2026-11-25 규명).**
+  **증상:** `windows-app.yml` 의 "Failed update and in-app update" 단계 "The in-app update from a loopback feed" 가 끝나지 않고 job 이 "The hosted runner lost
+  communication with the server" 로 끝났다(로그·아티팩트 없음, 25 분 단계 제한도 안 걸림). 2.5.641 릴리스부터 5 번 중 3 번이라 2.5.640..641 회귀로 보였다.
+  **회귀가 아니었다:** 같은 주석이 windows-port 에서 11-17~19 에 updates job 6 번, installer job 의 "Upgrade over a running instance" 단계 2 번 나왔고(예: 44236491001,
+  44401819868), v2.5.640 빌드와 v2.5.642 빌드를 같은 시각 12 대씩 돌리자 1/12 대 1/12 였다. 2.5.635~640 의 연속 6 번 통과는 운(그 비율에서 20~50 %)이었다.
+  **잃는 시점(로그 없이 잰 방법):** 러너 `_diag` 로그상 Listener 는 1 분마다 잡 잠금을 45 분 연장한다 → 잃음 판정 시각 − 45 분 ≈ 마지막 연장. 그리고 예약 작업
+  (Interactive·S4U, 둘 다 사전 대조로 동작 확인)이 30 초마다 check run 을 올렸다(curl.exe 와 .NET 둘 다): 죽은 VM 은 둘 다 그 순간 멈췄다 — 세션만이 아니라 VM(또는 그 네트워크)
+  전체가 사라진다. 시점은 매번 Setup 이 실행 중·막 닫힌 앱을 만나는 구간(ok·failCopy·failPrepare 의 앱이 띄운 Setup, 업그레이드 단계)이었다.
+  **원인 범위 좁히기(각 20~24 대):** http.sys 피드 대신 사용자 모드 소켓 피드도 3/10 으로 같았다(무관). 앱 혼자(가짜 Setup 을 받아 실행·종료, ~360 회) 0, 앱 없이 Setup 만
+  (~150 회) 0. **"실행 중인 앱 위로 업그레이드" 9 분 루프: `CloseApplications=yes` 4/10 대 VM 소실(주기당 ~2 %), 같은 루프를 `CloseApplications=no` 로 다시 만든 설치 파일로는
+  0/10(~340 회), `/NOCLOSEAPPLICATIONS` 로도 0/6.** 통틀어 Restart Manager 단계 켬 11/24, 끔 0/30. 통과한 로그 90+ 개 모두 "RestartManager found no applications" —
+  죽는 주기에 RM 이 무엇을 찾아 무엇을 닫는지는 보지 못했다(그 주기의 로그는 VM 과 함께 사라진다). 러너는 `hosted-compute-agent`(Runner.Listener 의 부모)가 Windows Terminal
+  콘솔(전경 창)에서 돈다 — RM 이 그 계통을 건드리는 것이 가장 유력한 가설이나 **미확인**.
+  **고침:** `installer/PokeTokenBar.iss` `CloseApplications=no`. 앱은 우리 `[Code]` `CloseRunningApp`(WM_CLOSE 후 뮤텍스 대기)이 이미 닫는다. 그 밖의 프로세스가 파일을 쥐고
+  있으면 이제 Setup 이 그것을 닫지 않고 실패해(exit 5) 이전 앱을 되돌린다 — `lockedFile`(.txt) 와 같은 경로.
+  **왜 못 걸렀나:** updates job 은 level full(릴리스·디스패치)에서만 돌고, 잃은 러너는 로그를 남기지 않아 11-17~19 의 8 번은 원인 없이 묻혔다(43808578589 는 "이것이 아니었다"
+  로만 남았다). 6 번 연속 통과를 회귀 창의 증거로 읽었다 — 간헐 결함에서 통과 횟수는 비율과 함께만 의미가 있다.
+  **규칙:** (1) 잃은 러너는 한 번이라도 부류로 기록하고, 원인 조사는 VM 밖으로 나가는 채널(예약 작업의 check run 심장박동, 단계 이름 비콘)로 한다. (2) 간헐 실패의 "회귀 창"은 이전
+  빌드를 같은 시각 같은 수로 나란히 돌려 확인한다. (3) 설치 파일은 다른 프로세스를 닫는 Inno 기능(Restart Manager)을 쓰지 않는다 — 닫을 것은 우리 코드가 이름으로 닫는다.
+  **회귀 점검:** `InstallerRestartManagerScanTests`(.iss 의 `CloseApplications=` 가 정확히 `no` 하나; `yes` 주입·v2.5.642 의 .iss 로 실패 확인). 검증 실행: diag/update-runner-loss-2
+  의 45484521499(고친 설치 파일로 job 그대로 8/8)·45487905463(커밋된 .iss 로 만든 설치 파일: failed-update 단계 + in-app 단계 3 회씩 12/12 통과, 같은 시각 옛 설치 파일 4 대 중 3 대 소실).
+
 ## 윈도 로케일·알림 (windows-port)
 
 - **한국어 윈도에서 앱이 영어로 떴다 — swift-foundation 이 비 Apple 플랫폼에서 `Locale.preferredLanguages` 를 `["en-001"]` 로 고정한다.**

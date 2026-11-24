@@ -431,7 +431,7 @@ Invoke-Scenario 'lockedFile' {
     Install-Baseline 'lockedFile'
     $old, $null = Start-Installed
     $closes = Get-AppLogCount 'exit code=0 reason=closeRequest'
-    # A .txt: Inno's Restart Manager filter (*.exe,*.dll,*.chm) does not look at it, so nothing closes the holder.
+    # A held file: Setup runs no Restart Manager pass (CloseApplications=no), so nothing closes the holder.
     $locked = Join-Path $PtbInstallDir 'licenses\THIRD-PARTY.txt'
     $holder = Start-Process pwsh -ArgumentList '-NoProfile', '-Command', "`$f = [System.IO.File]::Open('$locked', 'Open', 'Read', 'Read'); Start-Sleep -Seconds 600" -PassThru -WindowStyle Hidden
     try {
