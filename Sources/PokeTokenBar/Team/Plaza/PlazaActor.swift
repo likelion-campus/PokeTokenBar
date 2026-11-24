@@ -65,6 +65,7 @@ struct PlazaActorContext {
     /// 불꽃이 깜빡이는 간격. 곧 터질 때는 빨라진다.
     static let bombFrameDuration: TimeInterval = 0.14, bombUrgentFrameDuration: TimeInterval = 0.05
     /// 폭발에 날아가는 시간과 높이, 도는 바퀴 수. 그 뒤 `sootDuration` 동안 그을려 있다가 마지막 `sootFade` 동안 돌아온다.
+    /// 탈락 표시(`gameMark == .out`)가 있는 동안은 그 시간이 흐르지 않는다: 게임이 끝날 때까지 그을려 있다.
     static let blastDuration: TimeInterval = 0.9, blastHeight: CGFloat = 56, blastTurns: CGFloat = 2
     /// 곧 터질 폭탄이 붉게 부푸는 빠르기(rad/s). |sin|이라 초당 약 2.9번: 초당 세 번을 넘는 깜빡임은 쓰지 않는다.
     static let bombPulseRate: Double = 9
@@ -441,7 +442,7 @@ struct PlazaActorContext {
         if let e = blastElapsed {
             blastElapsed = e + dt >= Self.blastDuration ? nil : e + dt
         }
-        if sootRemaining > 0 { sootRemaining = max(0, sootRemaining - dt) }
+        if sootRemaining > 0, gameMark != .out { sootRemaining = max(0, sootRemaining - dt) }
         if characterNode.colorBlendFactor != sootAmount { characterNode.colorBlendFactor = sootAmount }
         if let e = bombElapsed { bombElapsed = e + dt }
         if wetRemaining > 0 {

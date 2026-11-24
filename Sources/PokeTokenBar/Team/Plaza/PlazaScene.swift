@@ -1574,9 +1574,10 @@ struct PlazaSceneMember: Equatable, Sendable {
         if shake { blastShake = 0 }
     }
 
-    /// 테스트용: 머리 위에 폭탄이 뜬 캐릭터들(나는 nil), 그리고 폭발에 날아가는 중인지.
+    /// 테스트용: 머리 위에 폭탄이 뜬 캐릭터들(나는 nil), 폭발에 날아가는 중인지, 얼마나 그을렸는지.
     var bombHolders: [String?] { (me.hasBomb ? [nil] : []) + remotes.filter { $0.value.actor.hasBomb }.keys.sorted().map { Optional($0) } }
     func isBlasting(memberID: String?) -> Bool { actor(memberID)?.isBlasting ?? false }
+    func sootAmount(memberID: String?) -> CGFloat { actor(memberID)?.sootAmount ?? 0 }
 
     /// 폭발 불꽃의 주인 이름. 내 불꽃(주인 nil)의 간격 제한을 쓰지 않게 한다.
     static let blastOwner = "\u{0}blast"
