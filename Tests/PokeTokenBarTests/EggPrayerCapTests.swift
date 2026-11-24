@@ -26,7 +26,7 @@ final class EggPrayerCapTests: XCTestCase {
     private func egg(record: String? = nil, tokens: Int = 0, usedOn: String? = nil,
                      provider: PokeProviding? = nil) -> CompanionStore {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("prayer-cap-\(UUID().uuidString).json")
-        let json = "{\"installBaselineSet\":true,\"usedSinceInstall\":10000000,\"spentTokens\":0,"
+        let json = "{\"installBaselineSet\":true,\"usedSinceInstall\":5000000000,\"spentTokens\":0,"
             + "\"lastDate\":\"d\",\"active\":null,\"dex\":[],\"collectedFinals\":[],\"eggUsage\":\(tokens),\"pendingHatchID\":1"
             + (record.map { ",\"eggPrayers\":\($0)" } ?? "")
             + (usedOn.map { ",\"lastPrayerHatchDay\":\"\($0)\"" } ?? "") + "}"
@@ -129,13 +129,13 @@ final class EggPrayerCapTests: XCTestCase {
     }
 
     /// What this version writes must load in v2.5.640, which ignores unknown keys: the record keeps only `count`.
-    func testThePrayerRecordWritesOnlyTheCount() throws {
+    func testThePrayerRecordWritesOnlyTheCount() async throws {
         let data = try JSONEncoder().encode(PrayerRecord(count: 3))
         let keys = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any]).keys
         XCTAssertEqual(Set(keys), ["count"])
     }
 
-    func testTheDayOfThePrayerHatchSurvivesARestart() throws {
+    func testTheDayOfThePrayerHatchSurvivesARestart() async throws {
         var state = CompanionState()
         state.lastPrayerHatchDay = "2026-11-24"
         let back = try JSONDecoder().decode(CompanionState.self, from: JSONEncoder().encode(state))
@@ -153,7 +153,7 @@ final class EggPrayerCapTests: XCTestCase {
         XCTAssertFalse(store.isPrayerHatchUsedToday, "a hatched Pokémon shows no prayer line at all")
     }
 
-    func testTheUsedLineIsOnlyForAnEggWhoseDayIsUsed() {
+    func testTheUsedLineIsOnlyForAnEggWhoseDayIsUsed() async {
         XCTAssertFalse(egg().isPrayerHatchUsedToday)
         XCTAssertTrue(egg(usedOn: today).isPrayerHatchUsedToday)
         XCTAssertFalse(egg(usedOn: key(day(-1))).isPrayerHatchUsedToday)

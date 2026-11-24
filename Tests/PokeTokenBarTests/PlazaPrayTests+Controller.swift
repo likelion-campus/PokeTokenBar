@@ -130,7 +130,7 @@ extension PlazaPrayTests {
     }
 
     /// The new line belongs to an egg whose day is used and to nothing else.
-    func testThePrayerHatchLineIsOnlyForAnEggWithTheDayUsed() {
+    func testThePrayerHatchLineIsOnlyForAnEggWithTheDayUsed() async {
         let me = node("나", character: Self.egg)
         let open = controller(me, speciesID: nil, prayers: Prayers(), start: quietTile())
         open.prepareScene()
