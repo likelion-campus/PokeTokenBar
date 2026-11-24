@@ -23,6 +23,40 @@ extension OAuthAccessTokenCache {
         }
     }
 
+    /// 자동 경로의 유일한 Claude Keychain 읽기: Claude Code 가 쓰는 `/usr/bin/security` 로 읽는다.
+    /// 항목 ACL 이 이 도구를 신뢰하므로 다이얼로그가 없다(`SecItemCopyMatching` 은 쓰지 않는다).
+    /// 가드(순서): 접근 끔 → 시험 이음매/번들 아님 → 시간 초과로 꺼짐 → 키체인 잠김. 어느 하나라도 걸리면 프로세스 없이 nil.
+    /// 로그에는 종료 코드만 — 출력·토큰·계정 이름은 남기지 않는다.
+    nonisolated static func readClaudeKeychainViaSecurityTool(
+        services: [String]) async -> OAuthCredentialData.Credential?
+    {
+        if KeychainAccessGate.isDisabled { return nil }
+        if KeychainToolReader.runForTesting == nil, !AppEnv.isBundledApp { return nil }
+        if KeychainToolReader.isSuspended { return nil }
+        guard KeychainToolReader.isDefaultKeychainUnlocked() else { return nil }
+
+        for service in services {
+            let withAccount = ["find-generic-password", "-s", service, "-a", NSUserName(), "-w"]
+            let anyAccount = ["find-generic-password", "-s", service, "-w"]
+            for arguments in [withAccount, anyAccount] {
+                guard let result = await KeychainToolReader.run(arguments: arguments) else {
+                    KeychainToolReader.isSuspended = true
+                    AppLog.write("claude keychain tool read timed out; automatic keychain reads off until restart")
+                    return nil
+                }
+                if result.status != 0 {
+                    AppLog.writeIfChanged("claude-keychain-tool", "claude keychain tool read: exit \(result.status)")
+                    continue
+                }
+                if let credential = OAuthCredentialData.credential(from: result.stdout), !credential.isExpired {
+                    return credential
+                }
+                break  // 읽혔지만 만료·형식 오류: -a 없는 재시도는 같은 항목이라 다음 서비스로
+            }
+        }
+        return nil
+    }
+
     nonisolated static func readClaudeKeychain(
         service: String, allowKeychainPrompt: Bool) throws -> OAuthCredentialData.Credential
     {

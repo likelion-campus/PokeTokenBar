@@ -8,6 +8,10 @@ extension OAuthAccessTokenCache {
     /// Nothing to read silently.
     nonisolated static func readClaudeKeychainSilently(services: [String]) -> OAuthCredentialData.Credential? { nil }
 
+    /// No `security` tool either.
+    nonisolated static func readClaudeKeychainViaSecurityTool(
+        services: [String]) async -> OAuthCredentialData.Credential? { nil }
+
     /// A user refresh that found no usable credentials file ends here. The answer is the Mac's "no item in the Keychain":
     /// `UsageStore.friendlyLimitError` turns it into "No Claude credential found. Sign in to Claude Code…". It used to throw
     /// `keychainAccessDisabled`, which the store words as "Couldn't fetch Claude limits. Please try again shortly." (advice

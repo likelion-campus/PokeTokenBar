@@ -1132,7 +1132,7 @@ read_when:
   실사용자 매 업그레이드) 항목 ACL 이 안 맞아 접근 허용 프롬프트를 유발한다 — **no-UI 쿼리로도 이 ACL
   프롬프트는 억제 안 됨**(#58). 토큰류는 인메모리 캐시 + 파일(`~/.claude/.credentials.json`) 재취득으로
   처리하고, 앱 전용 keychain 캐시 항목을 새로 만들지 말 것.
-- **자동 폴링은 Claude 키체인을 절대 읽지 마라(키체인 읽기는 사용자 동작 전용).** no-UI 쿼리
+- **자동 폴링은 앱 자신의 Keychain API 로 Claude 키체인을 절대 읽지 마라(`SecItemCopyMatching` 은 사용자 동작 전용).** no-UI 쿼리
   (`kSecUseAuthenticationUIFail`/`LAContext`)는 '인증' 프롬프트만 억제할 뿐 **잠긴·미승인 login 키체인의
   '암호 입력' 다이얼로그는 못 막는다** — 실측: 캐시 만료 폴 도중 `SecItemCopyMatching` 이 13초간 블록하며
   팝업(토큰 만료 시점마다 하루 몇 회, 아침 등). self-signed 앱은 '항상 허용' 승인도 불안정. → 타이머 경로
@@ -1140,6 +1140,16 @@ read_when:
   의 `guard allowKeychainPrompt` 가 키체인 읽기 앞에 위치). 키체인 읽기는 명시적 사용자 버튼
   (설정 갱신·팝오버 `claudeLimitsRefreshRow`, `refreshLimitTokenFromKeychain`)에서만. 파일이 유효
   토큰을 들고 있으면 매 자동 폴이 그걸 다시 읽고, 파일이 없을 때만 캐시가 버티다가 만료 후 stale.
+  **자동 경로의 유일한 읽기(맥, 2026-11):** `/usr/bin/security find-generic-password -s <service> -a <NSUserName()> -w`
+  (없으면 `-a` 없이 한 번 더)를 `OAuthAccessTokenCache.readClaudeKeychainViaSecurityTool` 이 실행한다. Claude Code 가 항목을 이 도구로
+  만들고 읽어 항목의 복호화 ACL 이 `/usr/bin/security` 를 신뢰하므로 다이얼로그가 없다(앱은 self-signed 라 신뢰 못 받음).
+  가드(순서, 하나라도 걸리면 프로세스 없이 nil): 접근 끔 → 시험 이음매 없고 번들 앱 아님(`swift test` 가 개발자 키체인을 안 읽게) →
+  시간 초과로 꺼짐(3 s, 앱 재시작까지) → 기본 키체인 잠김(`SecKeychainGetStatus`; 잠기면 `security` 가 잠금 해제 다이얼로그를 띄운다).
+  stdout·토큰·계정 이름은 로그에 남기지 않는다. **자격증명 탐지 5-whys:** 증상 — 회사 사용량 시트에 맥 사용자 다수가 "플랜 정보 없음".
+  직접원인 — 키체인에만 로그인이 있는 맥은 자동 폴이 키체인을 안 읽어(위 규칙) 갱신 버튼을 누르기 전·앱 재시작 후·토큰 만료(약 8 h) 뒤엔 한도가 없어
+  한도 행이 전송되지 않았다. 왜 못 걸렀나 — 리포터 테스트는 한도를 주입하고, 개발자 맥에는 `~/.claude/.credentials.json` 이 있어 닷푸딩에선 늘 한도가
+  있었으며, 키체인만 있는 맥을 아무도 확인하지 않았다. 가드 — `KeychainToolReadTests`(도구 경유 읽기·`-a` 폴백·접근 끔·잠김·시간 초과 후 꺼짐·만료·여러
+  서비스·번들 아님, 가드마다 제거 시 실패 확인, 실제 `/usr/bin/security` 로 없는 서비스 → 종료 44).
   회귀 가드: `testAutoRefreshUsesNoPromptPathManualUsesPromptPath`. (완전 근절은 Developer ID
   notarization 으로 '항상 허용' 승인을 안정화하는 것뿐 — 신뢰된 서명 신원이라야 ACL 승인이 지속된다.
   미도입.)

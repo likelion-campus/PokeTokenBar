@@ -111,6 +111,42 @@ enum ProcessRunner {
         throw RunnerError.missingResponse(binary)
     }
 
+    /// 한 번 실행하고 stdout 을 받는다(상태 코드는 던지지 않고 돌려준다). 시간이 넘으면 종료하고
+    /// `RunnerError.timeout`. 환경은 부모 것 그대로 — 호출부는 PATH 가 필요 없는 절대 경로 도구만 쓴다.
+    static func runCapturingStdout(
+        binary: String,
+        arguments: [String],
+        timeout: TimeInterval
+    ) async throws -> (status: Int32, stdout: Data) {
+        let outURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("poketokenbar-\(UUID().uuidString).out")
+        FileManager.default.createFile(atPath: outURL.path, contents: nil)
+        defer { try? FileManager.default.removeItem(at: outURL) }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: binary)
+        process.arguments = arguments
+        process.qualityOfService = .userInitiated
+        let stdoutHandle = try FileHandle(forWritingTo: outURL)
+        defer { try? stdoutHandle.close() }
+        process.standardOutput = stdoutHandle
+        process.standardError = FileHandle.nullDevice
+        process.standardInput = FileHandle.nullDevice
+        defer { if process.isRunning { PlatformCompat.terminate(process) } }
+
+        try process.run()
+        let deadline = Date().addingTimeInterval(timeout)
+        while process.isRunning, Date() < deadline {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        if process.isRunning {
+            PlatformCompat.terminate(process)
+            PlatformCompat.forceKillIfStillRunning(process)
+            throw RunnerError.timeout(binary)
+        }
+        return (process.terminationStatus, (try? Data(contentsOf: outURL)) ?? Data())
+    }
+
     /// 실패 경로에서 stderr 마지막 300자를 로그로 — "exit 1" 만으로는 원인 규명이 불가능했던
     /// 버그 리포트 재발 방지. 성공 경로에서는 호출하지 않는다(로그 소음 방지).
     private static func logStderrTail(_ url: URL, binary: String) {

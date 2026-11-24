@@ -31,6 +31,40 @@ enum KeychainReader {
     }
 }
 
+/// Claude Code 가 로그인을 쓰고 읽는 도구(`/usr/bin/security`)로 자동 경로가 읽을 때의 안전 장치와 시험 이음매.
+/// 항목의 복호화 ACL 은 만든 도구(`/usr/bin/security`)를 신뢰하므로 이 도구는 다이얼로그 없이 읽는다 —
+/// 이 앱이 `SecItemCopyMatching` 을 부르면 self-signed 라 암호 다이얼로그가 뜨던 것과 다르다.
+enum KeychainToolReader {
+    /// 프로세스를 대신하는 시험 이음매. nil 을 돌려주면 시간 초과. tearDown 에서 nil 로 되돌린다.
+    nonisolated(unsafe) static var runForTesting: (([String]) async -> (status: Int32, stdout: Data)?)?
+    /// 기본 키체인이 열려 있는지의 시험 값. nil 이면 실제로 묻는다.
+    nonisolated(unsafe) static var keychainUnlockedForTesting: Bool?
+    /// 시간 초과 뒤 앱을 다시 켤 때까지 도구 읽기를 끈다. tearDown 에서 false 로.
+    nonisolated(unsafe) static var isSuspended = false
+    static let timeout: TimeInterval = 3
+    /// `run` 호출 수(시험 이음매 포함) — "프로세스를 시작하지 않았다" 를 세는 가드용.
+    nonisolated(unsafe) private(set) static var runCount = 0
+
+    /// 기본 키체인이 잠겼으면 `security` 가 잠금 해제 다이얼로그를 띄운다. 이 두 호출은 프롬프트하지 않는다.
+    /// 오류는 모두 "열려 있지 않음".
+    static func isDefaultKeychainUnlocked() -> Bool {
+        if let keychainUnlockedForTesting { return keychainUnlockedForTesting }
+        var keychain: SecKeychain?
+        guard SecKeychainCopyDefault(&keychain) == errSecSuccess, let keychain else { return false }
+        var status: SecKeychainStatus = 0
+        guard SecKeychainGetStatus(keychain, &status) == errSecSuccess else { return false }
+        return status & SecKeychainStatus(kSecUnlockStateStatus) != 0
+    }
+
+    /// nil 은 시간 초과(또는 실행 실패).
+    static func run(arguments: [String]) async -> (status: Int32, stdout: Data)? {
+        runCount += 1
+        if let runForTesting { return await runForTesting(arguments) }
+        return try? await ProcessRunner.runCapturingStdout(
+            binary: "/usr/bin/security", arguments: arguments, timeout: timeout)
+    }
+}
+
 enum KeychainNoUIQuery {
     private static let uiFailPolicy = resolveUIFailPolicy()
 
