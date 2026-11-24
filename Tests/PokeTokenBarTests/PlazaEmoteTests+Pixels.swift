@@ -18,7 +18,7 @@ extension PlazaEmoteTests {
         XCTAssertEqual(snow[at].key, "V")
         XCTAssertEqual(snow[at].label, "눈뭉치")
         XCTAssertEqual(Set(snow.map(\.key)).count, snow.count)
-        for (season, label) in [(PlazaSeason.spring, "벚꽃잎"), (.summer, "풍선"), (.autumn, "낙엽 뭉치"), (.winter, "눈뭉치")] {
+        for (season, label) in [(PlazaSeason.spring, "분홍 꽃"), (.summer, "풍선"), (.autumn, "낙엽 뭉치"), (.winter, "눈뭉치")] {
             let rows = PlazaShortcutGuide.entries(season: season)
             XCTAssertEqual(rows.map(\.key), snow.map(\.key), "the same keys in every season")
             XCTAssertEqual(rows[at].label, label)

@@ -457,7 +457,7 @@ extension L {
     var plazaShortcutsTitle: String { "단축키" }
     func plazaShortcutThrow(_ season: PlazaSeason) -> String {
         switch season {
-        case .spring: "벚꽃잎"
+        case .spring: "분홍 꽃"
         case .summer: "풍선"
         case .autumn: "낙엽 뭉치"
         case .winter: "눈뭉치"

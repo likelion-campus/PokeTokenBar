@@ -39,7 +39,8 @@ enum PlazaResources {
 
     static let tileSheetName = "plaza-tiles"           // png
     static let waterBalloonName = "plaza-water-balloon" // png
-    static let leafSheetName = "plaza-leaf-sheet"       // png, 128×160, 받은 그대로. 봄·가을 공은 여기서 한 칸씩 자른다
+    static let leafSheetName = "plaza-leaf-sheet"       // png, 128×160, 받은 그대로. 가을 공은 여기서 한 칸을 자른다
+    static let blossomName = "plaza-blossom"            // png, 16×16, "Plants and Flowers - Pixel Art" 의 Pink.png 를 그림 본래 크기(1/10)로 줄인 것. 봄 공
     static let tallGrassSheetName = "plaza-tallgrass"   // png
     static let iceCrackSheetName = "plaza-ice-cracks"   // png
     static let iceGlossSheetName = "plaza-ice-gloss"    // png
@@ -59,7 +60,7 @@ enum PlazaResources {
     static func ballSource(_ season: PlazaSeason) -> (name: String, crop: PlazaPixelRect?)? {
         switch season {
         case .winter: nil
-        case .spring: (leafSheetName, PlazaPixelRect(x: 33, y: 129, width: 17, height: 15))
+        case .spring: (blossomName, nil)
         case .summer: (waterBalloonName, nil)
         case .autumn: (leafSheetName, PlazaPixelRect(x: 33, y: 33, width: 17, height: 15))
         }

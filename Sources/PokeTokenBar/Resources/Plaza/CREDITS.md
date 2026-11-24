@@ -39,7 +39,15 @@
 - License: CC-BY-SA 3.0 (https://creativecommons.org/licenses/by-sa/3.0/), chosen from the work's CC-BY-SA 3.0 / GPL 3.0 dual licence. This file is not under the app's MIT license. — full text: CC-BY-SA-3.0.txt
 - Source: https://opengameart.org/content/lpc-leaf-recolor
 - SHA-256: 4ad08bd59fbd202e7193befe3c40cd19a144a87ce30b06e5171a89753a874c17
-- Spring throws the pink clump at (33, 129) and autumn the red and orange clump at (33, 33), each 17×15, cut from the sheet at runtime and drawn as they are. The cut cells are a derivative and stay under CC-BY-SA 3.0.
+- Autumn throws the red and orange clump at (33, 33), 17×15, cut from the sheet at runtime and drawn as it is. The cut cell is a derivative and stays under CC-BY-SA 3.0.
+
+## Blossom (plaza-blossom.png)
+- "Plants and Flowers - Pixel Art" (`Flowers and Plants/Flowers/Pink.png`) by peony
+- License: CC-BY 4.0 (https://creativecommons.org/licenses/by/4.0/). This file is not under the app's MIT license.
+- Source: https://opengameart.org/content/plants-and-flowers-pixel-art
+- Source file SHA-256: 6572e239858a93cdf63f87978db97e4646eb8ba1f7e5e311443319e3cef4f3bf
+- Changes: the 160×160 file is the 16×16 flower drawn at 10× (every 10×10 block is one colour); it is brought down to the art's own 16×16, one pixel per block. No pixel is redrawn.
+- Thrown in the plaza's spring. The app draws it as it is.
 
 ## Ice cracks (plaza-ice-cracks.png)
 - "Ice Mountains Tileset" (`ice_mountain_tileset.png`, unmodified) by CookieEfedu

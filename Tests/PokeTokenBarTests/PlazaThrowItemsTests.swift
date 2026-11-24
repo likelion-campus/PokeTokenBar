@@ -1,8 +1,8 @@
 import XCTest
 @testable import PokeTokenBar
 
-/// The Pokémon item pictures the plaza throws in spring and summer (`PlazaThrowItems`): which items, how a downloaded
-/// picture becomes the thrown ones, and how they reach the scene from the controller.
+/// The Pokémon item picture the plaza throws in summer (`PlazaThrowItems`): which item, how the downloaded picture
+/// becomes the thrown balloons, and how they reach the scene from the controller.
 @MainActor
 final class PlazaThrowItemsTests: XCTestCase {
     let map = PlazaMapData.map
@@ -18,11 +18,43 @@ final class PlazaThrowItemsTests: XCTestCase {
         return PlazaImage(bitmap: b)
     }
 
-    func testSpringAndSummerThrowItemsAndTheOtherSeasonsDoNot() async {
-        XCTAssertEqual(PlazaThrowItems.itemName(.spring), "pink-petal")
+    /// The downloaded balloon in small: a red body (18 wide, 9 high) with the two dark outline colours, a 3-pixel knot,
+    /// then a string that starts as one pixel and wanders off to the right.
+    private func balloon() -> PlazaImage {
+        var b = PlazaBitmap(width: 30, height: 30)
+        for y in 4..<13 { for x in 5..<23 { b[x, y] = PlazaRGBA(r: 239, g: 74, b: 74, a: 255) } }
+        for x in 5..<23 { b[x, 4] = PlazaRGBA(r: 66, g: 66, b: 66, a: 255); b[x, 12] = PlazaRGBA(r: 49, g: 49, b: 49, a: 255) }
+        for x in 9..<12 { b[x, 13] = PlazaRGBA(r: 49, g: 49, b: 49, a: 255) }
+        b[10, 14] = PlazaRGBA(r: 49, g: 49, b: 49, a: 255)
+        for x in 11..<26 { b[x, 15] = PlazaRGBA(r: 49, g: 49, b: 49, a: 255) }
+        b[25, 16] = PlazaRGBA(r: 206, g: 206, b: 156, a: 255)
+        return PlazaImage(bitmap: b)
+    }
+
+    func testOnlySummerThrowsAnItem() async {
         XCTAssertEqual(PlazaThrowItems.itemName(.summer), "air-balloon")
-        XCTAssertNil(PlazaThrowItems.itemName(.autumn))
-        XCTAssertNil(PlazaThrowItems.itemName(.winter))
+        for season in [PlazaSeason.spring, .autumn, .winter] { XCTAssertNil(PlazaThrowItems.itemName(season), "\(season)") }
+    }
+
+    func testTheBalloonLosesItsStringAndItsBlackOutline() async throws {
+        let cut = try XCTUnwrap(PlazaThrowItems.trimmed(balloon().pixels))
+        XCTAssertEqual([cut.width, cut.height], [21, 13], "test precondition: the string makes it wider and taller")
+        let body = PlazaThrowItems.withoutString(cut)
+        XCTAssertEqual([body.width, body.height], [18, 10], "the body and its knot")
+        XCTAssertEqual(body[4, 9], PlazaRGBA(r: 49, g: 49, b: 49, a: 255), "the knot is the last row")
+        // A picture with no single-pixel row is left alone.
+        let plain = try XCTUnwrap(PlazaThrowItems.trimmed(item().pixels))
+        XCTAssertEqual(PlazaThrowItems.withoutString(plain), plain)
+        let first = try XCTUnwrap(PlazaThrowItems.balls(.summer, item: balloon()).first).pixels
+        XCTAssertEqual([first.width, first.height], [18, 10])
+        XCTAssertEqual(first[0, 0], PlazaRGBA(r: 150, g: 40, b: 46, a: 255), "the lighter outline colour")
+        XCTAssertEqual(first[0, 8], PlazaRGBA(r: 132, g: 30, b: 38, a: 255), "the darker outline colour")
+        XCTAssertEqual(first[4, 9], PlazaRGBA(r: 132, g: 30, b: 38, a: 255), "the knot")
+        XCTAssertEqual(first[9, 4], PlazaRGBA(r: 239, g: 74, b: 74, a: 255), "the body keeps its red")
+        XCTAssertFalse((0..<first.height).contains { y in (0..<first.width).contains { first[$0, y] == PlazaRGBA(r: 49, g: 49, b: 49, a: 255) } })
+        // The outline turns with the body: the blue balloon has a dark blue line.
+        let blue = PlazaThrowItems.balls(.summer, item: balloon())[1].pixels
+        XCTAssertTrue(blue[0, 8].b > blue[0, 8].r && blue[0, 8].b > blue[0, 8].g && blue[0, 8].b < 140, "\(blue[0, 8])")
     }
 
     func testTheEmptyBorderIsCutOffAndAnEmptyPictureGivesNothing() async throws {
@@ -51,10 +83,10 @@ final class PlazaThrowItemsTests: XCTestCase {
         XCTAssertEqual(PlazaThrowItems.hueShifted(dull, degrees: 360)[0, 0], dull[0, 0], "a full turn")
     }
 
-    func testTheBalloonComesInFiveColoursOfOneShapeAndThePetalAsItIs() async throws {
+    func testTheBalloonComesInFiveColoursOfOneShape() async throws {
         let balloons = PlazaThrowItems.balls(.summer, item: item()).map(\.pixels)
         XCTAssertEqual(balloons.count, 5)
-        XCTAssertEqual(balloons[0], try XCTUnwrap(PlazaThrowItems.trimmed(item().pixels)), "the first is the picture as it came")
+        XCTAssertEqual(balloons[0], try XCTUnwrap(PlazaThrowItems.trimmed(item().pixels)), "the first is the picture as it came (no string, no outline colour of the list)")
         XCTAssertEqual(Set(balloons.map { $0[10, 10] }).count, 5, "five body colours")
         let body = balloons.map { $0[10, 10] }
         XCTAssertTrue(body[1].b > body[1].r && body[1].b > body[1].g, "blue \(body[1])")
@@ -68,8 +100,6 @@ final class PlazaThrowItemsTests: XCTestCase {
             XCTAssertEqual(b[0, 0], PlazaRGBA(r: 41, g: 41, b: 41, a: 255), "the outline keeps its colour")
             XCTAssertEqual(b[3, 4], PlazaRGBA(r: 255, g: 255, b: 255, a: 255), "the shine keeps its colour")
         }
-        let petal = PlazaThrowItems.balls(.spring, item: item()).map(\.pixels)
-        XCTAssertEqual(petal, [balloons[0]], "one picture, as it came")
     }
 
     // MARK: - The scene
@@ -116,11 +146,11 @@ final class PlazaThrowItemsTests: XCTestCase {
         XCTAssertEqual(s.shownSeason, .winter)
         throwOne(s)
         let snowball = s.snowballBallImages[0]
-        let petal = PlazaThrowItems.balls(.spring, item: item())
-        s.setItemBalls(petal, for: .spring)
+        let balloons = PlazaThrowItems.balls(.summer, item: item())
+        s.setItemBalls(balloons, for: .summer)
         XCTAssertTrue(s.snowballBallImages[0] === snowball)
-        s.seasonChoice = .spring
-        XCTAssertTrue(s.snowballBallImages[0] === petal[0])
+        s.seasonChoice = .summer
+        XCTAssertTrue(s.snowballBallImages[0] === balloons[0])
     }
 
     // MARK: - The controller
@@ -149,12 +179,12 @@ final class PlazaThrowItemsTests: XCTestCase {
 
     private func settle() async { for _ in 0..<50 { await Task.yield() } }
 
-    func testTheControllerLoadsBothItemsAndTheSceneThrowsThem() async throws {
+    func testTheControllerLoadsTheBalloonAndTheSceneThrowsIt() async throws {
         let asked = Asked(), picture = item()
         let c = controller { asked.add($0); return picture }
         c.prepareScene()
         await settle()
-        XCTAssertEqual(asked.names.sorted(), ["air-balloon", "pink-petal"])
+        XCTAssertEqual(asked.names, ["air-balloon"])
         let s = try XCTUnwrap(c.scene)
         s.seasonChoice = .summer
         s.update(0)
@@ -172,7 +202,7 @@ final class PlazaThrowItemsTests: XCTestCase {
         throwOne(again)
         XCTAssertEqual(again.snowballBallImages.map { $0.pixels.bytes }, [want[0]])
         await settle()
-        XCTAssertEqual(asked.names.count, 2)
+        XCTAssertEqual(asked.names.count, 1)
         c.handleClose()
     }
 
@@ -190,7 +220,7 @@ final class PlazaThrowItemsTests: XCTestCase {
         c.handleClose()
         c.prepareScene()
         await settle()
-        XCTAssertEqual(asked.names.count, 4)
+        XCTAssertEqual(asked.names, ["air-balloon", "air-balloon"])
         c.handleClose()
     }
 }

@@ -77,16 +77,15 @@ extension PlazaSeasonTests {
     func testEachSeasonHasItsBallSource() async {
         XCTAssertNil(PlazaResources.ballSource(.winter), "winter keeps the grid snowball")
         XCTAssertEqual(PlazaResources.ballSource(.summer)?.name, "plaza-water-balloon")
-        for (season, y) in [(PlazaSeason.spring, 129), (.autumn, 33)] {
-            let source = PlazaResources.ballSource(season)
-            XCTAssertEqual(source?.name, "plaza-leaf-sheet", "\(season)")
-            XCTAssertEqual(source?.crop, PlazaPixelRect(x: 33, y: y, width: 17, height: 15), "\(season)")
-        }
+        XCTAssertEqual(PlazaResources.ballSource(.spring)?.name, "plaza-blossom")
+        XCTAssertNil(PlazaResources.ballSource(.spring)?.crop, "the whole file")
+        XCTAssertEqual(PlazaResources.ballSource(.autumn)?.name, "plaza-leaf-sheet")
+        XCTAssertEqual(PlazaResources.ballSource(.autumn)?.crop, PlazaPixelRect(x: 33, y: 33, width: 17, height: 15))
     }
 
-    /// 번들 시트에서 자른 봄·가을 공의 픽셀 SHA-256(시트나 자를 영역이 바뀌면 걸린다).
+    /// 봄 꽃(파일 전체)과 번들 시트에서 자른 가을 공의 픽셀 SHA-256(파일이나 자를 영역이 바뀌면 걸린다).
     static let pinnedCuts: [PlazaSeason: String] = [
-        .spring: "d41ec3dd75113f7fd81e5c851a64b6ddaad129597d6793e8aeb7f38e65965433",
+        .spring: "f565bfdb50088d876fc96929802de7f705ad69718272dadfdb9fcbea2379d015",
         .autumn: "74e7449c94e216ff0b62536fbba0edefbb15e88f0ee6044aa4c9e5103e695d7c",
     ]
 
@@ -98,10 +97,10 @@ extension PlazaSeasonTests {
         var cuts: [PlazaSeason: PlazaImage] = [:]
         for season in [PlazaSeason.spring, .autumn] {
             let source = try XCTUnwrap(PlazaResources.ballSource(season))
-            let sheet = try XCTUnwrap(BundledArt.image(source.name), "\(season): the sheet is bundled")
-            let cut = try XCTUnwrap(sheet.cropping(to: try XCTUnwrap(source.crop)))
-            XCTAssertEqual([cut.width, cut.height], [17, 15], "\(season)")
-            XCTAssertTrue((12...20).contains(15 * PlazaSnowballArt.ballScale(cut)), "\(season) flies 12-20 world px high")
+            let sheet = try XCTUnwrap(BundledArt.image(source.name), "\(season): the picture is bundled")
+            let cut = try XCTUnwrap(source.crop.map { sheet.cropping(to: $0) } ?? sheet)
+            XCTAssertEqual([cut.width, cut.height], season == .spring ? [16, 16] : [17, 15], "\(season)")
+            XCTAssertTrue((12...20).contains(CGFloat(cut.height) * PlazaSnowballArt.ballScale(cut)), "\(season) flies 12-20 world px high")
             XCTAssertEqual(PlazaParityGoldens.sha256Hex(cut.pixels.bytes), Self.pinnedCuts[season], "\(season) cut")
             XCTAssertTrue(PlazaSnowballArt.art(season, balls: [cut]).ball.image === cut)
             cuts[season] = cut
@@ -132,7 +131,7 @@ extension PlazaSeasonTests {
             let leaf = BundledArt.image("plaza-leaf-sheet")
             let file: PlazaImage? = switch season {
             case .winter: nil
-            case .spring: leaf?.cropping(to: PlazaPixelRect(x: 33, y: 129, width: 17, height: 15))
+            case .spring: BundledArt.image("plaza-blossom")
             case .summer: BundledArt.image("plaza-water-balloon")
             case .autumn: leaf?.cropping(to: PlazaPixelRect(x: 33, y: 33, width: 17, height: 15))
             }
