@@ -35,9 +35,9 @@ struct PlazaSceneMember: Equatable, Sendable {
 /// `SpriteKitStage`, whose `SKScene` hands this scene its frames, size changes, keys and pause changes).
 @MainActor final class PlazaScene {
     /// 한 프레임에 걸을 수 있는 최대 시간. 잠자기 뒤 같은 큰 간격을 막는다.
-    /// 가장 짧은 칸(달리기)보다 짧아야 한 프레임에 칸이 하나만 바뀐다. 두 칸을 한 번에 가면 그 사이 칸을 팀원에게
-    /// 보내지 못해, 팀원 화면에서는 두 칸 떨어진 칸으로 순간 이동한다.
-    static let maxFrameDelta: TimeInterval = 0.07
+    /// 가장 짧은 칸(폭탄을 들고 달리기, `PlazaBomb.holderRunStepDuration` 0.0625초)보다 짧아야 한 프레임에 칸이 하나만
+    /// 바뀐다. 두 칸을 한 번에 가면 그 사이 칸을 팀원에게 보내지 못해, 팀원 화면에서는 두 칸 떨어진 칸으로 순간 이동한다.
+    static let maxFrameDelta: TimeInterval = 0.06
 
     static let characterScale = PlazaActor.characterScale
 
@@ -82,6 +82,8 @@ struct PlazaSceneMember: Equatable, Sendable {
     var onGreetKey: (() -> Void)?
     /// C(몸통박치기). 판이 닫혀 있을 때만 온다. keyCode로만 판정한다.
     var onTackleKey: (() -> Void)?
+    /// B(끌어당기기). 판이 닫혀 있을 때만 온다. keyCode로만 판정한다.
+    var onDragKey: (() -> Void)?
     /// V(눈덩이). 판이 닫혀 있을 때만 온다. keyCode로만 판정한다.
     var onSnowballKey: (() -> Void)?
     /// G(단체 사진). 판이 닫혀 있을 때만 온다. keyCode로만 판정한다.
@@ -865,10 +867,10 @@ struct PlazaSceneMember: Equatable, Sendable {
             }
             return .swallowed
         }
-        // C(몸통박치기)와 V(눈덩이), P(사진)도 말풍선 키와 같은 규칙: 수정 키가 눌렸거나 자동 반복이면 하지 않는다(P를 누르고 있어도 한 번만 찍는다).
-        if keyCode == Self.cKeyCode || keyCode == Self.vKeyCode || keyCode == Self.pKeyCode {
+        // C(몸통박치기)와 V(눈덩이), B(끌어당기기), P(사진)도 말풍선 키와 같은 규칙: 수정 키가 눌렸거나 자동 반복이면 하지 않는다(P를 누르고 있어도 한 번만 찍는다).
+        if let action = [Self.cKeyCode: onTackleKey, Self.vKeyCode: onSnowballKey, PlazaKeyCode.b: onDragKey, Self.pKeyCode: onPhotoKey][keyCode] {
             if !isRepeat && modifiers.isDisjoint(with: Self.emoteBlockingModifiers) {
-                if keyCode == Self.cKeyCode { onTackleKey?() } else if keyCode == Self.vKeyCode { onSnowballKey?() } else { onPhotoKey?() }
+                action?()
             }
             return .swallowed
         }
@@ -1540,6 +1542,19 @@ struct PlazaSceneMember: Equatable, Sendable {
                                     owner: memberID)
     }
 
+    /// 미니게임에 든 캐릭터 발밑에 고리를 깐다. `marks`는 팀원 ID별 표시, `mine`은 내 표시다. 없는 캐릭터는 고리를 지운다.
+    func setGameMarks(_ marks: [String: PlazaGameMark], mine: PlazaGameMark?) {
+        me.setGameMark(mine)
+        for (id, r) in remotes { r.actor.setGameMark(marks[id]) }
+    }
+
+    /// 테스트용: 발밑에 고리가 깔린 캐릭터들과 그 표시(나는 "").
+    var gameMarks: [String: PlazaGameMark] {
+        var out = remotes.compactMapValues { $0.actor.gameMark }
+        out[""] = me.gameMark
+        return out
+    }
+
     /// 미니게임 폭탄을 든 캐릭터 머리 위에 폭탄을 띄운다. `isMe`면 나, 아니면 `holder`(nil이면 아무도 없다).
     func setBomb(holder: String?, isMe: Bool, urgent: Bool) {
         me.setBomb(isMe, urgent: urgent)
@@ -1559,9 +1574,10 @@ struct PlazaSceneMember: Equatable, Sendable {
         if shake { blastShake = 0 }
     }
 
-    /// 테스트용: 머리 위에 폭탄이 뜬 캐릭터들(나는 nil), 그리고 폭발에 날아가는 중인지.
+    /// 테스트용: 머리 위에 폭탄이 뜬 캐릭터들(나는 nil), 폭발에 날아가는 중인지, 얼마나 그을렸는지.
     var bombHolders: [String?] { (me.hasBomb ? [nil] : []) + remotes.filter { $0.value.actor.hasBomb }.keys.sorted().map { Optional($0) } }
     func isBlasting(memberID: String?) -> Bool { actor(memberID)?.isBlasting ?? false }
+    func sootAmount(memberID: String?) -> CGFloat { actor(memberID)?.sootAmount ?? 0 }
 
     /// 폭발 불꽃의 주인 이름. 내 불꽃(주인 nil)의 간격 제한을 쓰지 않게 한다.
     static let blastOwner = "\u{0}blast"

@@ -150,6 +150,8 @@ final class PlazaOverlayModel {
     var countdown: String?
     /// 스페이스로 말을 걸 수 있을 때 위쪽에 띄우는 안내.
     var hint: String?
+    /// 미니게임이 도는 동안 안내 아래에 띄우는 명단(남은 사람과 탈락한 사람).
+    var gameStatus: String?
     /// 사진 모드. 켜지면 촬영 틀(여백·모서리 괄호·안내 한 줄)을 그린다.
     var isPhotoMode = false
 }

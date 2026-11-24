@@ -616,3 +616,31 @@ final class PlazaGameTests: XCTestCase {
         XCTAssertEqual(try JSONDecoder().decode(PlazaGameState.self, from: data), s)
     }
 }
+
+// MARK: - The ring under a player
+
+extension PlazaGameTests {
+    /// The ring is hollow (the shadow and the feet show through), coloured by the mark, with a dark line outside.
+    func testTheRingIsAHollowEllipseInTheMarksColour() async {
+        let size = PlazaGameMarkArt.size(forShadow: CGSize(width: 34, height: 11))
+        XCTAssertEqual(size.width, 46)
+        XCTAssertEqual(size.height, 19)
+        let alive = PlazaGameMarkArt.image(width: size.width, height: size.height, mark: .alive).pixels
+        let out = PlazaGameMarkArt.image(width: size.width, height: size.height, mark: .out).pixels
+        XCTAssertEqual(alive[size.width / 2, size.height / 2].a, 0, "nothing in the middle")
+        XCTAssertEqual(alive[0, 0].a, 0, "nothing in the corners")
+        XCTAssertEqual(alive[0, size.height / 2], PlazaRGBA(r: 0x14, g: 0x16, b: 0x1F, a: 255), "the dark line outside")
+        XCTAssertEqual(alive[2, size.height / 2], PlazaRGBA(r: 0xF2, g: 0xC1, b: 0x4E, a: 255), "the band")
+        XCTAssertEqual(out[2, size.height / 2], PlazaRGBA(r: 0x8C, g: 0x8F, b: 0x99, a: 255))
+        XCTAssertEqual(alive[PlazaGameMarkArt.line + PlazaGameMarkArt.band + 1, size.height / 2].a, 0, "hollow right inside the band")
+    }
+
+    /// A member's mark: the holder first, then still in, then out; nobody else has one.
+    func testAMembersMark() async {
+        var view = PlazaGameView()
+        view.alive = ["a", "b"]
+        view.out = ["c"]
+        view.holder = "a"
+        XCTAssertEqual(["a", "b", "c", "d"].map(view.mark), [.holder, .alive, .out, nil])
+    }
+}

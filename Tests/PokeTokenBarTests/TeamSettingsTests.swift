@@ -539,4 +539,25 @@ final class TeamSettingsTests: XCTestCase {
         RunLoop.main.run(until: Date().addingTimeInterval(0.1))
         XCTAssertEqual(team.currentTeam?.name, "디자인")
     }
+
+    // MARK: - 코드 복사는 클립보드 관리자·유니버설 클립보드를 피한다
+
+    /// 일반 pasteboard 가 아니라 이름 붙은 개인 pasteboard 만 쓴다. 코드는 눈에 띄는 가짜다.
+    func testCopiedTeamCodeIsConcealedFromClipboardManagers() {
+        let board = NSPasteboard(name: NSPasteboard.Name("ptb.test." + UUID().uuidString))
+        defer { board.releaseGlobally() }
+        board.clearContents()
+        board.setString("an older clipboard text", forType: .string)
+
+        TeamCodePasteboard.write("FAKE-FAKE-FAKE-FAKE", to: board)
+
+        XCTAssertEqual(board.string(forType: .string), "FAKE-FAKE-FAKE-FAKE")
+        let types = board.types ?? []
+        XCTAssertTrue(types.contains(TeamCodePasteboard.concealedType), "password managers' marker: \(types)")
+        XCTAssertTrue(types.contains(TeamCodePasteboard.transientType), "auto-expiry marker: \(types)")
+        XCTAssertEqual(TeamCodePasteboard.concealedType.rawValue, "org.nspasteboard.ConcealedType")
+        XCTAssertEqual(TeamCodePasteboard.transientType.rawValue, "org.nspasteboard.TransientType")
+        // The old contents are gone, not merged into the new item.
+        XCTAssertEqual(board.pasteboardItems?.count, 1)
+    }
 }

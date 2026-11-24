@@ -90,6 +90,6 @@ extension PlazaDanceTests {
     // MARK: 안내
 
     func testTheShortcutGuideListsD() async {
-        XCTAssertTrue(PlazaShortcutGuide.entries.contains { $0.key == "D" && $0.label == "춤" })
+        XCTAssertTrue(PlazaShortcutGuide.entries.contains { $0.key == "D F" && $0.label == "춤 · 불꽃" })
     }
 }

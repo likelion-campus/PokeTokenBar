@@ -69,3 +69,59 @@ final class PlazaActorTests: XCTestCase {
         XCTAssertFalse(actor.isSubmergedBodyVisible)
     }
 }
+
+// MARK: - The minigame ring
+
+extension PlazaActorTests {
+    /// The ring joins the world only while the actor is marked, so an actor outside a game has the nodes it always had.
+    func testTheGameRingIsInTheWorldOnlyWhileMarked() async {
+        let world = PlazaNode(), camera = PlazaCameraNode()
+        let actor = PlazaActor(name: "a", color: PlazaNameColor.palette[0])
+        actor.attach(world: world, camera: camera)
+        let plain = world.children.count
+        actor.setGameMark(.alive)
+        XCTAssertEqual(world.children.count, plain + 1)
+        XCTAssertEqual(world.children.last?.zPosition ?? 0, 0.6, accuracy: 0.001, "just above the shadow, under the character")
+        actor.setGameMark(.out)
+        XCTAssertEqual(world.children.count, plain + 1, "a new colour, the same node")
+        actor.setGameMark(nil)
+        XCTAssertTrue(world.children.elementsEqual(actor.worldNodes, by: ===))
+        // Marked before it is attached (a teammate who walks in mid-game): the ring comes with it, and leaves with it.
+        let late = PlazaActor(name: "b", color: PlazaNameColor.palette[0])
+        late.setGameMark(.alive)
+        late.attach(world: world, camera: camera)
+        XCTAssertEqual(world.children.count, plain + late.worldNodes.count + 1)
+        late.detach()
+        XCTAssertEqual(world.children.count, plain)
+    }
+
+    /// Blown up and out: sooty for as long as the game marks the actor out, however long that is. The usual soot time
+    /// starts only when the mark goes (the game ended).
+    func testABlownUpActorStaysSootyWhileItIsMarkedOut() async {
+        let actor = PlazaActor(name: "a", color: PlazaNameColor.palette[0])
+        actor.blast()
+        actor.setGameMark(.out)
+        actor.animate(by: 10 * PlazaActor.sootDuration, useBack: false)
+        XCTAssertEqual(actor.sootAmount, PlazaActor.sootBlend)
+        actor.setGameMark(nil)
+        actor.animate(by: PlazaActor.sootDuration - PlazaActor.sootFade / 2, useBack: false)
+        XCTAssertEqual(actor.sootAmount, PlazaActor.sootBlend / 2, accuracy: 0.001, "fading once the game is over")
+        actor.animate(by: PlazaActor.sootFade, useBack: false)
+        XCTAssertEqual(actor.sootAmount, 0)
+    }
+
+    /// The last one out is never marked out (the game ends with that blast), so the soot runs out by itself. And the
+    /// mark alone makes nobody sooty: a player who left the game did not blow up.
+    func testSootRunsOutWithoutTheOutMarkAndTheMarkAloneIsClean() async {
+        let last = PlazaActor(name: "a", color: PlazaNameColor.palette[0])
+        last.blast()
+        last.animate(by: 1, useBack: false)
+        XCTAssertEqual(last.sootAmount, PlazaActor.sootBlend)
+        last.animate(by: PlazaActor.sootDuration, useBack: false)
+        XCTAssertEqual(last.sootAmount, 0)
+        let left = PlazaActor(name: "b", color: PlazaNameColor.palette[0])
+        left.setGameMark(.out)
+        left.animate(by: 1, useBack: false)
+        XCTAssertEqual(left.sootAmount, 0)
+    }
+}

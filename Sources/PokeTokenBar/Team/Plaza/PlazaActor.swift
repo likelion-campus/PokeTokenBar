@@ -45,6 +45,12 @@ struct PlazaActorContext {
     private var wetRemaining: TimeInterval = 0
     private static let wetSize = CGSize(width: 16, height: 16)
     private static let wetTexture = PlazaTexture(PlazaPondArt.wetImage(scale: 4))
+    /// 미니게임에 든 캐릭터 발밑의 고리(남은 참가자, 폭탄을 든 사람, 탈락한 사람). 그림자 바로 위에 깔린다. 폭탄처럼 표시가
+    /// 있는 동안에만 월드에 들어가서, 판 밖의 캐릭터는 노드가 예전과 같다.
+    private let markNode = PlazaSprite()
+    private(set) var gameMark: PlazaGameMark?
+    private var markKey: (mark: PlazaGameMark, width: Int, height: Int)?
+    private weak var worldParent: PlazaNode?
     /// 미니게임 폭탄. 들고 있는 캐릭터의 이름표 위(말풍선이 떠 있으면 그 위)에 뜬다. 말풍선과 별개의 노드다.
     private let bombNode = PlazaSprite()
     static let bombSize = CGSize(width: 48, height: 48)   // 16px 시트 × 3
@@ -59,6 +65,7 @@ struct PlazaActorContext {
     /// 불꽃이 깜빡이는 간격. 곧 터질 때는 빨라진다.
     static let bombFrameDuration: TimeInterval = 0.14, bombUrgentFrameDuration: TimeInterval = 0.05
     /// 폭발에 날아가는 시간과 높이, 도는 바퀴 수. 그 뒤 `sootDuration` 동안 그을려 있다가 마지막 `sootFade` 동안 돌아온다.
+    /// 탈락 표시(`gameMark == .out`)가 있는 동안은 그 시간이 흐르지 않는다: 게임이 끝날 때까지 그을려 있다.
     static let blastDuration: TimeInterval = 0.9, blastHeight: CGFloat = 56, blastTurns: CGFloat = 2
     /// 곧 터질 폭탄이 붉게 부푸는 빠르기(rad/s). |sin|이라 초당 약 2.9번: 초당 세 번을 넘는 깜빡임은 쓰지 않는다.
     static let bombPulseRate: Double = 9
@@ -167,6 +174,8 @@ struct PlazaActorContext {
         wetNode.anchorPoint = CGPoint(x: 0, y: 0.5)
         wetNode.zPosition = 11
         wetNode.isHidden = true
+        markNode.anchorPoint = .zero
+        markNode.zPosition = 0.6
         bombNode.size = Self.bombSize
         bombNode.anchorPoint = CGPoint(x: 0.5, y: 0)
         bombNode.zPosition = 12
@@ -178,7 +187,9 @@ struct PlazaActorContext {
         for node in worldNodes { world.addChild(node) }
         for node in cameraNodes { camera.addChild(node) }
         cameraParent = camera
+        worldParent = world
         if hasBomb { camera.addChild(bombNode) }
+        if gameMark != nil { world.addChild(markNode) }
     }
 
     /// What `attach` adds to the world, in this order: shadow, character, swim ring, submerged ghost (in its crop), nest rim.
@@ -198,6 +209,7 @@ struct PlazaActorContext {
         emoteNode.removeFromParent()
         wetNode.removeFromParent()
         bombNode.removeFromParent()
+        markNode.removeFromParent()
     }
 
     /// 💧를 `PlazaPond.wetDuration`초 동안 이름표 옆에 띄운다. 다시 젖으면 시간을 처음부터 잰다.
@@ -274,6 +286,29 @@ struct PlazaActorContext {
 
     func wobble() {
         wobbleElapsed = 0
+    }
+
+    /// 미니게임 고리를 발밑에 깔거나(표시가 바뀌면 색을 바꾸고) 지운다. 자리와 크기는 다음 `place`가 그림자에 맞춘다.
+    func setGameMark(_ mark: PlazaGameMark?) {
+        if mark == gameMark { return }
+        let was = gameMark
+        gameMark = mark
+        if mark == nil { markNode.removeFromParent() } else if was == nil { worldParent?.addChild(markNode) }
+    }
+
+    /// 고리를 그림자 둘레에 맞춘다. 그림자 크기나 표시가 바뀔 때만 그림을 새로 만든다. 풀숲에 가린 만큼 같이 흐려진다.
+    private func placeMark(alpha: CGFloat) {
+        guard let mark = gameMark else { return }
+        let size = PlazaGameMarkArt.size(forShadow: shadowNode.size)
+        if markKey?.mark != mark || markKey?.width != size.width || markKey?.height != size.height {
+            markKey = (mark, size.width, size.height)
+            markNode.texture = PlazaTexture(PlazaGameMarkArt.image(width: size.width, height: size.height, mark: mark))
+            markNode.size = CGSize(width: size.width, height: size.height)
+        }
+        markNode.isHidden = shadowNode.isHidden   // 그림이 오기 전에는 그림자도 고리도 없다
+        markNode.alpha = alpha
+        markNode.position = CGPoint(x: shadowNode.position.x - (CGFloat(size.width) - shadowNode.size.width) / 2,
+                                    y: shadowNode.position.y - (CGFloat(size.height) - shadowNode.size.height) / 2)
     }
 
     /// 미니게임 폭탄을 머리 위에 띄우거나 지운다. `urgent`면 곧 터진다: 불꽃이 빨리 깜빡이고 폭탄이 붉게 부푼다.
@@ -407,7 +442,7 @@ struct PlazaActorContext {
         if let e = blastElapsed {
             blastElapsed = e + dt >= Self.blastDuration ? nil : e + dt
         }
-        if sootRemaining > 0 { sootRemaining = max(0, sootRemaining - dt) }
+        if sootRemaining > 0, gameMark != .out { sootRemaining = max(0, sootRemaining - dt) }
         if characterNode.colorBlendFactor != sootAmount { characterNode.colorBlendFactor = sootAmount }
         if let e = bombElapsed { bombElapsed = e + dt }
         if wetRemaining > 0 {
@@ -486,6 +521,7 @@ struct PlazaActorContext {
         let shadowCenterY = context.worldHeight - (foot.y - (shadowSize.height * 0.12).rounded())
         shadowNode.position = CGPoint(x: snap(foot.x - shadowSize.width / 2), y: snap(shadowCenterY - shadowSize.height / 2))
         nestFrontNode.position = shadowNode.position
+        placeMark(alpha: alpha)
         // 내 알 바로 앞. 더 아래(앞)에 선 캐릭터보다는 뒤다(한 칸 차이가 이 값보다 훨씬 크다).
         nestFrontNode.zPosition = characterNode.zPosition + 0.0001
         let footScene = CGPoint(x: snap(foot.x), y: snap(context.worldHeight - foot.y + CGFloat(pose.bob) + jumpLift + blastLift + dancePose.lift))

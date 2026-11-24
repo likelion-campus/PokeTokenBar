@@ -302,17 +302,113 @@ final class PlazaGameControllerTests: XCTestCase {
         XCTAssertEqual(w.c.gameState?.bomb?.pass, 0)
     }
 
-    func testTheHoldersThrowHandsMeTheBombWhenItLands() async {
+    /// Only a tackle passes the bomb: the holder's throw lands on me and pushes me as always, and the bomb stays.
+    func testTheHoldersThrowDoesNotHandMeTheBomb() async {
         let w = await world()
         let starts = await hostedByTeammate(w, holder: w.b.id)
         now = starts.addingTimeInterval(2)
         await sync(w)
         w.c.showSnowball(from: w.b.id, on: w.me.id, tiles: 1, direction: .left)
-        XCTAssertEqual(w.c.gameState?.bomb?.holder, w.b.id, "not before it lands")
         await settle()
         for _ in 0..<40 { t += 0.05; w.scene.update(t) }
         await settle()
-        XCTAssertEqual(w.c.gameState?.bomb?.holder, w.me.id)
+        XCTAssertEqual(w.scene.walker.tile, TilePoint(x: mine.x - 1, y: mine.y), "the throw landed and pushed me")
+        XCTAssertEqual(w.c.gameState?.bomb?.holder, w.b.id)
+        XCTAssertEqual(w.c.gameState?.bomb?.pass, 0)
+    }
+
+    // MARK: - Who plays: the rings, the minimap, the list
+
+    /// From the moment the players are locked in, each has a ring under their feet and around their minimap dot, and
+    /// the list under the hint names them. The holder's ring is the bomb's colour once the bomb is live.
+    func testPlayersAreRingedAndListedFromTheCountdown() async {
+        let w = await world()
+        XCTAssertEqual(w.scene.gameMarks, [:], "nobody is marked outside a game")
+        XCTAssertNil(w.c.gameStatus)
+        let starts = await hostedByTeammate(w, holder: w.b.id)
+        now = starts.addingTimeInterval(-2)
+        w.c.advanceGame()
+        XCTAssertEqual(w.scene.gameMarks, ["": .alive, w.b.id: .alive], "the countdown: both in, no holder shown yet")
+        XCTAssertEqual(Dictionary(uniqueKeysWithValues: w.c.minimapDots.map { ($0.id, $0.game) }), [w.me.id: .alive, w.b.id: .alive])
+        XCTAssertEqual(w.c.gameStatus, L(.ko).plazaGameStatus(alive: ["나", "가"].sorted { a, b in
+            (a == "나" ? w.me.id : w.b.id) < (b == "나" ? w.me.id : w.b.id)
+        }, out: [], holder: nil))
+        now = starts.addingTimeInterval(2)
+        w.c.advanceGame()
+        XCTAssertEqual(w.scene.gameMarks, ["": .alive, w.b.id: .holder])
+        XCTAssertEqual(w.c.minimapDots.first { $0.id == w.b.id }?.game, .holder)
+        XCTAssertTrue(w.c.gameStatus?.contains("💣가") == true, "the holder is named with the bomb")
+    }
+
+    /// Whoever blew up keeps a grey ring and moves to the "out" half of the list until the game is over; then every
+    /// mark goes.
+    func testAnOutPlayerIsMarkedOutUntilTheGameEnds() async throws {
+        let w = await world()
+        let c = node("다")
+        hub.connect(w.me.transport, to: c.transport)
+        hub.connect(w.b.transport, to: c.transport)
+        await settle()
+        c.session.updatePlazaPosition(inPlaza: true, tile: TilePoint(x: 14, y: 6), facing: .left, isWalking: false, isFlushed: false)
+        for _ in 0..<200 where w.scene.memberTiles[c.id] == nil { await Task.yield(); t += 0.05; w.scene.update(t) }
+        // A three-player game that the teammate hosts; the third player's plaza steps along with the other two.
+        func syncAll() async {
+            for _ in 0..<6 {
+                w.b.step(now)
+                c.step(now)
+                await settle()
+                w.c.advanceGame()
+                await settle()
+            }
+        }
+        let players = [w.me.id, w.b.id, c.id].sorted()
+        let seed = (UInt64(1)...500).first { PlazaBomb.firstHolder(seed: $0, round: 1, alive: players) == w.b.id }!
+        w.b.engine.makeSeed = { seed }
+        XCTAssertTrue(w.b.engine.open(.bomb, now: now))
+        await syncAll()
+        press(w.c, yKey)
+        c.engine.answer(join: true, now: now)
+        await syncAll()
+        now += PlazaGame.recruitSeconds
+        await syncAll()
+        let s = try XCTUnwrap(w.c.gameState)
+        XCTAssertEqual(s.players, players, "test precondition")
+        let starts = Date(timeIntervalSince1970: s.startsAt ?? 0)
+        now = starts.addingTimeInterval(PlazaBomb.fuse(seed: s.seed, round: 1) + 0.1)
+        await syncAll()
+        XCTAssertEqual(w.c.gameState?.bomb?.out, [w.b.id])
+        XCTAssertEqual(w.scene.gameMarks[w.b.id], .out)
+        XCTAssertEqual(w.scene.gameMarks[""], .alive)
+        XCTAssertEqual(w.c.minimapDots.first { $0.id == w.b.id }?.game, .out)
+        XCTAssertTrue(w.c.gameStatus?.hasSuffix("탈락 가") == true, w.c.gameStatus ?? "nil")
+        // The game goes on without them, and they stay sooty for all of it: past the time the soot lasts by itself.
+        for _ in 0..<Int(2 * PlazaActor.sootDuration / 0.05) { t += 0.05; w.scene.update(t) }
+        XCTAssertEqual(w.scene.gameMarks[w.b.id], .out, "test precondition: the game is still on")
+        XCTAssertEqual(w.scene.sootAmount(memberID: w.b.id), PlazaActor.sootBlend)
+    }
+
+    /// When the game is over nobody is marked any more.
+    func testTheMarksGoWhenTheGameEnds() async throws {
+        let w = await world()
+        let starts = await hostedByTeammate(w, holder: w.b.id)
+        let s = try XCTUnwrap(w.c.gameState)
+        now = starts.addingTimeInterval(PlazaBomb.fuse(seed: s.seed, round: 1) + 0.1)
+        await sync(w)
+        XCTAssertEqual(w.c.gameState?.winner, w.me.id, "test precondition")
+        XCTAssertEqual(w.scene.gameMarks, [:])
+        XCTAssertNil(w.c.gameStatus)
+        XCTAssertTrue(w.c.minimapDots.allSatisfy { $0.game == nil })
+    }
+
+    /// The list hides with the hint line in photo mode.
+    func testTheListHidesInPhotoMode() async {
+        let w = await world()
+        let starts = await hostedByTeammate(w, holder: w.b.id)
+        now = starts.addingTimeInterval(2)
+        w.c.advanceGame()
+        XCTAssertNotNil(w.c.gameStatus)
+        w.scene.enterPhotoMode()
+        w.c.advanceGame()
+        XCTAssertNil(w.c.gameStatus)
     }
 
     func testIBlowUpWhenTheFuseRunsOutInMyHandsAndTheTeammateWins() async {

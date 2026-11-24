@@ -470,16 +470,18 @@ extension L {
     var plazaShortcutChat: String { "한마디" }
     var plazaShortcutEmotes: String { "말풍선" }
     var plazaShortcutZoom: String { "확대·축소" }
-    var plazaShortcutFirework: String { "불꽃놀이" }
-    var plazaShortcutDance: String { "춤" }
+    var plazaShortcutDanceFirework: String { "춤 · 불꽃" }
     var plazaShortcutPray: String { "기도(알)" }
+    /// 오늘의 기도 부화를 이미 썼을 때 알의 안내 줄 앞에 붙는 말. 기도 자체는 그대로 된다.
+    var plazaPrayerHatchUsedHint: String { "오늘은 기도로 이미 부화시켰어요 · 내일 다시 기도로 부화할 수 있어요" }
     /// 기도한 직후 잠깐 보이는 횟수.
-    func plazaPrayedHint(prayers: Int) -> String { "기도 \(prayers)번" }
-    /// 오늘 셀 기도를 다 했을 때. 알일 때의 안내 줄이 이것으로 바뀐다.
-    func plazaPrayDoneHint(prayers: Int) -> String { "오늘 기도는 다 했어요 (하루 \(PokemonBalance.prayersPerDay)번) · 기도 \(prayers)번" }
+    func plazaPrayedHint(prayers: Int, hatchUsed: Bool = false) -> String {
+        hatchUsed ? plazaPrayerHatchUsedHint + " · 기도 \(prayers)번" : "기도 \(prayers)번"
+    }
     /// 알일 때 위쪽 안내 줄. 아직 기도한 적이 없으면 방법만 보인다.
-    func plazaPrayHint(prayers: Int) -> String {
-        prayers > 0 ? "A를 눌러 기도하기 · 기도 \(prayers)번" : "A를 눌러 기도하기"
+    func plazaPrayHint(prayers: Int, hatchUsed: Bool = false) -> String {
+        let how = hatchUsed ? "A를 눌러 기도하기 · " + plazaPrayerHatchUsedHint : "A를 눌러 기도하기"
+        return prayers > 0 ? how + " · 기도 \(prayers)번" : how
     }
     /// 광장에서 주운 아이템. 조사까지 붙인 목적어 꼴이다.
     func plazaItemObject(_ kind: ItemKind) -> String {
@@ -523,7 +525,7 @@ extension L {
     var plazaGameUnknownName: String { "새 미니게임" }
     func plazaGameRules(_ kind: PlazaGameKind) -> [String] {
         switch kind {
-        case .bomb: ["폭탄을 들면 C(치기)나 V(던지기)로 넘겨요", "터질 때 들고 있으면 탈락!", "마지막 한 명이 이겨요 · 한 판 1~3분"]
+        case .bomb: ["폭탄은 몸통박치기(C)로 넘길 수 있어요", "터질 때 들고 있으면 탈락!", "마지막 한 명이 이겨요 · 한 판 1~3분"]
         }
     }
     func plazaGameMenuRow(_ kind: PlazaGameKind) -> String { "\(plazaGameName(kind)) 열기" }
@@ -552,9 +554,14 @@ extension L {
     var plazaGameNextBomb: String { "다음 폭탄!" }
     func plazaGameOut(nickname: String?) -> String { nickname.map { "\($0) 탈락!" } ?? "탈락!" }
     func plazaGameWin(nickname: String?) -> String { nickname.map { "\($0) 승리!" } ?? "승리!" }
-    var plazaGameHoldHint: String { "💣 폭탄! C로 치거나 V로 맞혀 넘기세요" }
+    var plazaGameHoldHint: String { "💣 폭탄! 몸통박치기(C)로 넘기세요" }
     func plazaGameNoReturnHint(nickname: String) -> String { "💣 \(nickname)님에겐 잠깐 뒤에 돌려줄 수 있어요" }
-    var plazaGameWaterHint: String { "💣 물에서는 던질 수 없어요 · 뭍으로 나가 C나 V로 넘기세요" }
+    /// 판이 도는 동안 안내 줄 아래에 늘 보이는 명단. 폭탄을 든 사람 이름 앞에는 💣가 붙는다.
+    func plazaGameStatus(alive: [String], out: [String], holder: String?) -> String {
+        let names = alive.map { $0 == holder ? "💣\($0)" : $0 }.joined(separator: " · ")
+        let left = "남은 \(alive.count)명 \(names)"
+        return out.isEmpty ? left : "\(left)  |  탈락 \(out.joined(separator: " · "))"
+    }
     var plazaGameScatterHint: String { "곧 폭탄이 나와요 · 서로 흩어지세요" }
     func plazaGameRunHint(nickname: String) -> String { "\(nickname)님이 폭탄을 들었어요 · 도망치세요!" }
     func plazaGameOutHint(left: Int) -> String { "탈락 · 남은 \(left)명을 구경해요" }

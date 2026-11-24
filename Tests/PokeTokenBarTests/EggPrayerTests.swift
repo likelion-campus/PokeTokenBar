@@ -13,12 +13,8 @@ private struct PrayerOfflineProvider: PokeProviding {
 final class EggPrayerTests: XCTestCase {
     private var now = Date(timeIntervalSince1970: 1_700_000_000)
 
-    /// `times` prayers that all count: the clock moves a day on whenever today's (`prayersPerDay`) are used up.
     private func pray(_ store: CompanionStore, times: Int) {
-        for _ in 0..<times {
-            if store.isPrayerDoneToday { now = now.addingTimeInterval(86_400) }
-            store.pray()
-        }
+        for _ in 0..<times { store.pray() }
     }
     private let line = EvoLine(
         baseID: 1,
@@ -389,8 +385,8 @@ final class EggPrayerTests: XCTestCase {
         let prayed = FloatingPetView.hoverTooltip(todayTokens: 1, limitUtilization: nil, mode: .used, l: l, prayers: 3)
         XCTAssertFalse(plain.contains("기도"))
         XCTAssertEqual(prayed, plain + "\n기도 3회 · 일단 한번 빌어봄")
-        let done = FloatingPetView.hoverTooltip(todayTokens: 1, limitUtilization: nil, mode: .used, l: l, prayers: 3, prayersDoneToday: true)
-        XCTAssertEqual(done, prayed + "\n오늘 기도는 다 했어요 (하루 2번)")
+        let done = FloatingPetView.hoverTooltip(todayTokens: 1, limitUtilization: nil, mode: .used, l: l, prayers: 3, prayerHatchUsedToday: true)
+        XCTAssertEqual(done, prayed + "\n오늘은 기도로 이미 부화시켰어요 · 내일 다시 기도로 부화할 수 있어요")
     }
 
     // MARK: prayer-triggered usage refresh
@@ -400,18 +396,6 @@ final class EggPrayerTests: XCTestCase {
                        didPray: { log.didPray += 1 },
                        spawnEmoji: { log.emojis += 1 }, refreshUsage: { log.refreshes += 1 },
                        openPopover: { log.opens += 1 }, clock: clock)
-    }
-
-    /// Once today's prayers are used up a click counts nothing and shows no 🙏; it only rebuilds the hover text.
-    func testAClickPastTodaysPrayersOnlyRefreshesTheHoverText() {
-        let log = PrayerCallLog()
-        var left = 1
-        let router = PetClickRouter(pray: { log.prays += 1; left -= 1 }, prayerCount: { log.prays }, canPray: { left > 0 },
-                                    didPray: { log.didPray += 1 }, spawnEmoji: { log.emojis += 1 },
-                                    refreshUsage: { log.refreshes += 1 }, openPopover: { log.opens += 1 }, clock: { self.now })
-        router.handle(subjectIsEgg: true)
-        router.handle(subjectIsEgg: true)
-        XCTAssertEqual([log.prays, log.emojis, log.didPray], [1, 1, 2])
     }
 
     private func pray(_ times: Int, on router: PetClickRouter) {

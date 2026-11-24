@@ -199,7 +199,7 @@ enum SaveTransfer {
     ///
     /// `CompanionState` 의 필드는 이전 관점에서 세 부류다.
     ///  - **진행**: 어느 기기에서든 참(`usedSinceInstall`·`dex`·`inventory`·`active`·`eggUsage`·`eggTier`·
-    ///    `pendingHatchID`·`pendingForm`·`eggPrayers`·`representativeSpeciesID`·`representativeForm`…)
+    ///    `pendingHatchID`·`pendingForm`·`eggPrayers`·`lastPrayerHatchDay`·`representativeSpeciesID`·`representativeForm`…)
     ///    → 그대로. 알 보증(`eggTier`)은 산 물건이지 이 기기의 장부가 아니라 기기를 옮겨도 따라간다.
     ///  - **로컬 장부**: *그 기기가* 어디까지 적립했나(`claimedTodayTokensByProvider`·`lastDate`·`installBaselineSet`)
     ///    → 새 기기 기준으로 다시 잡는다. 그대로 들여오면 옛 기기의 오늘 총량이 문턱이 되어
@@ -223,6 +223,7 @@ enum SaveTransfer {
             imported.candyWindowEpoch, imported.candyGrantTier,
             current.candyWindowEpoch, current.candyGrantTier)
         state.candyFeatureSeeded = imported.candyFeatureSeeded || current.candyFeatureSeeded
+        state.formatVersion = CompanionState.currentFormatVersion
         let hasCurrentProviderData = hasUsageData && !todayTokensByProvider.isEmpty
         if hasCurrentProviderData {
             // 신규 설치와 같은 규칙: 불러온 시점 이전의 이 기기 사용량은 소급 적립하지 않는다.

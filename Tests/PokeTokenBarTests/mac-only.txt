@@ -255,3 +255,4 @@ PlazaPondSweepTests+Mac.swift
 WindowsMessageParameterScanTests.swift
 # LiveFetchForbiddenTests: scans the Windows sources with SharedSources (SharedSourcesScanTests.swift), which is Mac-only
 LiveFetchForbiddenTests.swift
+AuditStabilityMacTests.swift

@@ -551,14 +551,17 @@ final class SaveTransferTests: XCTestCase {
     func testEveryCompanionStateFieldIsClassifiedForTransfer() async {
         // eggTier(알 등급 보증) = 진행 — 산 물건이지 이 기기의 장부가 아니라 기기를 옮겨도 따라간다.
         // eggPrayers = 진행 — 품고 있는 알에 붙은 기록이라 알과 함께 이동한다.
+        // lastPrayerHatchDay = 진행 — 알의 기도 부화를 오늘 썼는지는 세이브와 함께 간다(옮겨도 새 기도 부화가 생기지 않는다).
         // notifiedDexCompletions·dexCompletionsSeeded = 진행 — 완성 알림 기록은 도감(dex)에서 파생되므로
         // 도감과 함께 따라가야 한다(옮긴 기기에서 같은 완성분에 중복 알림을 울리지 않는다).
         let progress: Set<String> = ["usedSinceInstall", "spentTokens", "eggUsage", "eggTier",
-                                     "pendingHatchID", "pendingForm", "eggPrayers", "active",
+                                     "pendingHatchID", "pendingForm", "eggPrayers", "lastPrayerHatchDay", "active",
                                      "representativeSpeciesID", "representativeForm", "dex",
                                      "collectedFinals", "inventory",
                                      "notifiedDexCompletions", "dexCompletionsSeeded"]
-        let deviceLedger: Set<String> = ["installBaselineSet", "claimedTodayTokensByProvider", "lastDate"]
+        // formatVersion = 로컬(받은 세이브는 현재 형식으로 재작성).
+        let deviceLedger: Set<String> = ["installBaselineSet", "claimedTodayTokensByProvider", "lastDate",
+                                         "formatVersion"]
         let accountLedger: Set<String> = ["candyGrantTier", "candyWindowEpoch", "candyFeatureSeeded"]
         let devicePreference: Set<String> = ["language"]
 

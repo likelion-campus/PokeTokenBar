@@ -189,8 +189,9 @@ final class PopoverPetExtrasTwinEquivalenceTests: XCTestCase {
                 let sulk = pick([0, 3600 * 5, 3600 * 47, 3600 * 48, 3600 * 24 * 9] as [TimeInterval])
                 let event: String? = pick([nil, "Bulbasaur hatched!", "이상해씨가 이상해풀로 진화했어요"])
                 let prayers = pick([0, 1, 29, 30, 120])
-                XCTAssertEqual(FloatingPetHoverText.hoverTooltip(todayTokens: tokens, limitUtilization: limit, mode: mode, l: l, sulkIdle: sulk, eventLine: event, prayers: prayers),
-                               FloatingPetView.hoverTooltip(todayTokens: tokens, limitUtilization: limit, mode: mode, l: l, sulkIdle: sulk, eventLine: event, prayers: prayers))
+                let hatchUsed = pick([false, true])
+                XCTAssertEqual(FloatingPetHoverText.hoverTooltip(todayTokens: tokens, limitUtilization: limit, mode: mode, l: l, sulkIdle: sulk, eventLine: event, prayers: prayers, prayerHatchUsedToday: hatchUsed),
+                               FloatingPetView.hoverTooltip(todayTokens: tokens, limitUtilization: limit, mode: mode, l: l, sulkIdle: sulk, eventLine: event, prayers: prayers, prayerHatchUsedToday: hatchUsed))
             }
         }
     }

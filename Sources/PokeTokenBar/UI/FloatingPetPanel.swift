@@ -292,7 +292,6 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
     private lazy var clickRouter = PetClickRouter(
         pray: { [weak self] in self?.companion.pray() },
         prayerCount: { [weak self] in self?.companion.state.eggPrayers?.count ?? 0 },
-        canPray: { [weak self] in self?.companion.canPray ?? false },
         didPray: { [weak self] in self?.refreshHoverAfterPrayer() },
         spawnEmoji: { [weak self] in self?.prayerBurst.spawn() },
         refreshUsage: { [weak self] in
@@ -701,7 +700,7 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
             sulkIdle: companion.sulkIdle,
             eventLine: eventPopText,
             prayers: companion.representativeSubject.speciesID == nil ? companion.state.eggPrayers?.count ?? 0 : 0,
-            prayersDoneToday: companion.representativeSubject.speciesID == nil && companion.isPrayerDoneToday)
+            prayerHatchUsedToday: companion.representativeSubject.speciesID == nil && companion.isPrayerHatchUsedToday)
     }
 
     /// A prayer changes the count in the hover text. Rebuild it right here instead of waiting for the observation
@@ -851,8 +850,6 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
 final class PetClickRouter {
     private let pray: () -> Void
     private let prayerCount: () -> Int
-    /// False once today's prayers are used up: the click then only refreshes the hover text, which says so.
-    private let canPray: () -> Bool
     private let didPray: () -> Void
     private let spawnEmoji: () -> Void
     private let refreshUsage: () -> Void
@@ -862,11 +859,10 @@ final class PetClickRouter {
     /// In memory only: after a restart the first click past a milestone may refresh once more, which is harmless.
     private var lastRefreshedMilestone = 0
 
-    init(pray: @escaping () -> Void, prayerCount: @escaping () -> Int, canPray: @escaping () -> Bool = { true }, didPray: @escaping () -> Void = {}, spawnEmoji: @escaping () -> Void, refreshUsage: @escaping () -> Void,
+    init(pray: @escaping () -> Void, prayerCount: @escaping () -> Int, didPray: @escaping () -> Void = {}, spawnEmoji: @escaping () -> Void, refreshUsage: @escaping () -> Void,
          openPopover: @escaping () -> Void, clock: @escaping () -> Date) {
         self.pray = pray
         self.prayerCount = prayerCount
-        self.canPray = canPray
         self.didPray = didPray
         self.spawnEmoji = spawnEmoji
         self.refreshUsage = refreshUsage
@@ -877,7 +873,6 @@ final class PetClickRouter {
     func handle(subjectIsEgg: Bool) {
         switch FloatingPetController.clickAction(subjectIsEgg: subjectIsEgg) {
         case .pray:
-            guard canPray() else { didPray(); return }
             pray()
             spawnEmoji()
             didPray()
@@ -1091,7 +1086,7 @@ struct FloatingPetView: View {
     /// `sulkIdle` > 0 appends how long the companion has been sulking: hours below 48 h, days from there.
     static func hoverTooltip(todayTokens: Int, limitUtilization: Double?,
                              mode: UsageStore.LimitDisplayMode, l: L, sulkIdle: TimeInterval = 0,
-                             eventLine: String? = nil, prayers: Int = 0, prayersDoneToday: Bool = false) -> String {
+                             eventLine: String? = nil, prayers: Int = 0, prayerHatchUsedToday: Bool = false) -> String {
         let usage = TokenFormatter.grouped(todayTokens)
         var base = l.floatingPetHoverTokensOnly(usage)
         if let pct = limitUtilization {
@@ -1104,7 +1099,7 @@ struct FloatingPetView: View {
         }
         if let eventLine { base += "\n" + eventLine }
         if prayers > 0 { base += "\n" + l.prayerHoverLine(prayers) }
-        if prayersDoneToday { base += "\n" + l.prayerDoneToday(PokemonBalance.prayersPerDay) }
+        if prayerHatchUsedToday { base += "\n" + l.prayerHatchUsedToday }
         return base
     }
 }

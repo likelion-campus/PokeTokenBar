@@ -86,8 +86,6 @@ enum FloatingPetRules {
 final class PopoverPetClickRouter {
     private let pray: () -> Void
     private let prayerCount: () -> Int
-    /// False once today's prayers are used up: the click then only refreshes the hover text, which says so.
-    private let canPray: () -> Bool
     private let didPray: () -> Void
     private let spawnEmoji: () -> Void
     private let refreshUsage: () -> Void
@@ -97,11 +95,10 @@ final class PopoverPetClickRouter {
     /// In memory only: after a restart the first click past a milestone may refresh once more, which is harmless.
     private var lastRefreshedMilestone = 0
 
-    init(pray: @escaping () -> Void, prayerCount: @escaping () -> Int, canPray: @escaping () -> Bool = { true }, didPray: @escaping () -> Void = {}, spawnEmoji: @escaping () -> Void, refreshUsage: @escaping () -> Void,
+    init(pray: @escaping () -> Void, prayerCount: @escaping () -> Int, didPray: @escaping () -> Void = {}, spawnEmoji: @escaping () -> Void, refreshUsage: @escaping () -> Void,
          openPopover: @escaping () -> Void, clock: @escaping () -> Date) {
         self.pray = pray
         self.prayerCount = prayerCount
-        self.canPray = canPray
         self.didPray = didPray
         self.spawnEmoji = spawnEmoji
         self.refreshUsage = refreshUsage
@@ -112,7 +109,6 @@ final class PopoverPetClickRouter {
     func handle(subjectIsEgg: Bool) {
         switch FloatingPetRules.clickAction(subjectIsEgg: subjectIsEgg) {
         case .pray:
-            guard canPray() else { didPray(); return }
             pray()
             spawnEmoji()
             didPray()
@@ -488,7 +484,6 @@ struct FloatingPetModel: Equatable {
     private lazy var router = PopoverPetClickRouter(
         pray: { [weak self] in self?.companion.pray() },
         prayerCount: { [weak self] in self?.companion.state.eggPrayers?.count ?? 0 },
-        canPray: { [weak self] in self?.companion.canPray ?? false },
         didPray: { [weak self] in
             self?.prayers += 1
             self?.didPray()

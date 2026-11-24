@@ -111,8 +111,9 @@ enum PokemonBalance {
     static let eggHatchThreshold = 5_000_000
     /// 알에 기도를 이만큼 하면 토큰을 다 모으지 않아도 부화한다(2026-11-23 사용자 결정). 알이 모은 토큰은 이월하지 않고 버린다.
     static let prayersToHatch = 10
-    /// Prayers counted per local day (2026-11-23, the user's value): praying alone takes five days to hatch an egg.
-    static let prayersPerDay = 2
+    /// Eggs that may hatch by prayer per local day (2026-11-24, the owner's rule): praying itself is unlimited, but only the
+    /// first egg whose ten prayers hatch it counts each day. Stored as the day of the last prayer hatch, so the value is 1.
+    static let prayerHatchesPerDay = 1
     static let repeatGrowthMultiplier = 2
 
     static func graduationTotal(_ rarity: Rarity) -> Int {
@@ -306,13 +307,48 @@ struct CandyWindow: Sendable {
     /// 창 epoch (`resets_at` / reset unix). key 는 안정, epoch 가 바뀌면 새 창 → 재무장(#326).
     /// nil 이면 100% 미만 관측으로만 재무장한다(Codex — credits 로 100% 를 넘겨 쓴다).
     let epoch: String?
+    /// The provider's own id for this window (an Antigravity `bucketId`, a Codex `limitId`) when it has one; it breaks
+    /// ties between windows whose keys collide (see `uniquelyKeyed`). Not part of the saved state.
+    let identity: String?
 
-    init(key: String, name: String, kind: WindowClass, utilization: Double, epoch: String? = nil) {
+    init(key: String, name: String, kind: WindowClass, utilization: Double, epoch: String? = nil, identity: String? = nil) {
+        self.identity = identity
         self.key = key
         self.name = name
         self.kind = kind
         self.utilization = utilization
         self.epoch = epoch
+    }
+
+    /// Keys must name exactly one window: two windows sharing a key share one grant tier, so one at 100% grants
+    /// and the other (below 100%) re-arms it, and the next poll grants again. Among windows that share a key, the one
+    /// with the smallest `identity` (the provider's own id; none sorts last, then input order) keeps the plain key,
+    /// so a saved tier still matches it and the choice does not depend on the order the provider listed them in. The
+    /// others get `#<identity>`, or `#<rank>` when they have no (distinct) identity.
+    static func uniquelyKeyed(_ windows: [CandyWindow]) -> [CandyWindow] {
+        var byKey: [String: [Int]] = [:]
+        for (i, w) in windows.enumerated() { byKey[w.key, default: []].append(i) }
+        var result = windows
+        for (key, indices) in byKey where indices.count > 1 {
+            let ranked = indices.sorted { a, b in
+                switch (windows[a].identity, windows[b].identity) {
+                case let (x?, y?): return x != y ? x < y : a < b
+                case (_?, nil): return true
+                case (nil, _?): return false
+                case (nil, nil): return a < b
+                }
+            }
+            var used: Set<String> = [key]
+            for (rank, index) in ranked.enumerated() where rank > 0 {
+                let w = windows[index]
+                var candidate = w.identity.map { "\(key)#\($0)" } ?? "\(key)#\(rank + 1)"
+                var n = rank + 1
+                while !used.insert(candidate).inserted { n += 1; candidate = "\(key)#\(n)" }
+                result[index] = CandyWindow(key: candidate, name: w.name, kind: w.kind,
+                                            utilization: w.utilization, epoch: w.epoch, identity: w.identity)
+            }
+        }
+        return result
     }
 }
 
@@ -461,19 +497,8 @@ enum PokemonOdds {
 /// Purely cosmetic: no roll (species, rarity, shiny, nature, form, profile) ever reads it.
 struct PrayerRecord: Codable, Sendable, Equatable {
     var count: Int
-    /// The local day (`DayBoundary.dayKey`) of the latest counted prayer and how many were counted on it: the daily cap.
-    /// Nil on a save from before the cap and on a hatched individual, which keeps only `count`.
-    var day: String?
-    var today: Int?
-
-    init(count: Int, day: String? = nil, today: Int? = nil) {
-        self.count = count
-        self.day = day
-        self.today = today
-    }
-
-    /// Prayers already counted on `day`. Another date, earlier or later, starts from zero.
-    func counted(on day: String) -> Int { self.day == day ? max(0, today ?? 0) : 0 }
+    // A save from v2.5.640 also has `day`/`today` (its daily prayer cap). They are not read any more: the keys are ignored
+    // on load, and `count` continues as the total.
 }
 
 /// 현재 키우는 포켓몬.
@@ -686,6 +711,9 @@ struct CompanionState: Codable, Sendable {
     /// Prayers said over the current egg (nil until the first one). Egg-scoped like `eggUsage`:
     /// reset by `resetEggPrayers` whenever a new egg starts and copied onto the hatched individual.
     var eggPrayers: PrayerRecord?
+    /// The local day (`DayBoundary.dayKey`) an egg last hatched by prayer: that day's `prayerHatchesPerDay` is used. Nil until then.
+    /// An older build ignores the key. Any other date, earlier or later, counts as a new day (like the plaza trees).
+    var lastPrayerHatchDay: String?
     /// 오늘 사용량 적립 기준값 — 프로바이더별로 독립 관리한다.
     ///
     /// `nil`은 aggregate `claimedTodayTokens`만 가지고 있던 구버전 세이브가 아직 첫 유효
@@ -719,6 +747,11 @@ struct CompanionState: Codable, Sendable {
     var notifiedDexCompletions: Set<String> = []
     // 완성 추적 첫 실행 시드 완료 — 기능 출시 전 이미 완성한 세대에 알림 폭주를 막는다(candyFeatureSeeded 패턴).
     var dexCompletionsSeeded = false
+    /// Save format marker. Bump it whenever a build starts writing something an older build cannot decode
+    /// (a new enum case in `active`/`dex`, ...): the older build then leaves the file alone instead of
+    /// decoding it leniently and overwriting what it dropped. Absent = a save from before the marker (0).
+    static let currentFormatVersion = 1
+    var formatVersion = CompanionState.currentFormatVersion
 
     init() {}
 
@@ -737,6 +770,7 @@ struct CompanionState: Codable, Sendable {
         pendingForm        = PokemonForm.resolved(baseID: pendingHatchID ?? 0,
             form: PokemonForm.decoded(from: decoder, keys: "pendingForm", "pendingUnownForm"))
         eggPrayers         = c.lenientOptional(PrayerRecord.self, forKey: .eggPrayers)
+        lastPrayerHatchDay = c.lenientOptional(String.self, forKey: .lastPrayerHatchDay)
         if c.contains(.claimedTodayTokensByProvider) {
             claimedTodayTokensByProvider = c.lenient([String: Int].self,
                                                       forKey: .claimedTodayTokensByProvider,
@@ -762,6 +796,8 @@ struct CompanionState: Codable, Sendable {
         candyFeatureSeeded = c.lenient(Bool.self, forKey: .candyFeatureSeeded, default: false)
         notifiedDexCompletions = c.lenient(Set<String>.self, forKey: .notifiedDexCompletions, default: [])
         dexCompletionsSeeded = c.lenient(Bool.self, forKey: .dexCompletionsSeeded, default: false)
+        // Read as found (0 before the marker existed); the store compares it with this build's and rewrites its own.
+        formatVersion      = c.lenient(Int.self, forKey: .formatVersion, default: 0)
     }
 
     /// 졸업 기록 또는 현재 개체가 실제로 도달한 단계에 이 종이 포함되는가.

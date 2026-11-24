@@ -30,8 +30,8 @@ import Observation
     private let pray: () -> Void
     /// 지금 알에 쌓인 기도 횟수. 위쪽 안내 줄에 쓴다.
     private let prayerCount: () -> Int
-    /// 오늘 셀 기도가 남았는가(`CompanionStore.canPray`). 다 했으면 기도 키는 안내만 바꾼다.
-    private let canPray: () -> Bool
+    /// 오늘의 기도 부화를 이미 썼는가(`CompanionStore.isPrayerHatchUsedToday`). 기도는 막지 않고 안내 줄만 바뀐다.
+    private let prayerHatchUsedToday: () -> Bool
     /// 누군가 주운 것으로 아는 아이템 칸: 내가 주운 것, 팀원이 알려 온 것, 팀원 presence가 전해 준 것. 저장하고, 가장 최근
     /// 것을 내 presence로 다시 전한다. 그래서 주운 사람이 떠난 뒤 광장을 연 팀원도 그때 있던 누군가에게서 전해 듣는다.
     private var takenItemSlots: Set<Int> = []
@@ -292,7 +292,7 @@ import Observation
          grantItem: @escaping (ItemKind) -> Void = { _ in },
          pray: @escaping () -> Void = {},
          prayerCount: @escaping () -> Int = { 0 },
-         canPray: @escaping () -> Bool = { true },
+         prayerHatchUsedToday: @escaping () -> Bool = { false },
          session: TeamSession? = nil,
          feed: TeamFeedStore? = nil,
          clock: @escaping () -> Date = Date.init,
@@ -344,7 +344,7 @@ import Observation
         self.grantItem = grantItem
         self.pray = pray
         self.prayerCount = prayerCount
-        self.canPray = canPray
+        self.prayerHatchUsedToday = prayerHatchUsedToday
         self.shell.events = self
         // 다시 켜도 주운 것으로 아는 아이템을 기억하고 팀원에게 전한다.
         takenItemSlots = keptSlots(Set(preferences.takenItemSlots))
@@ -442,6 +442,10 @@ import Observation
             if let id = self.faceNearbyMember(in: self.scene?.interactionTiles) { self.tackle(id) }
         }
         s.onSnowballKey = { [weak self] in self?.handleSnowballKey() }
+        s.onDragKey = { [weak self] in
+            guard let self, !self.isFocusing else { return }
+            if let id = self.faceNearbyMember() { self.drag(id) }
+        }
         s.onGroupPhotoKey = { [weak self] in self?.handleGroupPhotoKey() }
         s.onGameKey = { [weak self] in self?.handleGameKey($0) }
         s.onFireworkKey = { [weak self] in self?.handleFireworkKey() }
@@ -514,10 +518,8 @@ import Observation
     }
 
     /// 내가 알일 때만 기도한다. 누를 때마다 한 번씩 세고 내 화면에 바로 보이며, 팀원에게 보내는 것만 연타를 제한한다.
-    /// 오늘 셀 기도를 다 했으면 세지도, 보이지도, 보내지도 않고 안내만 그 사실을 말한다.
     private func handlePrayKey() {
         guard let scene, subject().speciesID == nil else { return }
-        guard canPray() else { refreshHint(); return }
         pray()
         scene.playPray(memberID: nil)
         let now = clock()
@@ -686,7 +688,7 @@ import Observation
         scene.queueIceLanding(b, jumper: nil)
     }
 
-    /// X와 C가 메뉴 없이 바로 할 팀원. 말풍선 키와 같이 바라보거나 바로 옆에 있는 팀원이고, 옆이면 그쪽으로 돌아선다.
+    /// X와 C, B가 메뉴 없이 바로 할 팀원. 말풍선 키와 같이 바라보거나 바로 옆에 있는 팀원이고, 옆이면 그쪽으로 돌아선다.
     /// 옆에 팀원이 없으면 nil이라 아무것도 하지 않는다. C는 메타몽 모습도 고르도록 `tiles`에 `interactionTiles`를 준다.
     private func faceNearbyMember(in tiles: [String: TilePoint]? = nil) -> String? {
         guard let scene else { return nil }
@@ -1122,6 +1124,8 @@ import Observation
     var gameState: PlazaGameState? { game.state }
     var gameJoined: String? { game.joined }
     var gameCard: PlazaGameView.Card? { gameModel.card }
+    /// 판이 도는 동안 안내 아래에 보이는 명단.
+    var gameStatus: String? { overlayModel.gameStatus }
     var gameTitle: PlazaGameView.Title? { gameModel.title }
 
     /// 판이 살아 있는 동안은 0.2초마다, 없으면 1초마다 본다(팀원 소식이 올 때도 `observeMembers`가 부른다).
@@ -1233,14 +1237,19 @@ import Observation
                 + (game.joined == s.id && s.host != me ? 1 : 0)
         }
         let view = PlazaGameView.make(engine: game, now: now, joinedCount: joined, canPlay: subject().speciesID != nil,
-                                      inWater: scene?.isMeInWater == true, flash: gameFlashes.first(where: { $0.from <= now })?.title,
+                                      flash: gameFlashes.first(where: { $0.from <= now })?.title,
                                       name: { [members, nickname] in $0 == me ? nickname() : members[$0]?.nickname })
-        let hintChanged = view.hint != gameView.hint, holderChanged = view.holder != gameView.holder
+        let hintChanged = view.hint != gameView.hint || view.status != gameView.status
+        let marksChanged = view.holder != gameView.holder || view.alive != gameView.alive || view.out != gameView.out
         gameView = view
-        if holderChanged { refreshMinimap() }
+        if marksChanged { refreshMinimap() }
         if gameModel.card != view.card { gameModel.card = view.card }
         if gameModel.title != view.title { gameModel.title = view.title }
         scene?.setBomb(holder: view.holder, isMe: view.holder == me, urgent: view.urgent)
+        // 팀원이 뒤늦게 장면에 들어와도 고리가 깔리게 매번 맞춘다(바뀐 것만 노드를 만진다).
+        scene?.setGameMarks(Dictionary(uniqueKeysWithValues: (view.alive + view.out).filter { $0 != me }.compactMap { id in
+            view.mark(of: id).map { (id, $0) }
+        }), mine: view.mark(of: me))
         if hintChanged { refreshHint() }
     }
 
@@ -1423,7 +1432,7 @@ import Observation
     }
 
     /// 끌어당기기: 먼저 보내고(받는 쪽이 아직 내 옛 칸을 본다) 뛰어드는 그림을 띄운 뒤 내가 물러난다. 팀원이 따라오는 것은 그 팀원의 Mac이 정한다.
-    /// 메뉴를 연 사이에 자리가 바뀌었으면 다시 따져 아무것도 하지 않는다. 몸통박치기와 같은 연타 제한을 쓰고 활동 기록은 남기지 않는다.
+    /// 메뉴를 연 사이에 자리가 바뀌었으면 다시 따져 아무것도 하지 않는다(B로 바로 눌렀는데 끌 수 없을 때도 같다). 몸통박치기와 같은 연타 제한을 쓰고 활동 기록은 남기지 않는다.
     private func drag(_ id: String) {
         guard let scene, let step = dragStep(scene, to: id) else { return }
         let now = clock()
@@ -1564,7 +1573,6 @@ import Observation
             // 닿을 때 겨눈 칸에 더는 없으면 빗나간 것이다(걸어서 피했다).
             if isMe {
                 guard self.scene?.myBody.covers(shot.endTile) == true else { return }
-                self.takeBomb(from: sender)
                 if self.myMimic != nil { self.revealMe(by: sender) }
                 else if self.canBePushed { self.shove(by: sender) { self.scene?.pushMe(direction, tiles: pushed) ?? false } }
             } else if isDitto, self.shownDitto?.isDecoy == false, self.scene?.body(of: PlazaDitto.sceneKey)?.covers(shot.endTile) == true {
@@ -1753,7 +1761,7 @@ import Observation
             text = hint   // 미니게임 중에는 누가 폭탄을 들었는지가 다른 안내보다 먼저다
         } else if let until = prayedHintUntil, clock() < until, subject().speciesID == nil, overlayModel.content == .none, !chatInput.isOpen {
             // 알일 때만: 열 번째 기도로 부화하면 횟수가 0으로 돌아가므로 "기도 0번"을 보이지 않는다.
-            text = L(.ko).plazaPrayedHint(prayers: prayerCount())
+            text = L(.ko).plazaPrayedHint(prayers: prayerCount(), hatchUsed: prayerHatchUsedToday())
         } else if let focus, overlayModel.content == .none, !chatInput.isOpen {
             text = L(.ko).plazaFocusHint(remaining: L(.ko).plazaFocusRemaining(seconds: focus.endsAt.timeIntervalSince(clock())))
         } else if let id = scene?.followingMember, overlayModel.content == .none, !chatInput.isOpen {
@@ -1780,9 +1788,12 @@ import Observation
         }
         // 알일 때의 기도 안내도 다른 안내가 없을 때만 채운다.
         if text == nil, !isPhotoMode, subject().speciesID == nil, overlayModel.content == .none, !chatInput.isOpen {
-            text = canPray() ? L(.ko).plazaPrayHint(prayers: prayerCount()) : L(.ko).plazaPrayDoneHint(prayers: prayerCount())
+            text = L(.ko).plazaPrayHint(prayers: prayerCount(), hatchUsed: prayerHatchUsedToday())
         }
         if overlayModel.hint != text { overlayModel.hint = text }
+        // 미니게임 명단은 다른 안내와 상관없이 판이 도는 동안 늘 보인다(사진 모드에서는 안내 줄과 함께 숨는다).
+        let status = isPhotoMode ? nil : gameView.status
+        if overlayModel.gameStatus != status { overlayModel.gameStatus = status }
     }
 
     func refreshHintForTesting() { refreshHint() }
@@ -2293,13 +2304,13 @@ import Observation
         var dots = members.values.sorted { $0.memberID < $1.memberID }.compactMap { m -> PlazaMinimapModel.Dot? in
             guard let tile = scene.memberTiles[m.memberID] else { return nil }
             return .init(id: m.memberID, tile: tile, color: scene.memberNameColor(m.memberID) ?? PlazaNameColor.palette[0],
-                         isMe: false, isAway: m.isIdle, hasBomb: gameView.holder == m.memberID)
+                         isMe: false, isAway: m.isIdle, hasBomb: gameView.holder == m.memberID, game: gameView.mark(of: m.memberID))
         }
         if shownDitto?.isDecoy == true, let tile = scene.dittoTile, let color = scene.memberNameColor(PlazaDitto.sceneKey) {
             dots.append(.init(id: PlazaDitto.sceneKey, tile: tile, color: color, isMe: false, isAway: false))
         }
         dots.append(.init(id: memberID(), tile: scene.walker.tile, color: scene.nameColor, isMe: true, isAway: false,
-                          hasBomb: gameView.holder == memberID()))
+                          hasBomb: gameView.holder == memberID(), game: gameView.mark(of: memberID())))
         if dots != minimap.dots { minimap.dots = dots }
         if scene.visibleWorldRect != minimap.view { minimap.view = scene.visibleWorldRect }
         if scene.itemTile != minimap.item { minimap.item = scene.itemTile }
@@ -2647,6 +2658,7 @@ import Observation
             scene.onGreetKey = nil
             scene.onTackleKey = nil
             scene.onSnowballKey = nil
+            scene.onDragKey = nil
             scene.onGroupPhotoKey = nil
             scene.onGameKey = nil
             scene.onFireworkKey = nil

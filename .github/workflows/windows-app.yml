@@ -29,7 +29,9 @@ name: windows-app
 # Release mode (stage 8; scripts/team_release.py dispatches it): -f release_sha=<40 hex> -f release_version=<x.y.z>.
 #   Builds exactly that commit at level full, with diagnostics, fast, stall_hunt and net_burst forced off. The "Release pin"
 #   step fails unless the commit carries that VERSION and this workflow and .github/actions/windows-swift are identical at the
-#   commit and at the dispatched ref. Its own concurrency group is never cancelled. A run that passed every gate ends with
+#   commit and at the dispatched ref (team_release.py only accepts a run whose head commit IS release_sha, so for an accepted run
+#   GITHUB_SHA equals RELEASE_SHA and the "main moved but the workflow is identical" tolerance below never applies to it).
+#   Its own concurrency group (release_sha and ref: a rehearsal on a branch cannot hold main's) is never cancelled. A run that passed every gate ends with
 #   the artifact windows-release (the installer and windows-release.json, 7 days). CI never touches a release.
 # Builds and self-tests the Windows app executable. Informational: not a required check.
 run-name: ${{ inputs.release_sha != '' && format('release {0} {1}', inputs.release_version, inputs.release_sha) || '' }}
@@ -92,7 +94,7 @@ permissions:
   contents: read
   actions: read   # the seed (.build of the last windows-port run) is an artifact of another run
 concurrency:
-  group: ${{ inputs.release_sha != '' && format('windows-app-release-{0}', inputs.release_sha) || format('windows-app-{0}', github.ref) }}
+  group: ${{ inputs.release_sha != '' && format('windows-app-release-{0}-{1}', inputs.release_sha, github.ref) || format('windows-app-{0}', github.ref) }}
   cancel-in-progress: ${{ inputs.release_sha == '' && github.ref != 'refs/heads/windows-port' }}
 env:
   PTB_LEVEL: ${{ (github.ref == 'refs/heads/windows-port' || inputs.level == 'full' || inputs.release_sha != '') && 'full' || 'light' }}

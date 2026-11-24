@@ -42,6 +42,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var menuTimer: Timer?
     private var menuLoadGen = 0     // async 로드 경합 방지
     private var menuLoadTask: Task<Void, Never>?
+    private var displayAsleepSince: Date?   // when the flag last went to asleep (stale-sleep rule, see reconcileDisplayAwake)
     private var displayAwake = true     // 디스플레이 켜짐 여부 (꺼지면 메뉴 애니메이션 정지 — 배터리)
     private var powerObserver: NSObjectProtocol?   // 저전력 토글 → 유효 fps 하한 재평가
 
@@ -66,6 +67,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         plaza?.persistState()
         teamRuntime?.flush()
+        companion?.flush()   // update() skips unchanged saves; quit writes whatever is current
     }
 
     func applicationWillFinishLaunching(_ notification: Notification) {
@@ -160,7 +162,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             grantItem: { [companion] in companion!.receivePlazaItem($0) },
             pray: { [companion] in companion!.pray() },
             prayerCount: { [companion] in companion!.state.eggPrayers?.count ?? 0 },
-            canPray: { [companion] in companion!.canPray },
+            prayerHatchUsedToday: { [companion] in companion!.isPrayerHatchUsedToday },
             session: teamRuntime.session, feed: teamRuntime.feed)
         navigation.onOpenPlaza = { [weak self] in self?.openPlaza() }
         teamRuntime.plaza = plaza
@@ -315,6 +317,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     private func applyState() {
         guard let button = statusItem.button else { return }
+        reconcileDisplayAwake()
         updateCompanion()
         // Recomputed on every refresh, so a tier that moves with the clock redraws even when the text doesn't.
         Self.applyMenuText(MenuBarContent.lines(store: store, companion: companion),
@@ -737,7 +740,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     @objc private func handleStatusMenu(_ item: NSMenuItem) {
         switch StatusItemMenu.action(of: item) {
-        case .refresh: Task { await store.refresh() }
+        case .refresh: Task { await store.refreshByUser() }
         case .openDex: showPopover { $0.openRepresentativeDex() }
         case .openPlaza: openPlaza()
         case .openSettings: showPopover { $0.showSettings = true }
@@ -810,6 +813,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         workspace.addObserver(forName: NSWorkspace.screensDidWakeNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.setDisplayAwake(true) }
         }
+        store.onWakeMissed = { [weak self] in self?.reconcileDisplayAwake() }   // the 5-minute suspended probe
         // 메뉴바가 가려지면(풀스크린 등으로 occlusion) 애니메이션 정지, 다시 보이면 재개.
         NotificationCenter.default.addObserver(
             forName: NSWindow.didChangeOcclusionStateNotification, object: nil, queue: .main
@@ -818,7 +822,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
     }
 
+    /// `screensDidWake` can go missing (the #350 poll fix found it in the wild), and then the flag stays false for
+    /// good: the menu sprite never animates and the floating pet is hidden until relaunch. The platform's "displays are
+    /// asleep" answer corrects it, but with the rule #350 uses for polling: the notification is what puts us to sleep,
+    /// and only a sleep that has outlived the suspended-probe interval counts as stale. (A display that never reports
+    /// sleep, such as a virtual one, must not flip the flag back seconds after `screensDidSleep`.)
+    private func reconcileDisplayAwake() {
+        guard let awake = Self.displayAwakeCorrection(current: displayAwake,
+                                                       displaysAsleep: Platform.current.events.displaysAreAsleep,
+                                                       asleepSince: displayAsleepSince, now: Date()) else { return }
+        AppLog.write("display awake flag corrected to \(awake) without a notification")
+        setDisplayAwake(awake)
+    }
+
+    /// `UsageStore.suspendedProbeInterval` (300 s) less slack: the probe that reports a missed wake fires at the interval, timer tolerance and all.
+    nonisolated static let staleSleepAfter: TimeInterval = 270
+
+    /// The new value for the awake flag when it is stale against the platform, nil to leave it alone. A flag that says
+    /// awake while the platform says asleep is corrected at once (a missed `screensDidSleep` only costs energy); a flag
+    /// that says asleep is corrected only after `staleAfter`.
+    nonisolated static func displayAwakeCorrection(current: Bool, displaysAsleep: Bool,
+                                                   asleepSince: Date?, now: Date,
+                                                   staleAfter: TimeInterval = AppDelegate.staleSleepAfter) -> Bool? {
+        if current { return displaysAsleep ? false : nil }
+        guard !displaysAsleep else { return nil }
+        guard let asleepSince else { return true }
+        return now.timeIntervalSince(asleepSince) >= staleAfter ? true : nil
+    }
+
     private func setDisplayAwake(_ awake: Bool) {
+        if displayAwake && !awake { displayAsleepSince = Date() }
         displayAwake = awake
         if !awake, menuLoadTask != nil {
             menuLoadTask?.cancel()
