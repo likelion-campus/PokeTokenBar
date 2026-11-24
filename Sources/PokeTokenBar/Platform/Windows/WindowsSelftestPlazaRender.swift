@@ -90,12 +90,30 @@ extension WindowsSelftest {
             if f == 1 { scene.face(.up) }
             if f == 30 { scene.showFortune(memberID: nil, draw: PlazaFortuneDraw(line: 0, action: 0), reveal: true) }
         }
+        // Spring throws: four pink blossoms in the air on the open grass. A throw flies a tile in 0.1 s (six frames), so the
+        // four, thrown 22, 16, 10 and 6 frames before the capture, are 3.7, 2.7, 1.7 and 1 tile out.
+        let shotThrowMembers: [PlazaSceneMember] = [
+            PlazaSceneMember(memberID: "a", nickname: "Ash", isAway: false, tile: TilePoint(x: 17, y: 14), facing: .right, isWalking: false),
+            PlazaSceneMember(memberID: "b", nickname: "Misty", isAway: false, tile: TilePoint(x: 23, y: 10), facing: .left, isWalking: false),
+            PlazaSceneMember(memberID: "c", nickname: "Brock", isAway: false, tile: TilePoint(x: 16, y: 10), facing: .right, isWalking: false),
+        ]
+        await shoot(r, device: device, name: "plaza.shotThrow", file: "plaza-blossom-throw.png", me: TilePoint(x: 20, y: 12), members: shotThrowMembers,
+                    frames: 60, season: .spring) { scene, f in
+            let throwsAt: [Int: (String?, TilePoint, PlazaDirection, TilePoint)] = [
+                38: (nil, TilePoint(x: 20, y: 12), .right, TilePoint(x: 29, y: 12)),
+                44: ("a", TilePoint(x: 17, y: 14), .right, TilePoint(x: 26, y: 14)),
+                50: ("b", TilePoint(x: 23, y: 10), .left, TilePoint(x: 14, y: 10)),
+                54: ("c", TilePoint(x: 16, y: 10), .right, TilePoint(x: 25, y: 10)),
+            ]
+            if let t = throwsAt[f] { scene.playSnowball(by: t.0, shot: PlazaSnowballShot(from: t.1, direction: t.2, end: .ground(t.3))) {} }
+        }
     }
 
-    /// One documentation capture: `me` and `members` (FIXTURE blocks for sprites) in the summer plaza at noon, `script` called
+    /// One documentation capture: `me` and `members` (FIXTURE blocks for sprites) in the plaza of `season` at noon, `script` called
     /// before each of `total` frames (1-based), the last frame written as `file`. The shot only fails when no frame can be read.
     @MainActor private static func shoot(_ r: Recorder, device: WinGfxDevice, name: String, file: String, me: TilePoint,
-                                          members: [PlazaSceneMember], frames total: Int = 120, script: (PlazaScene, Int) -> Void) async {
+                                          members: [PlazaSceneMember], frames total: Int = 120, season: PlazaSeasonChoice = .summer,
+                                          script: (PlazaScene, Int) -> Void) async {
         let stage = WinPlazaStage(size: CGSize(width: 960, height: 640))
         stage.setBackingScale(2)
         guard case .success(let surface) = WinGfxSurface.offscreen(device: device, width: 1280, height: 960) else {
@@ -113,7 +131,7 @@ extension WindowsSelftest {
         var now = base
         scene.now = { now }
         scene.currentModifiers = { [] }
-        scene.seasonChoice = .summer
+        scene.seasonChoice = season
         // FIXTURE: a plain block of one colour per person stands in for each sprite.
         func blockFrames(_ c: PlazaRGBA) -> PlazaCharacterFrames {
             var block = PlazaBitmap(width: 28, height: 32)
@@ -135,7 +153,7 @@ extension WindowsSelftest {
             device.finish()
         }
         guard let rgba = surface.readRGBA() else { r.add(name, false, "no frame readback"); return }
-        r.add(name, writeFrame(rgba, 1280, 960, file) == 0, "\(file) 1280x960, summer noon, a FIXTURE block per person for sprites, steam=\(scene.isSteamShown) tree=\(scene.isTreeShown)")
+        r.add(name, writeFrame(rgba, 1280, 960, file) == 0, "\(file) 1280x960, \(season) noon, a FIXTURE block per person for sprites, steam=\(scene.isSteamShown) tree=\(scene.isTreeShown)")
     }
 
     /// One render-cost case: `me` (sitting at `sit` when given) and `members` on the winter night, 60 warm-up frames, then
