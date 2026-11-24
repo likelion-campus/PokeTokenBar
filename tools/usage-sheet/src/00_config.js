@@ -4,9 +4,40 @@
 var SHARED_TOKEN = "996c41db62671eaf62a86cf3e18202ee";
 
 var MAX_BODY_BYTES = 262144;
-var MAX_DAYS = 62;
+// The app sends at most 21 days (UsageReportPlanner.dayRange 0...20, unchanged since the first release v2.5.636).
+var MAX_DAYS = 21;
 var MAX_TOOLS_PER_DAY = 32;
 var MAX_LIMITS = 16;
+// Intake limits. Each is far above what honest use reaches (a few hundred members, at most 21 days x 16 tools
+// = 336 raw rows and 16 limit rows per report, one report an hour) and answers `rate_limited` or `sheet_full`,
+// which the app treats as "try again later". Hourly counters are per clock hour (epoch hours, so the script
+// time zone does not matter).
+// Per member and hour: what one registered member may add, whoever else is reporting.
+var MAX_MEMBER_RAW_ROWS_PER_HOUR = 336;
+var MAX_MEMBER_LIMIT_ROWS_PER_HOUR = 16;
+var MAX_MEMBER_TEAM_ROWS_PER_HOUR = 60;   // new 부서 + 팀이름 rows: at most 21 day teams + 16 limit teams + labels
+// Shared pool per hour: charged only for members first seen in that hour, so a flood of fake members
+// cannot use up what registered members need.
+var MAX_NEW_MEMBERS_PER_HOUR = 200;
+var MAX_NEW_RAW_ROWS_PER_HOUR = 80000;
+var MAX_NEW_LIMIT_ROWS_PER_HOUR = 4000;
+var MAX_NEW_TEAM_ROWS_PER_HOUR = 12000;
+// Totals. Their cells (rows x tab width) plus WORKBOOK_CELLS_RESERVED must stay under the 10M-cell workbook
+// limit, so `sheet_full` always arrives first (test/store.test.js adds it up).
+var MAX_MEMBERS_TOTAL = 2000;
+var MAX_RAW_ROWS_TOTAL = 400000;
+var MAX_LIMIT_ROWS_TOTAL = 50000;
+var MAX_DEPTS_TOTAL = 5000;
+var MAX_TEAMLABELS_TOTAL = 20000;
+var WORKBOOK_CELLS_RESERVED = 3000000;   // Enterprise tabs (about 250k rows) and the dashboards, which the caps do not bound
+var INTAKE_PROP = "intake_hour";   // DocumentProperties, JSON {hour, members, raw, limits, teams}
+
+// The tool IDs the app sends: the provider IDs of LocalUsageProvider.swift / LocalAdditionalUsageProvider.swift
+// (test/store.test.js checks the lists against those files), and the two limit sources.
+var ALLOWED_TOOLS = ["claude_code", "codex", "gemini", "antigravity", "grok", "pi", "omp", "omo", "kimi_code",
+  "opencode", "hermes", "cursor", "copilot", "devin", "kiro", "aside"];
+var ALLOWED_LIMIT_TOOLS = ["claude", "codex"];
+
 // The tool name stored for a reported day that used no tool (one row with 0 tokens).
 var EMPTY_DAY_TOOL = "-";
 
@@ -27,7 +58,7 @@ var COLS_LIMITS = ["계정", "도구", "리셋시각", "memberId", "팀ID", "플
 var COLS_PEOPLE = ["memberId", "닉네임", "마지막받은시각", "합칠대상", "앱버전", "플랫폼"];
 var COLS_DEPTS = ["팀ID", "부서이름", "참고팀이름", "처음본날"];
 var COLS_TEAMLABELS = ["팀ID", "memberId", "팀이름", "마지막받은시각"];
-var COLS_DEVICES = ["memberId", "비밀값해시", "처음본시각", "마지막본시각"];
+var COLS_DEVICES = ["memberId", "비밀값해시", "처음본시각", "마지막본시각", "집계시간", "새원본행", "새한도행", "새팀행"];
 var COLS_SETTINGS = ["키", "값", "설명"];
 var COLS_ENT_RAW = ["날짜", "userId", "이메일", "채팅메시지", "대화", "Cowork메시지", "ClaudeCode세션", "받은시각"];
 var COLS_ENT_PEOPLE = ["userId", "이메일", "부서", "처음본날"];

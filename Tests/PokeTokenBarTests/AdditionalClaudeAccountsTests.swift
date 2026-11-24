@@ -408,7 +408,7 @@ final class ConfigRootTokenCacheTests: XCTestCase {
         } catch {
             XCTFail("unexpected \(error)")
         }
-        XCTAssertEqual(KeychainReader.queryCount, 0, "the automatic path never reads the Keychain")
+        XCTAssertEqual(KeychainReader.queryCount, 0, "the automatic path never queries the Keychain API")
     }
 }
 

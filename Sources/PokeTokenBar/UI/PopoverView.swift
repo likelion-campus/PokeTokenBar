@@ -462,8 +462,8 @@ struct PopoverView: View {
                       !store.disableKeychainAccess,
                       store.claudeLimitsMissing || store.claudeLimitsStale || store.additionalLimitsPending
                         || store.additionalLimitsStale {
-                // 자동 폴링은 Keychain 을 안 읽으므로(팝업 방지), 최초/만료 후 공식 한도는 이 원탭으로
-                // 사용자가 직접 갱신한다. 프롬프트가 뜨더라도 사용자 행동에 의한 것이라 예상 가능하다.
+                // 자동 폴링은 Keychain API 를 안 부르고 `/usr/bin/security` 로만 읽으므로(팝업 방지), 그게 못 읽는 경우(키체인 잠김 등)의
+                // 최초/만료 후 공식 한도는 이 원탭으로 사용자가 직접 갱신한다. 프롬프트가 뜨더라도 사용자 행동에 의한 것이라 예상 가능하다.
                 claudeLimitsRefreshRow
             }
             if selectedSnapshot?.providerID == "claude_code" {
@@ -897,7 +897,7 @@ struct PopoverView: View {
     }
 
     /// Claude 공식 한도 — 최초 로드/만료(stale) 시 사용자가 원탭으로 Keychain 을 읽어 갱신.
-    /// 자동 폴링이 Keychain 을 안 읽는 대신 여기서 명시적 사용자 동작으로만 재취득한다.
+    /// 자동 폴링은 `/usr/bin/security` 로만 읽는다(`KeychainToolReader`). 그게 안 될 때의 폴백이 이 사용자 동작이다.
     private var claudeKeychainHelpButton: some View {
         Button {
             showingClaudeKeychainHelp.toggle()
@@ -1031,7 +1031,7 @@ struct PopoverView: View {
         .opacity(account.isExpired ? 0.5 : 1)
     }
 
-    /// 자동 폴링이 Keychain 을 안 읽는 대신 여기서 명시적 사용자 동작으로만 재취득한다.
+    /// 자동 폴링은 `/usr/bin/security` 로만 읽는다(`KeychainToolReader`). 그게 안 될 때 여기서 사용자 동작으로 재취득한다.
     @ViewBuilder
     private var claudeLimitsRefreshRow: some View {
         VStack(alignment: .leading, spacing: 2) {

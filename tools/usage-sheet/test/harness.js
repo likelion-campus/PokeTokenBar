@@ -72,6 +72,7 @@ function makeSheet(name) {
     },
     getMaxRows: () => sheet._maxRows,
     getMaxColumns: () => sheet._maxCols,
+    insertColumnsAfter(after, n) { if (after > sheet._maxCols) throw new Error("fake insertColumnsAfter: bad position"); sheet._maxCols += n; },
     deleteColumns(start, howMany) {
       if (start < 1 || howMany < 1 || start + howMany - 1 > sheet._maxCols) throw new Error("fake deleteColumns: bad range");
       sheet._rows.forEach((r) => { if (r.length >= start) r.splice(start - 1, howMany); });
@@ -134,7 +135,13 @@ function makeSheet(name) {
     hideSheet() { sheet._hidden = true; },
     isSheetHidden: () => sheet._hidden,
     deleteRow(n) { sheet._rows.splice(n - 1, 1); },
-    deleteRows(n, count) { sheet._rows.splice(n - 1, count); },
+    deleteRows(n, count) {
+      // Like real Sheets: deleting every non-frozen row of the tab is an error, and the grid shrinks.
+      if (n <= sheet._frozen + 1 && n + count - 1 >= sheet._maxRows) throw new Error("fake deleteRows: cannot delete all non-frozen rows");
+      sheet._rows.splice(n - 1, count);
+      sheet._maxRows -= count;
+      sheet._ops.push(["delete", n, count]);
+    },
     getCharts: () => sheet._charts.slice(),
     insertChart(c) { sheet._charts.push(c); },
     removeChart(c) { sheet._charts = sheet._charts.filter((x) => x !== c); },
@@ -187,7 +194,7 @@ function makeFakes(opts) {
   const http = { handler: null, requests: [] };
   const props = { user: Object.create(null), doc: Object.create(null) };
   const sleeps = [];
-  const ui = { next: { button: "OK", text: "" }, alerts: [], prompts: [] };
+  const ui = { next: { button: "OK", text: "" }, nextAlertButton: "OK", alerts: [], prompts: [] };
   function propertyStore(store) {
     return {
       getProperty: (k) => (k in store ? store[k] : null),
@@ -236,7 +243,7 @@ function makeFakes(opts) {
           ui.prompts.push({ title, msg, buttons });
           return { getSelectedButton: () => ui.next.button, getResponseText: () => ui.next.text };
         },
-        alert(msg) { ui.alerts.push(msg); },
+        alert(msg, buttons) { ui.alerts.push(msg); if (buttons) return ui.nextAlertButton || "OK"; },
         createMenu(title) {
           const menu = { title, items: [] };
           const b = { addItem(label, fn) { menu.items.push([label, fn]); return b; }, addToUi() { menus.push(menu); return b; } };
