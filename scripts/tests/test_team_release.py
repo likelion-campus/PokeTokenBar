@@ -519,6 +519,24 @@ class StartTests(HelperTest):
         self.assertEqual(1, len(self.gh.calls_of("workflow", "run")), "stopped at the first dispatch")
         self.assertFalse((self.tmp / "build/windows-release/runs.json").exists())
 
+    def test_starting_again_after_main_moved_names_its_own_run_not_the_earlier_one(self):
+        # The first start left an off-tip run behind. A second start must not take that run for the one it dispatches.
+        earlier = self.gh.add_run("windows-app.yml", status="in_progress", conclusion="", head=OTHER_SHA)
+        self.gh.ref_heads["main"] = OTHER_SHA
+        self.gh.appear_after = 3
+        self.assertExit(1, self.start())
+        dispatched = self.gh.runs["windows-app.yml"][-1]["databaseId"]
+        self.assertNotEqual(earlier, dispatched)
+        self.assertIn("the run just dispatched (%d)" % dispatched, self.err)
+        self.assertNotIn("the run just dispatched (%d)" % earlier, self.err)
+
+    def test_starting_again_after_main_moved_reuses_the_runs_at_the_release_commit(self):
+        self.gh.add_run("windows-app.yml")
+        self.gh.add_run("windows.yml")
+        self.gh.ref_heads["main"] = OTHER_SHA
+        self.assertExit(0, self.start())
+        self.assertEqual([], self.gh.calls_of("workflow", "run"))
+
     def test_a_dispatched_run_that_never_appears(self):
         self.gh.appear_after = None
         self.assertExit(1, self.start())

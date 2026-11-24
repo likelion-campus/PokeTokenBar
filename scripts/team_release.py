@@ -264,13 +264,16 @@ def origin_problem(run, ref, sha):
     return ", ".join(wrong) or None
 
 
-def release_runs(ctx, workflow_file, title, ref, sha):
+def release_runs(ctx, workflow_file, title, ref, sha, seen=None):
     """This release's runs of one workflow that ran the release commit on `ref`, newest first. A run with this title from
-    another branch or commit is never used: it is named on stderr and left out."""
+    another branch or commit is never used: it is named on stderr and left out. `seen` collects the id of every run with
+    this title, used or not, so a run left out here is not taken for the one a later dispatch starts."""
     runs = []
     for run in dispatch_runs(ctx, workflow_file):
         if run.get("displayTitle") != title:
             continue
+        if seen is not None:
+            seen.add(run.get("databaseId"))
         wrong = origin_problem(run, ref, sha)
         if wrong:
             ctx.say("%s: ignoring run %s, it ran %s (%s)" % (workflow_file, run.get("databaseId"), wrong,
@@ -313,8 +316,8 @@ def cmd_start(args, ctx):
     replace = set(args.new or [])
     chosen, known, to_dispatch, failed = {}, {}, [], []
     for wf in WORKFLOWS:
-        runs = release_runs(ctx, wf.file, title, args.ref, args.sha)
-        known[wf.file] = {run.get("databaseId") for run in runs}
+        known[wf.file] = set()
+        runs = release_runs(ctx, wf.file, title, args.ref, args.sha, seen=known[wf.file])
         newest = runs[0] if runs else None
         if newest is None:
             to_dispatch.append(wf)
