@@ -223,12 +223,14 @@ enum TeamTransportContract {
         a.start(code: newCode())
         _ = try await h.loopbackEndpoint(of: a)
         // Plain TCP never completes the TLS handshake, so every one of these stays unfinished.
-        let close = try await h.plainTCP(toPortOf: a, count: TeamTransportRules.maxUnfinishedInbound + 8)
+        // All from one address (loopback), so the per-address cap is the one that holds; the host-wide cap is the larger one.
+        let cap = TeamTransportRules.maxUnfinishedInboundPerAddress
+        let close = try await h.plainTCP(toPortOf: a, count: cap + 8)
         defer { close() }
-        let full = await contractWaitUntil(5) { h.linkCount(a) >= TeamTransportRules.maxUnfinishedInbound }
+        let full = await contractWaitUntil(5) { h.linkCount(a) >= cap }
         XCTAssertTrue(full)
         try await Task.sleep(nanoseconds: 500_000_000)
-        XCTAssertEqual(h.linkCount(a), TeamTransportRules.maxUnfinishedInbound)
+        XCTAssertEqual(h.linkCount(a), cap)
     }
 
     /// Anyone on the network can advertise a thousand services without the team code. Before the cap every one

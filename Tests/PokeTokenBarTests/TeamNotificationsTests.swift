@@ -25,8 +25,8 @@ private func reaction(_ nick: String = "민수") -> TeamReaction {
     TeamReaction(id: UUID().uuidString, eventID: "e1", authorID: "x", authorNickname: nick, kind: .cute, text: nil, createdAt: t0)
 }
 
-private func memberState(_ nick: String) -> TeamMemberState {
-    TeamMemberState(memberID: "m", nickname: nick,
+private func memberState(_ nick: String, id: String = "m") -> TeamMemberState {
+    TeamMemberState(memberID: id, nickname: nick,
                     character: TeamMonSummary(speciesID: nil, isShiny: false, form: nil, speciesName: nil, gender: nil),
                     inPlaza: false, tile: nil, facing: nil, isWalking: false)
 }
@@ -99,6 +99,22 @@ final class TeamNotificationsTests: XCTestCase {
         notifier.megaphone(from: memberState("민수"), text: "셋")
         XCTAssertEqual(poster.posts.count, 1)
         XCTAssertTrue(inPlaza.isEmpty)
+    }
+
+    func testManyMembersShoutingAtOnceAreLimitedAsAWhole() {
+        for i in 0..<200 { notifier.megaphone(from: memberState("n", id: "m\(i)"), text: "hi") }
+        XCTAssertEqual(poster.posts.count, TeamNotifier.megaphoneBurst, "a modified app can be any number of members")
+        now = now.addingTimeInterval(TeamNotifier.megaphoneRefillInterval * 3)
+        notifier.megaphone(from: memberState("n", id: "late"), text: "hi")
+        XCTAssertEqual(poster.posts.count, TeamNotifier.megaphoneBurst + 1, "it refills")
+    }
+
+    func testAWholeTeamOfThirtyShoutingInAMinuteIsNotLimited() {
+        for i in 0..<30 {
+            now = now.addingTimeInterval(TeamNotifier.megaphoneRefillInterval)
+            notifier.megaphone(from: memberState("n", id: "m\(i)"), text: "hi")
+        }
+        XCTAssertEqual(poster.posts.count, 30, "a team of thirty, one shout every two seconds")
     }
 
     func testAGameInvitationNotifiesOnlyOutsideThePlazaAndNeverDuringAFocus() {

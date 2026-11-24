@@ -83,6 +83,32 @@ final class TeamTransportTests: XCTestCase {
     }
 
 
+    /// A message near the frame limit (about 0.9 MB), so a few of them fill the queue.
+    private static var bigMessage: TeamMessage {
+        .inventory(eventIDs: (0..<20_000).map { _ in UUID().uuidString }, reactionIDs: [])
+    }
+
+    /// Mac-only: everything handed to a link in one go stays queued until the main thread runs again, so a burst bigger than
+    /// the limit is exactly a peer that is not taking bytes.
+    func testALinkWithTooManyBytesWaitingIsDropped() async throws {
+        let (a, _, aPeer, _) = try await contractConnectedPair(harness)
+        var downs = 0
+        a.onPeerDisconnected = { _ in downs += 1 }
+        for _ in 0..<12 { a.send(Self.bigMessage, to: aPeer) }
+        XCTAssertEqual(downs, 1, "past 8 MB waiting the link is closed")
+        XCTAssertNil(a.queuedBytes(of: aPeer))
+    }
+
+    /// The most an honest receiver leaves waiting is three full feed syncs (about 2 MB each).
+    func testThreeFullFeedSyncsInOneGoAreNotDropped() async throws {
+        let (a, _, aPeer, _) = try await contractConnectedPair(harness)
+        var downs = 0
+        a.onPeerDisconnected = { _ in downs += 1 }
+        for _ in 0..<6 { a.send(Self.bigMessage, to: aPeer) }
+        XCTAssertEqual(downs, 0)
+        XCTAssertGreaterThan(a.queuedBytes(of: aPeer) ?? 0, 4_000_000)
+    }
+
     func testSameCodePeersExchangeMessagesOverLoopback() async throws { try await TeamTransportContract.sameCodePeersExchangeMessagesOverLoopback(harness) }
 
     func testDifferentCodeNeverDeliversMessages() async throws { try await TeamTransportContract.differentCodeNeverDeliversMessages(harness) }

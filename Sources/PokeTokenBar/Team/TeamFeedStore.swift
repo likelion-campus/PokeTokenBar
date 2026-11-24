@@ -257,9 +257,12 @@ final class TeamFeedStore {
 
     /// Each row's key is worked out once, not once per comparison (a day string costs a date parse).
     private func sortEvents() {
-        stored = stored.map { (row: $0, key: sortKey($0.event)) }.sorted {
-            $0.key == $1.key ? $0.row.event.id < $1.row.event.id : $0.key > $1.key
-        }.map(\.row)
+        let keyed: [(row: StoredEvent, key: Date)] = stored.map { (row: $0, key: sortKey($0.event)) }
+        let sorted = keyed.sorted { (a: (row: StoredEvent, key: Date), b: (row: StoredEvent, key: Date)) -> Bool in
+            if a.key == b.key { return a.row.event.id < b.row.event.id }
+            return a.key > b.key
+        }
+        stored = sorted.map { $0.row }
     }
 
     // MARK: - Persistence
