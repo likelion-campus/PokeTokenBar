@@ -7,7 +7,7 @@ import WinSDK
 /// committed, readable region of this process; otherwise nil, so a crafted value is dropped instead of crashing the app.
 enum WinMessagePointer {
     static func readable(_ lParam: LPARAM, bytes: Int) -> UnsafeRawPointer? {
-        guard let pointer = UnsafeRawPointer(bitPattern: lParam) else { return nil }
+        guard let pointer = UnsafeRawPointer(bitPattern: Int(lParam)) else { return nil }
         var info = MEMORY_BASIC_INFORMATION()
         guard VirtualQuery(pointer, &info, SIZE_T(MemoryLayout<MEMORY_BASIC_INFORMATION>.size)) != 0,
               info.State == 0x1000 /* MEM_COMMIT */,

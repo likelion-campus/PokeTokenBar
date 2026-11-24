@@ -47,7 +47,7 @@ enum WinSingleInstance {
                 // right to the running instance, which opens its popover for this launch (ruling 3) instead of a balloon.
                 var pid: DWORD = 0
                 _ = GetWindowThreadProcessId(running, &pid)
-                if let image = imagePath(ofProcess: pid), sameExecutable(image, WindowsLoginItem.currentExecutablePath()) {
+                if let image = imagePath(ofProcess: pid), sameExecutable(image, ownImagePath()) {
                     let allowed = AllowSetForegroundWindow(pid)
                     let allowError = allowed ? 0 : GetLastError()
                     _ = PostMessageW(running, showMessage, 0, 0)
@@ -85,6 +85,13 @@ enum WinSingleInstance {
         var size = DWORD(buffer.count)
         guard QueryFullProcessImageNameW(process, 0, &buffer, &size) else { return nil }
         return String(decoding: buffer.prefix(Int(size)), as: UTF16.self)
+    }
+
+    /// This process's executable (`GetModuleFileNameW`); not `WindowsLoginItem.currentExecutablePath()`, which is main-actor isolated.
+    private static func ownImagePath() -> String {
+        var buffer = [UInt16](repeating: 0, count: 32_768)
+        let n = Int(GetModuleFileNameW(nil, &buffer, DWORD(buffer.count)))
+        return String(decoding: buffer.prefix(n), as: UTF16.self)
     }
 
     /// Same file, ignoring case and separator style.
