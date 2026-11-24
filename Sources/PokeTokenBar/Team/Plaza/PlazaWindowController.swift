@@ -442,6 +442,10 @@ import Observation
             if let id = self.faceNearbyMember(in: self.scene?.interactionTiles) { self.tackle(id) }
         }
         s.onSnowballKey = { [weak self] in self?.handleSnowballKey() }
+        s.onDragKey = { [weak self] in
+            guard let self, !self.isFocusing else { return }
+            if let id = self.faceNearbyMember() { self.drag(id) }
+        }
         s.onGroupPhotoKey = { [weak self] in self?.handleGroupPhotoKey() }
         s.onGameKey = { [weak self] in self?.handleGameKey($0) }
         s.onFireworkKey = { [weak self] in self?.handleFireworkKey() }
@@ -686,7 +690,7 @@ import Observation
         scene.queueIceLanding(b, jumper: nil)
     }
 
-    /// X와 C가 메뉴 없이 바로 할 팀원. 말풍선 키와 같이 바라보거나 바로 옆에 있는 팀원이고, 옆이면 그쪽으로 돌아선다.
+    /// X와 C, B가 메뉴 없이 바로 할 팀원. 말풍선 키와 같이 바라보거나 바로 옆에 있는 팀원이고, 옆이면 그쪽으로 돌아선다.
     /// 옆에 팀원이 없으면 nil이라 아무것도 하지 않는다. C는 메타몽 모습도 고르도록 `tiles`에 `interactionTiles`를 준다.
     private func faceNearbyMember(in tiles: [String: TilePoint]? = nil) -> String? {
         guard let scene else { return nil }
@@ -1423,7 +1427,7 @@ import Observation
     }
 
     /// 끌어당기기: 먼저 보내고(받는 쪽이 아직 내 옛 칸을 본다) 뛰어드는 그림을 띄운 뒤 내가 물러난다. 팀원이 따라오는 것은 그 팀원의 Mac이 정한다.
-    /// 메뉴를 연 사이에 자리가 바뀌었으면 다시 따져 아무것도 하지 않는다. 몸통박치기와 같은 연타 제한을 쓰고 활동 기록은 남기지 않는다.
+    /// 메뉴를 연 사이에 자리가 바뀌었으면 다시 따져 아무것도 하지 않는다(B로 바로 눌렀는데 끌 수 없을 때도 같다). 몸통박치기와 같은 연타 제한을 쓰고 활동 기록은 남기지 않는다.
     private func drag(_ id: String) {
         guard let scene, let step = dragStep(scene, to: id) else { return }
         let now = clock()
@@ -2647,6 +2651,7 @@ import Observation
             scene.onGreetKey = nil
             scene.onTackleKey = nil
             scene.onSnowballKey = nil
+            scene.onDragKey = nil
             scene.onGroupPhotoKey = nil
             scene.onGameKey = nil
             scene.onFireworkKey = nil

@@ -407,6 +407,47 @@ final class PlazaDragControllerTests: XCTestCase {
         XCTAssertEqual(w.scene.walker.tile, p(38, 10))
     }
 
+    // MARK: - B, the shortcut
+
+    private let bKey: UInt16 = 11
+
+    /// B pulls the teammate I touch without the menu: the same message and the same step back as the menu row.
+    func testBPullsTheTeammateITouchWithoutTheMenu() async {
+        let w = await world(me: p(20, 12), b: p(19, 12), facing: .up, stage: 2)
+        w.c.setRendering(visible: false)
+        press(w.scene, bKey)
+        await settle()
+        XCTAssertNil(menu(w), "no menu")
+        XCTAssertEqual(drags(w.b), [TeamEmote(kind: .drag, targetMemberID: w.b.id, pushTiles: 2)])
+        XCTAssertEqual(w.scene.walker.tile, p(22, 12))
+        XCTAssertEqual(w.scene.walker.facing, .left, "I turned to the teammate beside me")
+    }
+
+    /// B does nothing where the menu has no drag row: nothing behind me to step onto, nobody near, or while I focus.
+    func testBDoesNothingWhereTheMenuHasNoDragRow() async throws {
+        let blocked = await world(me: p(44, 12), b: p(43, 12), facing: .left)
+        press(blocked.scene, bKey)
+        await settle()
+        XCTAssertEqual(drags(blocked.b), [], "a tree behind me")
+        XCTAssertEqual(blocked.scene.walker.tile, p(44, 12))
+        let alone = await world(me: p(20, 12), b: p(15, 12), facing: .left)
+        press(alone.scene, bKey)
+        await settle()
+        XCTAssertEqual(drags(alone.b), [], "nobody near")
+        XCTAssertEqual(alone.scene.walker.tile, p(20, 12))
+        // Focusing at the fire: I neither pull nor turn to the teammate beside my seat.
+        let fire = await world(me: p(23, 14), b: nil)
+        fire.c.startFocus(minutes: 25)
+        let seat = fire.scene.walker.tile, facing = fire.scene.walker.facing
+        let side = try XCTUnwrap(PlazaDirection.allCases.first { $0 != facing && map.isWalkable(PlazaWalker.offset(seat, $0)) })
+        await place(fire.b, PlazaWalker.offset(seat, side), in: fire)
+        press(fire.scene, bKey)
+        await settle()
+        XCTAssertEqual(drags(fire.b), [], "focusing")
+        XCTAssertEqual(fire.scene.walker.facing, facing, "a focusing sitter does not turn")
+        fire.c.handleClose()
+    }
+
     func testNoDragWhenICannotStepBack() async {
         func assertTackleOnly(_ name: String, _ w: World) {
             press(w.scene, spaceKey)
