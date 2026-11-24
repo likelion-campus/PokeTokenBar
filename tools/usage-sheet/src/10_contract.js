@@ -152,7 +152,7 @@ function parsePayload(text, nowMs, tz) {
   var days = dateOrder.map(function (date) {
     var e = byDate.get(date);
     var tools = e.toolOrder.map(function (name) { return e.toolMap.get(name); });
-    if (tools.length === 0) tools = [{ tool: "-", input: 0, output: 0, cacheWrite: 0, cacheRead: 0 }];
+    if (tools.length === 0) tools = [{ tool: EMPTY_DAY_TOOL, input: 0, output: 0, cacheWrite: 0, cacheRead: 0 }];
     return { date: e.date, team: e.team, teamLabel: e.teamLabel, tools: tools };
   });
 

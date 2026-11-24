@@ -135,6 +135,8 @@ function computePlan(data, nowMs, tz) {
   var weekStart = dayNumberToString(today - 6);
   var recent = Object.create(null);
   data.usage.forEach(function (u) {
+    // A day that used no tool says nothing about a plan, so it doesn't make anyone "no plan info".
+    if (u.tool === EMPTY_DAY_TOOL) return;
     if (u.date < weekStart || !departmentOf(u.team, data.depts)) return;
     recent[canonicalPerson(u.memberId, data.people)] = true;
   });
