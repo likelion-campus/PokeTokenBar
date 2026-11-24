@@ -40,7 +40,7 @@ enum PlazaResources {
     static let tileSheetName = "plaza-tiles"           // png
     static let waterBalloonName = "plaza-water-balloon" // png
     static let leafSheetName = "plaza-leaf-sheet"       // png, 128×160, 받은 그대로. 가을 공은 여기서 한 칸을 자른다
-    static let sakuraName = "plaza-sakura"              // png, 38×34, "Spring VFX Pack" 의 벚꽃 한 송이. 봄 공
+    static let sakuraName = "plaza-sakura"              // png, 18×16, "Spring VFX Pack" 의 벚꽃 한 송이를 절반으로 줄인 것. 봄 공
     static let balloonSheetName = "plaza-balloons"      // png, 80×21, "Balloon Pop Sprite" 다섯 색의 첫 프레임을 옆으로 이어 붙인 것. 여름 공
     /// 풍선 시트의 다섯 칸(16×21): 빨강, 파랑, 초록, 노랑, 보라.
     static let balloonFrames: [PlazaPixelRect] = (0..<5).map { PlazaPixelRect(x: 16 * $0, y: 0, width: 16, height: 21) }
@@ -60,12 +60,12 @@ enum PlazaResources {
     static let treeCrop = PlazaPixelRect(x: 83, y: 48, width: 42, height: 48)
 
     /// 계절이 던지는 공 그림들의 파일, 자를 영역(nil이면 파일 전체), 그림 한 픽셀의 월드 픽셀 수. 여럿이면 던질 때마다
-    /// 차례로 돌아가며 쓴다. 겨울은 파일이 없어 격자 눈뭉치다. 풍선(16×21)은 2배로 그려 벚꽃(38×34)과 비슷한 크기다.
+    /// 차례로 돌아가며 쓴다. 겨울은 파일이 없어 격자 눈뭉치다. 셋 다 가을 낙엽 뭉치(17×15)와 비슷한 크기다.
     static func ballSources(_ season: PlazaSeason) -> [(name: String, crop: PlazaPixelRect?, scale: CGFloat)] {
         switch season {
         case .winter: []
         case .spring: [(sakuraName, nil, 1)]
-        case .summer: balloonFrames.map { (balloonSheetName, $0, 2) }
+        case .summer: balloonFrames.map { (balloonSheetName, $0, 1) }
         case .autumn: [(leafSheetName, PlazaPixelRect(x: 33, y: 33, width: 17, height: 15), 1)]
         }
     }

@@ -47,7 +47,7 @@
 - License: CC0 1.0 (https://creativecommons.org/publicdomain/zero/1.0/)
 - Source: https://opengameart.org/content/spring-vfx-pack
 - Source file SHA-256: 7c124d006ac3967cd17e77b9f139f473b0a9211aef14754a7d2359031cbe9189
-- Changes: one light pink blossom, the 76×68 area at (490, 874) of the sheet, brought down from the sheet's 2× to the art's own 38×34 (every 2×2 block is one pixel; no pixel is redrawn).
+- Changes: one light pink blossom, the 76×68 area at (490, 874) of the sheet, brought down to 18×16: first from the sheet's 2× to the art's own 38×34 (every 2×2 block is one pixel), then to half of that by keeping every second pixel in each direction (the pixel at odd x and odd y). No pixel is redrawn; the halving drops three of every four pixels of the artist's blossom.
 - Thrown in the plaza's spring. The app draws it as it is.
 
 ## Leaf clumps (plaza-leaf-sheet.png)

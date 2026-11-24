@@ -332,7 +332,7 @@ Windows 팝오버는 Mac의 화면을 그대로 따라 만든 별도 구현입�
 - 포켓몬 그림: PokéAPI
 - 풀숲·큰 나무 그림: RedVoxel, "Pokemon inspired 16x16 tiles" (CC-BY-SA 3.0, 파일은 변경 없이 쓰고, 큰 나무는 실행 중에 소나무 한 그루를 잘라 3배로 그리고 계절 색만 바꿔 씀)
 - 풍선 그림: Kris Occhipinti, "Balloon Pop Sprite" (CC-BY-SA 4.0, 다섯 색의 첫 프레임에서 줄을 뺀 풍선만 잘라 한 줄로 이어 붙임)
-- 벚꽃 그림: Gabriel "tiopalada" Lima, "Spring VFX Pack" (CC0, 시트에서 한 송이를 잘라 원래 크기로 줄임)
+- 벚꽃 그림: Gabriel "tiopalada" Lima, "Spring VFX Pack" (CC0, 시트에서 한 송이를 잘라 원래 크기의 절반으로 줄임)
 - 낙엽 뭉치 그림: William Thompson, "[LPC] Leaf Recolor", 원본 잎 Johann Charlot(Liberated Pixel Cup) (CC-BY-SA 3.0, 시트에서 한 칸을 잘라 씀)
 - 예전 물풍선 그림(지금은 던지지 않고 파일만 남아 있음): rrcaseyr, "Water gun fight art" (CC-BY-SA 3.0, 변경 없이 사용)
 - 얼음 금 그림: CookieEfedu, "Ice Mountains Tileset" (CC-BY 4.0, 실행 중에 금 픽셀만 남기고 색을 바꿈)
