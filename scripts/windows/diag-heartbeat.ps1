@@ -11,7 +11,7 @@ $lines = [System.Collections.Generic.List[string]]::new()
 $procs = [System.Diagnostics.Process]::GetProcesses()
 function Pids([string]$n) { (@($procs | Where-Object { $_.ProcessName -eq $n }) | ForEach-Object Id) -join ',' }
 $os = Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue
-$state = "L=$(Pids 'Runner.Listener') W=$(Pids 'Runner.Worker') WT=$(Pids 'WindowsTerminal') OC=$(Pids 'OpenConsole') ptb=$(Pids 'PokeTokenBar') setup=$((@($procs | Where-Object { $_.ProcessName -like 'PokeTokenBar-Setup*' }) | ForEach-Object Id) -join ',') werfault=$(Pids 'WerFault') n=$($procs.Count) free=$(if ($os) { [math]::Round($os.FreePhysicalMemory / 1MB, 1) })G"
+$state = "HCA=$(Pids 'hosted-compute-agent') L=$(Pids 'Runner.Listener') W=$(Pids 'Runner.Worker') WT=$(Pids 'WindowsTerminal') OC=$(Pids 'OpenConsole') ptb=$(Pids 'PokeTokenBar') setup=$((@($procs | Where-Object { $_.ProcessName -like 'PokeTokenBar-Setup*' }) | ForEach-Object Id) -join ',') werfault=$(Pids 'WerFault') n=$($procs.Count) free=$(if ($os) { [math]::Round($os.FreePhysicalMemory / 1MB, 1) })G"
 $lines.Add("$Label $($cfg.job) $($now.ToString('HH:mm:ss'))Z $state")
 $diag = Get-ChildItem 'C:\actions-runner\cached' -Recurse -Depth 2 -File -Filter 'Runner_*.log' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime | Select-Object -Last 1
 if ($diag) { $lines.Add("runner log $($diag.Name) written $($diag.LastWriteTimeUtc.ToString('HH:mm:ss'))Z:"); Get-Content $diag.FullName -Tail 6 | ForEach-Object { $lines.Add("  $(if ($_.Length -gt 220) { $_.Substring(0, 220) } else { $_ })") } }
@@ -24,6 +24,8 @@ Get-CimInstance Win32_Process -Filter "Name LIKE 'PokeTokenBar%' OR Name LIKE 'u
 $dir = Join-Path $cfg.workspace 'collected\in-app-update'
 $newest = Get-ChildItem $dir -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTime | Select-Object -Last 6
 $lines.Add("in-app files: $(($newest | ForEach-Object { "$($_.Name)@$($_.LastWriteTimeUtc.ToString('HH:mm:ss'))" }) -join ' ')")
+$setupLog = @(Get-ChildItem (Join-Path $cfg.workspace 'collected\in-app-update\*'), (Join-Path $env:LOCALAPPDATA 'PokeTokenBar\Logs\*') -File -Include '*-baseline.log', 'loop-baseline.log', 'update-*.log' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime | Select-Object -Last 1)
+if ($setupLog) { $lines.Add("setup log $($setupLog[0].Name)@$($setupLog[0].LastWriteTimeUtc.ToString('HH:mm:ss')):"); Get-Content $setupLog[0].FullName -Tail 4 | ForEach-Object { $lines.Add("  setup: $(if ($_.Length -gt 200) { $_.Substring(0, 200) } else { $_ })") } }
 $app = Join-Path $env:LOCALAPPDATA 'PokeTokenBar\Logs\PokeTokenBar.log'
 if (Test-Path $app) {
     $s = [System.IO.File]::Open($app, 'Open', 'Read', 'ReadWrite, Delete')

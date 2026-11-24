@@ -1601,11 +1601,13 @@ jobs:
     steps:
       - run: echo "build of run 45446214642"
   updates:
-    # DIAGNOSTIC (branch diag/update-runner-loss-2), experiment 5: does the lost runner need http.sys? The in-app update script,
-    # unchanged, run four times in a row in the step's own pwsh on 20 runners; in half of them update-feed-server.ps1 is replaced
-    # by diag-feed-tcp.ps1 (the same feed from user-mode sockets instead of HttpListener = http.sys). No failed-update step first
-    # (the script builds its TESTFAIL installers itself). Heartbeats every 30 s alternate Interactive and S4U scheduled tasks.
-    name: In-app update x4 (${{ matrix.feed }} ${{ matrix.rep }})
+    # DIAGNOSTIC (branch diag/update-runner-loss-2), experiment 6: which part of the update takes the VM down? 24 runners, 4 arms:
+    #   control    in-app-update.ps1 unchanged, three times in a row (as experiment 5)
+    #   rmOff      the same, every installer rebuilt with CloseApplications=no (Inno's Restart Manager pass off)
+    #   fakeSetup  9 min of: the app downloads a "Setup" (a copy of dllhost.exe), checks and starts it, leaves (the app's side alone)
+    #   pwshSetup  9 min of: vN baseline, then vN+1's Setup started from pwsh as the app starts it (Setup's side alone, no app)
+    # Heartbeats every 30 s alternate Interactive and S4U scheduled tasks (with the newest Setup log's last lines).
+    name: Update parts (${{ matrix.arm }} ${{ matrix.rep }})
     needs: prebuilt
     if: ${{ !cancelled() }}
     runs-on: windows-latest
@@ -1618,26 +1620,30 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { rep: 1, feed: httpsys }
-          - { rep: 2, feed: tcp }
-          - { rep: 3, feed: httpsys }
-          - { rep: 4, feed: tcp }
-          - { rep: 5, feed: httpsys }
-          - { rep: 6, feed: tcp }
-          - { rep: 7, feed: httpsys }
-          - { rep: 8, feed: tcp }
-          - { rep: 9, feed: httpsys }
-          - { rep: 10, feed: tcp }
-          - { rep: 11, feed: httpsys }
-          - { rep: 12, feed: tcp }
-          - { rep: 13, feed: httpsys }
-          - { rep: 14, feed: tcp }
-          - { rep: 15, feed: httpsys }
-          - { rep: 16, feed: tcp }
-          - { rep: 17, feed: httpsys }
-          - { rep: 18, feed: tcp }
-          - { rep: 19, feed: httpsys }
-          - { rep: 20, feed: tcp }
+          - { rep: 1, arm: control }
+          - { rep: 2, arm: rmOff }
+          - { rep: 3, arm: fakeSetup }
+          - { rep: 4, arm: pwshSetup }
+          - { rep: 5, arm: control }
+          - { rep: 6, arm: rmOff }
+          - { rep: 7, arm: fakeSetup }
+          - { rep: 8, arm: pwshSetup }
+          - { rep: 9, arm: control }
+          - { rep: 10, arm: rmOff }
+          - { rep: 11, arm: fakeSetup }
+          - { rep: 12, arm: pwshSetup }
+          - { rep: 13, arm: control }
+          - { rep: 14, arm: rmOff }
+          - { rep: 15, arm: fakeSetup }
+          - { rep: 16, arm: pwshSetup }
+          - { rep: 17, arm: control }
+          - { rep: 18, arm: rmOff }
+          - { rep: 19, arm: fakeSetup }
+          - { rep: 20, arm: pwshSetup }
+          - { rep: 21, arm: control }
+          - { rep: 22, arm: rmOff }
+          - { rep: 23, arm: fakeSetup }
+          - { rep: 24, arm: pwshSetup }
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
       - uses: ./.github/actions/windows-slice
@@ -1646,10 +1652,23 @@ jobs:
           installer-sha256: e020b972c63acbde5ac8688d8dc4053a7087f6d53999dacf0fcfd53aaebca5ae
           build-run-id: '45446214642'
           github-token: ${{ github.token }}
-      - name: DIAG serve the feed from user-mode sockets (tcp arm)
-        if: matrix.feed == 'tcp'
+      - name: DIAG rebuild the installers with CloseApplications=no (rmOff arm)
+        if: matrix.arm == 'rmOff'
+        timeout-minutes: 10
         shell: pwsh
-        run: Copy-Item scripts\windows\diag-feed-tcp.ps1 scripts\windows\update-feed-server.ps1 -Force; 'update-feed-server.ps1 is now the TcpListener feed'
+        run: |
+          $iscc = (& ./scripts/windows/ensure-inno.ps1 | Select-Object -Last 1)
+          $iss = 'installer\PokeTokenBar.iss'
+          $text = Get-Content $iss -Raw
+          if ($text -notmatch '(?m)^CloseApplications=yes') { throw 'CloseApplications=yes not found' }
+          Set-Content $iss -Value ($text -replace '(?m)^CloseApplications=yes', 'CloseApplications=no') -NoNewline -Encoding utf8NoBOM
+          foreach ($job in @(@{ Src = 'bundle'; Ver = $env:PTB_VERSION; Out = 'installer-out' }, @{ Src = 'bundle-next'; Ver = $env:PTB_NEXT_VERSION; Out = 'installer-next' })) {
+              Remove-Item (Join-Path $job.Out 'PokeTokenBar-Setup-*.exe')
+              & $iscc /Q "/DSrcDir=$((Resolve-Path $job.Src).Path)" "/DAppVer=$($job.Ver)" "/DOutDir=$((Resolve-Path $job.Out).Path)" $iss
+              if ($LASTEXITCODE -ne 0) { throw "ISCC failed for $($job.Ver)" }
+          }
+          Select-String -Path $iss -Pattern '^CloseApplications='
+          Get-ChildItem installer-out, installer-next | ForEach-Object { "$($_.FullName) $($_.Length)" }
       - name: DIAG schedule the controls and the heartbeats
         if: (success() || failure())
         timeout-minutes: 5
@@ -1659,7 +1678,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path collected\in-app-update | Out-Null
           $cfg = Join-Path $env:RUNNER_TEMP 'diag-snap.json'
-          @{ token = $env:DIAG_TOKEN; repo = $env:GITHUB_REPOSITORY; sha = $env:GITHUB_SHA; job = "$env:GITHUB_RUN_ID/${{ matrix.feed }}-${{ matrix.rep }}"; workspace = $PWD.Path } | ConvertTo-Json | Set-Content $cfg
+          @{ token = $env:DIAG_TOKEN; repo = $env:GITHUB_REPOSITORY; sha = $env:GITHUB_SHA; job = "$env:GITHUB_RUN_ID/${{ matrix.arm }}-${{ matrix.rep }}"; workspace = $PWD.Path } | ConvertTo-Json | Set-Content $cfg
           $hb = Join-Path $PWD 'scripts\windows\diag-heartbeat.ps1'
           $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes 4) -MultipleInstances Parallel
           function Add-Task([string]$Name, [string]$Label, [datetime]$At, [string]$Logon = 'Interactive', [switch]$Repeat) {
@@ -1680,18 +1699,22 @@ jobs:
           $t0 = Get-Date
           Add-Task 'ptb-diag-hbA' 'hbAI' $t0.AddSeconds(15) -Repeat
           Add-Task 'ptb-diag-hbB' 'hbBS' $t0.AddSeconds(45) -Repeat -Logon S4U
-      - name: The in-app update from a loopback feed, four times
+      - name: DIAG the update part, repeated
         if: (success() || failure())
         timeout-minutes: 30
         shell: pwsh
         run: |
-          $bad = @()
-          foreach ($i in 1..4) {
-              "iteration $i at $((Get-Date).ToUniversalTime().ToString('HH:mm:ss'))Z" | Set-Content collected\in-app-update\iteration.txt
-              "==== iteration $i ===="
-              try { ./scripts/windows/in-app-update.ps1 -Version $env:PTB_VERSION -NextVersion $env:PTB_NEXT_VERSION } catch { $bad += $i; "iteration ${i}: $($_.Exception.Message)" }
+          if ('${{ matrix.arm }}' -in 'control', 'rmOff') {
+              $bad = @()
+              foreach ($i in 1..3) {
+                  "iteration $i at $((Get-Date).ToUniversalTime().ToString('HH:mm:ss'))Z" | Set-Content collected\in-app-update\iteration.txt
+                  "==== iteration $i ===="
+                  try { ./scripts/windows/in-app-update.ps1 -Version $env:PTB_VERSION -NextVersion $env:PTB_NEXT_VERSION } catch { $bad += $i; "iteration ${i}: $($_.Exception.Message)" }
+              }
+              if ($bad.Count) { "iterations with a failed scenario: $($bad -join ', ')" }
+          } else {
+              ./scripts/windows/diag-update-loop.ps1 -Arm '${{ matrix.arm }}' -Version $env:PTB_VERSION -NextVersion $env:PTB_NEXT_VERSION -Minutes 9
           }
-          if ($bad.Count) { throw "iterations with a failed scenario: $($bad -join ', ')" }
       - name: DIAG remove the heartbeat tasks
         if: always()
         timeout-minutes: 2
@@ -1712,7 +1735,7 @@ jobs:
         if: always()
         with:
           overwrite: true
-          name: windows-app-updates-${{ matrix.feed }}-${{ matrix.rep }}
+          name: windows-app-updates-${{ matrix.arm }}-${{ matrix.rep }}
           retention-days: 7
           path: |
             collected
