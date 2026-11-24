@@ -61,6 +61,14 @@ enum WindowsSelftest {
         guard let dir = temporaryStateDirectory else { return }
         temporaryStateDirectory = nil
         try? FileManager.default.removeItem(at: dir)
+        // The app's team settings for a state folder live in `ptb.team.<hash of the folder>.plist` (+ `.bak`) next to the real settings;
+        // the hash is of this one-off folder, so the file is only ever this run's.
+        if let suite = TeamSettings.suiteName(for: dir, defaultDirectory: URL(fileURLWithPath: "/ptb-no-default")) {
+            let plist = WinDefaultsSync.plistURL(suite: suite)
+            for file in [plist, SettingsPlistGuard.backupURL(for: plist)] where (try? FileManager.default.removeItem(at: file)) != nil {
+                AppLog.write("selftest: removed the temporary state folder's settings file \(file.lastPathComponent)")
+            }
+        }
     }
 
     /// Starts the run on the main actor once the loop turns, then exits with its result.
