@@ -63,6 +63,43 @@ final class ZeroUsageHomeRenderingTests: XCTestCase {
         try await render(history: true, language: .de, costs: .unavailable)
     }
 
+
+    /// The quiet-day month: every day before `day` has usage, `day` itself (today) has none.
+    /// A pure function of the date so the date sweep below can feed it any day.
+    static func quietSeries(monthPrefix: String, day: Int, history: Bool) -> [DailyUsage] {
+        (0..<day).map { offset in
+            let tokens = history && offset < day - 1 ? (offset % 6 + 1) * 230_000 : 0
+            return DailyUsage(date: String(format: "%@-%02d", monthPrefix, offset + 1), inputTokens: tokens,
+                              outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0,
+                              totalTokens: tokens, totalCost: 0)
+        }
+    }
+
+    /// The condition `MonthDailyTrend` uses to draw bars: some column in the window has tokens.
+    static func drawsBars(series: [DailyUsage], today: String, window: DailyTrendWindow) -> Bool {
+        (DailyTrendMetrics.columns(series: series, today: today, window: window).map(\.tokens).max() ?? 0) > 0
+    }
+
+    func testQuietDayBarsAreDrawnOnEveryCalendarDate() async {
+        // Every day of every month of 2026 (all seven weekdays start a month) plus a leap February.
+        let months = (1...12).map { (2026, $0) } + [(2028, 2)]
+        for (year, month) in months {
+            let first = Calendar(identifier: .gregorian).date(from: DateComponents(year: year, month: month, day: 1))!
+            let length = Calendar(identifier: .gregorian).range(of: .day, in: .month, for: first)!.count
+            let prefix = String(format: "%04d-%02d", year, month)
+            for day in 1...length {
+                let today = String(format: "%@-%02d", prefix, day)
+                for window in DailyTrendWindow.allCases {
+                    let drawn = Self.drawsBars(series: Self.quietSeries(monthPrefix: prefix, day: day, history: true),
+                                               today: today, window: window)
+                    XCTAssertEqual(drawn, day > 1, "\(today) \(window)")
+                    XCTAssertFalse(Self.drawsBars(series: Self.quietSeries(monthPrefix: prefix, day: day, history: false),
+                                                  today: today, window: window), "\(today) \(window) empty history")
+                }
+            }
+        }
+    }
+
     private func render(history: Bool, language: AppLanguage = .ko, costs: CostCoverage? = nil) async throws {
         let suite = "QuietHome-\(UUID())"
         let defaults = try XCTUnwrap(TestDefaults.make(suite: suite))
@@ -78,14 +115,8 @@ final class ZeroUsageHomeRenderingTests: XCTestCase {
                          burnTier: .idle, limitWarning: false, hasUsageData: false)
         let formatter = LocalUsageReader.localDayFormatter()
         let now = Date()
-        let monthStart = LocalUsageReader.startOfMonth(now)
         let day = Calendar.current.component(.day, from: now)
-        let series = (0..<day).map { offset in
-            let date = Calendar.current.date(byAdding: .day, value: offset, to: monthStart)!
-            let tokens = history && offset < day - 1 ? (offset % 6 + 1) * 230_000 : 0
-            return DailyUsage(date: formatter.string(from: date), inputTokens: tokens, outputTokens: 0,
-                              cacheCreationTokens: 0, cacheReadTokens: 0, totalTokens: tokens, totalCost: 0)
-        }
+        let series = Self.quietSeries(monthPrefix: LocalUsageReader.monthKey(now), day: day, history: history)
         let weekKey = formatter.string(from: LocalUsageReader.startOfWeek(now))
         let enrichment = ProviderEnrichment(blocksOK: true,
             weekTotal: costs != nil
@@ -152,14 +183,12 @@ final class ZeroUsageHomeRenderingTests: XCTestCase {
             companion.l.title(for: store.dailyTrendWindow).replacingOccurrences(of: " ", with: ""),
             companion.l.dailyTrend.replacingOccurrences(of: " ", with: ""),
         ]
+        // The caption shares a text line with the date readout ("11. 24. (화) 0"), so the OCR's top reading of that line
+        // can garble the caption on one date and not on the next. Accept the caption in any of the 10 candidates; the
+        // empty-history case below still proves the caption is absent when no chart is drawn.
         let chartVisible = (request.results ?? []).contains { observation in
-            // CI ranks "일벌" before "일별" at the same confidence. Vision returns at most 10 candidates.
-            // Match the exact caption only within this observation's most confident tie.
-            let alternatives = observation.topCandidates(10)
-            guard let maximumConfidence = alternatives.first?.confidence else { return false }
-            return alternatives.contains { candidate in
-                candidate.confidence == maximumConfidence
-                    && chartCaptions.contains { candidate.string.replacingOccurrences(of: " ", with: "").contains($0) }
+            observation.topCandidates(10).contains { candidate in
+                chartCaptions.contains { candidate.string.replacingOccurrences(of: " ", with: "").contains($0) }
             }
         }
         let candidates = (request.results ?? []).enumerated().map { index, observation in
@@ -190,6 +219,9 @@ final class ZeroUsageHomeRenderingTests: XCTestCase {
         if costs == nil {
             // The original quiet-day fixtures own chart coverage; cost fixtures target the period row.
             if history && day > 1 {
+                XCTAssertTrue(Self.drawsBars(series: store.dailyTrendTotals, today: LocalUsageReader.todayKey(),
+                                             window: store.dailyTrendWindow),
+                              "The store's trend window has no bars to draw")
                 XCTAssertTrue(chartVisible,
                               "Historical chart missing: \(text)\n\(diagnostics)")
             } else {
