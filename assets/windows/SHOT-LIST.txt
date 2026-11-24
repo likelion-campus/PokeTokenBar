@@ -32,3 +32,4 @@ plaza-bomb-game.png | windows-app | plaza-bomb-game.png
 plaza-fortune-cookie.png | windows-app | plaza-fortune-cookie.png
 settings-team-create-ko.png | ui-settings | settings-ko-100-team-nocode.png
 plaza-shortcuts-menu.png | windows-app | plaza-panels-member-menu.png
+plaza-blossom-throw.png | windows-app | plaza-blossom-throw.png
