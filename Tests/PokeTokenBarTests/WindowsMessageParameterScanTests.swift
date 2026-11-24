@@ -8,7 +8,7 @@ final class WindowsMessageParameterScanTests: XCTestCase {
     /// Integer types that trap on an out-of-range `UInt` (`WPARAM`) or `Int` (`LPARAM`) value.
     private static let wParamTargets: Set<String> = ["Int", "Int64", "Int32", "Int16", "Int8", "UInt32", "UInt16", "UInt8", "DWORD", "UINT", "WORD", "BYTE"]
     private static let lParamTargets: Set<String> = ["UInt", "UInt64", "Int32", "Int16", "Int8", "UInt32", "UInt16", "UInt8", "DWORD", "UINT", "WORD", "BYTE"]
-    private static let safeMarkers = ["truncatingIfNeeded", "bitPattern", "exactly", "clamping", "& 0x", "&0x"]
+    private static let safeMarkers = ["truncatingIfNeeded", "bitPattern", "exactly", "clamping", "& 0x", "&0x", "loWord(", "hiWord("]  // loWord/hiWord mask to 16 bits
     private static let callRegex = try! NSRegularExpression(pattern: #"\b([A-Za-z0-9]+)\("#)
 
     /// "File:line `Type(argument)`" for each trapping conversion of a window-message parameter in `text`.
@@ -59,7 +59,7 @@ final class WindowsMessageParameterScanTests: XCTestCase {
         for fine in ["let v = Int(truncatingIfNeeded: wParam)", "let v = Int(bitPattern: wParam)", "let v = UInt32(wParam & 0xFFFF)",
                      "let p = UnsafeRawPointer(bitPattern: Int(lParam))", "let u = UInt(wParam)", "let w = UInt64(wParam)",
                      "let v = Int(count)  // Int(wParam) in a comment", "let h = HDC(bitPattern: UInt(wParam))",
-                     "let s = Int16(truncatingIfNeeded: lParam >> 16)"] {
+                     "let s = Int16(truncatingIfNeeded: lParam >> 16)", "let d = UINT(WinKit.loWord(wParam))"] {
             XCTAssertEqual(Self.violations(file: "X.swift", text: fine), [], fine)
         }
     }
