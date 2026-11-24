@@ -95,7 +95,18 @@ $body = @{ name = "diag $Label $($cfg.job)"; head_sha = $cfg.sha; status = 'comp
 $headers = @{ Authorization = "Bearer $($cfg.token)"; Accept = 'application/vnd.github+json'; 'X-GitHub-Api-Version' = '2022-11-28' }
 $local = Join-Path $cfg.workspace "collected\diag-$Label.txt"
 try { Set-Content -Path $local -Value $text -Encoding utf8NoBOM } catch { }
-try {
-    $r = Invoke-RestMethod -Method Post -Uri "https://api.github.com/repos/$($cfg.repo)/check-runs" -Headers $headers -Body $body -ContentType 'application/json'
-    "posted check run $($r.id) ($($text.Length) chars): $summary"
-} catch { "posting failed: $($_.Exception.Message)" }
+# curl.exe first (its own HTTP stack: still works when .NET/WinHTTP requests hang), then .NET only if curl did not get a 201.
+$tmp = Join-Path $env:TEMP "ptb-snap-$PID"
+New-Item -ItemType Directory -Force -Path $tmp | Out-Null
+$headerFile = Join-Path $tmp 'h.txt'; $bodyFile = Join-Path $tmp 'b.json'
+Set-Content -Path $headerFile -Value @("Authorization: Bearer $($cfg.token)", 'Accept: application/vnd.github+json', 'X-GitHub-Api-Version: 2022-11-28', 'Content-Type: application/json') -Encoding ascii
+Set-Content -Path $bodyFile -Value $body -Encoding utf8NoBOM
+$code = & "$env:SystemRoot\System32\curl.exe" -sS -m 30 -o NUL -w "%{http_code}" -H "@$headerFile" --data-binary "@$bodyFile" "https://api.github.com/repos/$($cfg.repo)/check-runs" 2>&1
+"curl: $code"
+Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
+if ("$code" -ne '201') {
+    try {
+        $r = Invoke-RestMethod -Method Post -TimeoutSec 30 -Uri "https://api.github.com/repos/$($cfg.repo)/check-runs" -Headers $headers -Body $body -ContentType 'application/json'
+        "posted check run $($r.id) ($($text.Length) chars): $summary"
+    } catch { "posting failed: $($_.Exception.Message)" }
+}
