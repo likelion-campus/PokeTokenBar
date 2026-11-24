@@ -216,7 +216,7 @@ final class TeamFeedSaveCoalescingTests: XCTestCase {
                          day: String(format: "%04d-%02d-%02d", c.year!, c.month!, c.day!), occurredAt: now)
     }
 
-    func testAThousandFramesFromTeammatesAreOneWrite() {
+    func testAThousandFramesFromTeammatesAreOneWrite() async {
         let feed = store(delay: 60)
         for i in 0..<1_000 { _ = feed.insert([event("e\(i)", author: "other")]) }
         XCTAssertEqual(feed.saveCount, 0, "nothing was written per frame")
@@ -227,7 +227,7 @@ final class TeamFeedSaveCoalescingTests: XCTestCase {
         XCTAssertEqual(store(delay: 60).events.count, feed.events.count, "what was flushed is what a restart reads")
     }
 
-    func testMyOwnNewsIsWrittenAtOnce() {
+    func testMyOwnNewsIsWrittenAtOnce() async {
         let feed = store(delay: 60)
         XCTAssertTrue(feed.insert(event("mine", author: "me")))
         XCTAssertEqual(feed.saveCount, 1)
@@ -243,7 +243,7 @@ final class TeamFeedSaveCoalescingTests: XCTestCase {
         XCTAssertEqual(store(delay: 60).events.map(\.id), ["e1"])
     }
 
-    func testTheSortOrderIsStillNewestFirstWithTiesByID() {
+    func testTheSortOrderIsStillNewestFirstWithTiesByID() async {
         let feed = store(delay: 60)
         _ = feed.insert([event("b", author: "x"), event("a", author: "x"), event("c", author: "x")])
         XCTAssertEqual(feed.events.map(\.id), ["a", "b", "c"])
@@ -335,14 +335,14 @@ final class TeamLinkLimitsTests: XCTestCase {
 
     // MARK: synced frames
 
-    func testAFloodOfSyncedFramesIsLimitedPerLink() {
+    func testAFloodOfSyncedFramesIsLimitedPerLink() async {
         let peer = join("flooder")
         for i in 0..<400 { say(.events([event("e\(i)", author: "someone")], live: false), from: peer) }
         XCTAssertEqual(feed.events.count, TeamSession.syncedFrameBurst)
         XCTAssertFalse(peer.disconnected, "the link stays: the next inventory brings the rest")
     }
 
-    func testAFullFeedSyncedThreeTimesAtOnceIsNotLimited() {
+    func testAFullFeedSyncedThreeTimesAtOnceIsNotLimited() async {
         let peer = join("honest")
         // 300 events and 3000 reactions in frames of 100, asked for three times: 99 frames.
         for frame in 0..<99 {
@@ -351,13 +351,13 @@ final class TeamLinkLimitsTests: XCTestCase {
         XCTAssertEqual(feed.events.count, 99 * 3)
     }
 
-    func testLiveFramesAreNotChargedAsSyncedOnes() {
+    func testLiveFramesAreNotChargedAsSyncedOnes() async {
         let peer = join("author")
         for i in 0..<(TeamSession.syncedFrameBurst + 30) { say(.events([event("l\(i)", author: "author")], live: true), from: peer) }
         XCTAssertEqual(feed.events.count, TeamSession.syncedFrameBurst + 30)
     }
 
-    func testSyncedFramesComeBackWithTime() {
+    func testSyncedFramesComeBackWithTime() async {
         let peer = join("flooder")
         for i in 0..<(TeamSession.syncedFrameBurst + 10) { say(.events([event("a\(i)", author: "o")], live: false), from: peer) }
         let before = feed.events.count
@@ -368,7 +368,7 @@ final class TeamLinkLimitsTests: XCTestCase {
 
     // MARK: shared values
 
-    func testAFloodOfNewerSchedulesIsAdoptedOnlyUpToTheBurst() {
+    func testAFloodOfNewerSchedulesIsAdoptedOnlyUpToTheBurst() async {
         let peer = join("flooder")
         let watcher = join("watcher")
         watcher.received = []
@@ -377,20 +377,20 @@ final class TeamLinkLimitsTests: XCTestCase {
         XCTAssertLessThanOrEqual(watcher.presences, 2, "one presence at once and one owed, not one per adoption")
     }
 
-    func testAPersonChangingTheScheduleTwentyTimesInARowIsNotLimited() {
+    func testAPersonChangingTheScheduleTwentyTimesInARowIsNotLimited() async {
         let peer = join("honest")
         for n in 0..<TeamSession.sharedValueBurst { say(.presence(presence(schedule: schedule(n, by: "honest"))), from: peer) }
         XCTAssertEqual(settings.schedule?.changedAt, schedule(TeamSession.sharedValueBurst - 1, by: "honest").changedAt)
     }
 
-    func testARepeatedValueCostsNothing() {
+    func testARepeatedValueCostsNothing() async {
         let peer = join("honest")
         for _ in 0..<500 { say(.presence(presence(schedule: schedule(1, by: "honest"))), from: peer) }
         say(.presence(presence(schedule: schedule(2, by: "honest"))), from: peer)
         XCTAssertEqual(settings.schedule?.changedAt, schedule(2, by: "honest").changedAt, "heartbeats did not use the budget up")
     }
 
-    func testTheOwedPresenceGoesOutOnTheNextTick() {
+    func testTheOwedPresenceGoesOutOnTheNextTick() async {
         let peer = join("flooder")
         let watcher = join("watcher")
         for n in 0..<5 { say(.presence(presence(schedule: schedule(n, by: "flooder"))), from: peer) }
@@ -400,9 +400,27 @@ final class TeamLinkLimitsTests: XCTestCase {
         XCTAssertEqual(watcher.presences, 1)
     }
 
+    // MARK: profiles
+
+    func testAProfileOfAMillionDexEntriesIsCutBeforeTheCardSeesIt() async {
+        let peer = join("big")
+        peer.transport.onMessage = { [unowned peer] id, m in
+            peer.received.append(m)
+            guard case .profileRequest = m else { return }
+            let dex = (0..<3_000).map {
+                TeamDexSpecies(speciesID: $0 % 2 == 0 ? 25 : 100_000 + $0, form: nil, name: $0 == 0 ? String(repeating: "x", count: 5_000) : "n",
+                               rarity: .common, hasShiny: false, hasNormal: true)
+            }
+            peer.transport.send(.profile(TeamMemberProfile(memberID: "big", nickname: "x", current: Self.mon, dex: dex)), to: id)
+        }
+        let got = await session.requestProfile(memberID: "big")
+        XCTAssertEqual(got?.dex.count, TeamMemberProfile.maxDexEntries, "foreign species are dropped and the rest is cut to what a real dex holds")
+        XCTAssertEqual(got?.dex.first?.name, "#25", "a name longer than a field reads as the number")
+    }
+
     // MARK: hello deadline
 
-    func testALinkThatNeverSaysHelloIsClosedAfterTheDeadline() {
+    func testALinkThatNeverSaysHelloIsClosedAfterTheDeadline() async {
         let silent = connect()
         clock = clock.addingTimeInterval(TeamSession.helloDeadline - 1)
         session.tick()
@@ -412,7 +430,7 @@ final class TeamLinkLimitsTests: XCTestCase {
         XCTAssertTrue(silent.disconnected)
     }
 
-    func testALinkThatSaidHelloIsNotClosedByTheDeadline() {
+    func testALinkThatSaidHelloIsNotClosedByTheDeadline() async {
         let peer = join("honest")
         clock = clock.addingTimeInterval(TeamSession.helloDeadline + 5)
         session.tick()
