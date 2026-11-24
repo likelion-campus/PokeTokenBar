@@ -54,7 +54,7 @@ extension OAuthAccessTokenCache {
                     AppLog.write("claude keychain tool read timed out; automatic keychain reads off until restart")
                     return nil
                 case .failed:
-                    AppLog.writeIfChanged(logKey, "claude keychain tool read: could not run the tool")
+                    AppLog.writeIfChanged(logKey, "claude keychain tool read: could not run the tool (launch failed or cancelled)")
                     return nil
                 case .finished(let status, let stdout):
                     if status == 44 { continue }

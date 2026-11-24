@@ -171,7 +171,9 @@ final class KeychainToolReadTests: XCTestCase {
 
     func testRealSecurityToolAcceptsTheArgumentForm() async throws {
         KeychainToolReader.keychainUnlockedForTesting = nil
-        let path = try XCTUnwrap(KeychainToolReader.unlockedDefaultKeychainPath(), "default keychain locked")
+        guard let path = KeychainToolReader.unlockedDefaultKeychainPath() else {
+            throw XCTSkip("default keychain locked or unavailable (headless runner)")
+        }
         let start = Date()
         let result = try await ProcessRunner.runCapturingStdout(
             binary: "/usr/bin/security",

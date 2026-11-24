@@ -39,7 +39,7 @@ enum KeychainToolReader {
     nonisolated(unsafe) static var runForTesting: (([String]) async -> (status: Int32, stdout: Data)?)?
     /// 기본 키체인이 열려 있는지의 시험 값. nil 이면 실제로 묻는다.
     nonisolated(unsafe) static var keychainUnlockedForTesting: Bool?
-    /// 시간 초과 뒤 앱을 다시 켤 때까지 도구 읽기를 끈다. tearDown 에서 false 로.
+    /// 시간 초과나 0·44 밖의 종료 코드 뒤, 앱을 다시 켜거나 사용자가 갱신 버튼을 누를 때까지 도구 읽기를 끈다. tearDown 에서 false 로.
     nonisolated(unsafe) static var isSuspended = false
     static let timeout: TimeInterval = 3
     /// `run` 호출 수(시험 이음매 포함) — "프로세스를 시작하지 않았다" 를 세는 가드용.
