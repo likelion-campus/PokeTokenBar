@@ -144,10 +144,10 @@ enum PlazaBomb {
     static let intermission: TimeInterval = 4
     /// Whoever just handed the bomb over cannot get it back for this long.
     static let returnImmunity: TimeInterval = 2
-    /// One running step of whoever holds the live bomb (everyone else: `PlazaWalker.runStepDuration`). At the same
-    /// speed a holder never catches a player who keeps running. It stays above `PlazaScene.maxFrameDelta`: a frame must
-    /// never cover two tiles, or teammates see the holder jump.
-    static let holderRunStepDuration: TimeInterval = 0.071
+    /// One running step of whoever holds the live bomb: 20 % faster than everyone else (`PlazaWalker.runStepDuration`).
+    /// At the same speed a holder never catches a player who keeps running. It stays above `PlazaScene.maxFrameDelta`:
+    /// a frame must never cover two tiles, or teammates see the holder jump.
+    static let holderRunStepDuration: TimeInterval = PlazaWalker.runStepDuration / 1.2
     /// A holder who is gone from the plaza, or whose Mac did not report the explosion, is put out after this long.
     static let absenceGrace: TimeInterval = 3
 

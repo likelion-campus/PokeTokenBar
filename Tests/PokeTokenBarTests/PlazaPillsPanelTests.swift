@@ -17,6 +17,21 @@ import XCTest
 
     private func texts(_ pill: PlazaPill) -> [String] { pill.lines.map { ($0.line.native as! PlazaStubText).text } }
 
+    /// The minigame's list comes last, under the hint, in its own smaller style; alone it still shows.
+    func testTheGameStatusPillIsLastAndShowsAlone() async {
+        let (p, model) = panel(hint: "안내 한 줄")
+        model.gameStatus = "남은 2명 가 · 나"
+        let pills = p.stack(in: window, scale: 2, text: text).pills
+        XCTAssertEqual(pills.map(texts), [["안내 한 줄"], ["남은 2명 가 · 나"]])
+        XCTAssertEqual(pills.last?.style.fill, PlazaPanelStyle.gameStatus.fill)
+        XCTAssertGreaterThan(pills[1].frame.minY, pills[0].frame.maxY)
+        model.hint = nil
+        XCTAssertTrue(p.isVisible)
+        XCTAssertEqual(p.stack(in: window, scale: 2, text: text).pills.map(texts), [["남은 2명 가 · 나"]])
+        model.gameStatus = nil
+        XCTAssertFalse(p.isVisible)
+    }
+
     func testPillsStackCountdownBannerHintInOrder() async throws {
         let (p, _) = panel(countdown: "단체 사진 5", banner: "배너", hint: "안내 한 줄")
         let (size, pills) = p.stack(in: window, scale: 2, text: text)

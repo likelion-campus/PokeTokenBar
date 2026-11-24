@@ -719,6 +719,8 @@ Team/UI/TeamSettingsSection.swift#TeamSettingsSection.commitNickname | G13k
 Team/UI/TeamSettingsSection.swift#TeamSettingsSection.create | G13j
 Team/UI/TeamSettingsSection.swift#TeamSettingsSection.join | G13j
 Team/UI/TeamSettingsSection.swift#TeamSettingsSection.copy | G13c
+Team/UI/TeamSettingsSection.swift#TeamCodePasteboard | G13c
+Team/UI/TeamSettingsSection.swift#TeamCodePasteboard.write | G13c
 PokeTokenBarApp.swift#PokeTokenBarApp | A7
 PokeTokenBarApp.swift#PokeTokenBarApp.body | A7
 PokeTokenBarApp.swift#AppDelegate | A7

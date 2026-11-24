@@ -90,7 +90,7 @@ class FakeGitHub:
          assets uploaded so far) in place.
       A6 the REST list has every release (drafts too), newest first; releases/latest is the latest published one.
     Runs have attempts, and a dispatch cancels a pending run of the same release (concurrency group
-    <workflow>-release-<sha>, cancel-in-progress false: one running, one pending).
+    <workflow>-release-<sha>-<ref>, cancel-in-progress false: one running, one pending).
     Faults are injected with `on(predicate, effect)`: an effect returns a Result to answer instead, or None to change
     state and let the default answer follow."""
 
@@ -101,6 +101,7 @@ class FakeGitHub:
         self.appear_after = 1          # `gh run list` calls before a dispatched run shows; None = never
         self.upload_fails_after = None  # create uploads this many assets, then fails
         self.workflow_files = set()     # (ref, file name) the contents API knows
+        self.ref_heads = {}              # branch -> its head commit; a ref not listed is at the dispatched release_sha
         self.next_id, self.stamp = 9000, 0
 
     def on(self, predicate, effect):
@@ -153,12 +154,13 @@ class FakeGitHub:
     def calls_of(self, *prefix):
         return [argv for argv in self.calls if argv[1:1 + len(prefix)] == list(prefix)]
 
-    def add_run(self, workflow, title=TITLE, status="completed", conclusion="success", event="workflow_dispatch"):
+    def add_run(self, workflow, title=TITLE, status="completed", conclusion="success", event="workflow_dispatch",
+                branch="main", head=SHA):
         self.next_id += 1
         self.stamp += 1
         run = {"databaseId": self.next_id, "displayTitle": title, "status": status, "conclusion": conclusion,
                "event": event, "createdAt": "2026-11-16T10:%02d:00Z" % self.stamp, "attempt": 1,
-               "workflowName": WORKFLOW_NAMES[workflow], "workflow": workflow}
+               "workflowName": WORKFLOW_NAMES[workflow], "workflow": workflow, "headBranch": branch, "headSha": head}
         self.runs.setdefault(workflow, []).append(run)
         return self.next_id
 
@@ -226,10 +228,11 @@ class FakeGitHub:
         title = ("release %s %s" % (inputs.get("release_version"), inputs.get("release_sha"))
                  if workflow != "windows-release-smoke.yml" else "windows-release-smoke")
         for run in self.runs.get(workflow, []):
-            if run["displayTitle"] == title and run["status"] in ("queued", "pending", "waiting"):
+            if run["displayTitle"] == title and run["headBranch"] == ref and run["status"] in ("queued", "pending", "waiting"):
                 run["status"], run["conclusion"] = "completed", "cancelled"  # the newer pending run replaces it
                 self.timelines.pop(run["databaseId"], None)
-        run_id = self.add_run(workflow, title, "queued", "")
+        # a dispatched run runs the workflow file at the head of --ref; the fake's ref heads are `ref_heads`
+        run_id = self.add_run(workflow, title, "queued", "", branch=ref, head=self.ref_heads.get(ref, inputs.get("release_sha")))
         self.hidden[run_id] = self.appear_after
         return ok("https://github.com/likelion-campus/PokeTokenBar/actions/runs/%d\n" % run_id)
 
@@ -361,7 +364,7 @@ class StartTests(HelperTest):
         self.gh.add_run("windows.yml")
         self.start()
         self.assertEqual(["gh", "run", "list", "--workflow", "windows-app.yml", "--event", "workflow_dispatch", "--json",
-                          "databaseId,displayTitle,status,conclusion,event,createdAt,attempt", "--limit", "50"] + REPO_ARGS,
+                          "databaseId,displayTitle,status,conclusion,event,createdAt,attempt,headBranch,headSha", "--limit", "50"] + REPO_ARGS,
                          self.gh.calls[0])
 
     def test_reuses_a_running_or_queued_run(self):
@@ -458,6 +461,82 @@ class StartTests(HelperTest):
         self.assertEqual([5] * 6, self.clock.sleeps, "polled in 5 s steps until each run showed")
         self.assertEqual("ci/windows-release-mode", self.runs_file()["ref"])
 
+    def test_a_matching_run_from_another_branch_is_not_reused(self):
+        # F1: the title and inputs are what a dispatcher typed; a branch can carry its own windows-app.yml.
+        self.gh.add_run("windows-app.yml", branch="attacker/branch")
+        self.gh.add_run("windows.yml", branch="attacker/branch")
+        self.assertExit(0, self.start())
+        self.assertIn("ignoring run", self.err)
+        self.assertIn('branch "attacker/branch", expected main', self.err)
+        self.assertEqual(2, len(self.gh.calls_of("workflow", "run")), "both were dispatched fresh")
+        for wf in ("windows-app.yml", "windows.yml"):
+            run = self.gh.run_by_id(self.runs_file()["runs"][wf])
+            self.assertEqual(("main", SHA), (run["headBranch"], run["headSha"]))
+
+    def test_a_matching_run_at_another_commit_is_not_reused(self):
+        self.gh.add_run("windows-app.yml", head=OTHER_SHA)
+        self.gh.add_run("windows.yml")
+        self.assertExit(0, self.start())
+        self.assertIn("commit \"%s\", expected %s" % (OTHER_SHA, SHA), self.err)
+        self.assertEqual(["windows-app.yml"], [argv[3] for argv in self.gh.calls_of("workflow", "run")])
+
+    def test_a_foreign_run_that_shows_up_after_the_dispatch_is_not_taken(self):
+        # An attacker's dispatch inside the 60 s window must not be mistaken for the one this call made.
+        self.gh.appear_after = 3
+        planted = []
+
+        def plant(argv):
+            if not planted:
+                planted.append(self.gh.add_run("windows-app.yml", status="queued", conclusion="", branch="attacker/branch"))
+        self.gh.on(nth(1, is_call("workflow", "run")), plant)
+        self.assertExit(0, self.start())
+        chosen = self.runs_file()["runs"]["windows-app.yml"]
+        self.assertNotEqual(planted[0], chosen)
+        self.assertEqual("main", self.gh.run_by_id(chosen)["headBranch"])
+        self.assertIn("ignoring run %d" % planted[0], self.err)
+
+    def test_a_rehearsal_run_on_a_branch_is_not_reused_by_the_release_on_main(self):
+        self.assertExit(0, self.start("--ref", "feat/x"))
+        self.gh.calls = []
+        self.assertExit(0, self.start())  # main
+        self.assertEqual(2, len(self.gh.calls_of("workflow", "run")))
+        self.assertEqual("main", self.runs_file()["ref"])
+
+    def test_a_branch_run_is_reused_when_that_branch_is_the_ref(self):
+        # --rehearse works on any branch: the branch's own run at the same commit is the one to use.
+        self.gh.add_run("windows-app.yml", branch="feat/x")
+        self.gh.add_run("windows.yml", branch="feat/x")
+        self.assertExit(0, self.start("--ref", "feat/x"))
+        self.assertEqual([], self.gh.calls_of("workflow", "run"))
+
+    def test_main_moving_before_the_dispatch_stops_with_the_right_advice(self):
+        # A dispatch builds the branch's tip. If main moved, our own run is at the new tip: say so, never "start again".
+        self.gh.ref_heads["main"] = OTHER_SHA
+        self.assertExit(1, self.start())
+        self.assertIn("main moved to %s after the release commit %s" % (OTHER_SHA, SHA), self.err)
+        self.assertIn("pull, and release the new tip", self.err)
+        self.assertNotIn("Run start again", self.err)
+        self.assertEqual(1, len(self.gh.calls_of("workflow", "run")), "stopped at the first dispatch")
+        self.assertFalse((self.tmp / "build/windows-release/runs.json").exists())
+
+    def test_starting_again_after_main_moved_names_its_own_run_not_the_earlier_one(self):
+        # The first start left an off-tip run behind. A second start must not take that run for the one it dispatches.
+        earlier = self.gh.add_run("windows-app.yml", status="in_progress", conclusion="", head=OTHER_SHA)
+        self.gh.ref_heads["main"] = OTHER_SHA
+        self.gh.appear_after = 3
+        self.assertExit(1, self.start())
+        dispatched = self.gh.runs["windows-app.yml"][-1]["databaseId"]
+        self.assertNotEqual(earlier, dispatched)
+        self.assertIn("the run just dispatched (%d)" % dispatched, self.err)
+        self.assertNotIn("the run just dispatched (%d)" % earlier, self.err)
+
+    def test_starting_again_after_main_moved_reuses_the_runs_at_the_release_commit(self):
+        self.gh.add_run("windows-app.yml")
+        self.gh.add_run("windows.yml")
+        self.gh.ref_heads["main"] = OTHER_SHA
+        self.assertExit(0, self.start())
+        self.assertEqual([], self.gh.calls_of("workflow", "run"))
+
     def test_a_dispatched_run_that_never_appears(self):
         self.gh.appear_after = None
         self.assertExit(1, self.start())
@@ -512,7 +591,7 @@ class StartTests(HelperTest):
 
 
 def release_manifest(run_id, installer=INSTALLER_BYTES, attempt=1):
-    return {"schema": 1, "sha": SHA, "workflowSha": "b" * 40, "version": V, "level": "full", "runId": run_id,
+    return {"schema": 1, "sha": SHA, "workflowSha": SHA, "version": V, "level": "full", "runId": run_id,
             "runAttempt": attempt, "runnerImage": "20261110.1.0", "swift": "6.3.2", "msvcToolset": "14.44.35207", "windowsSdk": "10.0.26100.0", "innoSetup": "6.7.1", "openssl": "3.6.5", "swiftCrypto": "3.15.1", "cleanBuild": True,
             "installer": {"name": INSTALLER, "size": len(installer), "sha256": sha256(installer),
                           "fileVersion": V + ".0", "productVersion": V, "isccDefines": ["SrcDir", "AppVer", "OutDir"]},
@@ -559,7 +638,7 @@ class CollectTests(HelperTest):
         self.assertEqual(["gh", "run", "download", str(self.app), "--name", "windows-release", "--dir",
                           str(self.tmp / "out/windows-release")] + REPO_ARGS, downloads[0])
         self.assertEqual(["gh", "run", "view", str(self.app), "--json",
-                          "status,conclusion,event,workflowName,displayTitle,attempt"] + REPO_ARGS,
+                          "status,conclusion,event,workflowName,displayTitle,attempt,headBranch,headSha"] + REPO_ARGS,
                          self.gh.calls_of("run", "view")[0])
         self.assertIn("collect: windows-app.yml run %d attempt 1" % self.app, self.err)
 
@@ -646,6 +725,41 @@ class CollectTests(HelperTest):
                 run.clear()
                 run.update(saved)
 
+    def test_a_run_from_another_branch_or_commit_is_refused(self):
+        # F1: collect must not take an installer from a run that did not run the release commit on the recorded branch.
+        for change, expected in (({"headBranch": "attacker/branch"}, 'branch "attacker/branch", expected main'),
+                                 ({"headSha": OTHER_SHA}, 'commit "%s", expected %s' % (OTHER_SHA, SHA)),
+                                 ({"headBranch": None, "headSha": None}, "branch null")):
+            for victim in (self.app, self.tests):
+                with self.subTest(change=change, run=victim):
+                    run = self.gh.run_by_id(victim)
+                    saved = dict(run)
+                    run.update(change)
+                    self.assertExit(4, self.collect())
+                    self.assertIn("did not run the release commit on main", self.err)
+                    self.assertIn(expected, self.err)
+                    self.assertEqual([], self.gh.calls_of("run", "download"), "nothing was downloaded")
+                    run.clear()
+                    run.update(saved)
+
+    def test_a_rehearsal_branch_is_the_ref_collect_checks(self):
+        path = self.tmp / "build/windows-release/runs.json"
+        path.write_text(json.dumps({"schema": 1, "sha": SHA, "version": V, "ref": "feat/x",
+                                    "runs": {"windows-app.yml": self.app, "windows.yml": self.tests}}))
+        self.assertExit(4, self.collect())  # the runs ran on main
+        self.assertIn("did not run the release commit on feat/x", self.err)
+        for run_id in (self.app, self.tests):
+            self.gh.run_by_id(run_id)["headBranch"] = "feat/x"
+        self.assertExit(0, self.collect())
+
+    def test_runs_json_without_a_ref_is_refused(self):
+        path = self.tmp / "build/windows-release/runs.json"
+        path.write_text(json.dumps({"schema": 1, "sha": SHA, "version": V,
+                                    "runs": {"windows-app.yml": self.app, "windows.yml": self.tests}}))
+        self.assertExit(4, self.collect())
+        self.assertIn("has no ref", self.err)
+        self.assertEqual([], self.gh.calls)
+
     def test_runs_json_for_another_release_is_refused(self):
         self.assertExit(4, self.run_helper("collect", "--sha", OTHER_SHA, "--version", V, "--out", str(self.tmp / "o")))
         self.assertIn("Run start first", self.err)
@@ -715,6 +829,7 @@ class CollectTests(HelperTest):
             "schema 2": (lambda m: m.update(schema=2), "windows-release.json schema"),
             "a boolean schema": (lambda m: m.update(schema=True), "windows-release.json schema"),
             "no workflow sha": (lambda m: m.pop("workflowSha"), "workflowSha"),
+            "a workflow sha that is not the release commit": (lambda m: m.update(workflowSha=OTHER_SHA), "workflowSha (the commit"),
             "no run attempt": (lambda m: m.pop("runAttempt"), "runAttempt (the run's attempt) is null"),
             "an empty runner image": (lambda m: m.update(runnerImage=""), "runnerImage is \"\", expected text"),
             "no swift version": (lambda m: m.pop("swift"), "swift is null, expected text"),

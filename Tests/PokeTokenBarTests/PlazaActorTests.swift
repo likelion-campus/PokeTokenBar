@@ -69,3 +69,29 @@ final class PlazaActorTests: XCTestCase {
         XCTAssertFalse(actor.isSubmergedBodyVisible)
     }
 }
+
+// MARK: - The minigame ring
+
+extension PlazaActorTests {
+    /// The ring joins the world only while the actor is marked, so an actor outside a game has the nodes it always had.
+    func testTheGameRingIsInTheWorldOnlyWhileMarked() async {
+        let world = PlazaNode(), camera = PlazaCameraNode()
+        let actor = PlazaActor(name: "a", color: PlazaNameColor.palette[0])
+        actor.attach(world: world, camera: camera)
+        let plain = world.children.count
+        actor.setGameMark(.alive)
+        XCTAssertEqual(world.children.count, plain + 1)
+        XCTAssertEqual(world.children.last?.zPosition ?? 0, 0.6, accuracy: 0.001, "just above the shadow, under the character")
+        actor.setGameMark(.out)
+        XCTAssertEqual(world.children.count, plain + 1, "a new colour, the same node")
+        actor.setGameMark(nil)
+        XCTAssertTrue(world.children.elementsEqual(actor.worldNodes, by: ===))
+        // Marked before it is attached (a teammate who walks in mid-game): the ring comes with it, and leaves with it.
+        let late = PlazaActor(name: "b", color: PlazaNameColor.palette[0])
+        late.setGameMark(.alive)
+        late.attach(world: world, camera: camera)
+        XCTAssertEqual(world.children.count, plain + late.worldNodes.count + 1)
+        late.detach()
+        XCTAssertEqual(world.children.count, plain)
+    }
+}
