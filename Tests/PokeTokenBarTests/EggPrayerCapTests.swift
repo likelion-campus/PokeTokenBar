@@ -108,6 +108,24 @@ final class EggPrayerCapTests: XCTestCase {
     }
 
     /// The day is only recorded when the hatch really happens: a failed hatch keeps it free.
+    /// Hatch by prayer, buy an egg the same day: ten prayers leave it an egg; the next day's refresh hatches it, no tokens.
+    func testABoughtEggWaitsForTheNextDayAfterThePrayerHatch() async {
+        let store = egg()
+        for _ in 0..<10 { store.pray() }
+        _ = await settled { store.state.active != nil }
+        XCTAssertNotNil(store.state.active)
+        XCTAssertTrue(store.buyFreshEgg())
+        for _ in 0..<10 { store.pray() }
+        await store.hatchIfNeeded()
+        XCTAssertNil(store.state.active)
+        XCTAssertEqual(store.state.eggPrayers?.count, 10)
+        now = day(1)
+        refresh(store)
+        let hatched = await settled { store.state.active != nil }
+        XCTAssertTrue(hatched)
+        XCTAssertEqual(store.state.active?.prayers, PrayerRecord(count: 10))
+    }
+
     func testAFailedHatchDoesNotBurnTheDay() async {
         let store = egg(provider: LineFailsProvider())
         for _ in 0..<10 { store.pray() }
@@ -159,7 +177,9 @@ final class EggPrayerCapTests: XCTestCase {
         XCTAssertFalse(egg(usedOn: key(day(-1))).isPrayerHatchUsedToday)
         let l = L(.ko)
         XCTAssertEqual(l.plazaPrayHint(prayers: 4, hatchUsed: true),
-                       "오늘은 기도로 이미 부화시켰어요 · 내일 다시 기도로 부화할 수 있어요 · 기도 4번")
+                       "A를 눌러 기도하기 · 오늘은 기도로 이미 부화시켰어요 · 내일 다시 기도로 부화할 수 있어요 · 기도 4번")
+        XCTAssertEqual(l.plazaPrayHint(prayers: 0, hatchUsed: true),
+                       "A를 눌러 기도하기 · 오늘은 기도로 이미 부화시켰어요 · 내일 다시 기도로 부화할 수 있어요")
         XCTAssertEqual(l.plazaPrayedHint(prayers: 4, hatchUsed: false), "기도 4번")
         XCTAssertEqual(l.plazaPrayHint(prayers: 4), "A를 눌러 기도하기 · 기도 4번")
     }

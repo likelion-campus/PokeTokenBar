@@ -115,7 +115,7 @@ extension PlazaPrayTests {
         await connect(me, other)
         let scene = c.scene!
         c.refreshHintForTesting()
-        XCTAssertEqual(c.hint, "오늘은 기도로 이미 부화시켰어요 · 내일 다시 기도로 부화할 수 있어요")
+        XCTAssertEqual(c.hint, "A를 눌러 기도하기 · 오늘은 기도로 이미 부화시켰어요 · 내일 다시 기도로 부화할 수 있어요")
         for _ in 0..<3 {
             press(scene, prayKey)
             now = now.addingTimeInterval(PlazaWindowController.emoteInterval * 2)
@@ -127,7 +127,7 @@ extension PlazaPrayTests {
         XCTAssertEqual(other.received.emotes.map(\.kind), [.pray, .pray, .pray])
         now = now.addingTimeInterval(PlazaWindowController.prayedHintDuration)
         c.endPrayedHintIfDue()
-        XCTAssertEqual(c.hint, "오늘은 기도로 이미 부화시켰어요 · 내일 다시 기도로 부화할 수 있어요 · 기도 3번")
+        XCTAssertEqual(c.hint, "A를 눌러 기도하기 · 오늘은 기도로 이미 부화시켰어요 · 내일 다시 기도로 부화할 수 있어요 · 기도 3번")
     }
 
     /// The new line belongs to an egg whose day is used and to nothing else.

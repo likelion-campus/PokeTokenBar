@@ -480,8 +480,8 @@ extension L {
     }
     /// 알일 때 위쪽 안내 줄. 아직 기도한 적이 없으면 방법만 보인다.
     func plazaPrayHint(prayers: Int, hatchUsed: Bool = false) -> String {
-        if hatchUsed { return prayers > 0 ? plazaPrayerHatchUsedHint + " · 기도 \(prayers)번" : plazaPrayerHatchUsedHint }
-        return prayers > 0 ? "A를 눌러 기도하기 · 기도 \(prayers)번" : "A를 눌러 기도하기"
+        let how = hatchUsed ? "A를 눌러 기도하기 · " + plazaPrayerHatchUsedHint : "A를 눌러 기도하기"
+        return prayers > 0 ? how + " · 기도 \(prayers)번" : how
     }
     /// 광장에서 주운 아이템. 조사까지 붙인 목적어 꼴이다.
     func plazaItemObject(_ kind: ItemKind) -> String {
