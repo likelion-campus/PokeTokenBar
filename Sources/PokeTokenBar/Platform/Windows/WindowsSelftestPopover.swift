@@ -73,7 +73,7 @@ extension WindowsSelftest {
                   "foreground=\(foreground) Tab x4 from the edit: \(visited) (expected [check, combo, button, edit]); Shift+Tab -> \(back); "
                   + "messages through IsDialogMessageW=\(WinMessageHook.dialogMessages) registered=\(w.isRegistered)")
         } else {
-            r.add("ui.kit.tabOrder", true, "skipped: CI not set (the selftest types only on CI)")
+            r.add("ui.kit.tabOrder", true, "skipped: not the runner (PTB_SELFTEST_RUNNER unset) (the selftest types only on CI)")
         }
 
         if WindowsSelftest.onCI {
@@ -101,7 +101,7 @@ extension WindowsSelftest {
                   "Space on the check box -> onToggle \(toggled); Down on the combo box -> onSelect \(selected); Enter then Space on the button -> "
                   + "onClick x\(clicks); IDOK to the window \(w.oks)")
         } else {
-            r.add("ui.kit.keys", true, "skipped: CI not set")
+            r.add("ui.kit.keys", true, "skipped: not the runner (PTB_SELFTEST_RUNNER unset)")
         }
 
         // Posted WM_CHAR "Aa" + WM_IME_CHAR U+D55C reach the edit once each, whole, at the runner's ANSI code page.
@@ -153,8 +153,8 @@ extension WindowsSelftest {
                   "Enter in the edit: onCommit \(onEnter) (no IDOK to the window: +\(w.oks - oks0), text after=\(hex(edit.text))); Escape: IDCANCEL to the window "
                   + "+\(w.escapes - escapes0); focus loss after a change: commits \(commits) (an unchanged field does not commit twice)")
         } else {
-            r.add("ui.kit.typed", true, "skipped: CI not set")
-            r.add("ui.kit.enterEscape", true, "skipped: CI not set")
+            r.add("ui.kit.typed", true, "skipped: not the runner (PTB_SELFTEST_RUNNER unset)")
+            r.add("ui.kit.enterEscape", true, "skipped: not the runner (PTB_SELFTEST_RUNNER unset)")
         }
 
         await menuKeysCheck(r, w, edit: edit, probe: probe)
@@ -174,7 +174,7 @@ extension WindowsSelftest {
     /// rule the popover's later tasks must keep: libdispatch's main queue is serial, so nothing queued runs under it.
     private static func menuKeysCheck(_ r: WindowsSelftest.Recorder, _ w: KitWindow, edit: WinControl, probe: EditProbe) async {
         guard WindowsSelftest.onCI else {
-            r.add("ui.kit.menuKeys", true, "skipped: CI not set")
+            r.add("ui.kit.menuKeys", true, "skipped: not the runner (PTB_SELFTEST_RUNNER unset)")
             return
         }
         _ = SetFocus(edit.hwnd)
@@ -247,7 +247,7 @@ extension WindowsSelftest {
     /// composes 한 here. Informational: composition is a PC item.
     private static func imeProbe(_ r: WindowsSelftest.Recorder, edit: WinControl, probe: EditProbe) async {
         guard WindowsSelftest.onCI else {
-            r.add("ui.kit.imeProbe", true, "skipped: CI not set (the probe would add a keyboard layout to the user's list)")
+            r.add("ui.kit.imeProbe", true, "skipped: not the runner (PTB_SELFTEST_RUNNER unset) (the probe would add a keyboard layout to the user's list)")
             return
         }
         var before = [HKL?](repeating: nil, count: 64)
@@ -385,7 +385,7 @@ extension WindowsSelftest {
         WinKit.send(view.hwnd, 0x0201, 1, Int(2 * scale) << 16 | Int(2 * scale))
         WinKit.send(view.hwnd, 0x0202, 0, Int(2 * scale) << 16 | Int(2 * scale))
         let afterClick = view.items.map { WinKit.text(of: $0.hwnd) }
-        var keyHit = "skipped (CI not set)"
+        var keyHit = "skipped (not the runner: PTB_SELFTEST_RUNNER unset)"
         if WindowsSelftest.onCI, let again = view.items.first(where: { WinKit.className($0.hwnd) == "Button" }) {
             _ = SetFocus(again.hwnd)
             _ = await WindowsSelftest.waitUntil(timeout: 1) { GetFocus() == again.hwnd }
@@ -433,7 +433,7 @@ extension WindowsSelftest {
         // on the thumb, the pointer moves down in steps, the button goes up. The drawn thumb holds the capture and moves the page
         // from WM_MOUSEMOVE: no modal loop runs (the system bar's did), so the main queue serves its blocks during the drag.
         var barBefore = "-"
-        var drag = "skipped (CI not set)"
+        var drag = "skipped (not the runner: PTB_SELFTEST_RUNNER unset)"
         var dragOK = true
         if WindowsSelftest.onCI {
             area.scroll(to: 0)
@@ -798,7 +798,7 @@ extension WindowsSelftest {
 
     /// Review 6: an edit's own context menu runs inside WinModalPump (the main queue keeps running).
     private static func editMenuCheck(_ r: WindowsSelftest.Recorder, _ w: KitWindow, _ page: GalleryPage) async {
-        guard WindowsSelftest.onCI else { r.add("ui.kit.editMenu", true, "skipped: CI not set"); return }
+        guard WindowsSelftest.onCI else { r.add("ui.kit.editMenu", true, "skipped: not the runner (PTB_SELFTEST_RUNNER unset)"); return }
         guard let field = page.firstField else { r.add("ui.kit.editMenu", false, "no field"); return }
         WindowsSelftest.forceForeground(w.hwnd)
         _ = SetFocus(field.hwnd)
@@ -851,7 +851,7 @@ extension WindowsSelftest {
     /// Review 11: a paste into a code field drops spaces and line breaks; with no text on the clipboard nothing happens (the
     /// selection stays; the edit's own paste would clear it).
     private static func codePasteCheck(_ r: WindowsSelftest.Recorder, _ w: KitWindow, _ page: GalleryPage) async {
-        guard WindowsSelftest.onCI else { r.add("ui.kit.codePaste", true, "skipped: CI not set (the check writes the clipboard)"); return }
+        guard WindowsSelftest.onCI else { r.add("ui.kit.codePaste", true, "skipped: not the runner (PTB_SELFTEST_RUNNER unset) (the check writes the clipboard)"); return }
         guard let code = page.codeField else { r.add("ui.kit.codePaste", false, "no code field"); return }
         code.text = ""
         let put = setClipboard(" PTB-ABCDE-\r\nFGHIJ\n", owner: w.hwnd)
@@ -947,7 +947,7 @@ extension WindowsSelftest {
     /// holding the capture), so the selftest goes on and reports it.
     private static func scrollClickChecks(_ r: WindowsSelftest.Recorder, _ w: KitWindow, _ page: GalleryPage) async {
         guard WindowsSelftest.onCI else {
-            r.add("ui.kit.scrollClicks", true, "skipped: CI not set")
+            r.add("ui.kit.scrollClicks", true, "skipped: not the runner (PTB_SELFTEST_RUNNER unset)")
             return
         }
         guard let area = w.scroll, let field = page.lastField else {
@@ -1077,7 +1077,7 @@ extension WindowsSelftest {
     /// nothing), Enter commits.
     static func multiLineKeysCheck(_ r: WindowsSelftest.Recorder) async {
         guard WindowsSelftest.onCI else {
-            r.add("ui.kit.multiLineKeys", true, "skipped: CI not set")
+            r.add("ui.kit.multiLineKeys", true, "skipped: not the runner (PTB_SELFTEST_RUNNER unset)")
             return
         }
         var madeField: WinControl?, madeAfter: WinControl?

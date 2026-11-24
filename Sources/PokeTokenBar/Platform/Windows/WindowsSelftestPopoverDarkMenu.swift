@@ -193,8 +193,9 @@ extension WindowsSelftest {
     }
 
     /// A real high-contrast theme: the menu keeps the system's colours. THIS CHECK CHANGES AND RESTORES A SYSTEM-WIDE SETTING (the
-    /// high-contrast theme), so it runs only on the CI runner (an ephemeral VM) and never on a person's PC (`--selftest`). It records the
-    /// theme flags and the apps/system light-dark values first, restores them in a `defer`, and fails loudly if they differ afterwards.
+    /// high-contrast theme), so it runs only on the CI runner (an ephemeral VM, `PTB_SELFTEST_RUNNER=1`) and never on a person's PC
+    /// (`--selftest`), whatever their `CI` variable says. It records the theme flags and every value under Personalize first, puts them
+    /// back, and fails loudly if they differ afterwards. A crash between the switch and the restore is not covered (only the VM is lost).
     /// The same decision is covered without touching anything by `popover.darkMenu.mode`.
     static func highContrast(_ r: WindowsSelftest.Recorder, _ app: WindowsAppDelegate) async {
         guard WindowsSelftest.onCI else {
@@ -203,9 +204,18 @@ extension WindowsSelftest {
         }
         guard let host = app.tray else { r.add("popover.darkMenu.highContrast", false, "no tray host"); return }
         let personalization = "Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize"
-        let names = ["AppsUseLightTheme", "SystemUsesLightTheme"]
+        // EVERY value under Personalize, with its type: Windows changes more than the two light/dark values when it applies a theme
+        // (defect log 2026-11-17), and a `REG_DWORD` put back as `REG_BINARY` would read as missing.
+        struct Stored: Equatable { var type: DWORD; var bytes: [UInt8] }
+        func personalizationSnapshot() -> [String: Stored] {
+            var out: [String: Stored] = [:]
+            for name in WinRegistry.valueNames(personalization) {
+                if case .value(let v) = WinRegistry.typed(personalization, name) { out[name] = Stored(type: v.type, bytes: v.bytes) }
+            }
+            return out
+        }
         let beforeHC = readHighContrast()
-        let beforeValues = names.map { name -> [UInt8]? in if case .value(let b) = WinRegistry.bytes(personalization, name) { return b } else { return nil } }
+        let beforeValues = personalizationSnapshot()
         guard let beforeHC else { r.add("popover.darkMenu.highContrast", true, "informational: the current high-contrast state cannot be read here, so the probe did not run (nothing changed)"); return }
         let savedOverride = WinDarkMode.testOverride
         var problems: [String] = []
@@ -213,14 +223,17 @@ extension WindowsSelftest {
         func restore() async {
             if !writeHighContrast(beforeHC.flags, scheme: beforeHC.scheme) { problems.append("restoring the high-contrast flags failed") }
             _ = await WindowsSelftest.waitUntil(timeout: 2.5) { false }
-            for (name, value) in zip(names, beforeValues) {
-                var now: [UInt8]?
-                if case .value(let b) = WinRegistry.bytes(personalization, name) { now = b }
-                if now != value {
-                    if let value { _ = WinRegistry.setBytes(personalization, name, value) } else { _ = WinRegistry.deleteValue(personalization, name) }
-                    detail += "personalization \(name) had changed and was restored; "
-                }
+            let now = personalizationSnapshot()
+            for (name, value) in beforeValues where now[name] != value {
+                if WinRegistry.setTyped(personalization, name, type: value.type, bytes: value.bytes) != 0 { problems.append("restoring \(name) failed") }
+                detail += "personalization \(name) had changed and was restored; "
             }
+            for name in now.keys where beforeValues[name] == nil {
+                if WinRegistry.deleteValue(personalization, name) != 0 { problems.append("removing the new value \(name) failed") }
+                detail += "personalization \(name) was added and was removed; "
+            }
+            let after = personalizationSnapshot()
+            if after != beforeValues { problems.append("THE PERSONALIZATION VALUES ARE NOT BACK AS THEY WERE") }
         }
         WinDarkMode.testOverride = nil
         let switched = writeHighContrast(0x1 | 0x2, scheme: "High Contrast White")
@@ -240,9 +253,8 @@ extension WindowsSelftest {
         WinDarkMode.testOverride = savedOverride
         let afterHC = readHighContrast()
         if afterHC?.flags.nonzeroOn != beforeHC.flags.nonzeroOn {
-            // one more try, then fail loudly
-            _ = writeHighContrast(0, scheme: beforeHC.scheme)
-            _ = await WindowsSelftest.waitUntil(timeout: 2.5) { false }
+            // one more try (the whole restore again: Windows changes the personalization values after a second switch too), then fail loudly
+            await restore()
             if readHighContrast()?.flags.nonzeroOn != beforeHC.flags.nonzeroOn { problems.append("THE RUNNER IS NOT BACK IN ITS PREVIOUS HIGH-CONTRAST STATE (before \(beforeHC.flags), after \(afterHC?.flags ?? 0))") }
         }
         detail += "restored: high contrast on=\(afterHC?.flags.nonzeroOn ?? false) (before \(beforeHC.flags.nonzeroOn)); \(WinMenuTheme.lastOutcome)"

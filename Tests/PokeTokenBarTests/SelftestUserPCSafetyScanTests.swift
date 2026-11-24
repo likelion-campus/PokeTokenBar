@@ -20,6 +20,7 @@ final class SelftestUserPCSafetyScanTests: XCTestCase {
         ("BringWindowToTop(", "raises a window over the user's"),
         ("WinRegistry.setBytes(", "writes the registry"),
         ("WinRegistry.setString(", "writes the registry"),
+        ("WinRegistry.setTyped(", "writes the registry"),
         ("WinRegistry.deleteValue(", "deletes a registry value"),
         ("WinRegistry.deleteTree(", "deletes a registry tree"),
         ("SystemParametersInfoW(", "reads or SETS a system-wide setting"),
@@ -90,6 +91,26 @@ final class SelftestUserPCSafetyScanTests: XCTestCase {
             found += Self.violations(file: url.lastPathComponent, text: try String(contentsOf: url, encoding: .utf8), allow: allow)
         }
         XCTAssertEqual(found, [], "a selftest call that drives the user's input or changes a system-wide setting must test onCI in its function, or be allow-listed with a reason (Tests/PokeTokenBarTests/selftest-user-pc-allow.txt)")
+    }
+
+    /// `onCI` is the runner flag the workflows set, never "the variable CI exists" (a person's shell may have CI set), and every workflow
+    /// that runs the selftest sets it (F1 of the 2026-11 audit).
+    func testTheRunnerGroupKeysOnTheRunnerFlagAndTheWorkflowsSetIt() throws {
+        let selftest = try String(contentsOf: SharedSources.sourcesRoot.appendingPathComponent("Platform/Windows/WindowsSelftest.swift"), encoding: .utf8)
+        XCTAssertTrue(selftest.contains("static var onCI: Bool { ProcessInfo.processInfo.environment[runnerVariable] == \"1\" }"))
+        XCTAssertTrue(selftest.contains("static let runnerVariable = \"PTB_SELFTEST_RUNNER\""))
+        for url in SharedSources.allSwiftFiles(root: SharedSources.sourcesRoot) {
+            let rel = SharedSources.relativePath(url, root: SharedSources.sourcesRoot)
+            guard rel.hasPrefix("Platform/Windows/WindowsSelftest") else { continue }
+            let text = try String(contentsOf: url, encoding: .utf8)
+            XCTAssertFalse(text.contains("environment[\"CI\"]") && !rel.hasSuffix("WindowsSelftestUpdate.swift"), "\(rel) gates on CI, not on the runner flag")
+        }
+        let workflows = SharedSources.repoRoot.appendingPathComponent(".github/workflows")
+        for file in try FileManager.default.contentsOfDirectory(atPath: workflows.path) where file.hasSuffix(".yml") {
+            let text = try String(contentsOf: workflows.appendingPathComponent(file), encoding: .utf8)
+            let runsSelftest = text.contains("run-selftest.ps1") || text.contains("'--selftest'")
+            if runsSelftest { XCTAssertTrue(text.contains("PTB_SELFTEST_RUNNER: '1'"), "\(file) runs the selftest on a runner without PTB_SELFTEST_RUNNER") }
+        }
     }
 
     func testTheScanCatchesWhatIsNotGuarded() {

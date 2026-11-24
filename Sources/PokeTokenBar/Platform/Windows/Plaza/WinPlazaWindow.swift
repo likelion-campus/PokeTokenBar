@@ -400,7 +400,7 @@ import WinSDK
             guard let self, let hwnd = window?.hwnd else { return nil }
             dpi = UInt32(wParam & 0xFFFF)
             stats.dpiChanges += 1
-            if let r = UnsafePointer<RECT>(bitPattern: Int(lParam))?.pointee {
+            if let r = WinMessagePointer.readable(lParam, bytes: MemoryLayout<RECT>.size)?.loadUnaligned(as: RECT.self) {
                 _ = SetWindowPos(hwnd, nil, r.left, r.top, r.right - r.left, r.bottom - r.top, UINT(SWP_NOZORDER | SWP_NOACTIVATE))
             }
             layoutForClient()   // also when the suggested rect left the pixel size unchanged: the points changed
@@ -464,7 +464,7 @@ import WinSDK
         }
         w.on(Msg.session) { [weak self] wParam, _ in
             if wParam == 7 || wParam == 2 || wParam == 4 { self?.input?.releaseAll() }   // lock, console / remote disconnect
-            self?.visibility.sessionChanged(Int(wParam))
+            self?.visibility.sessionChanged(Int(truncatingIfNeeded: wParam))
             return 0
         }
         w.on(Msg.timer) { [weak self] wParam, _ in

@@ -96,7 +96,7 @@ extension WindowsSelftest {
     static func run(_ r: WindowsSelftest.Recorder, _ app: WindowsAppDelegate) async {
         let name = "popover.spriteShown"
         guard WindowsSelftest.onCI else {
-            r.add(name, true, "skipped: CI not set (the popover takes the foreground)")
+            r.add(name, true, "skipped: not the runner (PTB_SELFTEST_RUNNER unset) (the popover takes the foreground)")
             return
         }
         guard let (fetcher, _, _) = WindowsSelftestPopover.fixtureGIF() else {

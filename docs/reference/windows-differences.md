@@ -98,6 +98,7 @@ and agent reactions, and the `poketokenbar:` link.
 | Credential help and storage notes use Windows wording (the Claude sign-in file, DPAPI) | the Mac's text mentions Keychain |
 | Import and export: the file filter is labelled "Save file (*.json)"; confirmations say "this PC / another computer" | Windows dialogs; wording |
 | Growth bar, evolution line and the egg wiggle follow the Mac (since #245); animation is in steps where the budget needs it | idle budget |
+| A start that cannot take the single-instance name shows a message box (ko/en/ja) when the name is held by another program, by another copy of PokeTokenBar run from another folder, or by a holder that does not answer; the show request and the foreground right go only to a window whose process runs this executable | the Mac has no such name (LaunchServices keeps one copy); without the box the person would see nothing at all (no tray exists yet in a copy that yields) |
 
 ## Services
 

@@ -170,7 +170,7 @@ extension WindowsSelftest {
                 problems.append("the popover did not open")
             }
         } else {
-            notes.append("real popover: skipped (CI not set)")
+            notes.append("real popover: skipped (not the runner: PTB_SELFTEST_RUNNER unset)")
         }
         r.add("popover.tabs", problems.isEmpty, notes.joined(separator: " | ") + (problems.isEmpty ? "" : " | PROBLEMS: " + problems.joined(separator: "; ")))
     }

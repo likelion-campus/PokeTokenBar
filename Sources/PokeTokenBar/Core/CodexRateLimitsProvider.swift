@@ -35,6 +35,7 @@ struct CodexRateLimitsProvider: CodexLimitsProviding {
     }
 
     func fetch() async throws -> CodexRateLimitStatus? {
+        guard !AppEnv.liveFetchForbidden else { return nil }  // a person's Windows selftest: no CLI is started
         guard let bin = resolvedBinary else { return nil }
         let lines = try Self.requestLines()
         let data = try await ProcessRunner.runJSONRPC(

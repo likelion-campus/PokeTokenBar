@@ -75,6 +75,7 @@ enum CursorUsageAPI {
     }
 
     static func fetchEntries(modifiedSince: Date) async -> UsageResult {
+        guard !AppEnv.liveFetchForbidden else { return UsageResult(entries: [], isAuthoritative: false) }  // a person's Windows selftest: no token read, no request
         guard CursorAuthentication.isEnabled else {
             return UsageResult(entries: [], isAuthoritative: false)
         }

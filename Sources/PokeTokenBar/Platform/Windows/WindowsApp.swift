@@ -30,6 +30,7 @@ public enum WindowsApp {
     }
 
     @MainActor private static func run(_ arguments: [String]) -> Never {
+        WindowsSelftest.isolateStateIfNeeded(arguments)  // a person's --selftest never touches their real save
         WinTimeZone.publishSystemZone()  // before anything reads TimeZone.current (its own Windows lookup fails on a localized zone name)
         if arguments.contains("--version") {
             try? FileHandle.standardOutput.write(contentsOf: Data(((WindowsInstall.version ?? "0.0.0-dev") + "\n").utf8))
@@ -67,15 +68,24 @@ public enum WindowsApp {
         if let i = arguments.firstIndex(of: "--selftest-popover-helper") { WindowsSelftestPopoverWindow.runHelper(Array(arguments[(i + 1)...])) }  // stage 7 Task 4
         WindowsSelftestUpdate.prepare(arguments)  // stage 8 Task 6: the CI-only update flags (the loopback feed, before the checker exists)
 
-        let app = WindowsAppDelegate(arguments: arguments)
-        guard app.launch() else { WindowsApp.exit(app.yielded ? 3 : 1, .launchFailed) }
-        WindowsInstall.leaveInstallFolder()  // not the install folder: Setup updates it, and what the app starts inherits it
+        // `--selftest-out`: resolved and checked before anything starts. A relative path means the folder the person ran it from, which
+        // `leaveInstallFolder` (below) changes; a folder or anything not a regular file is refused before the run clears the target.
+        var selftestOut: URL?
         if arguments.contains("--selftest") {
             let out = arguments.firstIndex(of: "--selftest-out").flatMap { $0 + 1 < arguments.count ? arguments[$0 + 1] : nil }
                 .map { URL(fileURLWithPath: $0) }
                 ?? FileManager.default.temporaryDirectory.appendingPathComponent("PokeTokenBar-selftest.json")
-            WindowsSelftest.start(app, writingTo: out)
+            if let why = SelftestOutputTarget.refusal(for: out) {
+                AppLog.write("selftest: \(why)")
+                try? FileHandle.standardOutput.write(contentsOf: Data((why + "\n").utf8))
+                WindowsApp.exit(2, .selftest)
+            }
+            selftestOut = out
         }
+        let app = WindowsAppDelegate(arguments: arguments)
+        guard app.launch() else { WindowsApp.exit(app.yielded ? 3 : 1, .launchFailed) }
+        WindowsInstall.leaveInstallFolder()  // not the install folder: Setup updates it, and what the app starts inherits it
+        if let selftestOut { WindowsSelftest.start(app, writingTo: selftestOut) }
         // The idle gate's plaza windows (WindowsSelftestPlaza.swift). Not a `--selftest…` flag on purpose: those switch the app to
         // the selftest's own settings suite, and the gate's settings (refresh off) are in the app's plist.
         if let i = arguments.firstIndex(of: "--plaza-idle-probe") {
@@ -160,7 +170,10 @@ extension WindowsApp {
         teamRuntimeToFlush?.flush()
         companionToFlush?.flush()
         WindowsCrashLog.markClean()
-        if reason == .selftest { WinDefaultsSync.removeSelftestSuiteFile() }  // the selftest's own, empty settings file (nothing of a person's)
+        if reason == .selftest {
+            WinDefaultsSync.removeSelftestSuiteFile()  // the selftest's own, empty settings file (nothing of a person's)
+            WindowsSelftest.removeTemporaryState()
+        }
         if let line = WinPlazaLive.openPlazaLine { AppLog.write(line) }  // an open plaza's counters (idle measurements read them)
         AppLog.writeAndFlush("exit code=\(code) reason=\(reason.rawValue)")
         trayToRemove?.remove()
@@ -227,7 +240,14 @@ private func crtExit(_ code: Int32) -> Never {
         _ = RunLoop.main  // 1 (F4; before any window)
         mutexName = WinSingleInstance.mutexName(stateDirectory: AppStatePaths.directory(),
                                                 defaultDirectory: Self.defaultStateDirectory)
-        if WinSingleInstance.acquire(name: mutexName, quietly: arguments.contains("--autostart")) == .yielded {  // 2 (before anything that writes)
+        let foreignHolder: (WinSingleInstance.ForeignHolder) -> Void = { holder in
+            // No tray exists yet in a copy that yields, so a message box (not a balloon) is the way to tell the person. Never on the
+            // selftest's second starts: those run unattended.
+            guard !self.arguments.contains("--selftest-second") else { return }
+            let text = WinSingleInstance.foreignHolderText(holder, language: .systemDefault)
+            _ = MessageBoxW(nil, WinStr.w(text), WinStr.w("PokeTokenBar"), UINT(MB_OK) | UINT(MB_ICONWARNING))
+        }
+        if WinSingleInstance.acquire(name: mutexName, quietly: arguments.contains("--autostart"), onForeignHolder: foreignHolder) == .yielded {  // 2 (before anything that writes)
             yielded = true
             AppLog.writeAndFlush("duplicate instance: yielding to the instance already running (\(mutexName))")
             return false
@@ -236,7 +256,9 @@ private func crtExit(_ code: Int32) -> Never {
             AppLog.writeAndFlush("--selftest-second: no running instance held \(mutexName)")
             return false
         }
-        WindowsCrashLog.install(version: WindowsInstall.version ?? "0.0.0-dev")  // 3
+        WindowsCrashLog.install(version: WindowsInstall.version ?? "0.0.0-dev",
+                                instance: WinSingleInstance.stateSuffix(stateDirectory: AppStatePaths.directory(), defaultDirectory: Self.defaultStateDirectory),
+                                trimStderr: !arguments.contains("--selftest"))  // 3 (a person's selftest shares the logs with a running app: it must not rewrite its stderr.log)
         PlazaStoreSpriteFetcher.report = { AppLog.write($0) }   // fix/windows-pet-still: what the GIF loader finds, in the log
         Self.setPerMonitorDpiAwareness()  // 4
         loopStrategy = WinMainLoop.prepare()  // 5
@@ -257,7 +279,8 @@ private func crtExit(_ code: Int32) -> Never {
         if !WinMessageHook.install() { AppLog.write("text input stays ANSI: no WH_GETMESSAGE hook") }  // 7
         WinAppUserModelID.set()  // before any notification: the toast is attributed to the id the installer put on the shortcut
         Platform.current = WindowsPlatform.live(window: sink)  // 8
-        WindowsPlatform.limitsFactory = WindowsLimitsProviders()  // 8: Claude limits from the credentials file
+        // 8: Claude limits from the credentials file. A person's selftest keeps the stubs: it never reads their credentials.
+        if !(WinDefaultsSync.selftestOwnsSettings && !WindowsSelftest.onCI) { WindowsPlatform.limitsFactory = WindowsLimitsProviders() }
 
         let teamSuite = TeamSettings.suiteName(for: AppStatePaths.directory(), defaultDirectory: Self.defaultStateDirectory)
         var guarded: [String?] = [nil, teamSuite]  // 8b: before the first read of defaults
@@ -265,7 +288,11 @@ private func crtExit(_ code: Int32) -> Never {
         WinDefaultsSync.guardAtLaunch(suites: guarded.filter { $0 != nil || WinDefaultsSync.selftestSuiteName == nil })
         let defaults = WinDefaultsSync.makeAppDefaults()  // 9
         self.defaults = defaults
-        let store = UsageStore(defaults: defaults)  // 10
+        // 10. A person's selftest builds its store without the providers that read another app's login (Cursor's `state.vscdb` token):
+        // the credential readers and the request layer are shut as well (`AppEnv.liveFetchForbidden`), this keeps them out of the list.
+        let store = AppEnv.liveFetchForbidden
+            ? UsageStore(providers: UsageStore.defaultProviders().filter { !Self.providersReadingLogins.contains($0.id) }, defaults: defaults)
+            : UsageStore(defaults: defaults)
         let companion = CompanionStore(defaults: defaults)
         WinUILanguage.migrateStoredLanguage(companion: companion, defaults: defaults)  // before the first read of companion.language
         self.store = store
@@ -443,8 +470,13 @@ private func crtExit(_ code: Int32) -> Never {
     }
 
     /// The Mac's `TeamSettings.defaultStore()` choice (standard, or a per-state-folder suite), as a syncing defaults.
+    /// Usage providers that read a login token of another app to ask a server for usage (see `AppEnv.liveFetchForbidden`).
+    static let providersReadingLogins: Set<String> = ["cursor"]
+
     static func teamDefaults(fallback: WinSyncingDefaults) -> WinSyncingDefaults {
-        guard let suite = TeamSettings.suiteName(for: AppStatePaths.directory(), defaultDirectory: defaultStateDirectory)
+        // The selftest keeps the team settings in its own suite too (removed at exit): a state folder's own `ptb.team.<hash>` file would stay.
+        guard !WinDefaultsSync.selftestOwnsSettings,
+              let suite = TeamSettings.suiteName(for: AppStatePaths.directory(), defaultDirectory: defaultStateDirectory)
         else { return fallback }
         return WinSyncingDefaults(suiteName: suite) ?? fallback
     }

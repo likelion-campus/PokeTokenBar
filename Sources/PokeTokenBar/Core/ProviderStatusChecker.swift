@@ -66,6 +66,7 @@ struct StatuspageStatusProvider: ProviderStatusProviding {
     ]
 
     func fetch() async -> [String: ProviderStatus] {
+        guard !AppEnv.liveFetchForbidden else { return [:] }  // a person's Windows selftest: no request
         var out: [String: ProviderStatus] = [:]
         await withTaskGroup(of: (String, ProviderStatus?).self) { group in
             for endpoint in Self.endpoints {

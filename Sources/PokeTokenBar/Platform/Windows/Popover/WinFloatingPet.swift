@@ -669,7 +669,7 @@ import WinSDK
         }
         w.on(0x02E0 /* WM_DPICHANGED */) { [weak self] wParam, lParam in
             // lParam: Windows' suggested window rectangle at the new DPI.
-            let suggested = UnsafePointer<RECT>(bitPattern: Int(lParam))?.pointee
+            let suggested = WinMessagePointer.readable(lParam, bytes: MemoryLayout<RECT>.size)?.loadUnaligned(as: RECT.self)
             self?.dpiChanged(UINT(wParam & 0xFFFF), suggested: suggested)
             return 0
         }
@@ -688,7 +688,7 @@ import WinSDK
             return nil
         }
         w.on(0x02B1 /* WM_WTSSESSION_CHANGE */) { [weak self] wParam, _ in
-            self?.sessionChanged(Int(wParam))
+            self?.sessionChanged(Int(truncatingIfNeeded: wParam))
             return 0
         }
         w.on(0x0218 /* WM_POWERBROADCAST */) { [weak self] wParam, _ in

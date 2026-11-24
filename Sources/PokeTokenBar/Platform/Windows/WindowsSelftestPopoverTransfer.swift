@@ -330,7 +330,7 @@ final class TransferDialogDriver: @unchecked Sendable {
 
     static func run(_ r: WindowsSelftest.Recorder, _ app: WindowsAppDelegate) async {
         guard WindowsSelftest.onCI else {
-            for name in names { r.add(name, true, "skipped: CI not set (the page takes the foreground; real keys and real dialogs)") }
+            for name in names { r.add(name, true, "skipped: not the runner (PTB_SELFTEST_RUNNER unset) (the page takes the foreground; real keys and real dialogs)") }
             return
         }
         guard let probe = WindowsSelftestPopoverWindow.makeProbe() else {

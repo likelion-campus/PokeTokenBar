@@ -31,7 +31,7 @@ extension WindowsSelftest {
 
     static func run(_ r: WindowsSelftest.Recorder, _ app: WindowsAppDelegate) async {
         guard WindowsSelftest.onCI else {
-            for name in names { r.add(name, true, "skipped: CI not set (the popover takes the foreground; the selftest opens it only on the runner)") }
+            for name in names { r.add(name, true, "skipped: not the runner (PTB_SELFTEST_RUNNER unset) (the popover takes the foreground; the selftest opens it only on the runner)") }
             return
         }
         guard let popover = app.popover, let host = app.tray else {
@@ -94,7 +94,7 @@ extension WindowsSelftest {
 
     static func withPlaza(_ r: WindowsSelftest.Recorder, _ app: WindowsAppDelegate) async {
         guard WindowsSelftest.onCI else {
-            r.add("popover.withPlaza", true, "skipped: CI not set")
+            r.add("popover.withPlaza", true, "skipped: not the runner (PTB_SELFTEST_RUNNER unset)")
             return
         }
         guard let popover = app.popover, let host = app.tray, WinPlazaLive.isInstalled else {
@@ -210,7 +210,7 @@ extension WindowsSelftest {
 
     static func startIdleProbe(_ app: WindowsAppDelegate, mode: String) {
         guard WindowsSelftest.onCI else {
-            AppLog.write("popover idle probe: CI not set; nothing opened")
+            AppLog.write("popover idle probe: not the runner (PTB_SELFTEST_RUNNER unset); nothing opened")
             return
         }
         idleProbe = (mode, app.popover)

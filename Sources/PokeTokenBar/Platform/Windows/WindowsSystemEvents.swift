@@ -148,7 +148,7 @@ import WinSDK
         sinkTokens.append(window.on(UINT(WM_POWERBROADCAST)) { [weak self] wParam, lParam in
             let event = UInt32(truncatingIfNeeded: wParam)
             let state = event == Self.pbtPowerSettingChange
-                ? Self.displayState(fromPowerSetting: UnsafeRawPointer(bitPattern: Int(lParam))) : nil
+                ? Self.displayState(fromPowerSetting: WinMessagePointer.readable(lParam, bytes: 24)) : nil
             self?.handlePowerBroadcast(event: event, displayState: state)
             return 1  // TRUE: handled
         })

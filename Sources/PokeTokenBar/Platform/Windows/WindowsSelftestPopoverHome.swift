@@ -649,7 +649,7 @@ enum HomeFixtures {
 
     private static func keyboardCheck(_ r: WindowsSelftest.Recorder) async {
         guard WindowsSelftest.onCI else {
-            r.add("home.keyboard", true, "skipped: CI not set (the check sends real keys to a window it activates)")
+            r.add("home.keyboard", true, "skipped: not the runner (PTB_SELFTEST_RUNNER unset) (the check sends real keys to a window it activates)")
             return
         }
         let stores = await HomeStores.make(language: .en)
@@ -784,7 +784,7 @@ enum HomeFixtures {
 
     private static func firstPaintCheck(_ r: WindowsSelftest.Recorder, _ app: WindowsAppDelegate) async {
         guard WindowsSelftest.onCI else {
-            r.add("home.firstPaint", true, "skipped: CI not set (the popover takes the foreground)")
+            r.add("home.firstPaint", true, "skipped: not the runner (PTB_SELFTEST_RUNNER unset) (the popover takes the foreground)")
             return
         }
         guard let popover = app.popover, let probe = WindowsSelftestPopoverWindow.makeProbe() else {
@@ -832,7 +832,7 @@ enum HomeFixtures {
 
     private static func settingsRoundTripCheck(_ r: WindowsSelftest.Recorder, _ app: WindowsAppDelegate) async {
         guard WindowsSelftest.onCI else {
-            r.add("home.settingsRoundTrip", true, "skipped: CI not set (the popover takes the foreground)")
+            r.add("home.settingsRoundTrip", true, "skipped: not the runner (PTB_SELFTEST_RUNNER unset) (the popover takes the foreground)")
             return
         }
         guard let popover = app.popover, let probe = WindowsSelftestPopoverWindow.makeProbe() else {
@@ -885,7 +885,7 @@ enum HomeFixtures {
     /// texts that change each minute, `still` has nothing relative. CI only (it opens a window).
     static func startIdleProbe(mode: String) {
         guard WindowsSelftest.onCI else {
-            AppLog.write("popover home idle probe: CI not set; nothing opened")
+            AppLog.write("popover home idle probe: not the runner (PTB_SELFTEST_RUNNER unset); nothing opened")
             return
         }
         Task { @MainActor in

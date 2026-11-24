@@ -515,7 +515,7 @@ struct WinPopoverStats {
             }
         }
         w.on(0x02B1 /* WM_WTSSESSION_CHANGE */) { [weak self] wParam, _ in
-            if [2, 4, 7].contains(Int(wParam)) { self?.close(.lock) }  // console or remote disconnect, lock (D3)
+            if [2, 4, 7].contains(Int(truncatingIfNeeded: wParam)) { self?.close(.lock) }  // console or remote disconnect, lock (D3)
             return 0
         }
         w.on(0x0014 /* WM_ERASEBKGND */) { [weak self] wParam, _ in
