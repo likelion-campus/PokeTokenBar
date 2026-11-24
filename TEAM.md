@@ -125,6 +125,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "C:/Users/<사용자>/.claud
 
 ![광장 창. 샘플 팀원, Windows CI 러너에서 찍은 화면](assets/windows/plaza-window.png)
 
+![왼쪽 단축키 목록(B 끌어당기기 포함)과 팀원에게 말을 걸면 뜨는 메뉴. 샘플 팀원, Windows CI 러너에서 찍은 화면](assets/windows/plaza-shortcuts-menu.png)
+
 ![온천. 샘플 팀원(색 블록), Windows CI 러너에서 찍은 화면](assets/windows/plaza-hot-spring.png)
 
 ![큰 나무에서 민트가 떨어지는 번에 부딪히는 순간. 샘플 팀원(색 블록), Windows CI 러너에서 찍은 화면](assets/windows/plaza-big-tree.png)
