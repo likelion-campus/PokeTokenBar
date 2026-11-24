@@ -5,7 +5,6 @@ var SECRET_RE = /^[A-Za-z0-9_-]{32,128}$/;
 var VERSION_RE = /^[0-9A-Za-z.+-]{1,32}$/;
 var DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 var TEAM_RE = /^t_[A-Za-z0-9_-]{2,62}$/;
-var TOOL_RE = /^[a-z0-9_.-]{1,32}$/;
 var ACCOUNT_RE = /^(e|m)_[A-Za-z0-9_-]{2,126}$/;
 var DOMAIN_RE = /^[a-z0-9.-]{1,253}$/;
 var MAX_COUNT = 1e13;
@@ -29,6 +28,13 @@ function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
 }
 
+// A leading = + - @ makes a CSV export evaluate the cell as a formula. A real value never needs it, so
+// it becomes its full-width twin, which reads the same and is inert. Only the first character changes.
+var FORMULA_LEAD = { "=": "\uFF1D", "+": "\uFF0B", "-": "\uFF0D", "@": "\uFF20" };
+function neutralizeLead(t) {
+  return t.length > 0 && FORMULA_LEAD[t.charAt(0)] ? FORMULA_LEAD[t.charAt(0)] + t.slice(1) : t;
+}
+
 // The app counts grapheme clusters (Swift String.count), which JS cannot do without Intl.Segmenter, so the
 // script bounds the UTF-8 size instead: trimmed, non-empty, at most 320 bytes, no newline. Returns the
 // trimmed value or null.
@@ -36,7 +42,7 @@ function normalizeNickname(v) {
   if (typeof v !== "string") return null;
   var t = v.trim();
   if (t.length < 1 || /[\r\n]/.test(t) || utf8Length(t) > 320) return null;
-  return t;
+  return neutralizeLead(t);
 }
 
 // Days since the epoch for a "yyyy-MM-dd" string, or null when it is not a real calendar date.
@@ -64,14 +70,14 @@ function parseMember(m) {
 }
 
 function parseTool(t) {
-  if (!isPlainObject(t) || typeof t.tool !== "string" || !TOOL_RE.test(t.tool)) return null;
+  if (!isPlainObject(t) || typeof t.tool !== "string" || ALLOWED_TOOLS.indexOf(t.tool) === -1) return null;
   if (!validCount(t.input) || !validCount(t.output) || !validCount(t.cacheWrite) || !validCount(t.cacheRead)) return null;
   return { tool: t.tool, input: t.input, output: t.output, cacheWrite: t.cacheWrite, cacheRead: t.cacheRead };
 }
 
 function parseLimit(l, nowMs) {
   if (!isPlainObject(l)) return null;
-  if (typeof l.tool !== "string" || !TOOL_RE.test(l.tool)) return null;
+  if (typeof l.tool !== "string" || ALLOWED_LIMIT_TOOLS.indexOf(l.tool) === -1) return null;
   if (typeof l.account !== "string" || !ACCOUNT_RE.test(l.account)) return null;
   if (typeof l.domain !== "string") return null;
   var domain = l.domain.toLowerCase();
@@ -89,7 +95,7 @@ function parseLimit(l, nowMs) {
   var HOUR_MS = 3600000;
   var resetsAt = new Date(Math.round(resetsMs / HOUR_MS) * HOUR_MS).toISOString();
   return {
-    tool: l.tool, account: l.account, domain: domain, plan: l.plan, usedPercent: l.usedPercent,
+    tool: l.tool, account: l.account, domain: domain, plan: neutralizeLead(l.plan), usedPercent: l.usedPercent,
     resetsAt: resetsAt, readAt: new Date(readMs).toISOString(), team: l.team
   };
 }

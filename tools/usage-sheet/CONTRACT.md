@@ -59,19 +59,20 @@ An invalid day, tool or limit entry is dropped and counted in `dropped`. The res
 - **`team`:** matches `/^t_[A-Za-z0-9_-]{2,62}$/` (days and limits alike). The prefix keeps an all-digit id from being turned into a number by Sheets.
 - **`teamLabel`:** optional. When present it follows the nickname rule (non-empty, at most 320 bytes, no newline); an invalid label becomes `""` and does not drop the day.
 - **`tools`**
-  - Each `tool` id matches `/^[a-z0-9_.-]{1,32}$/`.
+  - Each `tool` id is one of the provider IDs the app sends (`ALLOWED_TOOLS` in `src/00_config.js`: `claude_code`, `codex`, `gemini`, `antigravity`, `grok`, `pi`, `omp`, `omo`, `kimi_code`, `opencode`, `hermes`, `cursor`, `copilot`, `devin`, `kiro`, `aside`). Any other id is dropped on its own. A new provider in the app needs its id added there, or its rows are dropped and counted in `dropped`.
   - Each of the four counts is an integer with `Number.isSafeInteger(n)` and `0 ≤ n ≤ 1e13`.
   - An invalid tool entry is dropped on its own.
   - A day with `tools: []` is valid. It records a zero row with tool `-`, so a member with no usage still appears.
   - A day whose non-empty `tools` list loses every entry is dropped too (one more in `dropped`). It never turns into a `-` row.
 - **Duplicates:** a repeated `date|tool` within one payload keeps the last occurrence.
 - **Limit fields**
-  - `tool` uses the tool rule.
+  - `tool` is `claude` or `codex` (`ALLOWED_LIMIT_TOOLS`).
   - `account` matches `/^(e|m)_[A-Za-z0-9_-]{2,126}$/`: the prefix the app must use anyway (see App obligations). It keeps an all-digit or `1e5`-style id from being turned into a number by Sheets.
   - `domain` is `""` or matches `/^[a-z0-9.-]{1,253}$/`; it is lowercased first.
   - `plan` is 1–40 characters.
   - `usedPercent` is finite and between 0 and 1000.
   - `team` follows the team rule.
+- **Formula-leading text:** a leading `=`, `+`, `-` or `@` in `nickname`, `teamLabel` or `plan` is replaced by its full-width twin (`＝ ＋ － ＠`) at parse time, so a CSV export cannot evaluate it and the text still reads the same. Only the first character changes.
 - **Row identity:** a limit row is identified by `memberId|account|tool` plus its weekly window. A report updates the existing row of the same identity whose reset time is within 24 hours of the incoming one, otherwise it appends a row. A member can therefore only touch rows carrying its own `memberId`.
 - **Limit times**
   - `resetsAt` and `readAt` must parse with `Date.parse`.
@@ -86,10 +87,12 @@ An invalid day, tool or limit entry is dropped and counted in `dropped`. The res
 
 `device_mismatch` is the error code when a known `member.id` arrives with a different secret.
 
+Intake limits (constants in `src/00_config.js`, table in the README) answer `{"ok":false,"error":"rate_limited"}` (this clock hour's cap is used up) or `{"ok":false,"error":"sheet_full"}` (a total cap is reached). Both are "try again later" for the sender: the app logs any `ok:false`, commits nothing and resends at its next interval (unsent days stay inside its 21-day window). A refused request writes no raw rows; a refused limit list may follow raw rows that were already written, and the resend is idempotent.
+
 ## App obligations (not checked by the script)
 
 - When the email is known, `account` is `"e_"` plus the first 16 hex characters of the SHA-256 of the lowercased email. Otherwise it is `"m_" + member.id + "_" + localAccountId`.
-- `team` is the app's one-way team ID.
+- `team` is the app's team ID: an HMAC of the team code, truncated. It is a hash, not a secret: someone who can guess the code can match it. `account` (`e_...`) is likewise a hash of the email address, which anyone who can guess the address can match.
 
 ## Fixtures
 

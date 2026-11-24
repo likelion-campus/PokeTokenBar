@@ -168,13 +168,14 @@ test("refreshAll releases every lock, even when rendering throws", () => {
   assert.equal(S.fakes.lockStats.released, S.fakes.lockStats.acquired);
 });
 
-test("onOpen builds the menu with five items in order", () => {
+test("onOpen builds the menu with seven items in order", () => {
   const { S } = fresh();
   S.onOpen({});
   assert.equal(S.fakes.menus.length, 1);
   assert.equal(S.fakes.menus[0].title, "사용량 대시보드");
   assert.deepEqual(plain(S.fakes.menus[0].items), [
     ["지금 새로 고침", "refreshAll"], ["샘플 데이터 넣기", "seedSampleData"], ["샘플 데이터 지우기", "clearSampleData"],
+    ["멤버 ID 기록 지우기", "purgeMemberPrompt"], ["팀 ID 기록 지우기", "purgeTeamPrompt"],
     ["Enterprise API 키 넣기", "setEnterpriseKey"], ["Enterprise API 키 지우기", "clearEnterpriseKey"],
   ]);
 });
@@ -353,4 +354,64 @@ test("setup leaves a data tab alone when it has content beyond its width", () =>
   assert.equal(limits.getMaxColumns(), 26);
   assert.equal(limits.getRange(2, 12).getValues()[0][0], "내 메모");
   assert.equal(ss.getSheetByName("원본").getMaxColumns(), S.COLS_RAW.length, "other tabs are still trimmed");
+});
+
+// Owner purge: one member ID or team ID leaves every data tab; the others stay.
+const OTHER = "11111111-2222-4333-8444-555555555555";
+function reportFor(S, id, team, nick) {
+  const b = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "fixtures", "valid-basic.json"), "utf8")).body;
+  b.member.id = id; b.member.nickname = nick;
+  b.days.forEach((d) => { d.team = team; });
+  b.limits.forEach((l) => { l.team = team; });
+  assert.equal(plain(S.handleReport(S.fakes.ss, JSON.stringify(b), NOW, TZ)).ok, true);
+}
+
+test("purgeById removes one member's rows from every tab and leaves the other member", () => {
+  const { S, ss } = fresh();
+  reportFor(S, MEMBER, "t_keep", "남김");
+  reportFor(S, OTHER, "t_other", "지움");
+  const gone = plain(S.purgeById(ss, "member", OTHER));
+  assert.deepEqual(Object.keys(gone).sort(), ["기기", "사람", "원본", "팀이름", "한도"].sort());
+  for (const tab of ["원본", "한도", "사람", "기기", "팀이름"]) {
+    assert.equal(JSON.stringify(body(ss, tab)).includes(OTHER), false, tab);
+    assert.equal(JSON.stringify(body(ss, tab)).includes(MEMBER), true, tab);
+  }
+  // the member can register again afterwards
+  reportFor(S, OTHER, "t_other", "지움");
+  assert.equal(body(ss, "기기").length, 2);
+});
+
+test("purgeById removes one team ID from every tab it appears in", () => {
+  const { S, ss } = fresh();
+  reportFor(S, MEMBER, "t_keep", "남김");
+  reportFor(S, OTHER, "t_other", "지움");
+  const gone = plain(S.purgeById(ss, "team", "t_other"));
+  assert.deepEqual(Object.keys(gone).sort(), ["부서", "원본", "팀이름", "한도"].sort());
+  for (const tab of ["원본", "한도", "부서", "팀이름"]) {
+    assert.equal(JSON.stringify(body(ss, tab)).includes("t_other"), false, tab);
+    assert.equal(JSON.stringify(body(ss, tab)).includes("t_keep"), true, tab);
+  }
+});
+
+test("purgeById refuses a malformed id and removes nothing", () => {
+  const { S, ss } = fresh();
+  reportFor(S, MEMBER, "t_keep", "남김");
+  const before = JSON.stringify(body(ss, "원본"));
+  assert.equal(S.purgeById(ss, "member", "t_keep"), null);
+  assert.equal(S.purgeById(ss, "team", MEMBER), null);
+  assert.equal(S.purgeById(ss, "member", ""), null);
+  assert.equal(JSON.stringify(body(ss, "원본")), before);
+});
+
+test("the purge menu entry asks, purges under the lock and reports the counts", () => {
+  const { S, ss } = fresh();
+  reportFor(S, MEMBER, "t_keep", "남김");
+  S.fakes.ui.next = { button: "OK", text: " " + MEMBER + " " };
+  S.purgeMemberPrompt();
+  assert.equal(body(ss, "원본").length, 0);
+  assert.match(S.fakes.ui.alerts.at(-1), /원본: 3행/);
+  S.fakes.ui.next = { button: "CANCEL", text: MEMBER };
+  const n = S.fakes.ui.alerts.length;
+  S.purgeMemberPrompt();
+  assert.equal(S.fakes.ui.alerts.length, n);
 });

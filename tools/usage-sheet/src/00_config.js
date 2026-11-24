@@ -7,6 +7,23 @@ var MAX_BODY_BYTES = 262144;
 var MAX_DAYS = 62;
 var MAX_TOOLS_PER_DAY = 32;
 var MAX_LIMITS = 16;
+// Intake limits. Each is far above what honest use reaches (a few hundred members, at most 21 days per report,
+// one report an hour) and answers `rate_limited` or `sheet_full`, which the app treats as "try again later".
+// Hourly counters are per clock hour (script time zone independent: epoch hours).
+var MAX_NEW_MEMBERS_PER_HOUR = 200;
+var MAX_MEMBERS_TOTAL = 2000;
+var MAX_NEW_RAW_ROWS_PER_HOUR = 80000;
+var MAX_RAW_ROWS_TOTAL = 600000;
+var MAX_NEW_LIMIT_ROWS_PER_HOUR = 4000;
+var MAX_LIMIT_ROWS_TOTAL = 100000;
+var INTAKE_PROP = "intake_hour";   // DocumentProperties, JSON {hour, members, raw, limits}
+
+// The tool IDs the app sends: the provider IDs of LocalUsageProvider.swift / LocalAdditionalUsageProvider.swift
+// (test/store.test.js checks the lists against those files), and the two limit sources.
+var ALLOWED_TOOLS = ["claude_code", "codex", "gemini", "antigravity", "grok", "pi", "omp", "omo", "kimi_code",
+  "opencode", "hermes", "cursor", "copilot", "devin", "kiro", "aside"];
+var ALLOWED_LIMIT_TOOLS = ["claude", "codex"];
+
 // The tool name stored for a reported day that used no tool (one row with 0 tokens).
 var EMPTY_DAY_TOOL = "-";
 

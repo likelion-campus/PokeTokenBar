@@ -204,22 +204,22 @@ test("ensureSheets keeps the settings value column as text", () => {
 
 test("reports pushing the raw tab past the 1000-row grid still land", () => {
   const { S, ss } = fresh();
-  function big(prefix) {
+  function big(firstDay) {
     const b = validBody();
     b.limits = [];
     b.days = [];
-    for (let d = 0; d < 40; d++) {
+    for (let d = firstDay; d < firstDay + 62; d++) {
       const date = S.localDateString(NOW - d * 86400000, TZ);
-      b.days.push({ date, team: "t_ab12cd34ef56", tools: Array.from({ length: 32 }, (_, i) => (
-        { tool: `${prefix}${i}`, input: 1, output: 1, cacheWrite: 1, cacheRead: 1 })) });
+      b.days.push({ date, team: "t_ab12cd34ef56", tools: S.ALLOWED_TOOLS.map((tool) => (
+        { tool, input: 1, output: 1, cacheWrite: 1, cacheRead: 1 })) });
     }
     return b;
   }
-  assert.equal(report(S, big("a")).ok, true);
-  assert.equal(dataRows(ss, "원본").length, 1280);
-  assert.equal(report(S, big("b"), NOW + 1000).ok, true);
-  assert.equal(dataRows(ss, "원본").length, 2560);
-  assert.equal(ss.getSheetByName("원본").getMaxRows() >= 2561, true);
+  assert.equal(report(S, big(0)).ok, true);
+  assert.equal(dataRows(ss, "원본").length, 992);
+  assert.equal(report(S, big(62), NOW + 1000).ok, true);
+  assert.equal(dataRows(ss, "원본").length, 1984);
+  assert.equal(ss.getSheetByName("원본").getMaxRows() >= 1985, true);
 });
 
 test("the device tab grows past 1000 members", () => {
@@ -337,14 +337,17 @@ test("peer text lands as text, never as a formula; zero-row tool reads back as -
   b.days = [{ date: "2026-11-16", team: "t_ab12cd34ef56", teamLabel: "-팀", tools: [] }];
   assert.equal(report(S, b).ok, true);
   const read = (tab, r, c) => ss.getSheetByName(tab).getRange(r, c).getValues()[0][0];
-  assert.equal(read("원본", 2, 2), "=1+1");
+  // the leading = and - arrive already neutralised at parse time (full-width twins), so no cell can evaluate
+  assert.equal(read("원본", 2, 2), "\uFF1D1+1");
   assert.equal(read("원본", 2, 4), "-");
-  assert.equal(read("사람", 2, 2), "=1+1");
-  assert.equal(read("부서", 2, 3), "-팀");
+  assert.equal(read("사람", 2, 2), "\uFF1D1+1");
+  assert.equal(read("부서", 2, 3), "\uFF0D팀");
   // a second report rewrites the existing rows and must keep them text
   assert.equal(report(S, b).ok, true);
-  assert.equal(read("원본", 2, 2), "=1+1");
-  assert.equal(read("사람", 2, 2), "=1+1");
+  assert.equal(read("원본", 2, 2), "\uFF1D1+1");
+  assert.equal(read("사람", 2, 2), "\uFF1D1+1");
+  // asText stays the backstop for script-written text: a leading marker stores as text
+  assert.equal(S.asText("=1+1"), "'=1+1");
 });
 
 const OTHER = "11111111-2222-4333-8444-555555555555";
@@ -473,4 +476,158 @@ test("one 21-day x 3-tool report reads at most the key columns of 5000 raw rows"
   raw._cellsRead = 0;
   assert.equal(report(S, b).accepted.days, 63);
   assert.equal(raw._cellsRead <= 5000 * 4 + 100, true, `read ${raw._cellsRead} cells`);
+});
+
+// ---- intake limits, resend writes, formula text, tool allowlist ----
+
+function opsOn(ss, tab) { return ss.getSheetByName(tab)._ops.length; }
+function manyDays(S, n, tools) {
+  const b = validBody();
+  b.limits = [];
+  b.days = [];
+  for (let d = 0; d < n; d++) {
+    b.days.push({ date: S.localDateString(NOW - d * 86400000, TZ), team: "t_ab12cd34ef56",
+      tools: S.ALLOWED_TOOLS.slice(0, tools).map((tool) => ({ tool, input: 1, output: 1, cacheWrite: 1, cacheRead: 1 })) });
+  }
+  return b;
+}
+function memberBody(S, i) {
+  const b = validBody();
+  b.member.id = "00000001-0000-4000-8000-" + String(i).padStart(12, "0");
+  b.member.secret = "s".repeat(31) + String(i % 10);
+  b.limits = [];
+  return b;
+}
+
+test("a resend of the same keys with the same numbers writes no raw row", () => {
+  const { S, ss } = fresh();
+  assert.equal(report(S, validBody()).ok, true);
+  const ops = opsOn(ss, "원본");
+  const before = JSON.stringify(dataRows(ss, "원본"));
+  assert.equal(report(S, validBody(), NOW + 3600000).ok, true);
+  assert.equal(opsOn(ss, "원본"), ops);
+  assert.equal(JSON.stringify(dataRows(ss, "원본")), before);
+});
+
+test("a resend that changes one number rewrites only that row", () => {
+  const { S, ss } = fresh();
+  report(S, validBody());
+  const ops = opsOn(ss, "원본");
+  const b = validBody();
+  b.days[0].tools[0].input += 5;
+  report(S, b, NOW + 3600000);
+  assert.equal(opsOn(ss, "원본"), ops + 1);
+  assert.equal(dataRows(ss, "원본")[0][5], b.days[0].tools[0].input);
+});
+
+test("a flood of resent keys keeps the lock short: no per-row writes", () => {
+  const { S, ss } = fresh();
+  const b = manyDays(S, 62, 16);
+  assert.equal(report(S, b).ok, true);
+  const ops = opsOn(ss, "원본");
+  assert.equal(report(S, b, NOW + 1000).ok, true);
+  assert.equal(opsOn(ss, "원본"), ops);
+});
+
+test("honest maximum passes: 21 days of all 16 tools, new member, every cap untouched", () => {
+  const { S, ss } = fresh();
+  const b = manyDays(S, 21, 16);
+  b.limits = validBody().limits;
+  assert.deepEqual(report(S, b), { ok: true, accepted: { days: 336, limits: 1 }, dropped: 0 });
+});
+
+test("new members past the hourly cap get rate_limited and nothing is written for them", () => {
+  const { S, ss } = fresh();
+  const cap = S.MAX_NEW_MEMBERS_PER_HOUR;
+  for (let i = 0; i < cap; i++) assert.equal(report(S, memberBody(S, i)).ok, true, "member " + i);
+  const raw = dataRows(ss, "원본").length;
+  assert.deepEqual(report(S, memberBody(S, cap)), { ok: false, error: "rate_limited" });
+  assert.equal(dataRows(ss, "원본").length, raw);
+  assert.equal(dataRows(ss, "기기").length, cap);
+  // a known member still reports in the same hour
+  assert.equal(report(S, memberBody(S, 0)).ok, true);
+  // the next hour admits new members again, and the refused one now succeeds
+  assert.equal(report(S, memberBody(S, cap), NOW + 3600000).ok, true);
+});
+
+test("members past the total cap get sheet_full", () => {
+  const { S, ss } = fresh();
+  S.ensureSheets(ss);
+  const dev = ss.getSheetByName("기기");
+  for (let i = 0; i < S.MAX_MEMBERS_TOTAL; i++) dev._rows.push([`m${i}`, "h", "", ""]);
+  dev._maxRows = S.MAX_MEMBERS_TOTAL + 10;
+  assert.deepEqual(report(S, memberBody(S, 1)), { ok: false, error: "sheet_full" });
+  // a registered member is not a new member
+  dev._rows[1] = [memberBody(S, 1).member.id, S.sha256Hex(memberBody(S, 1).member.secret), "", ""];
+  assert.equal(report(S, memberBody(S, 1)).ok, true);
+});
+
+test("new raw rows past the hourly cap get rate_limited before anything is written", () => {
+  const { S, ss } = fresh();
+  // fill this hour's budget through the stored counter, as a flood of earlier requests would
+  const hour = Math.floor(NOW / 3600000);
+  S.fakes.props.doc.intake_hour = JSON.stringify({ hour, members: 0, raw: S.MAX_NEW_RAW_ROWS_PER_HOUR - 2, limits: 0 });
+  const r = report(S, validBody());   // 3 new raw rows, 2 left
+  assert.deepEqual(r, { ok: false, error: "rate_limited" });
+  assert.equal(dataRows(ss, "원본").length, 0);
+  // exactly what is left still fits
+  const b = validBody();
+  b.days = [b.days[0]];
+  b.days[0].tools = b.days[0].tools.slice(0, 2);
+  assert.equal(report(S, b).ok, true);
+  // and a new hour starts from zero
+  assert.equal(report(S, validBody(), NOW + 3600000).ok, true);
+});
+
+test("new raw rows past the total cap get sheet_full; resent keys still pass", () => {
+  const { S, ss } = fresh();
+  assert.equal(report(S, validBody()).ok, true);
+  const raw = ss.getSheetByName("원본");
+  const have = dataRows(ss, "원본").length;
+  const filler = S.MAX_RAW_ROWS_TOTAL - have;   // leave the tab exactly full
+  raw._maxRows = S.MAX_RAW_ROWS_TOTAL + 10;
+  for (let i = 0; i < filler; i++) raw._rows.push(["x", "", "", "", "", 0, 0, 0, 0, 0, "", "", ""]);
+  const more = validBody();
+  more.days = [{ date: "2026-11-10", team: "t_ab12cd34ef56", tools: [{ tool: "grok", input: 1, output: 1, cacheWrite: 1, cacheRead: 1 }] }];
+  assert.deepEqual(report(S, more, NOW + 1000), { ok: false, error: "sheet_full" });
+  assert.equal(report(S, validBody(), NOW + 2000).ok, true);
+});
+
+test("new limit rows past the hourly cap get rate_limited", () => {
+  const { S, ss } = fresh();
+  const hour = Math.floor(NOW / 3600000);
+  S.fakes.props.doc.intake_hour = JSON.stringify({ hour, members: 0, raw: 0, limits: S.MAX_NEW_LIMIT_ROWS_PER_HOUR });
+  assert.deepEqual(report(S, validBody()), { ok: false, error: "rate_limited" });
+  assert.equal(dataRows(ss, "한도").length, 0);
+});
+
+test("a leading = + - @ in nickname, team label and plan is neutralised but stays readable", () => {
+  const { S, ss } = fresh();
+  const b = validBody();
+  b.member.nickname = '=HYPERLINK("http://x","a")';
+  b.days = [{ date: "2026-11-16", team: "t_ab12cd34ef56", teamLabel: "+팀", tools: [] }];
+  b.limits[0].plan = "@Max";
+  assert.equal(report(S, b).ok, true);
+  const all = JSON.stringify(ss.getSheets().map((s) => s._rows));
+  for (const bad of ['"=HYP', '"+팀', '"@Max', "\'=HYP"]) assert.equal(all.includes(bad), false, bad);
+  assert.equal(dataRows(ss, "사람")[0][1], '\uFF1DHYPERLINK("http://x","a")');
+  assert.equal(dataRows(ss, "부서")[0][2], "\uFF0B팀");
+  assert.equal(dataRows(ss, "한도")[0][5], "\uFF20Max");
+  // a nickname that merely contains the characters later is untouched
+  b.member.nickname = "a=b-c@d";
+  report(S, b, NOW + 1000);
+  assert.equal(dataRows(ss, "사람")[0][1], "a=b-c@d");
+});
+
+test("the tool allowlist covers every provider ID the app declares", () => {
+  const { S } = fresh();
+  const root = path.join(__dirname, "..", "..", "..", "Sources", "PokeTokenBar", "Core");
+  const ids = [];
+  for (const f of ["LocalUsageProvider.swift", "LocalAdditionalUsageProvider.swift"]) {
+    const text = fs.readFileSync(path.join(root, f), "utf8");
+    for (const m of text.matchAll(/^\s*let id = "([a-z0-9_]+)"/gm)) ids.push(m[1]);
+  }
+  assert.equal(ids.length >= 16, true, "found " + ids.length);
+  for (const id of ids) assert.equal(S.ALLOWED_TOOLS.includes(id), true, id);
+  assert.deepEqual(plain(S.ALLOWED_LIMIT_TOOLS), ["claude", "codex"]);
 });

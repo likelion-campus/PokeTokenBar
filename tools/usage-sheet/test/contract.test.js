@@ -144,15 +144,16 @@ test("team ids need the t_ prefix, for days and limits", () => {
   assert.equal(r.limits.length, 1);
 });
 
-test("a __proto__ tool id twice in one day gives one row with the last values", () => {
+test("a tool id outside the allowlist is dropped, __proto__ included", () => {
   const b = validBody();
   b.days = [{ date: "2026-11-16", team: "t_ab12cd34ef56", tools: [
     { tool: "__proto__", input: 1, output: 1, cacheWrite: 1, cacheRead: 1 },
-    { tool: "__proto__", input: 9, output: 9, cacheWrite: 9, cacheRead: 9 },
+    { tool: "made_up", input: 1, output: 1, cacheWrite: 1, cacheRead: 1 },
+    { tool: "codex", input: 2, output: 2, cacheWrite: 2, cacheRead: 2 },
   ] }];
   const r = parse(b);
-  assert.equal(r.days[0].tools.length, 1);
-  assert.deepEqual(plain(r.days[0].tools[0]), { tool: "__proto__", input: 9, output: 9, cacheWrite: 9, cacheRead: 9 });
+  assert.deepEqual(plain(r.days[0].tools.map((t) => t.tool)), ["codex"]);
+  assert.equal(r.dropped, 2);
   assert.equal(({}).input, undefined);
 });
 

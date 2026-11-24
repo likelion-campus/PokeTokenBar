@@ -177,6 +177,8 @@ function onOpen(e) {
     .addItem("지금 새로 고침", "refreshAll")
     .addItem("샘플 데이터 넣기", "seedSampleData")
     .addItem("샘플 데이터 지우기", "clearSampleData")
+    .addItem("멤버 ID 기록 지우기", "purgeMemberPrompt")
+    .addItem("팀 ID 기록 지우기", "purgeTeamPrompt")
     .addItem("Enterprise API 키 넣기", "setEnterpriseKey")
     .addItem("Enterprise API 키 지우기", "clearEnterpriseKey")
     .addToUi();
@@ -189,20 +191,67 @@ function isSampleRow(spec, row) {
   });
 }
 
-// Reads each tab, drops the sample rows and writes the rest back. Real rows keep their order.
+// Reads the tab, drops the rows where drop(row) is true and writes the rest back in order. Returns how many
+// rows went.
+function removeRowsWhere(sheet, width, drop) {
+  var rows = sheetRows(sheet, width);
+  var kept = rows.filter(function (r) { return !drop(r); });
+  if (kept.length === rows.length) return 0;
+  // Kept rows first, then only the leftover tail is cleared: the body is never empty in between.
+  if (kept.length) sheet.getRange(2, 1, kept.length, width).setValues(asTextRows(kept));
+  sheet.getRange(kept.length + 2, 1, rows.length - kept.length, width).clearContent();
+  return rows.length - kept.length;
+}
+
+// Drops the sample rows of every tab. Real rows keep their order.
 function removeSampleRows(ss) {
   SAMPLE_KEYS.forEach(function (spec) {
     var sheet = ss.getSheetByName(spec.tab);
-    if (!sheet) return;
-    var width = spec.cols.length;
-    var rows = sheetRows(sheet, width);
-    var kept = rows.filter(function (r) { return !isSampleRow(spec, r); });
-    if (kept.length === rows.length) return;
-    // Kept rows first, then only the leftover tail is cleared: the body is never empty in between.
-    if (kept.length) sheet.getRange(2, 1, kept.length, width).setValues(asTextRows(kept));
-    sheet.getRange(kept.length + 2, 1, rows.length - kept.length, width).clearContent();
+    if (sheet) removeRowsWhere(sheet, spec.cols.length, function (r) { return isSampleRow(spec, r); });
   });
 }
+
+// Owner purge: which column (1-based) of each tab holds the member ID or the team ID.
+var PURGE_COLUMNS = {
+  member: [[TAB_RAW, COLS_RAW, 1], [TAB_LIMITS, COLS_LIMITS, 4], [TAB_PEOPLE, COLS_PEOPLE, 1],
+    [TAB_TEAMLABELS, COLS_TEAMLABELS, 2], [TAB_DEVICES, COLS_DEVICES, 1]],
+  team: [[TAB_RAW, COLS_RAW, 5], [TAB_LIMITS, COLS_LIMITS, 5], [TAB_DEPTS, COLS_DEPTS, 1],
+    [TAB_TEAMLABELS, COLS_TEAMLABELS, 1]]
+};
+
+// Removes every row of one member ID (kind "member") or team ID (kind "team") from the data tabs and returns
+// { tab: rows removed } for the tabs that lost rows, or null when the ID does not have the right shape.
+// Call inside the script lock. Removing a member's 기기 row lets that member register again.
+function purgeById(ss, kind, id) {
+  var shaped = kind === "member" ? UUID_RE.test(id) : TEAM_RE.test(id);
+  if (!shaped) return null;
+  var out = {};
+  PURGE_COLUMNS[kind].forEach(function (t) {
+    var sheet = ss.getSheetByName(t[0]);
+    if (!sheet) return;
+    var n = removeRowsWhere(sheet, t[1].length, function (r) { return r[t[2] - 1] === id; });
+    if (n > 0) out[t[0]] = n;
+  });
+  return out;
+}
+
+function purgePrompt(kind, label) {
+  var ui = SpreadsheetApp.getUi();
+  var res = ui.prompt(label + " 기록 지우기",
+    "지울 " + label + "를 붙여 넣으세요. 원본, 한도, 사람, 부서, 팀이름, 기기 탭에서 그 ID 의 행이 모두 지워지고 되돌릴 수 없습니다.",
+    ui.ButtonSet.OK_CANCEL);
+  if (res.getSelectedButton() !== ui.Button.OK) return;
+  var id = String(res.getResponseText()).trim();
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var removed = withScriptLock(function () { return purgeById(ss, kind, id); });
+  if (removed === null) { ui.alert("ID 모양이 맞지 않아 아무것도 지우지 않았습니다."); return; }
+  refreshAll();
+  var lines = Object.keys(removed).map(function (tab) { return tab + ": " + removed[tab] + "행"; });
+  ui.alert(lines.length ? "지웠습니다.\n" + lines.join("\n") : "그 ID 의 행이 없습니다.");
+}
+
+function purgeMemberPrompt() { purgePrompt("member", "멤버 ID"); }
+function purgeTeamPrompt() { purgePrompt("team", "팀 ID"); }
 
 function appendRows(sheet, width, rows) {
   if (!rows.length) return;
