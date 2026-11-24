@@ -228,7 +228,7 @@ final class AuditCoreFixesTests: XCTestCase {
 
     // MARK: 7. a snapshot dated in the future
 
-    func testRecoveryPicksTheSnapshotWithTheLatestProgressAcrossAFutureDate() throws {
+    func testRecoveryPicksTheSnapshotWithTheLatestProgressAcrossAFutureDate() async throws {
         let stateURL = tempDir("future-recover").appendingPathComponent("companion-state.json")
         try SaveSnapshotManager.createSnapshot(state: sampleState(tokens: 100), for: stateURL, date: baseNow.addingTimeInterval(-3600))
         let future = baseNow.addingTimeInterval(86_400 * 30)
@@ -334,7 +334,7 @@ final class AuditCoreFixesTests: XCTestCase {
         XCTAssertEqual(entries.map(\.input).sorted(), [1, 2])
     }
 
-    func testStreamedReadersParseCRLFFilesLikeLFFiles() throws {
+    func testStreamedReadersParseCRLFFilesLikeLFFiles() async throws {
         let pi = """
         {"type":"session","version":3,"id":"s1","timestamp":"2026-07-03T01:00:00.000Z","cwd":"/x"}
         {"type":"message","id":"cc01","parentId":null,"timestamp":"2026-07-03T01:00:10.000Z","message":{"role":"assistant","content":[],"model":"m","usage":{"input":100,"output":10,"cacheRead":600,"cacheWrite":40,"totalTokens":750,"cost":{"total":0.005}}}}
@@ -365,7 +365,7 @@ final class AuditCoreFixesTests: XCTestCase {
         }
     }
 
-    func testStoreLevelSumsSaturateAcrossManyHugeValues() {
+    func testStoreLevelSumsSaturateAcrossManyHugeValues() async {
         func day(_ n: Int) -> DailyUsage {
             DailyUsage(date: "2026-07-\(String(format: "%02d", n))", inputTokens: Int.max, outputTokens: Int.max,
                        cacheCreationTokens: Int.max, cacheReadTokens: Int.max, totalTokens: Int.max,

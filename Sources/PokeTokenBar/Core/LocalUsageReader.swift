@@ -921,10 +921,21 @@ enum LocalUsageReader {
     /// Pi·omp·omo·Kimi 가 `String(contentsOf:)` 로 파일 전체를 올리던 자리를 대체한다.
     private static func forEachLine(in url: URL, containing needle: String, body: (String) -> Void) throws {
         let needleBytes = Data(needle.utf8)
+        var invalidEncoding = false
         try forEachCodexLine(in: url) { data in
+            // A line that is not UTF-8 makes the file unreadable (as `String(contentsOf:)` did): the caller returns nil,
+            // so the failure is not cached as "no usage" and the next refresh retries.
+            if !isValidUTF8(data) { invalidEncoding = true; return }
             guard data.range(of: needleBytes) != nil, let line = String(data: data, encoding: .utf8) else { return }
             body(line)
         }
+        if invalidEncoding { throw CocoaError(.fileReadInapplicableStringEncoding) }
+    }
+
+    /// ASCII lines (most of them) are valid without building a `String`; only lines with other bytes are decoded.
+    private static func isValidUTF8(_ data: Data) -> Bool {
+        if !data.contains(where: { $0 >= 0x80 }) { return true }
+        return String(data: data, encoding: .utf8) != nil
     }
 
     private static let codexSessionMetaMarker = Data("session_meta".utf8)
