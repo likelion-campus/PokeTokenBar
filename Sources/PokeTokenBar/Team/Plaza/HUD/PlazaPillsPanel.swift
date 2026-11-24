@@ -83,7 +83,7 @@ struct PlazaPill {
     }
 }
 
-/// The countdown, banner and hint pills under the window's top edge, in that order (`PlazaOverlayView`'s top stack
+/// The countdown, banner, hint and minigame-status pills under the window's top edge, in that order (`PlazaOverlayView`'s top stack
 /// before Track A Task 14). None of them takes clicks. It follows `PlazaOverlayModel` itself.
 @MainActor final class PlazaPillsPanel: PlazaPanel {
     let id = PlazaPanelID.pills
@@ -92,8 +92,8 @@ struct PlazaPill {
     var onChange: (() -> Void)?
     private let model: PlazaOverlayModel
 
-    private struct Content: Equatable { let countdown: String?, banner: String?, hint: String? }
-    private var content: Content { Content(countdown: model.countdown, banner: model.banner, hint: model.hint) }
+    private struct Content: Equatable { let countdown: String?, banner: String?, hint: String?, status: String? }
+    private var content: Content { Content(countdown: model.countdown, banner: model.banner, hint: model.hint, status: model.gameStatus) }
     /// The last layout: `size`, the overlay's menu room and `render` ask for the same one, and the banner's wrapping
     /// (TextKit on the Mac) is the costly part.
     private struct StackKey: Equatable { let content: Content, width: CGFloat, scale: CGFloat, engine: String }
@@ -107,7 +107,7 @@ struct PlazaPill {
         observe()
     }
 
-    var isVisible: Bool { model.countdown != nil || model.banner != nil || model.hint != nil }
+    var isVisible: Bool { model.countdown != nil || model.banner != nil || model.hint != nil || model.gameStatus != nil }
 
     /// The pills as the old `VStack` placed them: frames relative to the stack's top-left corner, strokes not included.
     func stack(in viewport: CGSize, scale: CGFloat, text: any PlazaTextEngine) -> (size: CGSize, pills: [PlazaPill]) {
@@ -128,6 +128,9 @@ struct PlazaPill {
         }
         if let hint = model.hint {
             pills.append(.oneLine(hint, style: PlazaPanelStyle.hint, maxTextWidth: room(PlazaPanelStyle.hint), scale: scale, text: text))
+        }
+        if let status = model.gameStatus {
+            pills.append(.oneLine(status, style: PlazaPanelStyle.gameStatus, maxTextWidth: room(PlazaPanelStyle.gameStatus), scale: scale, text: text))
         }
         let width = pills.map(\.frame.width).max() ?? 0
         var y: CGFloat = 0
@@ -160,6 +163,7 @@ struct PlazaPill {
             _ = model.countdown
             _ = model.banner
             _ = model.hint
+            _ = model.gameStatus
         } onChange: { [weak self] in
             Task { @MainActor in
                 guard let self else { return }

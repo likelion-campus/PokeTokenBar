@@ -12,6 +12,8 @@ final class PlazaMinimapModel {
         let isAway: Bool
         /// 살아 있는 미니게임 폭탄을 들고 있다: 점에 붉은 테가 둘린다(화면 밖에 있어도 어디 있는지 보인다).
         var hasBomb = false
+        /// 도는 미니게임에 든 사람: 남은 참가자는 노란 테, 탈락한 참가자는 회색 테가 둘린다. nil이면 참가자가 아니다.
+        var game: PlazaGameMark? = nil
     }
 
     static let width: CGFloat = 192

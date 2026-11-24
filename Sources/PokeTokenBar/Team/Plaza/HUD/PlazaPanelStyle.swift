@@ -25,6 +25,10 @@ enum PlazaPanelStyle {
     static let hint = Pill(font: .plaza(.body), text: PlazaColor(hex: 0xF8F8F0), fill: PlazaColor(hex: 0x1D4F5C, alpha: 0.9),
                            stroke: PlazaColor(srgbRed: 1, green: 1, blue: 1, alpha: 0.5), lineWidth: 1.5, cornerRadius: 6,
                            padding: CGSize(width: 12, height: 6))
+    /// The minigame's player list under the hint: smaller and fainter than the hint, so it stays out of the way.
+    static let gameStatus = Pill(font: .plaza(.small), text: PlazaColor(hex: 0xF8F8F0), fill: PlazaColor(hex: 0x1D4F5C, alpha: 0.75),
+                                 stroke: PlazaColor(srgbRed: 1, green: 1, blue: 1, alpha: 0.35), lineWidth: 1.5, cornerRadius: 6,
+                                 padding: CGSize(width: 8, height: 5))
     static let clock = Pill(font: .plaza(.small), text: PlazaColor(hex: 0xF8F8F0), fill: PlazaColor(hex: 0x1D4F5C, alpha: 0.9),
                             stroke: PlazaColor(srgbRed: 1, green: 1, blue: 1, alpha: 0.5), lineWidth: 1.5, cornerRadius: 6,
                             padding: CGSize(width: 8, height: 5))
