@@ -80,6 +80,13 @@ final class AuditCoreFixesTests: XCTestCase {
         XCTAssertEqual(LocalUsageReader.plausibleDate(epochSeconds: 1_700_000_000)?.timeIntervalSince1970, 1_700_000_000)
     }
 
+    func testCursorEpochDateRejectsAbsurdValues() async throws {
+        XCTAssertNil(CursorUsageAPI.epochDate(1e300))
+        XCTAssertNil(CursorUsageAPI.epochDate(.infinity))
+        XCTAssertNotNil(CursorUsageAPI.epochDate(1_700_000_000_000))
+        XCTAssertNotNil(CursorUsageAPI.epochDate(1_700_000_000))
+    }
+
     func testKimiRecordWithAbsurdTimeIsSkippedNotTrapped() async throws {
         let dir = tempDir("kimi")
         let file = dir.appendingPathComponent("wire.jsonl")
@@ -113,6 +120,8 @@ final class AuditCoreFixesTests: XCTestCase {
         XCTAssertTrue(store.persistenceBlocked)
 
         try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: url.path)
+        XCTAssertThrowsError(try store.createManualSnapshot(), "an empty placeholder must not become a snapshot")
+        XCTAssertTrue(SaveSnapshotManager.listSnapshots(for: url).isEmpty)
         store.receivePlazaItem(.rareCandy)   // would save() over the real file
         XCTAssertEqual(try Data(contentsOf: url), original, "the unreadable save must survive the session untouched")
     }
