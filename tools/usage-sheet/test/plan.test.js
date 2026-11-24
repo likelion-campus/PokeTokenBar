@@ -141,6 +141,18 @@ test("noInfo: usage in the last 7 days but no recent limit row", () => {
   assert.equal(stale.tiles.noInfo, 2);
 });
 
+test("noInfo: a member whose recent days are only empty-day rows is not counted", () => {
+  // The script stores a reported day with no tools as one "-" row with 0 tokens (validatePayload).
+  const usage = [
+    { memberId: "m1", date: "2026-11-16", tool: "-", team: "t1", total: 0 },
+    { memberId: "m1", date: "2026-11-15", tool: "-", team: "t1", total: 0 },
+    { memberId: "m2", date: "2026-11-16", tool: "-", team: "t1", total: 0 },
+    { memberId: "m2", date: "2026-11-14", tool: "claude_code", team: "t1", total: 5 },
+  ];
+  const m = plan(mkData({ usage }));
+  assert.equal(m.tiles.noInfo, 1);
+});
+
 test("unassigned-department accounts are excluded and counted", () => {
   const limits = [].concat(current("a", "m1", "Max", 50, 3), current("b", "m2", "Max", 50, 3, { team: "tX" }));
   const m = plan(mkData({ limits }));

@@ -8,6 +8,8 @@ var MAX_BODY_BYTES = 262144;
 var MAX_DAYS = 62;
 var MAX_TOOLS_PER_DAY = 32;
 var MAX_LIMITS = 16;
+// The tool name stored for a reported day that used no tool (one row with 0 tokens).
+var EMPTY_DAY_TOOL = "-";
 
 var TAB_RAW = "원본";
 var TAB_LIMITS = "한도";
@@ -216,7 +218,7 @@ function parsePayload(text, nowMs, tz) {
   var days = dateOrder.map(function (date) {
     var e = byDate.get(date);
     var tools = e.toolOrder.map(function (name) { return e.toolMap.get(name); });
-    if (tools.length === 0) tools = [{ tool: "-", input: 0, output: 0, cacheWrite: 0, cacheRead: 0 }];
+    if (tools.length === 0) tools = [{ tool: EMPTY_DAY_TOOL, input: 0, output: 0, cacheWrite: 0, cacheRead: 0 }];
     return { date: e.date, team: e.team, teamLabel: e.teamLabel, tools: tools };
   });
 
@@ -1420,6 +1422,8 @@ function computePlan(data, nowMs, tz) {
   var weekStart = dayNumberToString(today - 6);
   var recent = Object.create(null);
   data.usage.forEach(function (u) {
+    // A day that used no tool says nothing about a plan, so it doesn't make anyone "no plan info".
+    if (u.tool === EMPTY_DAY_TOOL) return;
     if (u.date < weekStart || !departmentOf(u.team, data.depts)) return;
     recent[canonicalPerson(u.memberId, data.people)] = true;
   });
