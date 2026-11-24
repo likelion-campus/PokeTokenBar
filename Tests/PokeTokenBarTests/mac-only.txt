@@ -249,3 +249,5 @@ DexPagerInkTests.swift
 SelftestUserPCSafetyScanTests.swift
 # PlazaPondSweepTests+Mac: scans the plaza sources with SharedSources (SharedSourcesScanTests.swift), which is Mac-only
 PlazaPondSweepTests+Mac.swift
+# WindowsMessageParameterScanTests: scans the Windows sources with SharedSources (SharedSourcesScanTests.swift), which is Mac-only
+WindowsMessageParameterScanTests.swift
