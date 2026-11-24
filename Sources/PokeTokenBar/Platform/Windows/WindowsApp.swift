@@ -230,7 +230,15 @@ private func crtExit(_ code: Int32) -> Never {
         _ = RunLoop.main  // 1 (F4; before any window)
         mutexName = WinSingleInstance.mutexName(stateDirectory: AppStatePaths.directory(),
                                                 defaultDirectory: Self.defaultStateDirectory)
-        if WinSingleInstance.acquire(name: mutexName, quietly: arguments.contains("--autostart")) == .yielded {  // 2 (before anything that writes)
+        let foreignHolder: (String) -> Void = { holder in
+            // No tray exists yet in a copy that yields, so a message box (not a balloon) is the way to tell the person. Never on the
+            // selftest's second starts: those run unattended.
+            guard !self.arguments.contains("--selftest-second") else { return }
+            _ = MessageBoxW(nil, WinStr.w("PokeTokenBar could not start: its single-instance name is held by \(holder), not by PokeTokenBar. "
+                                          + "If PokeTokenBar is not running, sign out and in again or restart the PC."),
+                            WinStr.w("PokeTokenBar"), UINT(MB_OK) | UINT(MB_ICONWARNING))
+        }
+        if WinSingleInstance.acquire(name: mutexName, quietly: arguments.contains("--autostart"), onForeignHolder: foreignHolder) == .yielded {  // 2 (before anything that writes)
             yielded = true
             AppLog.writeAndFlush("duplicate instance: yielding to the instance already running (\(mutexName))")
             return false

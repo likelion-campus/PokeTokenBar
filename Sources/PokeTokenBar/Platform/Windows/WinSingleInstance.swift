@@ -29,7 +29,9 @@ enum WinSingleInstance {
 
     /// `quietly`: an `--autostart` copy (the Run key at sign-in) that finds the app already running yields without asking it
     /// for anything — the user did not ask for the popover (post-merge review M3).
-    static func acquire(name: String, quietly: Bool = false) -> Outcome {
+    /// `onForeignHolder`: called when the name is held by something that is not this app (no sink window answers, or the window's
+    /// process runs another executable); nothing is posted to it and no foreground right is given. The app tells the user there.
+    static func acquire(name: String, quietly: Bool = false, onForeignHolder: ((String) -> Void)? = nil) -> Outcome {
         let handle = CreateMutexW(nil, false, WinStr.w(name))
         let error = GetLastError()
         guard let handle else {
@@ -40,23 +42,55 @@ enum WinSingleInstance {
             _ = CloseHandle(handle)
             if quietly {
                 AppLog.write("single instance: an --autostart start yields quietly to the instance already running (\(name))")
-            } else if let running = FindWindowW(WinStr.w(WinSinkWindow.className), WinStr.w(name)) {
+            } else if let running = findSink(name) {
                 // Stage 7 D4: a start from the Start menu or a shortcut may take the foreground; this process hands that
                 // right to the running instance, which opens its popover for this launch (ruling 3) instead of a balloon.
                 var pid: DWORD = 0
                 _ = GetWindowThreadProcessId(running, &pid)
-                let allowed = pid != 0 && AllowSetForegroundWindow(pid)
-                let allowError = allowed ? 0 : GetLastError()
-                _ = PostMessageW(running, showMessage, 0, 0)
-                AppLog.write("single instance: asked pid \(pid) to open its popover; AllowSetForegroundWindow "
-                    + (allowed ? "ok" : "refused (\(allowError))"))
+                if let image = imagePath(ofProcess: pid), sameExecutable(image, WindowsLoginItem.currentExecutablePath()) {
+                    let allowed = AllowSetForegroundWindow(pid)
+                    let allowError = allowed ? 0 : GetLastError()
+                    _ = PostMessageW(running, showMessage, 0, 0)
+                    AppLog.write("single instance: asked pid \(pid) to open its popover; AllowSetForegroundWindow "
+                        + (allowed ? "ok" : "refused (\(allowError))"))
+                } else {
+                    // Any program of this user can create a window with this class and title. It gets neither a message nor the foreground.
+                    AppLog.write("single instance: \(name) is answered by pid \(pid), which does not run this executable (\(imagePath(ofProcess: pid) ?? "image unreadable")); not asked")
+                    onForeignHolder?("another program (process \(pid))")
+                }
             } else {
                 AppLog.write("single instance: \(name) is held but no sink window answers")
+                onForeignHolder?("something that does not answer")
             }
             return .yielded
         }
         held = handle
         return .acquired
+    }
+
+    /// The running instance's sink window. Looked up for up to two seconds: the holder creates it a moment after the mutex.
+    private static func findSink(_ name: String) -> HWND? {
+        for attempt in 0..<8 {
+            if let window = FindWindowW(WinStr.w(WinSinkWindow.className), WinStr.w(name)) { return window }
+            if attempt < 7 { Sleep(250) }
+        }
+        return nil
+    }
+
+    /// The executable a process runs (`QueryFullProcessImageNameW`); nil when it cannot be opened (another user, higher integrity).
+    static func imagePath(ofProcess pid: DWORD) -> String? {
+        guard pid != 0, let process = OpenProcess(DWORD(PROCESS_QUERY_LIMITED_INFORMATION), false, pid) else { return nil }
+        defer { _ = CloseHandle(process) }
+        var buffer = [UInt16](repeating: 0, count: 32_768)
+        var size = DWORD(buffer.count)
+        guard QueryFullProcessImageNameW(process, 0, &buffer, &size) else { return nil }
+        return String(decoding: buffer.prefix(Int(size)), as: UTF16.self)
+    }
+
+    /// Same file, ignoring case and separator style.
+    static func sameExecutable(_ a: String, _ b: String) -> Bool {
+        func key(_ path: String) -> String { path.replacingOccurrences(of: "/", with: "\\").lowercased() }
+        return key(a) == key(b)
     }
 }
 #endif

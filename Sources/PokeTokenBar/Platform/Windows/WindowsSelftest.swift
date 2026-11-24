@@ -127,6 +127,7 @@ enum WindowsSelftest {
         await shellChecks(r)
         await crashChecks(r)
         await singleInstanceCheck(r, app)
+        singleInstanceForeignHolderCheck(r)
         await exitDeadlineCheck(r)  // stage 8: quitting with a stuck socket thread
         await guardChecks(r)
         let real = WinDefaultsSync.expectedPlistURL()
@@ -696,6 +697,23 @@ enum WindowsSelftest {
         } catch {
             r.add("singleInstance.second", false, "\(error)")
         }
+    }
+
+    /// A name held by something that is not this app (here: this process's own mutex under a name no sink window carries) tells the person
+    /// instead of exiting silently, and posts nothing. The other branch (a window of another executable answers) needs a second program
+    /// with the same window class and cannot be built here; `sameExecutable` is checked on its own.
+    @MainActor private static func singleInstanceForeignHolderCheck(_ r: Recorder) {
+        let name = "Local\\PokeTokenBar-Selftest-Foreign-\(UUID().uuidString)"
+        guard let held = CreateMutexW(nil, true, WinStr.w(name)) else { r.add("singleInstance.foreignHolder", false, "CreateMutexW failed"); return }
+        defer { _ = CloseHandle(held) }
+        var told: [String] = []
+        let outcome = WinSingleInstance.acquire(name: name, onForeignHolder: { told.append($0) })
+        let me = executablePath()
+        let same = WinSingleInstance.sameExecutable(me, me.uppercased().replacingOccurrences(of: "\\", with: "/"))
+        let other = !WinSingleInstance.sameExecutable(me, "C:\\Windows\\System32\\cmd.exe")
+        let image = WinSingleInstance.imagePath(ofProcess: GetCurrentProcessId()).map { WinSingleInstance.sameExecutable($0, me) } ?? false
+        r.add("singleInstance.foreignHolder", outcome == .yielded && told.count == 1 && same && other && image,
+              "outcome=\(outcome) told=\(told) sameExecutable(case/separator)=\(same) differs from cmd.exe=\(other) own image path matches=\(image)")
     }
 
     // MARK: - tray (Task 6): the runner has a working shell tray, so add / modify / rect / re-add / delete are real
