@@ -7,6 +7,8 @@ var MAX_BODY_BYTES = 262144;
 var MAX_DAYS = 62;
 var MAX_TOOLS_PER_DAY = 32;
 var MAX_LIMITS = 16;
+// The tool name stored for a reported day that used no tool (one row with 0 tokens).
+var EMPTY_DAY_TOOL = "-";
 
 var TAB_RAW = "원본";
 var TAB_LIMITS = "한도";
