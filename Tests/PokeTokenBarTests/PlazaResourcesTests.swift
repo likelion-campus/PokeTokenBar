@@ -123,6 +123,14 @@ final class PlazaResourcesTests: XCTestCase {
         }
     }
 
+    func testCreditsNameTheBlossomArtist() throws {
+        let credits = try text("CREDITS", "md")
+        for needle in ["peony", "Plants and Flowers - Pixel Art", "https://opengameart.org/content/plants-and-flowers-pixel-art", "plaza-blossom.png",
+                       "CC-BY 4.0", "6572e239858a93cdf63f87978db97e4646eb8ba1f7e5e311443319e3cef4f3bf", "No pixel is redrawn"] {
+            XCTAssertTrue(credits.contains(needle), needle)
+        }
+    }
+
     func testCreditsNameTheBombArtist() throws {
         let credits = try text("CREDITS", "md")
         for needle in ["victordelima", "16-bit animated bomb", "https://opengameart.org/content/16-bit-animated-bomb", "plaza-bomb.png", "CC0",

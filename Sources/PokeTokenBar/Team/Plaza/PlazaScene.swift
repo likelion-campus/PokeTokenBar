@@ -465,7 +465,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         self.footprintLayer = PlazaFootprintLayer(worldHeight: map.pixelSize.height)
         self.snowballLayer = PlazaSnowballLayer(worldHeight: map.pixelSize.height)
         // 처음 보이는 계절(`shownSeason`)의 그림으로 시작한다. `refreshSnowDay`는 계절이 바뀔 때만 그림을 바꾼다.
-        snowballLayer.setArt(PlazaSnowballArt.art(.summer, ball: PlazaScene.ballImages[.summer]))
+        snowballLayer.setArt(PlazaSnowballArt.art(.summer, balls: [PlazaScene.ballImages[.summer]].compactMap { $0 }))
         self.walker = PlazaWalker(tile: start)
         self.lastReported = (start, .down, false)
         self.nickname = nickname
@@ -2303,6 +2303,19 @@ struct PlazaSceneMember: Equatable, Sendable {
         return out
     }()
 
+    /// 받아 온 아이템 그림으로 만든 공(봄 꽃잎, 여름 풍선. `PlazaThrowItems`). 있으면 번들 그림 대신 던진다.
+    private var itemBalls: [PlazaSeason: [PlazaImage]] = [:]
+    private func balls(_ season: PlazaSeason) -> [PlazaImage] {
+        itemBalls[season] ?? [PlazaScene.ballImages[season]].compactMap { $0 }
+    }
+
+    /// 받아 온 아이템 그림을 그 계절의 공으로 쓴다. 지금 그 계절이면 날고 있는 것도 다음 프레임부터 새 그림이다.
+    func setItemBalls(_ images: [PlazaImage], for season: PlazaSeason) {
+        guard !images.isEmpty else { return }
+        itemBalls[season] = images
+        if shownSeason == season { snowballLayer.setArt(PlazaSnowballArt.art(season, balls: images)) }
+    }
+
     /// 계절과 보이는 모습을 맞춘다. `update`(달력을 따르는 계절은 날이 바뀌며 바뀐다)와 계절 변경, 컨트롤러가 부른다.
     func refreshSnowDay() {
         let s = season
@@ -2319,7 +2332,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         if let grass { tallGrassLayer?.setArt(grass) }
         shownSeason = s
         for layer in treeLayers { layer.setSeason(s) }
-        snowballLayer.setArt(PlazaSnowballArt.art(s, ball: PlazaScene.ballImages[s]))
+        snowballLayer.setArt(PlazaSnowballArt.art(s, balls: balls(s)))
         if s != .winter { footprintLayer.removeAll() }
         refreshIce(hit: nil)
         onSeasonChange?(s)

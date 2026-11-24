@@ -160,7 +160,7 @@ final class PlazaArtParityPixelArtTests: XCTestCase {
                 for (i, piece) in legacy.enumerated() { assertSamePixels(piece.image, new.burst[i].image, "snowball \(season) burst \(i)") }
             }
         }
-        XCTAssertTrue(PlazaSnowballArt.art(.summer, ball: PlazaImage(cgImage: balloon)).ball.image.cgImage === balloon, "the balloon itself")
+        XCTAssertTrue(PlazaSnowballArt.art(.summer, balls: [PlazaImage(cgImage: balloon)]).ball.image.cgImage === balloon, "the balloon itself")
 
         // Fireworks: every shape and colour.
         var glyphs: [PlazaFireworkGlyph] = []

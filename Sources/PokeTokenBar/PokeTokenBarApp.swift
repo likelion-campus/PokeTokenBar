@@ -159,6 +159,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             schedule: { [teamSettings] in teamSettings.schedule },
             evolutionStage: { [companion] in companion!.representativeEvolutionStage },
             pokemonTypes: { try? await PokeAPIClient.shared.pokemonDetails(speciesID: $0).types },
+            throwItem: { await PopoverItemImages.load(name: $0) },
             grantItem: { [companion] in companion!.receivePlazaItem($0) },
             pray: { [companion] in companion!.pray() },
             prayerCount: { [companion] in companion!.state.eggPrayers?.count ?? 0 },

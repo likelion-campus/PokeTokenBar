@@ -132,9 +132,11 @@ enum PlazaSnowballArt {
         }
     }
 
-    /// 던지는 공 하나와 터질 때 흩어지는 조각 셋. 둘은 따로다: 터짐 조각이 공 그림을 그릴 수 없다.
+    /// 던지는 공들과 터질 때 흩어지는 조각 셋. 둘은 따로다: 터짐 조각이 공 그림을 그릴 수 없다.
     struct Art {
-        let ball: Piece
+        /// 하나 이상. 여럿이면(여름 풍선의 색) 던질 때마다 차례로 돌아가며 쓴다.
+        let balls: [Piece]
+        var ball: Piece { balls[0] }
         /// 항상 셋. `PlazaSnowball.burstPieces`의 glyph가 이 목록의 색인이다.
         let burst: [Piece]
     }
@@ -142,9 +144,9 @@ enum PlazaSnowballArt {
     /// 그림 한 픽셀의 월드 픽셀 수. 파일 그림은 높이 12~20 월드 픽셀로 날도록 10픽셀 이하면 2배다.
     static func ballScale(_ image: PlazaImage) -> CGFloat { image.height <= 10 ? 2 : 1 }
 
-    /// `ball`(그 계절의 파일 그림)이 있으면 공은 그 그림 그대로, 없으면 그 계절 색의 눈 격자 공이다.
+    /// `balls`(그 계절의 그림들)가 있으면 공은 그 그림 그대로, 없으면 그 계절 색의 눈 격자 공이다.
     /// 터짐 조각: 겨울·여름은 눈 격자 셋(그림자 포함, 그 계절 색), 봄은 꽃잎, 가을은 낙엽.
-    static func art(_ season: PlazaSeason = .winter, ball: PlazaImage? = nil) -> Art {
+    static func art(_ season: PlazaSeason = .winter, balls: [PlazaImage] = []) -> Art {
         let snow = PlazaWeatherArt.grids(.snow).map {
             (image: PlazaWeatherArt.image(shaded($0), palette: palette(season)), scale: PlazaSnowball.cell)
         }
@@ -158,6 +160,6 @@ enum PlazaSnowballArt {
             let l = PlazaWeatherArt.images(.leaves)
             burst = [l[0], l[2], l[4]].map { ($0, PlazaSnowball.cell) }
         }
-        return Art(ball: ball.map { ($0, ballScale($0)) } ?? snow[0], burst: burst)
+        return Art(balls: balls.isEmpty ? [snow[0]] : balls.map { ($0, ballScale($0)) }, burst: burst)
     }
 }

@@ -19,6 +19,8 @@ struct PlazaSnowballFlight {
         let onLand: @MainActor () -> Void
         var age: TimeInterval = 0
         var landed = false
+        /// 공 그림이 여럿일 때 이 공이 쓰는 그림의 차례.
+        let variant: Int
         var ball: PlazaSprite?
         var shadow: PlazaSprite?
         var pieces: [PlazaSprite] = []
@@ -29,10 +31,12 @@ struct PlazaSnowballFlight {
     private var flights: [Flight] = []
     private var pool: [PlazaSprite] = []
     private var created = 0
-    private var ballTexture: PlazaTexture!
+    private var ballTextures: [PlazaTexture] = []
+    /// 지금까지 띄운 공의 수. 공 그림이 여럿이면 이 차례로 돌아가며 고른다(보는 사람마다 따로 센다).
+    private var launched = 0
     private var burstTextures: [PlazaTexture] = []
     /// 공 그림과 터짐 조각마다, 그림 한 픽셀의 월드 픽셀 수.
-    private var ballScale: CGFloat = 1
+    private var ballScales: [CGFloat] = []
     private var burstScales: [CGFloat] = []
     private let shadowTexture: PlazaTexture
 
@@ -44,15 +48,16 @@ struct PlazaSnowballFlight {
     func setArt(_ art: PlazaSnowballArt.Art) {
         burstTextures = art.burst.map { Self.nearest($0.image) }
         // 파일이 없는 계절의 공은 터짐 조각 0과 같은 그림이다. 텍스처를 하나 더 만들지 않는다.
-        ballTexture = art.ball.image === art.burst[0].image ? burstTextures[0] : Self.nearest(art.ball.image)
-        ballScale = art.ball.scale
+        ballTextures = art.balls.map { $0.image === art.burst[0].image ? burstTextures[0] : Self.nearest($0.image) }
+        ballScales = art.balls.map(\.scale)
         burstScales = art.burst.map(\.scale)
-        for f in flights { f.ball.map { resizeBall($0) } }   // 터짐 조각은 다음 place가 제 glyph로 다시 맞춘다
+        for f in flights { f.ball.map { resizeBall($0, variant: f.variant) } }   // 터짐 조각은 다음 place가 제 glyph로 다시 맞춘다
     }
 
-    private func resizeBall(_ node: PlazaSprite) {
-        node.texture = ballTexture
-        node.size = CGSize(width: ballTexture.pixelSize.width * ballScale, height: ballTexture.pixelSize.height * ballScale)
+    private func resizeBall(_ node: PlazaSprite, variant: Int) {
+        let i = variant % ballTextures.count
+        node.texture = ballTextures[i]
+        node.size = CGSize(width: ballTextures[i].pixelSize.width * ballScales[i], height: ballTextures[i].pixelSize.height * ballScales[i])
     }
 
     private func resizeBurst(_ node: PlazaSprite, glyph: Int) {
@@ -81,9 +86,10 @@ struct PlazaSnowballFlight {
     /// false when `maxFlights` are already up (the caller lands it at once).
     func launch(_ flight: PlazaSnowballFlight, onLand: @escaping @MainActor () -> Void) -> Bool {
         guard flights.count < Self.maxFlights else { return false }
-        var f = Flight(spec: flight, onLand: onLand)
-        f.ball = take(texture: ballTexture, anchor: CGPoint(x: 0, y: 0))
-        f.ball.map { resizeBall($0) }
+        var f = Flight(spec: flight, onLand: onLand, variant: launched)
+        launched += 1
+        f.ball = take(texture: ballTextures[0], anchor: CGPoint(x: 0, y: 0))
+        f.ball.map { resizeBall($0, variant: f.variant) }
         f.shadow = take(texture: shadowTexture, anchor: CGPoint(x: 0, y: 0))
         f.shadow?.size = PlazaSnowball.shadowSize
         flights.append(f)

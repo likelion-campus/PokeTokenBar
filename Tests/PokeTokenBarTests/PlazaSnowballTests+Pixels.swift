@@ -32,7 +32,7 @@ extension PlazaSnowballTests {
 
     @MainActor func testTheBurstNeverDrawsTheBallPicture() async {
         let balloon = PlazaImage(bitmap: PlazaBitmap(width: 14, height: 18, fill: PlazaRGBA(r: 0x2E, g: 0x78, b: 0xC0, a: 255)))
-        let art = PlazaSnowballArt.art(.summer, ball: balloon), layer = PlazaSnowballLayer(worldHeight: 1024)
+        let art = PlazaSnowballArt.art(.summer, balls: [balloon]), layer = PlazaSnowballLayer(worldHeight: 1024)
         layer.setArt(art)
         for burst in [PlazaSnowballFlight.Burst.air, .ground] {
             _ = layer.launch(PlazaSnowballFlight(start: CGPoint(x: 100, y: 500), end: CGPoint(x: 164, y: 500),
@@ -57,5 +57,23 @@ extension PlazaSnowballTests {
         let ids = Set(autumn.burst.map { ObjectIdentifier($0.image) })
         XCTAssertFalse(layer.burstImages.isEmpty)
         XCTAssertTrue(layer.burstImages.allSatisfy { ids.contains(ObjectIdentifier($0)) })
+    }
+
+    /// Several ball pictures (the summer balloons): each throw takes the next one and the count wraps. A change to a season
+    /// with one picture redraws every ball in the air with it.
+    @MainActor func testEachThrowTakesTheNextBallPicture() async {
+        let colours: [PlazaImage] = (0..<3).map { PlazaImage(bitmap: PlazaBitmap(width: 18, height: 22, fill: PlazaRGBA(r: UInt8(80 * $0), g: 0, b: 0, a: 255))) }
+        let layer = PlazaSnowballLayer(worldHeight: 1024)
+        layer.setArt(PlazaSnowballArt.art(.summer, balls: colours))
+        for _ in 0..<4 {
+            _ = layer.launch(PlazaSnowballFlight(start: CGPoint(x: 100, y: 500), end: CGPoint(x: 164, y: 500), endHeight: 0, frames: 30, burst: .ground)) {}
+        }
+        XCTAssertEqual(layer.ballImages.count, 4)
+        XCTAssertTrue(zip(layer.ballImages, [colours[0], colours[1], colours[2], colours[0]]).allSatisfy { $0 === $1 })
+        XCTAssertEqual(layer.ballSizes, Array(repeating: CGSize(width: 18, height: 22), count: 4), "one world pixel a pixel")
+        let one = PlazaImage(bitmap: PlazaBitmap(width: 15, height: 15, fill: PlazaRGBA(r: 242, g: 184, b: 190, a: 255)))
+        layer.setArt(PlazaSnowballArt.art(.spring, balls: [one]))
+        XCTAssertTrue(layer.ballImages.allSatisfy { $0 === one }, "one picture for every ball in the air")
+        XCTAssertEqual(layer.ballSizes, Array(repeating: CGSize(width: 15, height: 15), count: 4))
     }
 }
