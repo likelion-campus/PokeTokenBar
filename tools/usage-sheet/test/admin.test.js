@@ -168,13 +168,15 @@ test("refreshAll releases every lock, even when rendering throws", () => {
   assert.equal(S.fakes.lockStats.released, S.fakes.lockStats.acquired);
 });
 
-test("onOpen builds the menu with five items in order", () => {
+test("onOpen builds the menu with eight items in order", () => {
   const { S } = fresh();
   S.onOpen({});
   assert.equal(S.fakes.menus.length, 1);
   assert.equal(S.fakes.menus[0].title, "사용량 대시보드");
   assert.deepEqual(plain(S.fakes.menus[0].items), [
     ["지금 새로 고침", "refreshAll"], ["샘플 데이터 넣기", "seedSampleData"], ["샘플 데이터 지우기", "clearSampleData"],
+    ["멤버 ID 기록 지우기", "purgeMemberPrompt"], ["팀 ID 기록 지우기", "purgeTeamPrompt"],
+    ["이 시각 이후 처음 본 멤버 지우기", "purgeRecentMembersPrompt"],
     ["Enterprise API 키 넣기", "setEnterpriseKey"], ["Enterprise API 키 지우기", "clearEnterpriseKey"],
   ]);
 });
@@ -234,7 +236,7 @@ test("setup keeps a default tab that has data", () => {
   assert.equal(ss.getSheetByName("시트1") !== null, true);
 });
 
-test("removeSampleRows writes the kept rows first and only clears the tail", () => {
+test("removeSampleRows deletes the sample rows with deleteRows and rewrites nothing", () => {
   const { S, ss } = fresh();
   S.setup();
   S.seedSampleData();
@@ -244,10 +246,7 @@ test("removeSampleRows writes the kept rows first and only clears the tail", () 
   const total = people._rows.length - 1;
   people._ops.length = 0;
   S.removeSampleRows(ss);
-  assert.equal(people._ops[0][0], "set");
-  assert.equal(people._ops[0][1], 2);
-  assert.deepEqual(people._ops[1], ["clear", 3, total - 1]);
-  assert.equal(people._ops.length, 2);
+  assert.deepEqual(people._ops, [["delete", 3, total - 1]]);
   assert.deepEqual(body(ss, "사람").map((r) => r[0]), [MEMBER]);
 });
 
@@ -353,4 +352,205 @@ test("setup leaves a data tab alone when it has content beyond its width", () =>
   assert.equal(limits.getMaxColumns(), 26);
   assert.equal(limits.getRange(2, 12).getValues()[0][0], "내 메모");
   assert.equal(ss.getSheetByName("원본").getMaxColumns(), S.COLS_RAW.length, "other tabs are still trimmed");
+});
+
+// Owner purge: one member ID or team ID leaves every data tab; the others stay.
+const OTHER = "11111111-2222-4333-8444-555555555555";
+function reportFor(S, id, team, nick) {
+  const b = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "fixtures", "valid-basic.json"), "utf8")).body;
+  b.member.id = id; b.member.nickname = nick;
+  b.days.forEach((d) => { d.team = team; });
+  b.limits.forEach((l) => { l.team = team; });
+  assert.equal(plain(S.handleReport(S.fakes.ss, JSON.stringify(b), NOW, TZ)).ok, true);
+}
+
+test("purgeById removes one member's rows from every tab and leaves the other member", () => {
+  const { S, ss } = fresh();
+  reportFor(S, MEMBER, "t_keep", "남김");
+  reportFor(S, OTHER, "t_other", "지움");
+  const gone = plain(S.purgeById(ss, "member", OTHER));
+  assert.deepEqual(Object.keys(gone).sort(), ["기기", "사람", "원본", "팀이름", "한도"].sort());
+  for (const tab of ["원본", "한도", "사람", "기기", "팀이름"]) {
+    assert.equal(JSON.stringify(body(ss, tab)).includes(OTHER), false, tab);
+    assert.equal(JSON.stringify(body(ss, tab)).includes(MEMBER), true, tab);
+  }
+  // the member can register again afterwards
+  reportFor(S, OTHER, "t_other", "지움");
+  assert.equal(body(ss, "기기").length, 2);
+});
+
+test("purgeById removes one team ID from every tab it appears in", () => {
+  const { S, ss } = fresh();
+  reportFor(S, MEMBER, "t_keep", "남김");
+  reportFor(S, OTHER, "t_other", "지움");
+  const gone = plain(S.purgeById(ss, "team", "t_other"));
+  assert.deepEqual(Object.keys(gone).sort(), ["부서", "원본", "팀이름", "한도"].sort());
+  for (const tab of ["원본", "한도", "부서", "팀이름"]) {
+    assert.equal(JSON.stringify(body(ss, tab)).includes("t_other"), false, tab);
+    assert.equal(JSON.stringify(body(ss, tab)).includes("t_keep"), true, tab);
+  }
+});
+
+test("purgeById refuses a malformed id and removes nothing", () => {
+  const { S, ss } = fresh();
+  reportFor(S, MEMBER, "t_keep", "남김");
+  const before = JSON.stringify(body(ss, "원본"));
+  assert.equal(S.purgeById(ss, "member", "t_keep"), null);
+  assert.equal(S.purgeById(ss, "team", MEMBER), null);
+  assert.equal(S.purgeById(ss, "member", ""), null);
+  assert.equal(JSON.stringify(body(ss, "원본")), before);
+});
+
+test("the purge menu entry asks, purges under the lock and reports the counts", () => {
+  const { S, ss } = fresh();
+  reportFor(S, MEMBER, "t_keep", "남김");
+  S.fakes.ui.next = { button: "OK", text: " " + MEMBER + " " };
+  S.purgeMemberPrompt();
+  assert.equal(body(ss, "원본").length, 0);
+  assert.match(S.fakes.ui.alerts.at(-1), /원본: 3행/);
+  S.fakes.ui.next = { button: "CANCEL", text: MEMBER };
+  const n = S.fakes.ui.alerts.length;
+  S.purgeMemberPrompt();
+  assert.equal(S.fakes.ui.alerts.length, n);
+});
+
+// Item 4 of the PR review: a purge deletes whole rows, so the owner's own columns stay with their row.
+test("purge keeps an owner's note column aligned: it moves with its row and no whole-tab rewrite happens", () => {
+  const { S, ss } = fresh();
+  reportFor(S, MEMBER, "t_keep", "남김");
+  reportFor(S, OTHER, "t_other", "지움");
+  const people = ss.getSheetByName("사람");
+  const idx = people._rows.findIndex((r) => r[0] === OTHER);
+  const keep = people._rows.findIndex((r) => r[0] === MEMBER);
+  people._rows[idx][6] = "지운 사람의 메모";
+  people._rows[keep][6] = "남긴 사람의 메모";
+  people._ops.length = 0;
+  S.purgeById(ss, "member", OTHER);
+  assert.deepEqual(body(ss, "사람").map((r) => [r[0], r[6]]), [[MEMBER, "남긴 사람의 메모"]]);
+  assert.equal(people._ops.some((o) => o[0] === "set" || o[0] === "clear"), false);
+});
+
+test("purge deletes separated runs of rows bottom-up, one call per run", () => {
+  const { S, ss } = fresh();
+  S.ensureSheets(ss);
+  const raw = ss.getSheetByName("원본");
+  const row = (id) => [id, "n", "2026-11-16", "claude_code", "t_x1", 1, 1, 1, 1, 4, "2.5.0", "mac", "x"];
+  [OTHER, OTHER, MEMBER, OTHER, OTHER, OTHER, MEMBER].forEach((id) => raw._rows.push(row(id)));
+  raw._ops.length = 0;
+  assert.equal(S.removeRowsWhere(raw, S.COLS_RAW.length, (r) => r[0] === OTHER), 5);
+  assert.deepEqual(raw._ops, [["delete", 5, 3], ["delete", 2, 2]]);
+  assert.deepEqual(body(ss, "원본").map((r) => r[0]), [MEMBER, MEMBER]);
+});
+
+test("a purge that matches every row of a full grid clears instead of deleting (Sheets refuses to delete all rows)", () => {
+  const { S, ss } = fresh();
+  reportFor(S, OTHER, "t_other", "지움");
+  const dev = ss.getSheetByName("기기");
+  dev._maxRows = dev._rows.length;   // the grid holds exactly the header and the member row
+  assert.doesNotThrow(() => S.purgeById(ss, "member", OTHER));
+  assert.equal(body(ss, "기기").length, 0);
+});
+
+test("the bulk purge removes the members first seen after a time, after confirming, and keeps the earlier ones", () => {
+  const { S, ss } = fresh();
+  reportFor(S, MEMBER, "t_keep", "남김");
+  const later = NOW + 5 * 3600000;
+  const b = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "fixtures", "valid-basic.json"), "utf8")).body;
+  b.member.id = OTHER; b.member.nickname = "가짜";
+  assert.equal(plain(S.handleReport(ss, JSON.stringify(b), later, TZ)).ok, true);
+  assert.deepEqual(plain(S.membersFirstSeenAfter(ss, NOW + 3600000)).map((m) => m.id), [OTHER]);
+  S.fakes.ui.next = { button: "OK", text: new Date(NOW + 3600000).toISOString() };
+  S.fakes.ui.nextAlertButton = "CANCEL";
+  S.purgeRecentMembersPrompt();
+  assert.equal(body(ss, "기기").length, 2, "cancel deletes nothing");
+  const sure = S.fakes.ui.alerts.at(-1);
+  assert.match(sure, /1명/);
+  assert.match(sure, new RegExp(new Date(later).toISOString().replace(/\./g, "\\.") + " ~ " + new Date(later).toISOString().replace(/\./g, "\\.")));
+  assert.match(sure, new RegExp(OTHER.slice(0, 8)));
+  assert.equal(sure.includes(OTHER), false, "only the prefix is shown");
+  assert.match(sure, /영영 사라집니다/);
+  S.fakes.ui.nextAlertButton = "OK";
+  S.purgeRecentMembersPrompt();
+  assert.deepEqual(body(ss, "기기").map((r) => r[0]), [MEMBER]);
+  assert.equal(JSON.stringify(body(ss, "원본")).includes(OTHER), false);
+  assert.equal(JSON.stringify(body(ss, "원본")).includes(MEMBER), true);
+  S.fakes.ui.next = { button: "OK", text: "not a time" };
+  S.purgeRecentMembersPrompt();
+  assert.match(S.fakes.ui.alerts.at(-1), /읽을 수 없어/);
+  assert.equal(body(ss, "기기").length, 1);
+});
+
+// Round 2, item C: a run near the 6-minute limit stops with whole rows and asks to be run again.
+test("a bulk purge past its time budget stops cleanly, refreshes nothing, and the next run finishes it", () => {
+  const { S, ss } = fresh();
+  reportFor(S, MEMBER, "t_keep", "남김");
+  const raw = ss.getSheetByName("원본");
+  const row = (id) => [id, "n", "2026-11-16", "claude_code", "t_x1", 1, 1, 1, 1, 4, "2.5.0", "mac", "x"];
+  const later = NOW + 5 * 3600000;
+  const fakes = [OTHER, "22222222-2222-4333-8444-555555555555"];
+  for (const id of fakes) {
+    const b = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "fixtures", "valid-basic.json"), "utf8")).body;
+    b.member.id = id; b.member.nickname = "가짜";
+    assert.equal(plain(S.handleReport(ss, JSON.stringify(b), later, TZ)).ok, true);
+  }
+  raw._rows.splice(6, 0, row(MEMBER));   // a kept row in the middle splits the fake rows into two runs
+  S.PURGE_TIME_BUDGET_MS = -1;           // out of time from the first run on
+  S.fakes.ui.next = { button: "OK", text: new Date(NOW + 3600000).toISOString() };
+  S.purgeRecentMembersPrompt();
+  assert.match(S.fakes.ui.alerts.at(-1), /일부만 지웠습니다/);
+  assert.equal(S.fakes.lockStats.docAcquired, 0, "no refresh after a partial run");
+  assert.equal(body(ss, "기기").length, 3, "기기 is untouched, so the next run finds the same members");
+  assert.equal(body(ss, "원본").every((r) => r.length === 13 && r[0] !== ""), true, "only whole rows");
+  assert.equal(body(ss, "원본").some((r) => fakes.includes(r[0])), true, "some fake rows are still there");
+  S.PURGE_TIME_BUDGET_MS = 240000;
+  S.fakes.ui.next = { button: "OK", text: new Date(NOW + 3600000).toISOString() };
+  S.purgeRecentMembersPrompt();
+  assert.equal(body(ss, "기기").length, 1);
+  assert.equal(body(ss, "원본").some((r) => fakes.includes(r[0])), false);
+  assert.equal(S.fakes.lockStats.docAcquired >= 1, true, "the finished run refreshes");
+});
+
+test("the single-id purge also stops at its time budget without refreshing", () => {
+  const { S, ss } = fresh();
+  S.ensureSheets(ss);
+  const raw = ss.getSheetByName("원본");
+  const row = (id) => [id, "n", "2026-11-16", "claude_code", "t_x1", 1, 1, 1, 1, 4, "2.5.0", "mac", "x"];
+  [OTHER, MEMBER, OTHER].forEach((id) => raw._rows.push(row(id)));
+  S.PURGE_TIME_BUDGET_MS = -1;
+  S.fakes.ui.next = { button: "OK", text: OTHER };
+  S.purgeMemberPrompt();
+  assert.match(S.fakes.ui.alerts.at(-1), /일부만 지웠습니다/);
+  assert.equal(S.fakes.lockStats.docAcquired, 0);
+  assert.equal(body(ss, "원본").filter((r) => r[0] === OTHER).length, 1);
+});
+
+// Round 2, item B: dropped team rows are backfilled by the hourly refresh.
+test("refreshAll adds a 부서 row for a team that 원본 and 한도 carry but 부서 lacks, and leaves owner rows alone", () => {
+  const { S, ss } = fresh();
+  S.setup();
+  const raw = ss.getSheetByName("원본");
+  const row = (team) => [MEMBER, "n", "2026-11-16", "claude_code", team, 1, 1, 1, 1, 4, "2.5.0", "mac", "x"];
+  raw._rows.push(row("t_only_old"), row("t_named"));
+  const lim = ss.getSheetByName("한도");
+  lim._rows.push(["e_acc", "claude", "2026-11-19T09:00:00.000Z", MEMBER, "t_limit_only", "Max", "", 5, 5, "2026-11-16T00:00:00.000Z"]);
+  const dept = ss.getSheetByName("부서");
+  dept._rows.push(["t_named", "개발팀", "", "2026-11-01"]);
+  S.refreshAll();
+  const rows = body(ss, "부서");
+  assert.deepEqual(rows.map((r) => r[0]).sort(), ["t_limit_only", "t_named", "t_only_old"]);
+  assert.equal(rows.find((r) => r[0] === "t_named")[1], "개발팀");
+  S.refreshAll();
+  assert.equal(body(ss, "부서").length, 3, "a second refresh adds nothing");
+});
+
+test("the backfill stops at MAX_DEPTS_TOTAL", () => {
+  const { S, ss } = fresh();
+  S.setup();
+  const dept = ss.getSheetByName("부서");
+  for (let i = 0; i < S.MAX_DEPTS_TOTAL - 1; i++) dept._rows.push(["t_f" + i, "", "", "2026-11-01"]);
+  dept._maxRows = S.MAX_DEPTS_TOTAL + 10;
+  const raw = ss.getSheetByName("원본");
+  ["t_a1", "t_a2", "t_a3"].forEach((t) => raw._rows.push([MEMBER, "n", "2026-11-16", "claude_code", t, 1, 1, 1, 1, 4, "2.5.0", "mac", "x"]));
+  S.refreshAll();
+  assert.equal(body(ss, "부서").length, S.MAX_DEPTS_TOTAL);
 });
