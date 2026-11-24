@@ -72,7 +72,13 @@ SolidCompression=yes
 WizardStyle=modern
 ; Same name WinSingleInstance holds for the default state folder. Our own code below closes the app first (WM_CLOSE).
 AppMutex=Local\PokeTokenBar-Team
-CloseApplications=yes
+; No Restart Manager pass: CloseRunningApp ([Code]) already closes the app and waits for its mutex, and the pass found no
+; application in any logged run. With it on, a Setup that met a running or just-closed app took the whole GitHub-hosted VM
+; down in about 2% of such upgrades (the lost runners of the windows-app updates and installer jobs since 2026-11-17); with
+; it off, none in over 400 (defect log, "lost runner in the update jobs"). A file still held at copy time now fails the
+; install the way a held .txt already does (failed-update-relaunch lockedFile: exit 5, the previous app put back and started)
+; instead of Setup closing whatever holds it.
+CloseApplications=no
 RestartApplications=no
 
 [Tasks]

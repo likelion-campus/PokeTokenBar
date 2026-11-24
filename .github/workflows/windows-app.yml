@@ -1601,14 +1601,11 @@ jobs:
     steps:
       - run: echo "build of run 45446214642"
   updates:
-    # DIAGNOSTIC (branch diag/update-runner-loss-2), experiment 8: what Inno's Restart Manager pass finds, and the fix. 24 runners:
-    #   rmOnProbe     the upgrade-over-a-running-app loop (lost 4 of 10 in experiment 7; 0 of 10 with CloseApplications=no), plus a
-    #                 probe asking the Restart Manager every 200 ms who uses the app's .exe/.dll files (it never shuts anything down)
-    #   noCloseProbe  the same loop with /NOCLOSEAPPLICATIONS on Setup's command line, plus the probe
-    #   rmOnPlain     the loop unchanged (replication)
-    #   fixFaithful   the job as main runs it (failed-update step, then the in-app step, both unchanged) with every installer built
-    #                 with CloseApplications=no: the proposed fix; must be green on all of them
-    name: RM probe and fix (${{ matrix.arm }} ${{ matrix.rep }})
+    # DIAGNOSTIC (branch diag/update-runner-loss-2), verification of the fix (installer/PokeTokenBar.iss: CloseApplications=no).
+    #   fixed    (12) every installer rebuilt from the committed .iss, then the failed-update step and the in-app update step three
+    #            times, all unchanged: must be green on all twelve
+    #   unfixed  (4)  the same steps with the build's own installers (CloseApplications=yes), at the same time (control)
+    name: Fix check (${{ matrix.arm }} ${{ matrix.rep }})
     needs: prebuilt
     if: ${{ !cancelled() }}
     runs-on: windows-latest
@@ -1621,30 +1618,22 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { rep: 1, arm: fixFaithful }
-          - { rep: 2, arm: rmOnProbe }
-          - { rep: 3, arm: noCloseProbe }
-          - { rep: 4, arm: rmOnPlain }
-          - { rep: 5, arm: fixFaithful }
-          - { rep: 6, arm: rmOnProbe }
-          - { rep: 7, arm: noCloseProbe }
-          - { rep: 8, arm: rmOnPlain }
-          - { rep: 9, arm: fixFaithful }
-          - { rep: 10, arm: rmOnProbe }
-          - { rep: 11, arm: noCloseProbe }
-          - { rep: 12, arm: rmOnPlain }
-          - { rep: 13, arm: fixFaithful }
-          - { rep: 14, arm: rmOnProbe }
-          - { rep: 15, arm: noCloseProbe }
-          - { rep: 16, arm: rmOnPlain }
-          - { rep: 17, arm: fixFaithful }
-          - { rep: 18, arm: rmOnProbe }
-          - { rep: 19, arm: noCloseProbe }
-          - { rep: 20, arm: fixFaithful }
-          - { rep: 21, arm: rmOnProbe }
-          - { rep: 22, arm: noCloseProbe }
-          - { rep: 23, arm: fixFaithful }
-          - { rep: 24, arm: fixFaithful }
+          - { rep: 1, arm: fixed }
+          - { rep: 2, arm: fixed }
+          - { rep: 3, arm: fixed }
+          - { rep: 4, arm: unfixed }
+          - { rep: 5, arm: fixed }
+          - { rep: 6, arm: fixed }
+          - { rep: 7, arm: fixed }
+          - { rep: 8, arm: unfixed }
+          - { rep: 9, arm: fixed }
+          - { rep: 10, arm: fixed }
+          - { rep: 11, arm: fixed }
+          - { rep: 12, arm: unfixed }
+          - { rep: 13, arm: fixed }
+          - { rep: 14, arm: fixed }
+          - { rep: 15, arm: fixed }
+          - { rep: 16, arm: unfixed }
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
       - uses: ./.github/actions/windows-slice
@@ -1653,23 +1642,27 @@ jobs:
           installer-sha256: e020b972c63acbde5ac8688d8dc4053a7087f6d53999dacf0fcfd53aaebca5ae
           build-run-id: '45446214642'
           github-token: ${{ github.token }}
-      - name: DIAG rebuild the installers with CloseApplications=no (fixFaithful arm, the proposed fix)
-        if: matrix.arm == 'fixFaithful'
+      - name: DIAG rebuild the installers from the committed .iss (fixed arm)
+        if: matrix.arm == 'fixed'
         timeout-minutes: 10
         shell: pwsh
         run: |
           $iscc = (& ./scripts/windows/ensure-inno.ps1 | Select-Object -Last 1)
           $iss = 'installer\PokeTokenBar.iss'
-          $text = Get-Content $iss -Raw
-          if ($text -notmatch '(?m)^CloseApplications=yes') { throw 'CloseApplications=yes not found' }
-          Set-Content $iss -Value ($text -replace '(?m)^CloseApplications=yes', 'CloseApplications=no') -NoNewline -Encoding utf8NoBOM
+          if ((Get-Content $iss -Raw) -notmatch '(?m)^CloseApplications=no') { throw 'the committed .iss does not carry the fix' }
           foreach ($job in @(@{ Src = 'bundle'; Ver = $env:PTB_VERSION; Out = 'installer-out' }, @{ Src = 'bundle-next'; Ver = $env:PTB_NEXT_VERSION; Out = 'installer-next' })) {
               Remove-Item (Join-Path $job.Out 'PokeTokenBar-Setup-*.exe')
               & $iscc /Q "/DSrcDir=$((Resolve-Path $job.Src).Path)" "/DAppVer=$($job.Ver)" "/DOutDir=$((Resolve-Path $job.Out).Path)" $iss
               if ($LASTEXITCODE -ne 0) { throw "ISCC failed for $($job.Ver)" }
           }
           Select-String -Path $iss -Pattern '^CloseApplications='
-          Get-ChildItem installer-out, installer-next | ForEach-Object { "$($_.FullName) $($_.Length)" }
+      - name: DIAG put the old directive back for the TESTFAIL builds (unfixed arm)
+        if: matrix.arm == 'unfixed'
+        shell: pwsh
+        run: |
+          $iss = 'installer\PokeTokenBar.iss'
+          Set-Content $iss -Value ((Get-Content $iss -Raw) -replace '(?m)^CloseApplications=no', 'CloseApplications=yes') -NoNewline -Encoding utf8NoBOM
+          Select-String -Path $iss -Pattern '^CloseApplications='
       - name: DIAG schedule the controls and the heartbeats
         if: (success() || failure())
         timeout-minutes: 5
@@ -1701,30 +1694,31 @@ jobs:
           Add-Task 'ptb-diag-hbA' 'hbAI' $t0.AddSeconds(15) -Repeat
           Add-Task 'ptb-diag-hbB' 'hbBS' $t0.AddSeconds(45) -Repeat -Logon S4U
       - name: A failed update brings the old app back
-        if: (success() || failure()) && matrix.arm == 'fixFaithful'
+        if: (success() || failure())
         timeout-minutes: 25  # about 8 min
         shell: pwsh
         run: ./scripts/windows/failed-update-relaunch.ps1 -Version $env:PTB_VERSION -NextVersion $env:PTB_NEXT_VERSION
-      - name: The in-app update from a loopback feed
-        if: (success() || failure()) && matrix.arm == 'fixFaithful'
-        timeout-minutes: 25  # the step takes about 3 min; a hung scenario must not hold a release run to the job limit
-        shell: pwsh
-        run: ./scripts/windows/in-app-update.ps1 -Version $env:PTB_VERSION -NextVersion $env:PTB_NEXT_VERSION
-      - name: DIAG the Restart Manager probe and the upgrade loop
-        if: (success() || failure()) && matrix.arm != 'fixFaithful'
-        timeout-minutes: 15
+      - name: The in-app update from a loopback feed (1 of 3)
+        if: (success() || failure())
+        timeout-minutes: 25
         shell: pwsh
         run: |
-          . ./scripts/windows/ci-helpers.ps1
-          $dir = (Resolve-Path collected\in-app-update).Path
-          if ('${{ matrix.arm }}' -ne 'rmOnPlain') {
-              $probe = Start-Process pwsh -ArgumentList '-NoProfile', '-File', (Join-Path $PWD 'scripts\windows\diag-rm-probe.ps1'), '-Folder', $PtbInstallDir, '-LogFile', (Join-Path $dir 'rm-probe.log'), '-Minutes', '11' -WindowStyle Hidden -PassThru
-              "Restart Manager probe pid $($probe.Id)"
-          }
-          $extra = if ('${{ matrix.arm }}' -eq 'noCloseProbe') { @('/NOCLOSEAPPLICATIONS') } else { @() }
-          ./scripts/windows/diag-update-loop.ps1 -Arm upgradeRunning -Version $env:PTB_VERSION -NextVersion $env:PTB_NEXT_VERSION -Minutes 9 -SetupExtra $extra
-          '---- what Inno found (rm-found.txt) ----'; Get-Content (Join-Path $dir 'rm-found.txt') -ErrorAction SilentlyContinue | Select-Object -First 40
-          '---- what the probe found (rm-probe.log) ----'; Get-Content (Join-Path $dir 'rm-probe.log') -ErrorAction SilentlyContinue | Select-Object -First 60
+          "pass 1 at $((Get-Date).ToUniversalTime().ToString('HH:mm:ss'))Z" | Set-Content collected\in-app-update\iteration.txt
+          ./scripts/windows/in-app-update.ps1 -Version $env:PTB_VERSION -NextVersion $env:PTB_NEXT_VERSION
+      - name: The in-app update from a loopback feed (2 of 3)
+        if: (success() || failure())
+        timeout-minutes: 25
+        shell: pwsh
+        run: |
+          "pass 2 at $((Get-Date).ToUniversalTime().ToString('HH:mm:ss'))Z" | Set-Content collected\in-app-update\iteration.txt
+          ./scripts/windows/in-app-update.ps1 -Version $env:PTB_VERSION -NextVersion $env:PTB_NEXT_VERSION
+      - name: The in-app update from a loopback feed (3 of 3)
+        if: (success() || failure())
+        timeout-minutes: 25
+        shell: pwsh
+        run: |
+          "pass 3 at $((Get-Date).ToUniversalTime().ToString('HH:mm:ss'))Z" | Set-Content collected\in-app-update\iteration.txt
+          ./scripts/windows/in-app-update.ps1 -Version $env:PTB_VERSION -NextVersion $env:PTB_NEXT_VERSION
       - name: DIAG remove the heartbeat tasks
         if: always()
         timeout-minutes: 2
