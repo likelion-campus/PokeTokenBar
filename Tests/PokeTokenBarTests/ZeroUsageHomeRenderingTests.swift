@@ -100,6 +100,11 @@ final class ZeroUsageHomeRenderingTests: XCTestCase {
         }
     }
 
+    /// Failure messages and diagnostics carry OCR text; escape everything outside ASCII so the runner's log keeps the line.
+    static func ascii(_ text: String) -> String {
+        text.unicodeScalars.map { $0.isASCII && ($0.value >= 32 || $0 == "\n") ? String($0) : "\\u{\(String($0.value, radix: 16))}" }.joined()
+    }
+
     private func render(history: Bool, language: AppLanguage = .ko, costs: CostCoverage? = nil) async throws {
         let suite = "QuietHome-\(UUID())"
         let defaults = try XCTUnwrap(TestDefaults.make(suite: suite))
@@ -136,6 +141,7 @@ final class ZeroUsageHomeRenderingTests: XCTestCase {
             cursorLimitsProvider: QuietHomeCursor(), statusProvider: QuietHomeStatus(),
             autoRefresh: false, defaults: defaults)
         await store.refresh(scheduleEmptyRetry: false)
+        print("QUIETHOME-DIAG start history=\(history) lang=\(language.rawValue) costs=\(String(describing: costs)) now=\(Date()) tz=\(TimeZone.current.identifier) locale=\(Locale.current.identifier) firstWeekday=\(Calendar.current.firstWeekday) day=\(day) today=\(LocalUsageReader.todayKey()) week=\(weekKey) todayTokens=\(store.todayTotalTokens) monthTokens=\(store.monthTotalTokens) trend=\(store.dailyTrendWindow.rawValue) trendDays=\(store.dailyTrendTotals.count) hasHistory=\(store.hasDailyTrendHistory) streak=\(store.currentStreak.days)")
         XCTAssertEqual(store.todayTotalTokens, 0)
         XCTAssertEqual(store.monthTotalTokens, costs != nil ? 17_900_000 : series.reduce(0) { $0 + $1.totalTokens })
 
@@ -198,23 +204,25 @@ final class ZeroUsageHomeRenderingTests: XCTestCase {
             return "observation \(index) bbox=\(NSStringFromRect(observation.boundingBox)): \(alternatives)"
         }.joined(separator: "\n")
         let diagnostics = "OCR revision=\(request.revision) pixels=\(bitmap.pixelsWide)x\(bitmap.pixelsHigh)\n\(candidates)"
+        print("QUIETHOME-DIAG ocr \(Self.ascii(diagnostics))")
+        print("QUIETHOME-DIAG flags chartVisible=\(chartVisible) scale=\(CGFloat(bitmap.pixelsWide) / bounds.width) screens=\(NSScreen.screens.map { $0.backingScaleFactor }) labels=\([companion.l.todayTokens, companion.l.thisWeek, companion.l.thisMonth].map { normalizedText.contains($0.replacingOccurrences(of: " ", with: "")) })")
         for label in [companion.l.todayTokens, companion.l.thisWeek, companion.l.thisMonth] {
             XCTAssertTrue(normalizedText.contains(label.replacingOccurrences(of: " ", with: "")),
-                          "Missing visible \(label): \(text)\n\(diagnostics)")
+                          "Missing visible \(Self.ascii(label)): \(Self.ascii(text))\n\(Self.ascii(diagnostics))")
         }
         if costs == .source {
             // A split currency value creates separate OCR observations; do not join their digits.
             for amount in ["$31.64", "$121.30"] {
                 XCTAssertTrue((request.results ?? []).contains {
                     $0.topCandidates(1).first?.string.replacingOccurrences(of: " ", with: "").contains(amount) == true
-                }, "Split or missing period cost \(amount) in \(language.rawValue): \(text)\n\(diagnostics)")
+                }, "Split or missing period cost \(amount) in \(language.rawValue): \(Self.ascii(text))\n\(Self.ascii(diagnostics))")
             }
         }
         if costs == .unavailable {
             let unavailable = companion.l.costUnavailable.replacingOccurrences(of: " ", with: "")
             XCTAssertEqual((request.results ?? []).filter {
                 $0.topCandidates(1).first?.string.replacingOccurrences(of: " ", with: "").contains(unavailable) == true
-            }.count, 2, "Both unavailable period costs must stay visible\n\(diagnostics)")
+            }.count, 2, "Both unavailable period costs must stay visible\n\(Self.ascii(diagnostics))")
         }
         if costs == nil {
             // The original quiet-day fixtures own chart coverage; cost fixtures target the period row.
@@ -223,10 +231,10 @@ final class ZeroUsageHomeRenderingTests: XCTestCase {
                                              window: store.dailyTrendWindow),
                               "The store's trend window has no bars to draw")
                 XCTAssertTrue(chartVisible,
-                              "Historical chart missing: \(text)\n\(diagnostics)")
+                              "Historical chart missing: \(Self.ascii(text))\n\(Self.ascii(diagnostics))")
             } else {
                 XCTAssertFalse(chartVisible,
-                               "Empty history must not invent a chart\n\(diagnostics)")
+                               "Empty history must not invent a chart\n\(Self.ascii(diagnostics))")
             }
         }
         if let output = ProcessInfo.processInfo.environment["PTB_ZERO_USAGE_SCREENSHOT_DIR"] {
@@ -236,5 +244,6 @@ final class ZeroUsageHomeRenderingTests: XCTestCase {
                 : (history ? "ko-zero-today-with-history.png" : "ko-zero-all-periods.png")
             try XCTUnwrap(bitmap.representation(using: .png, properties: [:])).write(to: directory.appendingPathComponent(name))
         }
+        print("QUIETHOME-DIAG end history=\(history) lang=\(language.rawValue) costs=\(String(describing: costs))")
     }
 }
