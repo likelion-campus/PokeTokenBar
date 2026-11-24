@@ -161,7 +161,7 @@ actor OAuthAccessTokenCache {
             .appendingPathComponent(".claude/.credentials.json")
     }
 
-    func accessToken(allowKeychainPrompt: Bool, bypassCache: Bool = false) throws -> String {
+    func accessToken(allowKeychainPrompt: Bool, bypassCache: Bool = false) async throws -> String {
         // 파일 크리덴셜(~/.claude/.credentials.json) — 키체인 무관, 프롬프트 없음.
         // 캐시 히트보다 파일을 먼저 본다. `/login` 으로 같은 팀의 다른 메일로 갈아타면 파일이
         // 새 *유효* 토큰으로 덮이는데, 만료만 보고 캐시를 돌려주면 공식 5h/주 바가 이전 계정에
@@ -175,22 +175,27 @@ actor OAuthAccessTokenCache {
             return cachedCredential.accessToken
         }
 
-        // 자동(타이머) 경로는 Claude Keychain 을 일절 읽지 않는다. no-UI 쿼리(kSecUseAuthenticationUIFail
-        // /LAContext)로도 잠긴·미승인 login 키체인의 '암호 입력' 다이얼로그는 억제되지 않는다 —
-        // 실측: 캐시 만료 폴 도중 SecItemCopyMatching 이 13초간 블록하며 팝업을 띄웠다(하루 몇 회).
-        // → Keychain 읽기는 명시적 사용자 동작(설정/팝오버의 갱신 버튼, allowKeychainPrompt=true)에서만
-        // 수행한다. 파일이 유효 토큰을 들고 있으면 매 폴이 그걸 쓴다. 파일이 없거나 oauth 가 빠진
-        // 뒤에만 캐시가 버티고, 그것도 만료되면 한도는 stale 표시 후 사용자가 갱신한다.
-        // 그 사용자 갱신은 `bypassCache: true` 로 들어온다(#300) — 옛 토큰이 아직 유효해도
-        // 여기서 캐시를 돌려주면 계정 전환이 버튼으로도 안 끝난다.
-        // 자동 경로는 여기서 끝난다(키체인 미열람). 파일이 있는데 계정 OAuth 만 없으면 재로그인이
-        // 답이므로 그때만 안내를 바꾼다 — 판정은 이 분기 안에서 해야 사용자 경로가 파일을 두 번 읽지 않는다.
+        // 자동(타이머) 경로는 이 앱이 `SecItemCopyMatching` 으로 Claude Keychain 을 읽지 않는다. no-UI 쿼리
+        // (kSecUseAuthenticationUIFail/LAContext)로도 잠긴·미승인 login 키체인의 '암호 입력' 다이얼로그는
+        // 억제되지 않는다 — 실측: 캐시 만료 폴 도중 SecItemCopyMatching 이 13초간 블록하며 팝업을 띄웠다(#58, #210).
+        // 대신 Claude Code 와 같은 방법으로 읽는다: 항목을 만든 `/usr/bin/security` 가 항목 ACL 에 신뢰돼 있어
+        // 다이얼로그 없이 읽힌다(키체인이 열려 있고 접근을 끄지 않았을 때만 — `readClaudeKeychainViaSecurityTool`).
+        // 도구가 못 읽으면(잠김·끔·시간 초과·항목 없음) 예전처럼 던지고, 사용자 갱신 버튼(allowKeychainPrompt=true)이
+        // 앱의 Keychain 경로로 폴백한다. 그 사용자 갱신은 `bypassCache: true` 로 들어온다(#300) — 옛 토큰이
+        // 아직 유효해도 여기서 캐시를 돌려주면 계정 전환이 버튼으로도 안 끝난다.
+        // 파일이 있는데 계정 OAuth 만 없으면 재로그인이 답이므로 그때만 안내를 바꾼다 — 판정은 이 분기 안에서
+        // 해야 사용자 경로가 파일을 두 번 읽지 않는다.
         guard allowKeychainPrompt else {
+            if let credential = await Self.readClaudeKeychainViaSecurityTool(services: keychainServices) {
+                cachedCredential = credential
+                return credential.accessToken
+            }
             throw Self.credentialsFileIsAccountOAuthMissing(extraRootFile: isDefaultRoot ? nil : credentialsFileURL)
                 ? LimitsError.credentialMissingAccountOAuth
                 : LimitsError.keychainInteractionNotAllowed
         }
 
+        Self.resumeKeychainToolReads()
         // 사용자 동작 경로: 무프롬프트로 먼저 시도(과거 '항상 허용'했다면 조용히 성공), 안 되면 프롬프트를
         // 동반해 읽어 최초 1회 '항상 허용'을 유도한다.
         if let credential = Self.readClaudeKeychainSilently(services: keychainServices) {

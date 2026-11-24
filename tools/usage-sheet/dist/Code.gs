@@ -5,9 +5,40 @@
 var SHARED_TOKEN = "996c41db62671eaf62a86cf3e18202ee";
 
 var MAX_BODY_BYTES = 262144;
-var MAX_DAYS = 62;
+// The app sends at most 21 days (UsageReportPlanner.dayRange 0...20, unchanged since the first release v2.5.636).
+var MAX_DAYS = 21;
 var MAX_TOOLS_PER_DAY = 32;
 var MAX_LIMITS = 16;
+// Intake limits. Each is far above what honest use reaches (a few hundred members, at most 21 days x 16 tools
+// = 336 raw rows and 16 limit rows per report, one report an hour) and answers `rate_limited` or `sheet_full`,
+// which the app treats as "try again later". Hourly counters are per clock hour (epoch hours, so the script
+// time zone does not matter).
+// Per member and hour: what one registered member may add, whoever else is reporting.
+var MAX_MEMBER_RAW_ROWS_PER_HOUR = 336;
+var MAX_MEMBER_LIMIT_ROWS_PER_HOUR = 16;
+var MAX_MEMBER_TEAM_ROWS_PER_HOUR = 60;   // new 부서 + 팀이름 rows: at most 21 day teams + 16 limit teams + labels
+// Shared pool per hour: charged only for members first seen in that hour, so a flood of fake members
+// cannot use up what registered members need.
+var MAX_NEW_MEMBERS_PER_HOUR = 200;
+var MAX_NEW_RAW_ROWS_PER_HOUR = 80000;
+var MAX_NEW_LIMIT_ROWS_PER_HOUR = 4000;
+var MAX_NEW_TEAM_ROWS_PER_HOUR = 12000;
+// Totals. Their cells (rows x tab width) plus WORKBOOK_CELLS_RESERVED must stay under the 10M-cell workbook
+// limit, so `sheet_full` always arrives first (test/store.test.js adds it up).
+var MAX_MEMBERS_TOTAL = 2000;
+var MAX_RAW_ROWS_TOTAL = 400000;
+var MAX_LIMIT_ROWS_TOTAL = 50000;
+var MAX_DEPTS_TOTAL = 5000;
+var MAX_TEAMLABELS_TOTAL = 20000;
+var WORKBOOK_CELLS_RESERVED = 3000000;   // Enterprise tabs (about 250k rows) and the dashboards, which the caps do not bound
+var INTAKE_PROP = "intake_hour";   // DocumentProperties, JSON {hour, members, raw, limits, teams}
+
+// The tool IDs the app sends: the provider IDs of LocalUsageProvider.swift / LocalAdditionalUsageProvider.swift
+// (test/store.test.js checks the lists against those files), and the two limit sources.
+var ALLOWED_TOOLS = ["claude_code", "codex", "gemini", "antigravity", "grok", "pi", "omp", "omo", "kimi_code",
+  "opencode", "hermes", "cursor", "copilot", "devin", "kiro", "aside"];
+var ALLOWED_LIMIT_TOOLS = ["claude", "codex"];
+
 // The tool name stored for a reported day that used no tool (one row with 0 tokens).
 var EMPTY_DAY_TOOL = "-";
 
@@ -28,7 +59,7 @@ var COLS_LIMITS = ["계정", "도구", "리셋시각", "memberId", "팀ID", "플
 var COLS_PEOPLE = ["memberId", "닉네임", "마지막받은시각", "합칠대상", "앱버전", "플랫폼"];
 var COLS_DEPTS = ["팀ID", "부서이름", "참고팀이름", "처음본날"];
 var COLS_TEAMLABELS = ["팀ID", "memberId", "팀이름", "마지막받은시각"];
-var COLS_DEVICES = ["memberId", "비밀값해시", "처음본시각", "마지막본시각"];
+var COLS_DEVICES = ["memberId", "비밀값해시", "처음본시각", "마지막본시각", "집계시간", "새원본행", "새한도행", "새팀행"];
 var COLS_SETTINGS = ["키", "값", "설명"];
 var COLS_ENT_RAW = ["날짜", "userId", "이메일", "채팅메시지", "대화", "Cowork메시지", "ClaudeCode세션", "받은시각"];
 var COLS_ENT_PEOPLE = ["userId", "이메일", "부서", "처음본날"];
@@ -71,7 +102,6 @@ var SECRET_RE = /^[A-Za-z0-9_-]{32,128}$/;
 var VERSION_RE = /^[0-9A-Za-z.+-]{1,32}$/;
 var DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 var TEAM_RE = /^t_[A-Za-z0-9_-]{2,62}$/;
-var TOOL_RE = /^[a-z0-9_.-]{1,32}$/;
 var ACCOUNT_RE = /^(e|m)_[A-Za-z0-9_-]{2,126}$/;
 var DOMAIN_RE = /^[a-z0-9.-]{1,253}$/;
 var MAX_COUNT = 1e13;
@@ -95,6 +125,13 @@ function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
 }
 
+// A leading = + - @ makes a CSV export evaluate the cell as a formula. A real value never needs it, so
+// it becomes its full-width twin, which reads the same and is inert. Only the first character changes.
+var FORMULA_LEAD = { "=": "\uFF1D", "+": "\uFF0B", "-": "\uFF0D", "@": "\uFF20" };
+function neutralizeLead(t) {
+  return t.length > 0 && FORMULA_LEAD[t.charAt(0)] ? FORMULA_LEAD[t.charAt(0)] + t.slice(1) : t;
+}
+
 // The app counts grapheme clusters (Swift String.count), which JS cannot do without Intl.Segmenter, so the
 // script bounds the UTF-8 size instead: trimmed, non-empty, at most 320 bytes, no newline. Returns the
 // trimmed value or null.
@@ -102,7 +139,7 @@ function normalizeNickname(v) {
   if (typeof v !== "string") return null;
   var t = v.trim();
   if (t.length < 1 || /[\r\n]/.test(t) || utf8Length(t) > 320) return null;
-  return t;
+  return neutralizeLead(t);
 }
 
 // Days since the epoch for a "yyyy-MM-dd" string, or null when it is not a real calendar date.
@@ -130,14 +167,14 @@ function parseMember(m) {
 }
 
 function parseTool(t) {
-  if (!isPlainObject(t) || typeof t.tool !== "string" || !TOOL_RE.test(t.tool)) return null;
+  if (!isPlainObject(t) || typeof t.tool !== "string" || ALLOWED_TOOLS.indexOf(t.tool) === -1) return null;
   if (!validCount(t.input) || !validCount(t.output) || !validCount(t.cacheWrite) || !validCount(t.cacheRead)) return null;
   return { tool: t.tool, input: t.input, output: t.output, cacheWrite: t.cacheWrite, cacheRead: t.cacheRead };
 }
 
 function parseLimit(l, nowMs) {
   if (!isPlainObject(l)) return null;
-  if (typeof l.tool !== "string" || !TOOL_RE.test(l.tool)) return null;
+  if (typeof l.tool !== "string" || ALLOWED_LIMIT_TOOLS.indexOf(l.tool) === -1) return null;
   if (typeof l.account !== "string" || !ACCOUNT_RE.test(l.account)) return null;
   if (typeof l.domain !== "string") return null;
   var domain = l.domain.toLowerCase();
@@ -155,7 +192,7 @@ function parseLimit(l, nowMs) {
   var HOUR_MS = 3600000;
   var resetsAt = new Date(Math.round(resetsMs / HOUR_MS) * HOUR_MS).toISOString();
   return {
-    tool: l.tool, account: l.account, domain: domain, plan: l.plan, usedPercent: l.usedPercent,
+    tool: l.tool, account: l.account, domain: domain, plan: neutralizeLead(l.plan), usedPercent: l.usedPercent,
     resetsAt: resetsAt, readAt: new Date(readMs).toISOString(), team: l.team
   };
 }
@@ -265,6 +302,18 @@ function ensureSheets(ss) {
     }
     if (spec.hidden) sheet.hideSheet();
   });
+  ensureDeviceColumns(ss.getSheetByName(TAB_DEVICES));
+}
+
+// A 기기 tab made before the per-member hourly counters has 4 columns (setup trimmed it); widen it and
+// add the headers. One cell read when nothing is missing.
+function ensureDeviceColumns(sheet) {
+  var need = COLS_DEVICES.length;
+  var max = sheet.getMaxColumns();
+  if (max < need) sheet.insertColumnsAfter(max, need - max);
+  if (sheet.getRange(1, need).getValues()[0][0] !== COLS_DEVICES[need - 1]) {
+    sheet.getRange(1, 1, 1, need).setValues([COLS_DEVICES]);
+  }
 }
 
 // A Date cell (Sheets converts "2026-11-16" text) or a string becomes "yyyy-MM-dd"; anything else "".
@@ -380,22 +429,48 @@ function cellsEqual(a, b) {
   return aDate && bDate && a.getTime() === b.getTime();
 }
 
-function rowsEqual(a, b) {
+// ignore: 0-based columns left out of the comparison (a received-at stamp must not make a resend "changed").
+function rowsEqual(a, b, ignore) {
   if (a.length !== b.length) return false;
-  for (var i = 0; i < a.length; i++) if (!cellsEqual(a[i], b[i])) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (ignore && ignore.indexOf(i) !== -1) continue;
+    if (!cellsEqual(a[i], b[i])) return false;
+  }
   return true;
 }
 
+// Appends columns readWidth+1..width to the rows at the given indexes, one read per run of consecutive
+// rows, so a partly read tab (key columns only) can still be compared on the rows a report touches.
+function completeRows(sheet, rows, indexes, readWidth, width) {
+  var sorted = indexes.slice().sort(function (a, b) { return a - b; });
+  var k = 0;
+  while (k < sorted.length) {
+    var end = k;
+    while (end + 1 < sorted.length && sorted[end + 1] === sorted[end] + 1) end++;
+    var vals = sheet.getRange(sorted[k] + 2, readWidth + 1, end - k + 1, width - readWidth).getValues();
+    for (var j = 0; j <= end - k; j++) rows[sorted[k + j]] = rows[sorted[k + j]].concat(vals[j]);
+    k = end + 1;
+  }
+}
+
 // Writes the changed rows and appends the new ones. dirty: indexes of rows whose built value differs
-// from what was read. spans ([[firstCol, count], ...], 1-based) limits an in-place rewrite to the
-// columns the script owns, so an owner's edit to another column of the row is never overwritten.
+// from what was read. Each run of adjacent changed rows is one setValues call per span, so a report
+// holds the script lock for as many calls as it has runs, not rows. spans ([[firstCol, count], ...],
+// 1-based) limits an in-place rewrite to the columns the script owns, so an owner's edit to another
+// column of the row is never overwritten.
 function flushRows(sheet, width, rows, existingCount, dirty, spans) {
-  dirty.forEach(function (i) {
+  var sorted = Array.from(dirty).sort(function (a, b) { return a - b; });
+  var k = 0;
+  while (k < sorted.length) {
+    var end = k;
+    while (end + 1 < sorted.length && sorted[end + 1] === sorted[end] + 1) end++;
     (spans || [[1, width]]).forEach(function (span) {
-      var part = rows[i].slice(span[0] - 1, span[0] - 1 + span[1]);
-      sheet.getRange(i + 2, span[0], 1, span[1]).setValues(asTextRows([part]));
+      var part = [];
+      for (var j = k; j <= end; j++) part.push(rows[sorted[j]].slice(span[0] - 1, span[0] - 1 + span[1]));
+      sheet.getRange(sorted[k] + 2, span[0], part.length, span[1]).setValues(asTextRows(part));
     });
-  });
+    k = end + 1;
+  }
   if (rows.length > existingCount) {
     var added = rows.slice(existingCount);
     ensureRows(sheet, existingCount + 1 + added.length);
@@ -403,18 +478,27 @@ function flushRows(sheet, width, rows, existingCount, dirty, spans) {
   }
 }
 
-// items: [{ key, build(oldRow | null) -> newRow }]. Existing rows are rewritten in place (one
-// setValues per row, skipped when build returns an equal row), new rows appended in one block. A
-// repeated key within items updates the same row.
-//   opts.readWidth: read only the first N columns (the key columns); the old row passed to build is then
-//     partial, so use it only when build ignores it. Defaults to width.
+// items: [{ key, build(oldRow | null) -> newRow }]. planRows reads and builds without writing; applyPlan
+// writes. Existing rows are rewritten in place (skipped when build returns an equal row), new rows
+// appended in one block. A repeated key within items updates the same row.
+//   opts.readWidth: read only the first N columns (the key columns). The rows the items hit are then
+//     completed to the full width (completeRows) so they can be compared. Defaults to width.
+//   opts.ignoreCols: 0-based columns left out of the "unchanged" comparison.
+//   opts.normalizeOld(row) -> row: the old row as it is compared (Sheets may have turned text into a Date or number).
 //   opts.spans: see flushRows.
-function upsertRows(sheet, width, keyOfRow, items, opts) {
+// Returns { sheet, width, rows, existingCount, dirty, spans, added: new rows to append }.
+function planRows(sheet, width, keyOfRow, items, opts) {
   var o = opts || {};
-  var rows = sheetRows(sheet, o.readWidth || width);
+  var readWidth = o.readWidth || width;
+  var rows = sheetRows(sheet, readWidth);
   var index = new Map();
   rows.forEach(function (r, i) { index.set(keyOfRow(r), i); });
   var existingCount = rows.length;
+  if (readWidth < width) {
+    var hit = new Set();
+    items.forEach(function (item) { if (index.has(item.key)) hit.add(index.get(item.key)); });
+    completeRows(sheet, rows, Array.from(hit), readWidth, width);
+  }
   var dirty = new Set();
   items.forEach(function (item) {
     var i = index.get(item.key);
@@ -423,11 +507,24 @@ function upsertRows(sheet, width, keyOfRow, items, opts) {
       index.set(item.key, rows.length - 1);
     } else {
       var built = item.build(rows[i]);
-      if (i < existingCount && !rowsEqual(built, rows[i])) dirty.add(i);
+      var oldRow = o.normalizeOld ? o.normalizeOld(rows[i]) : rows[i];
+      if (i < existingCount && !rowsEqual(built, oldRow, o.ignoreCols)) dirty.add(i);
       rows[i] = built;
     }
   });
-  flushRows(sheet, width, rows, existingCount, dirty, o.spans);
+  return { sheet: sheet, width: width, rows: rows, existingCount: existingCount, dirty: dirty, spans: o.spans || null,
+    added: rows.length - existingCount };
+}
+
+function applyPlan(plan) {
+  flushRows(plan.sheet, plan.width, plan.rows, plan.existingCount, plan.dirty, plan.spans);
+}
+
+// Plan and write in one call, for tabs with no cap (the Enterprise tabs).
+function upsertRows(sheet, width, keyOfRow, items, opts) {
+  var plan = planRows(sheet, width, keyOfRow, items, opts);
+  applyPlan(plan);
+  return { added: plan.added };
 }
 
 function sha256Hex(text) {
@@ -435,20 +532,65 @@ function sha256Hex(text) {
   return bytes.map(function (b) { return ("0" + (b & 0xff).toString(16)).slice(-2); }).join("");
 }
 
-// Returns true when the member may write (first sight or a matching secret).
-function checkDevice(sheet, member, nowMs) {
+// Looks the member up in 기기 without writing. status is "ok" (first sight or a matching secret),
+// "device_mismatch" for a known member with another secret, or "sheet_full" / "rate_limited" when a first
+// sight would pass the member caps. For "ok" it also carries what writeReport needs: the row to write
+// (rowNum), whether the member is new or first seen in this clock hour (firstThisHour: such members are
+// also charged against the shared hourly pool), and what the member already took in this hour. budget
+// counts what this clock hour already took in (see readBudget).
+function lookupDevice(sheet, member, nowMs, budget) {
   var hash = sha256Hex(member.secret);
+  var hour = Math.floor(nowMs / 3600000);
   var rows = sheetRows(sheet, COLS_DEVICES.length);
   for (var i = 0; i < rows.length; i++) {
-    if (rows[i][0] === member.id) {
-      if (rows[i][1] !== hash) return false;
-      sheet.getRange(i + 2, 4).setValue(msToIso(nowMs));
-      return true;
-    }
+    if (rows[i][0] !== member.id) continue;
+    if (rows[i][1] !== hash) return { status: "device_mismatch" };
+    var same = Number(rows[i][4]) === hour;
+    return { status: "ok", hash: hash, rowNum: i + 2, isNew: false,
+      firstThisHour: Math.floor(cellToMs(rows[i][2]) / 3600000) === hour,
+      raw: same ? Number(rows[i][5]) || 0 : 0, limits: same ? Number(rows[i][6]) || 0 : 0,
+      teams: same ? Number(rows[i][7]) || 0 : 0 };
   }
-  ensureRows(sheet, rows.length + 2);
-  sheet.getRange(rows.length + 2, 1, 1, 4).setValues([[member.id, hash, msToIso(nowMs), msToIso(nowMs)]]);
-  return true;
+  if (rows.length >= MAX_MEMBERS_TOTAL) return { status: "sheet_full" };
+  if (budget.members >= MAX_NEW_MEMBERS_PER_HOUR) return { status: "rate_limited" };
+  return { status: "ok", hash: hash, rowNum: rows.length + 2, isNew: true, firstThisHour: true, raw: 0, limits: 0, teams: 0 };
+}
+
+// Registers a new member or stamps a known one, with the hour's counters after this report.
+function writeDevice(sheet, dev, member, nowMs, hour, budget) {
+  var now = msToIso(nowMs);
+  if (dev.isNew) {
+    ensureRows(sheet, dev.rowNum);
+    sheet.getRange(dev.rowNum, 1, 1, COLS_DEVICES.length).setValues([[member.id, dev.hash, now, now, hour, dev.raw, dev.limits, dev.teams]]);
+    budget.members++;
+  } else {
+    sheet.getRange(dev.rowNum, 4, 1, COLS_DEVICES.length - 3).setValues([[now, hour, dev.raw, dev.limits, dev.teams]]);
+  }
+}
+
+// What this clock hour has taken in so far from members first seen in it, kept in the document properties
+// (the script lock is held, so there is no race). A new hour starts from zero.
+function readBudget(nowMs) {
+  var hour = Math.floor(nowMs / 3600000);
+  var b = null;
+  try { b = JSON.parse(PropertiesService.getDocumentProperties().getProperty(INTAKE_PROP)); } catch (e) { b = null; }
+  if (!b || b.hour !== hour) b = { hour: hour, members: 0, raw: 0, limits: 0, teams: 0 };
+  if (typeof b.teams !== "number") b.teams = 0;
+  return b;
+}
+
+function saveBudget(budget) {
+  PropertiesService.getDocumentProperties().setProperty(INTAKE_PROP, JSON.stringify(budget));
+}
+
+// The reason new rows are refused, or null. Over the tab's total is "sheet_full"; over what the member
+// may still add this hour, or over the shared pool left (Infinity when the member is not charged to it),
+// is "rate_limited".
+function refuseNew(added, existing, total, memberLeft, poolLeft) {
+  if (added === 0) return null;
+  if (existing + added > total) return "sheet_full";
+  if (added > memberLeft || added > poolLeft) return "rate_limited";
+  return null;
 }
 
 // The index k in 0..count-1 whose reset time (resetsAtOf(k), epoch ms) is nearest to resetsMs and within
@@ -466,7 +608,8 @@ function nearestWindow(count, resetsAtOf, resetsMs) {
 // A limit row is identified by memberId|account|tool plus its weekly window, so a poster can only touch
 // rows carrying its own (device-checked) memberId. The same window is the existing row whose reset time
 // lies within 24 hours of the incoming one: windows are 7 days apart and the source jitters by seconds.
-function upsertLimits(sheet, member, limits) {
+// Reads and builds without writing, like planRows.
+function planLimits(sheet, member, limits) {
   var width = COLS_LIMITS.length;
   var rows = sheetRows(sheet, width);
   var byIdentity = new Map();   // memberId|account|tool -> [row index]
@@ -503,11 +646,27 @@ function upsertLimits(sheet, member, limits) {
     if (match < existingCount && !rowsEqual(row, old)) dirty.add(match);
     rows[match] = row;
   });
-  flushRows(sheet, width, rows, existingCount, dirty, null);
+  return { sheet: sheet, width: width, rows: rows, existingCount: existingCount, dirty: dirty, spans: null,
+    added: rows.length - existingCount };
 }
 
-function writeReport(ss, p, nowMs, tz) {
+// Sheets may have turned a stored date text into a Date and a version like "1.2" into a number; compare
+// the old row as the text it was written as, so an unchanged row is really skipped.
+function normalizeRawRow(tz) {
+  return function (r) {
+    var c = r.slice();
+    c[2] = cellToDateString(r[2], tz);
+    if (typeof c[10] === "number") c[10] = String(c[10]);
+    return c;
+  };
+}
+
+// Plans every tab, evaluates every refusal, then writes. A refused raw list refuses the whole report
+// (nothing is written, the sender retries). A refused limit list or team list is dropped and the rest
+// is accepted: usage must land even while 한도 is full or the member is over its limit share.
+function writeReport(ss, p, nowMs, tz, budget, dev) {
   var now = msToIso(nowMs);
+  var hour = Math.floor(nowMs / 3600000);
   var member = p.member;
 
   var rawItems = [];
@@ -525,17 +684,26 @@ function writeReport(ss, p, nowMs, tz) {
     if (!teamLabelFor.has(d.team)) teamLabelFor.set(d.team, "");
     if (d.teamLabel && !teamLabelFor.get(d.team)) teamLabelFor.set(d.team, d.teamLabel);
   });
-  p.limits.forEach(function (l) { if (!teamLabelFor.has(l.team)) teamLabelFor.set(l.team, ""); });
 
-  // The raw build ignores the old row, so only the key columns (A:D) are read.
-  upsertRows(ss.getSheetByName(TAB_RAW), COLS_RAW.length, function (r) {
+  // The pool is charged only for a member first seen in this hour.
+  function poolLeft(used, cap) { return dev.firstThisHour ? cap - used : Infinity; }
+
+  // Only the key columns (A:D) are read for the whole tab; the rows a report hits are completed so an
+  // unchanged resend writes nothing (받은시각, the last column, does not count as a change).
+  var rawPlan = planRows(ss.getSheetByName(TAB_RAW), COLS_RAW.length, function (r) {
     return r[0] + "|" + cellToDateString(r[2], tz) + "|" + r[3];
-  }, rawItems, { readWidth: 4 });
+  }, rawItems, { readWidth: 4, ignoreCols: [COLS_RAW.length - 1], normalizeOld: normalizeRawRow(tz) });
+  var rawRefused = refuseNew(rawPlan.added, rawPlan.existingCount, MAX_RAW_ROWS_TOTAL,
+    MAX_MEMBER_RAW_ROWS_PER_HOUR - dev.raw, poolLeft(budget.raw, MAX_NEW_RAW_ROWS_PER_HOUR));
+  if (rawRefused) return { ok: false, error: rawRefused };
 
-  upsertLimits(ss.getSheetByName(TAB_LIMITS), member, p.limits);
+  var limPlan = planLimits(ss.getSheetByName(TAB_LIMITS), member, p.limits);
+  var limitsOk = !refuseNew(limPlan.added, limPlan.existingCount, MAX_LIMIT_ROWS_TOTAL,
+    MAX_MEMBER_LIMIT_ROWS_PER_HOUR - dev.limits, poolLeft(budget.limits, MAX_NEW_LIMIT_ROWS_PER_HOUR));
+  if (limitsOk) p.limits.forEach(function (l) { if (!teamLabelFor.has(l.team)) teamLabelFor.set(l.team, ""); });
 
   // 합칠대상 (D) belongs to the owner: a report writes B:C and E:F only.
-  upsertRows(ss.getSheetByName(TAB_PEOPLE), COLS_PEOPLE.length, function (r) { return r[0]; }, [{
+  var peoplePlan = planRows(ss.getSheetByName(TAB_PEOPLE), COLS_PEOPLE.length, function (r) { return r[0]; }, [{
     key: member.id,
     build: function (old) {
       return [member.id, member.nickname, now, old === null ? "" : old[3], member.appVersion, member.platform];
@@ -549,7 +717,7 @@ function writeReport(ss, p, nowMs, tz) {
       build: function (old) { return old === null ? [team, "", label, localDateString(nowMs, tz)] : old; }
     });
   });
-  upsertRows(ss.getSheetByName(TAB_DEPTS), COLS_DEPTS.length, function (r) { return r[0]; }, deptItems);
+  var deptPlan = planRows(ss.getSheetByName(TAB_DEPTS), COLS_DEPTS.length, function (r) { return r[0]; }, deptItems);
 
   var labelItems = [];
   var seen = new Set();
@@ -561,9 +729,36 @@ function writeReport(ss, p, nowMs, tz) {
       build: function () { return [d.team, member.id, d.teamLabel, now]; }
     });
   });
-  upsertRows(ss.getSheetByName(TAB_TEAMLABELS), COLS_TEAMLABELS.length, function (r) { return r[0] + "|" + r[1]; }, labelItems);
+  var labelPlan = planRows(ss.getSheetByName(TAB_TEAMLABELS), COLS_TEAMLABELS.length,
+    function (r) { return r[0] + "|" + r[1]; }, labelItems);
+  var teamAdded = deptPlan.added + labelPlan.added;
+  var teamsOk = !(refuseNew(deptPlan.added, deptPlan.existingCount, MAX_DEPTS_TOTAL, Infinity, Infinity) ||
+    refuseNew(labelPlan.added, labelPlan.existingCount, MAX_TEAMLABELS_TOTAL, Infinity, Infinity) ||
+    refuseNew(teamAdded, 0, Infinity, MAX_MEMBER_TEAM_ROWS_PER_HOUR - dev.teams, poolLeft(budget.teams, MAX_NEW_TEAM_ROWS_PER_HOUR)));
 
-  return { ok: true, accepted: { days: rawItems.length, limits: p.limits.length }, dropped: p.dropped };
+  // Nothing is refused from here on: write. The data tabs go first and the device row (with the member's
+  // hourly counters) and the in-memory budget last, so a write that throws leaves nothing charged for
+  // rows that never landed: the retry is judged on what is really in the sheet.
+  var limAdded = limitsOk ? limPlan.added : 0;
+  var teamWritten = teamsOk ? teamAdded : 0;
+  applyPlan(rawPlan);
+  if (limitsOk) applyPlan(limPlan);
+  applyPlan(peoplePlan);
+  if (teamsOk) {
+    applyPlan(deptPlan);
+    applyPlan(labelPlan);
+  }
+  dev.raw += rawPlan.added;
+  dev.limits += limAdded;
+  dev.teams += teamWritten;
+  writeDevice(ss.getSheetByName(TAB_DEVICES), dev, member, nowMs, hour, budget);
+  if (dev.firstThisHour) {
+    budget.raw += rawPlan.added;
+    budget.limits += limAdded;
+    budget.teams += teamWritten;
+  }
+  return { ok: true, accepted: { days: rawItems.length, limits: limitsOk ? p.limits.length : 0 },
+    dropped: p.dropped + (limitsOk ? 0 : p.limits.length) };
 }
 
 function handleReport(ss, text, nowMs, tz) {
@@ -574,8 +769,18 @@ function handleReport(ss, text, nowMs, tz) {
   lock.waitLock(20000);
   try {
     ensureSheets(ss);
-    if (!checkDevice(ss.getSheetByName(TAB_DEVICES), p.member, nowMs)) return { ok: false, error: "device_mismatch" };
-    return writeReport(ss, p, nowMs, tz);
+    var budget = readBudget(nowMs);
+    var before = JSON.stringify(budget);
+    try {
+      var dev = lookupDevice(ss.getSheetByName(TAB_DEVICES), p.member, nowMs, budget);
+      if (dev.status !== "ok") return { ok: false, error: dev.status };
+      return writeReport(ss, p, nowMs, tz, budget, dev);
+    } finally {
+      // Only a changed budget is written, and a failed write must not fail an otherwise good request.
+      if (JSON.stringify(budget) !== before) {
+        try { saveBudget(budget); } catch (e) { console.error("saveBudget failed: " + (e && e.message)); }
+      }
+    }
   } finally {
     lock.releaseLock();
   }
@@ -1553,6 +1758,30 @@ function suggestedTeamNames(teamLabels) {
   return out;
 }
 
+// A report whose team rows were dropped (a cap) is never re-sent for unchanged days, so a team that only
+// appears on older days would have no 부서 row. Adds a row for every team ID that 원본 or 한도 carries and
+// 부서 lacks, up to MAX_DEPTS_TOTAL. The 팀이름 (참고팀이름 source) rows are not backfilled: a missing
+// label only leaves the suggested name empty until a member sends that team's label again.
+// Call inside the script lock; it re-reads 부서 so an owner's row is never duplicated or touched.
+function backfillDepts(ss, data, today) {
+  var sheet = ss.getSheetByName(TAB_DEPTS);
+  if (!sheet) return;
+  var known = new Set(sheetRows(sheet, 1).map(function (r) { return r[0]; }));
+  var room = MAX_DEPTS_TOTAL - known.size;
+  var items = [];
+  var seen = new Set();
+  function want(team) {
+    if (typeof team !== "string" || !team || known.has(team) || seen.has(team) || items.length >= room) return;
+    seen.add(team);
+    items.push({ key: team, build: function () { return [team, "", "", today]; } });
+  }
+  data.usage.forEach(function (u) { want(u.team); });
+  data.limits.forEach(function (l) { want(l.team); });
+  if (!items.length) return;
+  upsertRows(sheet, COLS_DEPTS.length, function (r) { return r[0]; }, items);
+  items.forEach(function (it) { if (!data.depts[it.key]) data.depts[it.key] = { name: "", suggested: "" }; });
+}
+
 // Call inside the script lock: it re-reads 부서 so a row a report just added is kept, and it writes
 // column C only, so the owner's 부서이름 is never touched.
 function writeSuggestedTeamNames(ss, data) {
@@ -1608,7 +1837,10 @@ function refreshAllLocked() {
     }
   }
   var data = readAll(ss, tz);
-  withScriptLock(function () { writeSuggestedTeamNames(ss, data); });
+  withScriptLock(function () {
+    backfillDepts(ss, data, today);
+    writeSuggestedTeamNames(ss, data);
+  });
   DASHBOARD_TABS.forEach(function (d) {
     var sheet = ss.getSheetByName(d.name);
     var lastRow = renderDashboard(sheet, computeDashboard(data, d.kind, today), nowMs, tz);
@@ -1655,6 +1887,9 @@ function onOpen(e) {
     .addItem("지금 새로 고침", "refreshAll")
     .addItem("샘플 데이터 넣기", "seedSampleData")
     .addItem("샘플 데이터 지우기", "clearSampleData")
+    .addItem("멤버 ID 기록 지우기", "purgeMemberPrompt")
+    .addItem("팀 ID 기록 지우기", "purgeTeamPrompt")
+    .addItem("이 시각 이후 처음 본 멤버 지우기", "purgeRecentMembersPrompt")
     .addItem("Enterprise API 키 넣기", "setEnterpriseKey")
     .addItem("Enterprise API 키 지우기", "clearEnterpriseKey")
     .addToUi();
@@ -1667,19 +1902,141 @@ function isSampleRow(spec, row) {
   });
 }
 
-// Reads each tab, drops the sample rows and writes the rest back. Real rows keep their order.
+// Deletes the rows where drop(row) is true, each run of adjacent matches with one deleteRows call, bottom-up
+// so the indexes above stay valid. Whole rows go, so a column the owner added to the right (a note) moves
+// with its row, and nothing else on the tab is rewritten: a timeout half-way leaves only whole rows.
+// state ({ deadline: epoch ms, stopped: bool }, optional): once a run has been deleted past the deadline the
+// loop stops and sets state.stopped, leaving the remaining rows whole for another run. At least one run is
+// deleted per call, so a repeated purge always makes progress.
+// Returns how many rows went.
+function removeRowsWhere(sheet, width, drop, state) {
+  var rows = sheetRows(sheet, width);
+  var runs = [];
+  for (var i = 0; i < rows.length; i++) {
+    if (!drop(rows[i])) continue;
+    var last = runs.length ? runs[runs.length - 1] : null;
+    if (last && last.start + last.count === i) last.count++;
+    else runs.push({ start: i, count: 1 });
+  }
+  var removed = 0;
+  for (var k = runs.length - 1; k >= 0; k--) {
+    var run = runs[k];
+    // Sheets refuses to delete every non-frozen row of a tab: clear a run that covers the whole grid.
+    if (run.count >= sheet.getMaxRows() - 1) sheet.getRange(run.start + 2, 1, run.count, width).clearContent();
+    else sheet.deleteRows(run.start + 2, run.count);
+    removed += run.count;
+    if (state && Date.now() > state.deadline) { state.stopped = true; break; }
+  }
+  return removed;
+}
+
+// Drops the sample rows of every tab. Real rows keep their order.
 function removeSampleRows(ss) {
   SAMPLE_KEYS.forEach(function (spec) {
     var sheet = ss.getSheetByName(spec.tab);
-    if (!sheet) return;
-    var width = spec.cols.length;
-    var rows = sheetRows(sheet, width);
-    var kept = rows.filter(function (r) { return !isSampleRow(spec, r); });
-    if (kept.length === rows.length) return;
-    // Kept rows first, then only the leftover tail is cleared: the body is never empty in between.
-    if (kept.length) sheet.getRange(2, 1, kept.length, width).setValues(asTextRows(kept));
-    sheet.getRange(kept.length + 2, 1, rows.length - kept.length, width).clearContent();
+    if (sheet) removeRowsWhere(sheet, spec.cols.length, function (r) { return isSampleRow(spec, r); });
   });
+}
+
+// Owner purge: which column (1-based) of each tab holds the member ID or the team ID.
+var PURGE_COLUMNS = {
+  member: [[TAB_RAW, COLS_RAW, 1], [TAB_LIMITS, COLS_LIMITS, 4], [TAB_PEOPLE, COLS_PEOPLE, 1],
+    [TAB_TEAMLABELS, COLS_TEAMLABELS, 2], [TAB_DEVICES, COLS_DEVICES, 1]],
+  team: [[TAB_RAW, COLS_RAW, 5], [TAB_LIMITS, COLS_LIMITS, 5], [TAB_DEPTS, COLS_DEPTS, 1],
+    [TAB_TEAMLABELS, COLS_TEAMLABELS, 1]]
+};
+
+// Removes every row of the given member IDs (kind "member") or team IDs (kind "team") from the data tabs
+// in one pass per tab and returns { tab: rows removed } for the tabs that lost rows. ids is a Set. Call
+// inside the script lock. Removing a member's 기기 row lets that member register again.
+// state: see removeRowsWhere. After a stop the later tabs are left alone (기기 comes last, so a member
+// whose rows are only partly gone is still listed there and the next run finishes it).
+function purgeByIds(ss, kind, ids, state) {
+  var out = {};
+  PURGE_COLUMNS[kind].forEach(function (t) {
+    if (state && state.stopped) return;
+    var sheet = ss.getSheetByName(t[0]);
+    if (!sheet) return;
+    var n = removeRowsWhere(sheet, t[1].length, function (r) { return ids.has(r[t[2] - 1]); }, state);
+    if (n > 0) out[t[0]] = n;
+  });
+  return out;
+}
+
+// One ID; null when it does not have the right shape.
+function purgeById(ss, kind, id, state) {
+  var shaped = kind === "member" ? UUID_RE.test(id) : TEAM_RE.test(id);
+  if (!shaped) return null;
+  return purgeByIds(ss, kind, new Set([id]), state);
+}
+
+// The members in 기기 first seen after sinceMs, [{ id, ms }] (a flood of fake members arrives within a few hours).
+function membersFirstSeenAfter(ss, sinceMs) {
+  var sheet = ss.getSheetByName(TAB_DEVICES);
+  if (!sheet) return [];
+  return sheetRows(sheet, 3).map(function (r) { return { id: r[0], ms: cellToMs(r[2]) }; })
+    .filter(function (m) { return m.ms > sinceMs; });
+}
+
+// A purge stops cleanly after this long (the script is killed at 6 minutes); run it again to continue.
+var PURGE_TIME_BUDGET_MS = 240000;
+
+function purgeStopMessage() {
+  return "시간이 다 되어 일부만 지웠습니다. 지워진 것은 온전한 행 단위이고 시트는 깨지지 않았습니다. " +
+    "같은 메뉴를 같은 값으로 다시 실행하면 이어서 지웁니다. 끝까지 지운 뒤에 대시보드가 새로 고쳐집니다(그 전에는 메뉴 '지금 새로 고침').";
+}
+
+function purgePrompt(kind, label) {
+  var ui = SpreadsheetApp.getUi();
+  var res = ui.prompt(label + " 기록 지우기",
+    "지울 " + label + "를 붙여 넣으세요. 원본, 한도, 사람, 부서, 팀이름, 기기 탭에서 그 ID 의 행이 모두 지워지고 되돌릴 수 없습니다.",
+    ui.ButtonSet.OK_CANCEL);
+  if (res.getSelectedButton() !== ui.Button.OK) return;
+  var id = String(res.getResponseText()).trim();
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var state = { deadline: Date.now() + PURGE_TIME_BUDGET_MS, stopped: false };
+  var removed = withScriptLock(function () { return purgeById(ss, kind, id, state); });
+  if (removed === null) { ui.alert("ID 모양이 맞지 않아 아무것도 지우지 않았습니다."); return; }
+  var lines = Object.keys(removed).map(function (tab) { return tab + ": " + removed[tab] + "행"; });
+  if (state.stopped) { ui.alert(purgeStopMessage() + "\n" + lines.join("\n")); return; }
+  refreshAll();
+  ui.alert(lines.length ? "지웠습니다.\n" + lines.join("\n") : "그 ID 의 행이 없습니다.");
+}
+
+function purgeMemberPrompt() { purgePrompt("member", "멤버 ID"); }
+function purgeTeamPrompt() { purgePrompt("team", "팀 ID"); }
+
+// Bulk purge for a member flood: every member first seen after a time, in one step. It shows how many members
+// it found, the earliest and latest first-seen time and a few ID prefixes, and deletes only after the owner
+// confirms. A run that nears the time limit stops cleanly and asks to be run again.
+function purgeRecentMembersPrompt() {
+  var ui = SpreadsheetApp.getUi();
+  var res = ui.prompt("이 시각 이후 처음 본 멤버 기록 지우기",
+    "이 시각 이후 처음 본 멤버를 모두 지웁니다. 시각을 2026-11-24T15:00:00+09:00 처럼 적으세요(시간대까지 적어야 정확합니다). 먼저 몇 명인지, 가장 이른·늦은 처음 본 시각과 멤버 ID 앞부분 몇 개를 보여 주고 확인을 받습니다.",
+    ui.ButtonSet.OK_CANCEL);
+  if (res.getSelectedButton() !== ui.Button.OK) return;
+  var sinceMs = Date.parse(String(res.getResponseText()).trim());
+  if (isNaN(sinceMs)) { ui.alert("시각을 읽을 수 없어 아무것도 지우지 않았습니다."); return; }
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var found = membersFirstSeenAfter(ss, sinceMs);
+  if (!found.length) { ui.alert("그 시각 이후 처음 본 멤버가 없습니다."); return; }
+  var times = found.map(function (m) { return m.ms; });
+  var sample = found.slice(0, 5).map(function (m) { return String(m.id).slice(0, 8); }).join(", ");
+  var sure = ui.alert(found.length + "명의 멤버 기록을 지웁니다.\n" +
+    "처음 본 시각: " + msToIso(Math.min.apply(null, times)) + " ~ " + msToIso(Math.max.apply(null, times)) + "\n" +
+    "멤버 ID 앞부분: " + sample + (found.length > 5 ? " 외 " + (found.length - 5) + "명" : "") + "\n" +
+    "원본, 한도, 사람, 팀이름, 기기 탭에서 지워지고 되돌릴 수 없습니다. 앱은 이미 보낸 날을 다시 보내지 않으므로, " +
+    "진짜 팀원이 섞여 있으면 그 사람의 지난 기록은 영영 사라집니다(앞으로 쓰는 날부터 새로 쌓입니다). 계속할까요?",
+    ui.ButtonSet.OK_CANCEL);
+  if (sure !== ui.Button.OK) return;
+  var state = { deadline: Date.now() + PURGE_TIME_BUDGET_MS, stopped: false };
+  var removed = withScriptLock(function () {
+    return purgeByIds(ss, "member", new Set(found.map(function (m) { return m.id; })), state);
+  });
+  var lines = Object.keys(removed).map(function (tab) { return tab + ": " + removed[tab] + "행"; });
+  if (state.stopped) { ui.alert(purgeStopMessage() + "\n" + lines.join("\n")); return; }
+  refreshAll();
+  ui.alert("지웠습니다. (" + found.length + "명)\n" + lines.join("\n"));
 }
 
 function appendRows(sheet, width, rows) {
@@ -1722,7 +2079,7 @@ function seedSampleData() {
         var id = sampleMemberId(idx);
         var n = idx;
         people.push([id, nick, nowIso, "", "2.5.0", n % 3 === 2 ? "windows" : "mac"]);
-        devices.push([id, sha256Hex("sample-secret-" + n), nowIso, nowIso]);
+        devices.push([id, sha256Hex("sample-secret-" + n), nowIso, nowIso, 0, 0, 0, 0]);
         if (pi === 0) labels.push([dept.team, id, dept.label, nowIso]);
         var level = 1 + ((n * 7) % 5);   // 1..5: a spread of heavy and light users
         for (var d = firstDay; d <= todayNum; d++) {

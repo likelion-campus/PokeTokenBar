@@ -2,7 +2,9 @@ import XCTest
 @testable import PokeTokenBar
 
 /// 회귀 가드: `allowKeychainPrompt: false` 는 "프롬프트를 안 띄운다"가 아니라
-/// **"Keychain 을 아예 조회하지 않는다"** 는 계약이다. no-UI 쿼리(`kSecUseAuthenticationUIFail`
+/// **"이 앱이 Keychain API(`SecItemCopyMatching`)를 아예 부르지 않는다"** 는 계약이다.
+/// 자동 경로의 유일한 읽기는 Claude Code 와 같은 `/usr/bin/security` 실행이고(`KeychainToolReadTests`),
+/// 그건 `KeychainReader.queryCount` 에 잡히지 않는다 — 번들 앱이 아니면 아예 실행되지 않는다. no-UI 쿼리(`kSecUseAuthenticationUIFail`
 /// /`LAContext`)로도 잠긴·미승인 login 키체인의 '암호 입력' 다이얼로그는 억제되지 않는다 —
 /// 실측: 캐시 만료 폴 도중 `SecItemCopyMatching` 이 13초간 블록하며 팝업을 띄웠다.
 ///

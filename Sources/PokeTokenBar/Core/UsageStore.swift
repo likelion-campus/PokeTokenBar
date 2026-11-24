@@ -1482,7 +1482,7 @@ final class UsageStore {
         await task.value
     }
 
-    /// Same Keychain contract as the primary path: automatic polls never read the Keychain, a manual
+    /// Same Keychain contract as the primary path: automatic polls never read the Keychain through the Keychain API (on a Mac they read it only through `/usr/bin/security`), a manual
     /// refresh may prompt once per item, and a declined prompt stops the remaining ones (#280).
     /// With a session key (chosen to avoid prompts), only the folders listed in Settings may prompt.
     /// A 429 pauses the automatic polls of that folder only (`additionalBackoff`).

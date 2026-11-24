@@ -1132,15 +1132,27 @@ read_when:
   실사용자 매 업그레이드) 항목 ACL 이 안 맞아 접근 허용 프롬프트를 유발한다 — **no-UI 쿼리로도 이 ACL
   프롬프트는 억제 안 됨**(#58). 토큰류는 인메모리 캐시 + 파일(`~/.claude/.credentials.json`) 재취득으로
   처리하고, 앱 전용 keychain 캐시 항목을 새로 만들지 말 것.
-- **자동 폴링은 Claude 키체인을 절대 읽지 마라(키체인 읽기는 사용자 동작 전용).** no-UI 쿼리
+- **자동 폴링은 앱 자신의 Keychain API 로 Claude 키체인을 절대 읽지 마라(`SecItemCopyMatching` 은 사용자 동작 전용).** no-UI 쿼리
   (`kSecUseAuthenticationUIFail`/`LAContext`)는 '인증' 프롬프트만 억제할 뿐 **잠긴·미승인 login 키체인의
   '암호 입력' 다이얼로그는 못 막는다** — 실측: 캐시 만료 폴 도중 `SecItemCopyMatching` 이 13초간 블록하며
   팝업(토큰 만료 시점마다 하루 몇 회, 아침 등). self-signed 앱은 '항상 허용' 승인도 불안정. → 타이머 경로
-  `fetch(allowKeychainPrompt: false)` 는 캐시+파일만 쓰고 키체인은 건드리지 않는다(`OAuthLimitsProvider`
-  의 `guard allowKeychainPrompt` 가 키체인 읽기 앞에 위치). 키체인 읽기는 명시적 사용자 버튼
+  `fetch(allowKeychainPrompt: false)` 는 파일 → 캐시 → `/usr/bin/security`(아래) 순으로 읽고 앱 자신의 `SecItemCopyMatching` 은 부르지 않는다
+  (`OAuthAccessTokenCache.accessToken` 의 `guard allowKeychainPrompt` 가 앱 API 읽기 앞에 위치). 앱 API 로 키체인을 읽는 건 명시적 사용자 버튼
   (설정 갱신·팝오버 `claudeLimitsRefreshRow`, `refreshLimitTokenFromKeychain`)에서만. 파일이 유효
-  토큰을 들고 있으면 매 자동 폴이 그걸 다시 읽고, 파일이 없을 때만 캐시가 버티다가 만료 후 stale.
-  회귀 가드: `testAutoRefreshUsesNoPromptPathManualUsesPromptPath`. (완전 근절은 Developer ID
+  토큰을 들고 있으면 매 자동 폴이 그걸 다시 읽는다. 회귀 가드: `testAutomaticPathNeverQueriesTheKeychain`(앱 API 0회)·
+  `testAutoRefreshUsesNoPromptPathManualUsesPromptPath`.
+  **자동 경로의 유일한 읽기(맥, 2026-11):** `/usr/bin/security find-generic-password -s <service> -a <NSUserName()> -w`
+  (없으면 `-a` 없이 한 번 더)를 `OAuthAccessTokenCache.readClaudeKeychainViaSecurityTool` 이 실행한다. Claude Code 가 항목을 이 도구로
+  만들고 읽어 항목의 복호화 ACL 이 `/usr/bin/security` 를 신뢰하므로 다이얼로그가 없다(앱은 self-signed 라 신뢰 못 받음).
+  가드(순서, 하나라도 걸리면 프로세스 없이 nil): 접근 끔 → 시험 이음매 없고 번들 앱 아님(`swift test` 가 개발자 키체인을 안 읽게) →
+  꺼짐(시간 초과 3 s 또는 종료 코드 0·44 밖 — 사용자가 다이얼로그를 거절한 것일 수 있다 — 이면 앱 재시작·사용자 갱신 버튼까지) → 기본 키체인 잠김(`SecKeychainGetStatus`; 잠기면 `security` 가 잠금 해제 다이얼로그를 띄운다; 확인한 키체인 경로를 `security` 인자로 넘겨 같은 파일만 검색).
+  stdout·토큰·계정 이름은 로그에 남기지 않는다. **자격증명 탐지 5-whys:** 증상 — 회사 사용량 시트에 맥 사용자 다수가 "플랜 정보 없음".
+  직접원인 — 키체인에만 로그인이 있는 맥은 자동 폴이 키체인을 안 읽어(위 규칙) 갱신 버튼을 누르기 전·앱 재시작 후·토큰 만료(약 8 h) 뒤엔 한도가 없어
+  한도 행이 전송되지 않았다. 왜 못 걸렀나 — 리포터 테스트는 한도를 주입하고, 개발자 맥에는 `~/.claude/.credentials.json` 이 있어 닷푸딩에선 늘 한도가
+  있었으며, 키체인만 있는 맥을 아무도 확인하지 않았다. 가드 — `KeychainToolReadTests`(도구 경유 읽기·`-a` 폴백·접근 끔·잠김·시간 초과 후 꺼짐·만료·여러
+  서비스·번들 아님·예상 밖 종료 코드, 가드마다 제거 시 실패 확인, 실제 `/usr/bin/security` 로 없는 서비스 → 종료 44, 실제 러너 시간 초과·stdout 캡처).
+  `Credential` 은 `description`/`debugDescription` 에서 토큰을 가린다(시험 실패 메시지가 토큰을 찍던 일 방지); 시험은 UUID 서비스 이름만 쓴다.
+  (완전 근절은 Developer ID
   notarization 으로 '항상 허용' 승인을 안정화하는 것뿐 — 신뢰된 서명 신원이라야 ACL 승인이 지속된다.
   미도입.)
 - **Claude Keychain '항상 허용'은 ACL 리셋으로 유지되지 않는다 — 비간섭 상시 `(?)` 도움말로 세션 키 등록을 유도.**
@@ -1173,7 +1185,7 @@ read_when:
 - **인메모리 토큰 캐시는 만료만 보면 안 된다 — 원본 파일이 다른 유효 토큰으로 바뀌었는지도 본다.**
   `/login` 으로 계정을 갈아타면 `~/.claude/.credentials.json` 이 새 토큰으로 덮이지만, 캐시가 옛
   토큰의 `expiresAt` 까지 그걸 무시하면 공식 5h/주 바가 이전 계정에 붙고 컴패니언 EXP 만 로컬
-  jsonl 로 계속 오른다(#227). 자동 폴은 키체인을 안 읽으므로 **파일 peek 를 캐시 히트보다 앞에**
+  jsonl 로 계속 오른다(#227). 자동 폴은 캐시가 유효하면 키체인(도구)을 읽지 않으므로 **파일 peek 를 캐시 히트보다 앞에**
   둔다. 파일이 없거나 `"claudeAiOauth": null` 이면 캐시를 유지(로그아웃·`CLAUDE_CONFIG_DIR` 잔여
   파일 — 기존 `credentialsFileIsAccountOAuthMissing` 과 같은 이유). 같은 부류: Antigravity
   `jetski-standalone-oauth-token` 은 파일 로드 시 `expiresAt=nil` 이라 캐시가 만료로 풀리지 않는다.
@@ -3501,7 +3513,7 @@ Found before release by three independent read-only reviews (correctness, policy
 - **왜 못 걸렀나:** ① #327 이 큰 나무에서 같은 일을 고치고 테스트(`testAnOldPeerOnTheTrunkIsDrawnThere`)도 남겼지만, 그 테스트는 나무 칸만 본다: "막힌 칸을 새로 만들면 구버전이 그 위에 선다" 는 규칙은 기록에 없었다. ② 테스트가 쪽지가 사라진 뒤(9초 뒤)에만 두 번째 Space 를 눌렀다. ③ v2.5.637 감사가 "동등 비교만 쓰면 음력 키도 된다" 고 받아들였는데, 키가 팀원에게 전해져 비교된다는 점과 윤달은 보지 않았다. 그리고 `TeamRuntime` 의 `.fortune` 분기는 어떤 테스트도 밟지 않았다: 컨트롤러 테스트는 `showFortune` 을 직접 부르거나 `onEmote` 를 갈아끼워서, 분기를 지워도 전부 통과했다. 문구 번호는 전송값인데 순서를 고정한 테스트가 없었다.
 - **고침:** ① `resolvedTile` 이 가판대 칸도 그 자리에 그린다(`PlazaMap.isStall`). ② 쪽지가 떠 있는 동안 `openFortune` 은 아무것도 하지 않는다. ③ `PlazaActivity.dayKey` 가 `DayBoundary.dayKey`(그레고리력)를 쓴다. 호출부 전부(활동, 나무, 포춘쿠키, 카드, 목록)가 한 번에 바뀐다.
 - **부류 스윕:** 받은 칸을 그리는 다른 길은 `applyDitto` 하나다(걸을 수 있는지 보지 않고 그 칸에 그린다: 구버전이 띄운 메타몽은 가판대 위에 그려지고, 이제 팀원과 같은 처리다). 감사가 낸 "자정에 안내가 안 바뀐다" 는 사실이 아니었다: 1초 틱의 `refreshCampfire` 가 안내를 다시 그린다(가드를 넣었다가, 빼도 테스트가 통과해서 알았고 가드는 뺐다. 기존 테스트의 "저절로는 안 바뀐다" 주석이 틀렸다).
-- **영구 캡처:** `PlazaTreeLayerTests.testAnOldPeerOnTheStallIsDrawnThere`, `PlazaFortuneControllerTests.testSpaceDuringTheCrackLeavesItAlone`, `TeamRuntimeTests.testAReceivedFortuneShowsTheSlipAndABadOneShowsNothing`(실제 받기 경로), `PlazaFortuneTests.testTheFirstLinesAndActionsKeepTheirNumbers`(앞 200줄·12행동의 해시. 배포 전에 80줄에서 200줄로 늘렸다), `PlazaFortuneTests.testTheDayKeyIsGregorianOnAnyCalendar`, `testANewDayBringsANewCookie`(틱으로 자정을 넘긴다). 각 고침을 되돌리면 해당 테스트가 실패하는 것을 확인했다.
+- **영구 캡처:** `PlazaTreeLayerTests.testAnOldPeerOnTheStallIsDrawnThere`, `PlazaFortuneControllerTests.testSpaceDuringTheCrackLeavesItAlone`, `TeamRuntimeTests.testAReceivedFortuneShowsTheSlipAndABadOneShowsNothing`(실제 받기 경로), `PlazaFortuneTests.testTheFirstLinesAndActionsKeepTheirNumbers`(앞 300줄·12행동의 해시. 배포 전에 80줄에서 200줄로 늘렸다), `PlazaFortuneTests.testTheDayKeyIsGregorianOnAnyCalendar`, `testANewDayBringsANewCookie`(틱으로 자정을 넘긴다). 각 고침을 되돌리면 해당 테스트가 실패하는 것을 확인했다.
 - **규칙:** 지도에 막힌 칸 종류를 새로 만들면 `resolvedTile` 에 더한다: 이전 버전 팀원은 그 칸에 설 수 있다. 팀원에게 전해지는 날 키는 그레고리력으로 만든다. 받은 이모트의 새 분기는 `TeamRuntimeTests` 에서 실제 전송으로 밟는다. 감사 지적도 고치기 전에 재현부터 한다.
 
 ## 연달아 맞아도 처음 한 번만 밀렸다: 받는 쪽 쿨다운 1초가 보내는 쪽 0.3초보다 길었다 (v2.5.637–638, 2026-11-23 사용자 리포트)
@@ -3521,3 +3533,20 @@ Found before release by three independent read-only reviews (correctness, policy
 - **부류 스윕:** 토큰 합산 `reduce(0, +)`/`+=` 를 Core 전수 확인해 위 지점을 고쳤다. 숫자 에포크를 `Date(timeIntervalSince1970:)` 로 만드는 읽기는 전부 창을 지난다(ISO 문자열 시각은 파서가 범위를 제한해 해당 없음). 로그를 `FileHandle(forReadingFrom:)` 로 여는 증분·청크 읽기는 `openLogHandle` 로 옮겼다. Gemini·Grok·Kiro 의 전체 읽기는 기존 "의도적 보류" 목록 그대로다. `ClaudeAccountUsage` 의 `history.jsonl` 은 `~/.claude` 고정 경로라 작업 폴더 링크 경로가 아니어서 건드리지 않았다.
 - **영구 캡처:** `AuditCoreFixesTests` 열여덟 건. 결함을 하나씩 일부러 주입해 실패(또는 트랩)하는 것을 확인했다: 합계 포화·`Entry.total`·항목 상한(1e15 로 되돌리면 실패)·`plausibleDate` 창·Kimi 1e300 시각·블록 id·못 읽은 세이브(권한 000)·`.corrupt` 이동 실패(읽기 전용 폴더)·인벤토리 클램프·봉투 폴백·미래 날짜 복구/자동 스냅샷·심볼릭 링크 열거·`O_NOFOLLOW`·`refreshInterval` 클램프. `UsageStoreTimerTests` 는 하한을 낮춰 짧은 주기를 쓴다.
 - **규칙:** 항목별 클램프는 합계의 안전을 보장하지 않는다 — 합산 지점이 포화 덧셈이어야 하고, 합산 테스트는 클램프된 항목을 **많이** 더한다. 외부 숫자 시각은 한 곳의 창을 지난다. "읽지 못함"과 "없음"을 같은 분기로 접지 않는다(저장 파일은 읽지 못하면 그 세션 저장을 끈다). 파일을 읽는 열거는 일반 파일만 돌려주고 열 때 링크를 따라가지 않는다. 도달 불가한 가드는 만들지 않는다: 복구 후보 순회의 "읽지 못한 후보 건너뛰기"는 목록 단계가 이미 같은 디코드로 거르므로 별도 테스트를 두지 않았다.
+
+## 회사 사용량 시트: 받는 양에 상한이 없었고, 같은 키를 다시 보내면 매 행을 다시 썼고, 수식 문자가 CSV 로 나갔다 (v2.5.640 감사, 2026-11-24)
+- **증상:** 웹 앱 주소와 토큰이 공개라서 누구든 새 멤버 ID·새 도구 이름·새 팀 ID 로 보고를 계속 보내 `원본` 을 셀 상한(천만 셀)까지 채우거나, 같은 1,984개 키를 반복해 락 안에서 행마다 `setValues` 를 돌려 진짜 보고를 20초 대기 뒤 실패시킬 수 있었다. 닉네임·팀 이름·플랜이 `=` `+` `-` `@` 로 시작하면 시트 안에서는 텍스트지만 CSV 로 내려받아 열 때 수식이 됐다. README 호스트 목록에는 Windows 업데이트 다운로드 호스트가 없었고, TEAM.md 는 해시를 "되돌릴 수 없다" 고 썼다.
+- **직접 원인:** 검증은 요청 하나 안의 크기만 봤고 시트 전체의 양은 보지 않았다. `upsertRows` 는 키 4열만 읽고 13열 행을 만들어 비교해서(`rowsEqual` 은 길이부터 다르면 거짓) 이미 있는 키가 전부 "바뀜" 이 됐고, 받은시각 열도 매번 달랐다. 수식 문자는 `asText` 의 `'` 접두어(저장 표식, CSV 에는 안 남음)에만 기댔다.
+- **왜 못 걸렀나:** 테스트가 "같은 키를 다시 보내면 숫자가 제자리에 덮어써진다" 만 봤고 쓰기 횟수는 세지 않았다: 불필요한 쓰기도 결과 행은 같아서 통과했다. 한도 테스트는 정직한 크기만 썼고 한도 위로 쏟아 붓는 요청이 없었다. 수식 테스트는 시트 셀이 텍스트인지만 봤고 내보내기 결과는 보지 않았다. 설계서가 "가짜 행은 받아들인다" 고 정한 전제(미지정 격리)가 부서 이름 규칙이 바뀌며 무너진 것을 한도 쪽에서 다시 보지 않았다.
+- **부류 스윕:** 외부 입력이 시트를 키우는 길은 `원본`, `한도`, `기기`(새 멤버)와 그에 딸린 `부서`·`팀이름`·`사람` 이다. (1차 감사에서는 뒤의 셋이 "새 행마다 원본 행이 따라오므로 원본 상한이 막는다" 고 적었으나 틀렸다: 이미 있는 날짜 키를 팀 ID 만 바꿔 다시 보내면 원본 행은 늘지 않고 `부서`·`팀이름` 행만 요청마다 약 60개 늘고, 한도 16개의 팀을 바꿔 보내면 `부서` 행이 늘었다. 리뷰 프로브: 멤버 1명, 요청 50번에 부서 3152행. 2차에서 이 둘에도 시간·총 상한을 걸었다.) 도구 이름은 `parseTool`·`parseLimit` 두 곳이라 둘 다 허용 목록으로 바꿨다. 클라이언트 문자열을 쓰는 곳은 닉네임, 팀 이름, 플랜 셋이다(도구·계정·도메인은 정규식이 괄호와 공백을 막아 수식이 될 수 없다).
+- **고침:** 허용 도구 목록, 멤버·원본 행·한도 행의 시간당·총 상한(`src/00_config.js` 의 이름 붙은 상수, `rate_limited`/`sheet_full`), 같은 값이면 쓰지 않는 비교(받은시각 제외, 부딪힌 행만 이어 읽음), 맨 앞 수식 문자를 전각 문자로 바꾸는 파싱, 메뉴의 멤버 ID·팀 ID 기록 지우기.
+- **영구 캡처:** `store.test.js` 의 재전송 쓰기 0회·상한별 쏟아붓기·정직한 최대(21일 × 16도구)·수식 문자 테스트, 허용 목록이 Swift 의 프로바이더 ID 를 모두 덮는지 읽어 보는 테스트, `admin.test.js` 의 지우기 테스트. 가드마다 일부러 되돌려 해당 테스트가 실패하는 것을 확인했다.
+- **규칙:** 공개 주소로 받는 쓰기 경로에는 요청당 상한 말고 시간당·총 상한을 둔다. 정직한 최대를 통과시키는 테스트와 상한을 넘기는 테스트를 한 쌍으로 쓰고, 거절은 보내는 쪽이 "나중에 다시" 로 다루는 코드로 답한다. "같은 값을 다시 보낸다" 테스트는 결과뿐 아니라 쓰기 횟수도 센다. 앱에 새 프로바이더 ID 를 더하면 `ALLOWED_TOOLS` 에도 더한다(허용 목록 테스트가 Swift 쪽 선언을 읽어 알려 준다). 해시는 "되돌릴 수 없다" 가 아니라 "입력을 짐작하면 맞출 수 있다" 로 쓴다.
+- **2차 수정 (PR 리뷰, 2026-11-24):** 한도 거절이 보고를 반쯤만 쓴 채 끝냈다(원본·기기만 쓰고 사람·부서가 비었다). 쓰기 전에 모든 탭을 계획해 모든 거절을 평가하고, `한도`·팀 행이 거절되면 그 부분만 버리고 사용량은 받는다(원본 거절은 전체 거절). 시간당 한도는 팀원별(`기기` 탭 오른쪽 집계 열)로 세고 공용 풀은 그 시간에 처음 본 팀원만 쓴다. 바뀐 행은 인접한 줄을 한 번의 `setValues` 로 쓴다(`MAX_DAYS` 62 → 21: 앱이 `dayRange 0...20` 으로 최대 21일만 보냄을 v2.5.636~640 에서 확인). 지우기는 일치 행을 `deleteRows` 로 아래부터 지운다(이전엔 탭 전체를 위로 당겨 써서 소유자의 오른쪽 메모 열이 어긋났다). 예산 속성은 바뀔 때만 쓰고 실패해도 요청을 실패시키지 않는다. 총 상한을 낮춰 셀 합이 1000만 셀 앞에서 끝나게 했다. Sheets 가 Date·숫자로 바꾼 날짜·버전 셀은 비교 전에 정규화한다. 새 프로바이더가 들어오는 PR 에서도 허용 목록 테스트가 돌도록 워크플로 경로에 `Local*UsageProvider.swift` 를 더했다. 멤버 홍수용으로 메뉴에 "이 시각 이후 처음 본 멤버 지우기" 를 더했다.
+- **2차 왜 못 걸렀나:** 1차 테스트는 정직한 크기와 "원본 상한" 하나만 쏟아 부어서, 다른 탭을 키우는 경로(재전송 키 + 새 팀 ID)와 한도 거절 뒤의 반쯤 쓴 상태를 보지 않았다. 지우기 테스트는 남은 행의 A:F 만 봐서 오른쪽 열이 어긋나는 것을 못 잡았다. 허용 목록 테스트는 있었지만 그 파일을 바꾸는 PR 에서는 워크플로가 돌지 않았다.
+- **2차 영구 캡처:** `store.test.js` 의 탭별 거절·반쯤 쓴 상태·팀 행 쏟아붓기·팀원별 상한·공용 풀·예산 속성·셀 합·Date 셀 테스트와 워크플로 경로 테스트, `admin.test.js` 의 메모 열 정렬·묶음 삭제·일괄 지우기 테스트. 가드마다 일부러 되돌려 실패하는 것을 확인했다.
+- **2차 규칙:** 거절이 여러 탭에 걸치면 쓰기 전에 모두 평가한다(반쯤 쓴 상태를 남기지 않는다). 상한은 요청 하나가 아니라 "주체별 시간당" 으로도 걸고, 공용 풀은 주체를 구별할 수 없는 쪽에만 물린다. 테스트가 막는 코드가 있는 파일의 경로는 그 테스트를 돌리는 워크플로의 트리거에도 넣는다.
+- **3차 수정 (재리뷰, 2026-11-24):** (A) 2차의 쓰기 순서가 기기 행과 예산을 먼저 올리고 데이터 탭을 나중에 써서, 중간에 쓰기가 던지면 안 들어간 행이 이미 팀원 몫과 공용 풀에 청구됐다(재시도가 다음 시간까지 `rate_limited`). 데이터 탭을 먼저 쓰고 기기 행과 예산을 마지막에 올린다. (B) 팀 행이 버려진 날은 앱이 바뀐 날만 다시 보내므로 `부서` 행이 영영 안 생길 수 있었다: 시간마다 도는 `refreshAll` 이 `원본`·`한도` 의 팀 ID 로 빠진 `부서` 행을 채운다(`팀이름` 은 채우지 않음, 문서에 적음). (C) 일괄 지우기 확인 창이 수만 보여 줬다: 가장 이른·늦은 처음 본 시각, ID 앞부분, "앱이 다시 보내지 않아 기록이 영영 사라진다" 를 보이고, 4분이 지나면 온전한 행 단위로 멈춰 다시 실행을 안내한다(기기 탭이 마지막이라 이어 지울 수 있고, 멈춘 실행은 새로 고침하지 않는다).
+- **3차 왜 못 걸렀나:** 2차 테스트는 쓰기가 전부 성공하는 경로만 밟았고 "쓰기가 중간에 던진다" 를 주입한 적이 없었다. 팀 행 거절 테스트는 한 번의 보고 안에서만 봤고 "다음 보고에서 다시 오는가" 를 앱의 지문 규칙까지 따라가 보지 않았다.
+- **3차 영구 캡처:** `store.test.js` 의 쓰기가 던지는 두 테스트(첫 쓰기·두 번째 탭 쓰기), `admin.test.js` 의 백필·백필 상한·시간 초과 멈춤(일괄·단일)·확인 창 내용 테스트. 가드마다 되돌려 실패하는 것을 확인했다.
+- **3차 규칙:** 여러 탭을 쓰는 경로는 청구(카운터·예산)를 쓰기가 모두 끝난 뒤에 올리고, 쓰기가 던지는 테스트를 함께 둔다. 거절로 "버리는" 부분은 다음 보고에서 다시 오는지를 보내는 쪽의 규칙까지 따라가 확인하고, 안 오면 읽는 쪽에서 메운다.

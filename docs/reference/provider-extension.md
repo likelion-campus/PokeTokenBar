@@ -16,6 +16,9 @@ read_when:
   진입점이며, 수정 범위가 두 파일로 제한되지는 않습니다. 소스에 맞춰 리더, 공유 캐시 연동, 사용자 지정
   스캔 경로, 테스트도 추가하거나 수정하세요. 아래 규약과
   [프로바이더 기여 체크리스트](https://github.com/chattymin/PokeTokenBar/issues/115)를 따르세요.
+- **회사 사용량 시트의 도구 허용 목록**: 새 프로바이더 ID 는 `tools/usage-sheet/src/00_config.js` 의
+  `ALLOWED_TOOLS` 에도 더하고 시트 주인이 스크립트를 다시 배포해야 한다(없으면 그 도구의 행은 시트에서
+  버려진다). `tools/usage-sheet/test/store.test.js` 의 허용 목록 테스트가 Swift 선언을 읽어 빠뜨리면 실패한다.
 - **범용 동작은 프로바이더 무관하게 집계**: 오늘/주/월 합계·burn tier·companion 리듬은 전 프로바이더
   합산이어야 한다(`snapshots` reduce). 한 프로바이더에만 계산을 붙이지 마라(과거 회귀: burn 이 Claude
   블록만 관측 → Codex/Gemini 전용 사용자 companion 이 항상 idle). 패리티 테스트가 이를 강제한다
