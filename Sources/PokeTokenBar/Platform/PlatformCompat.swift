@@ -625,6 +625,7 @@ extension PlatformCompat {
     /// "윈도우 URLSession"). URLSession stays in use for a body stream, a proxy variable WinHTTP cannot use the way libcurl
     /// would, and when WinHTTP cannot load.
     static func oneShotData(for request: URLRequest, session: URLSession = .shared) async throws -> (Data, URLResponse) {
+        if let blocked = AppEnv.fetchBlock(for: request.url) { throw blocked }  // a person's Windows selftest: loopback only
         #if os(Windows)
         if !oneShotStaysOnURLSessionForTesting, WinHTTPFetch.handles(request, session: session) {
             return try await WinHTTPFetch.data(for: request, configuration: session.configuration)
@@ -637,6 +638,7 @@ extension PlatformCompat {
 
     /// The same for `URLSession.shared.data(from:)` (sprites, icons). Mac: that call, verbatim.
     static func oneShotData(from url: URL) async throws -> (Data, URLResponse) {
+        if let blocked = AppEnv.fetchBlock(for: url) { throw blocked }
         #if os(Windows)
         let request = URLRequest(url: url)
         if !oneShotStaysOnURLSessionForTesting, WinHTTPFetch.handles(request, session: .shared) {
@@ -715,6 +717,7 @@ extension PlatformCompat {
     /// take fails. Mac: `URLSession.shared.data(for:)`; never called there (the Mac updates through Homebrew or the page).
     static func oneShotDownload(for request: URLRequest, maxBytes: Int, deadline: TimeInterval,
                                 progress: (@Sendable (Int) -> Void)? = nil) async throws -> (Data, URLResponse) {
+        if let blocked = AppEnv.fetchBlock(for: request.url) { throw blocked }
         #if os(Windows)
         guard WinHTTPFetch.handles(request) else {
             throw URLError(.cannotLoadFromNetwork, userInfo: [NSLocalizedDescriptionKey: "the download goes through WinHTTP only, which cannot take this request"])
@@ -746,6 +749,7 @@ extension PlatformCompat {
     /// decrypted bytes; a file that does not decrypt here reads as nil (one log line), a plain file of an earlier build is
     /// encrypted in place (`WinSecret.read`).
     static func readSecret(at url: URL) -> Data? {
+        guard !AppEnv.liveFetchForbidden else { return nil }  // a person's Windows selftest reads no secret
         #if os(Windows)
         return WinSecret.read(at: url)
         #else

@@ -41,6 +41,39 @@ enum AppEnv {
     /// Windows `--selftest` on a person's PC). Set once at launch, before any provider exists.
     nonisolated(unsafe) static var liveFetchForbidden = false
 
+    private static let exemptLock = NSLock()
+    nonisolated(unsafe) private static var exemptHosts = Set<String>()
+
+    /// The one request choke point (`PlatformCompat.oneShotData`/`oneShotDownload`): while `liveFetchForbidden` is set, only loopback, the
+    /// reserved test names and the hosts of an `exempting` block may be reached. nil = allowed.
+    static func fetchBlock(for url: URL?) -> URLError? {
+        guard liveFetchForbidden else { return nil }
+        let host = (url?.host ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
+        if isLoopbackOrTestHost(host) { return nil }
+        exemptLock.lock(); let exempt = exemptHosts.contains(host); exemptLock.unlock()
+        if exempt { return nil }
+        return URLError(.notConnectedToInternet, userInfo: [NSLocalizedDescriptionKey: "a person's selftest sends no request to \(host.isEmpty ? "?" : host)"])
+    }
+
+    static func isLoopbackOrTestHost(_ host: String) -> Bool {
+        if host == "localhost" || host == "::1" || host == "invalid" || host.hasSuffix(".invalid") || host == "test" || host.hasSuffix(".test") { return true }
+        let parts = host.split(separator: ".", omittingEmptySubsequences: false)
+        return parts.count == 4 && parts[0] == "127" && parts.allSatisfy { UInt8($0) != nil }
+    }
+
+    private static func changeExemptions(_ change: (inout Set<String>) -> Void) {
+        exemptLock.lock(); defer { exemptLock.unlock() }
+        change(&exemptHosts)
+    }
+
+    /// The selftest's few requests a person is told about (TEAM.md): their hosts are reachable for the duration of `body` only.
+    static func exempting<T>(hosts: [String], _ body: () async throws -> T) async rethrows -> T {
+        let names = Set(hosts.map { $0.lowercased() })
+        changeExemptions { $0.formUnion(names) }
+        defer { changeExemptions { $0.subtract(names) } }
+        return try await body()
+    }
+
     /// Whether a store may read and write its file. Always true for an injected path, which is how
     /// tests check persistence against a temporary file. A store that fell back to its default
     /// (user) path persists only in the app bundle, so `swift test` never reads or rewrites the

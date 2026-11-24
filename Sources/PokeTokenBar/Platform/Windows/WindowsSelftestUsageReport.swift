@@ -27,7 +27,10 @@ extension WindowsSelftest {
         defer { session.invalidateAndCancel() }
         let outcome: Result<(status: Int, body: Data, finalHost: String?), URLError>
         do {
-            let (data, response) = try await PlatformCompat.oneShotData(for: request, session: session)
+            // The one request of this check a person is told about (TEAM.md): script.google.com, for this call only.
+            let (data, response) = try await AppEnv.exempting(hosts: [UsageReportConfig.endpoint.host ?? "script.google.com"]) {
+                try await PlatformCompat.oneShotData(for: request, session: session)
+            }
             outcome = .success((status: (response as? HTTPURLResponse)?.statusCode ?? -1, body: data, finalHost: response.url?.host))
         } catch let error as URLError {
             outcome = .failure(error)

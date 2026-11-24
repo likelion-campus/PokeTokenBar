@@ -59,6 +59,7 @@ enum CursorAuthentication {
     }
 
     static func current() -> Credential? {
+        guard !AppEnv.liveFetchForbidden else { return nil }  // a person's Windows selftest: Cursor's login store is not read
         let source = selectedSource()
         lock.lock()
         defer { lock.unlock() }
@@ -74,6 +75,7 @@ enum CursorAuthentication {
     /// Refresh only the selected local login, once per rejected request. A rejected refreshed JWT
     /// may be refreshed again later; a transient grant failure leaves its refresh token available.
     static func refresh(afterRejecting rejected: Credential) async -> Credential? {
+        guard !AppEnv.liveFetchForbidden else { return nil }
         guard rejected.source.root != nil,
               let current = current(), current.source == rejected.source else { return nil }
         if current.accessToken != rejected.accessToken { return current }

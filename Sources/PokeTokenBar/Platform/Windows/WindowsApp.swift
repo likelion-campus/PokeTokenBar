@@ -285,7 +285,11 @@ private func crtExit(_ code: Int32) -> Never {
         WinDefaultsSync.guardAtLaunch(suites: guarded.filter { $0 != nil || WinDefaultsSync.selftestSuiteName == nil })
         let defaults = WinDefaultsSync.makeAppDefaults()  // 9
         self.defaults = defaults
-        let store = UsageStore(defaults: defaults)  // 10
+        // 10. A person's selftest builds its store without the providers that read another app's login (Cursor's `state.vscdb` token):
+        // the credential readers and the request layer are shut as well (`AppEnv.liveFetchForbidden`), this keeps them out of the list.
+        let store = AppEnv.liveFetchForbidden
+            ? UsageStore(providers: UsageStore.defaultProviders().filter { !Self.providersReadingLogins.contains($0.id) }, defaults: defaults)
+            : UsageStore(defaults: defaults)
         let companion = CompanionStore(defaults: defaults)
         WinUILanguage.migrateStoredLanguage(companion: companion, defaults: defaults)  // before the first read of companion.language
         self.store = store
@@ -462,6 +466,9 @@ private func crtExit(_ code: Int32) -> Never {
     }
 
     /// The Mac's `TeamSettings.defaultStore()` choice (standard, or a per-state-folder suite), as a syncing defaults.
+    /// Usage providers that read a login token of another app to ask a server for usage (see `AppEnv.liveFetchForbidden`).
+    static let providersReadingLogins: Set<String> = ["cursor"]
+
     static func teamDefaults(fallback: WinSyncingDefaults) -> WinSyncingDefaults {
         // The selftest keeps the team settings in its own suite too (removed at exit): a state folder's own `ptb.team.<hash>` file would stay.
         guard !WinDefaultsSync.selftestOwnsSettings,

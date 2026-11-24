@@ -5,6 +5,8 @@ enum RunnerError: Error, CustomStringConvertible {
     case nonZeroExit(Int32, String)
     case missingResponse(String)
     case rpcError(String)
+    /// A person's Windows selftest starts no CLI (`AppEnv.liveFetchForbidden`).
+    case forbidden
 
     var description: String {
         switch self {
@@ -12,6 +14,7 @@ enum RunnerError: Error, CustomStringConvertible {
         case .nonZeroExit(let code, let bin): return "exit \(code): \(bin)"
         case .missingResponse(let bin): return "missing JSON-RPC response: \(bin)"
         case .rpcError(let message): return "JSON-RPC error: \(message)"
+        case .forbidden: return "not allowed in a person's selftest"
         }
     }
 }
@@ -28,6 +31,7 @@ enum ProcessRunner {
         responseID: Int,
         timeout: TimeInterval = 20
     ) async throws -> Data {
+        guard !AppEnv.liveFetchForbidden else { throw RunnerError.forbidden }
         let outURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("poketokenbar-\(UUID().uuidString).jsonl")
         let errURL = FileManager.default.temporaryDirectory
@@ -120,6 +124,7 @@ enum ProcessRunner {
         arguments: [String],
         timeout: TimeInterval
     ) async throws -> (status: Int32, stdout: Data) {
+        guard !AppEnv.liveFetchForbidden else { throw RunnerError.forbidden }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: binary)
         process.arguments = arguments

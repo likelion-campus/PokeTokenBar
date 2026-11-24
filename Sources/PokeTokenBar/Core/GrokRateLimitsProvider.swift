@@ -66,6 +66,7 @@ public struct GrokRateLimitsProvider: GrokLimitsProviding, Sendable {
     /// `auth.json` maps `<issuer>::<user>` to a login; `key` is its access token. With several logins
     /// the one that expires last is the one the CLI refreshed most recently.
     static func accessToken(authFile: URL) -> String? {
+        guard !AppEnv.liveFetchForbidden else { return nil }  // a person's Windows selftest: Grok's login file is not read
         guard let data = try? Data(contentsOf: authFile),
               let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return nil }
         let logins: [(key: String, expires: Date)] = object.values.compactMap { value in
