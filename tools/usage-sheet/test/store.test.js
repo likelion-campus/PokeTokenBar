@@ -790,6 +790,16 @@ test("honest maximum still passes with teams: 21 days on 21 teams plus 16 limits
   assert.equal(dataRows(ss, "팀이름").length, 21);
 });
 
+test("a member first seen this hour loses only the team rows when the shared team pool is used up", () => {
+  const { S, ss } = fresh();
+  const hour = Math.floor(NOW / 3600000);
+  S.fakes.props.doc.intake_hour = JSON.stringify({ hour, members: 0, raw: 0, limits: 0, teams: S.MAX_NEW_TEAM_ROWS_PER_HOUR });
+  assert.deepEqual(report(S, validBody()), { ok: true, accepted: { days: 3, limits: 1 }, dropped: 0 });
+  assert.equal(dataRows(ss, "원본").length, 3);
+  assert.equal(dataRows(ss, "부서").length, 0);
+  assert.equal(dataRows(ss, "팀이름").length, 0);
+});
+
 // Item 7: the budget property.
 test("the budget property is written only when it changed, and a failed write does not fail the report", () => {
   const { S, ss } = fresh();

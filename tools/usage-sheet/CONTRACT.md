@@ -41,7 +41,7 @@ A failure here rejects the whole request with `{"ok":false,"error":"<code>"}`.
 | `member.nickname` | after trimming: at least 1 character, at most 320 UTF-8 bytes, no newline. The app counts grapheme clusters (1–12); the script cannot, so it only bounds the size and trusts the app for the count | `bad_member` |
 | `member.appVersion` | `/^[0-9A-Za-z.+-]{1,32}$/` | `bad_member` |
 | `member.platform` | `mac` or `windows` | `bad_member` |
-| `days` | an array of at most 62 entries | `too_many_rows` |
+| `days` | an array of at most 21 entries (the app sends 21 at most: `UsageReportPlanner.dayRange`, unchanged since v2.5.636) | `too_many_rows` |
 | `limits` | an array of at most 16 entries; omitted means `[]` | `too_many_rows` |
 | tools | a day holds at most 32 | `too_many_rows` |
 
@@ -87,7 +87,13 @@ An invalid day, tool or limit entry is dropped and counted in `dropped`. The res
 
 `device_mismatch` is the error code when a known `member.id` arrives with a different secret.
 
-Intake limits (constants in `src/00_config.js`, table in the README) answer `{"ok":false,"error":"rate_limited"}` (this clock hour's cap is used up) or `{"ok":false,"error":"sheet_full"}` (a total cap is reached). Both are "try again later" for the sender: the app logs any `ok:false`, commits nothing and resends at its next interval (unsent days stay inside its 21-day window). A refused request writes no raw rows; a refused limit list may follow raw rows that were already written, and the resend is idempotent.
+Intake limits (constants in `src/00_config.js`, table in the README) answer `{"ok":false,"error":"rate_limited"}` (a cap for this clock hour is used up) or `{"ok":false,"error":"sheet_full"}` (a total cap is reached). Both are "try again later" for the sender: the app logs any `ok:false`, commits nothing and resends at its next interval (unsent days stay inside its 21-day window).
+
+The script plans every tab, checks every cap, and only then writes:
+
+- A refusal on the **raw rows** (or on the member caps) refuses the whole request: nothing is written, not even the device registration.
+- A refusal on the **limit rows** or on the **team rows** (`부서`, `팀이름`) does not refuse the request. The usage rows, the person row and the device row are written, the refused part is dropped, and the response is `ok:true`. A dropped limit list shows as `accepted.limits: 0` and adds its entries to `dropped`. The app commits the limits as sent; it sends each account again when the account's next reading is newer, so a dropped limit is replaced by the next reading. A dropped team list leaves the team's 부서 row missing until a later report (the raw rows still carry the team ID).
+- Hourly caps are charged per member (a registered member is never blocked by another member's reports). The shared hourly pool is charged only for members first seen in the current clock hour, so a flood of fake members cannot use up what registered members need.
 
 ## App obligations (not checked by the script)
 
