@@ -124,15 +124,18 @@ final class BinaryLocatorTests: XCTestCase {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("ptb-bin-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
+        // Windows decides "executable" by the extension (WindowsPathTests uses `.cmd` for the same reason).
         #if os(Windows)
-        // Windows decides "executable" by the file's content and extension, so a script written by a test is not one.
-        try XCTSkipIf(true, "an executable file cannot be faked with plain bytes on Windows")
-        #endif
+        let tool = dir.appendingPathComponent("ptb-late-tool.cmd").path
+        let body = "@echo off\r\n"
+        #else
         let tool = dir.appendingPathComponent("ptb-late-tool").path
+        let body = "#!/bin/sh\n"
+        #endif
         let spawns = Counter()
         withFakes(shell: { _ in spawns.n += 1; return nil }) {
             XCTAssertNil(BinaryLocator.resolve("ptb-late-tool", staticPaths: [tool]))
-            FileManager.default.createFile(atPath: tool, contents: Data("#!/bin/sh\n".utf8),
+            FileManager.default.createFile(atPath: tool, contents: Data(body.utf8),
                                            attributes: [.posixPermissions: 0o755])
             XCTAssertEqual(BinaryLocator.resolve("ptb-late-tool", staticPaths: [tool]), tool)
             XCTAssertEqual(spawns.n, 1, "installing into a static path must not cost another shell")
