@@ -179,6 +179,7 @@ function onOpen(e) {
     .addItem("샘플 데이터 지우기", "clearSampleData")
     .addItem("멤버 ID 기록 지우기", "purgeMemberPrompt")
     .addItem("팀 ID 기록 지우기", "purgeTeamPrompt")
+    .addItem("이 시각 이후 처음 본 멤버 지우기", "purgeRecentMembersPrompt")
     .addItem("Enterprise API 키 넣기", "setEnterpriseKey")
     .addItem("Enterprise API 키 지우기", "clearEnterpriseKey")
     .addToUi();
@@ -191,16 +192,28 @@ function isSampleRow(spec, row) {
   });
 }
 
-// Reads the tab, drops the rows where drop(row) is true and writes the rest back in order. Returns how many
-// rows went.
+// Deletes the rows where drop(row) is true, each run of adjacent matches with one deleteRows call, bottom-up
+// so the indexes above stay valid. Whole rows go, so a column the owner added to the right (a note) moves
+// with its row, and nothing else on the tab is rewritten: a timeout half-way leaves only whole rows.
+// Returns how many rows went.
 function removeRowsWhere(sheet, width, drop) {
   var rows = sheetRows(sheet, width);
-  var kept = rows.filter(function (r) { return !drop(r); });
-  if (kept.length === rows.length) return 0;
-  // Kept rows first, then only the leftover tail is cleared: the body is never empty in between.
-  if (kept.length) sheet.getRange(2, 1, kept.length, width).setValues(asTextRows(kept));
-  sheet.getRange(kept.length + 2, 1, rows.length - kept.length, width).clearContent();
-  return rows.length - kept.length;
+  var runs = [];
+  for (var i = 0; i < rows.length; i++) {
+    if (!drop(rows[i])) continue;
+    var last = runs.length ? runs[runs.length - 1] : null;
+    if (last && last.start + last.count === i) last.count++;
+    else runs.push({ start: i, count: 1 });
+  }
+  var removed = 0;
+  for (var k = runs.length - 1; k >= 0; k--) {
+    var run = runs[k];
+    // Sheets refuses to delete every non-frozen row of a tab: clear a run that covers the whole grid.
+    if (run.count >= sheet.getMaxRows() - 1) sheet.getRange(run.start + 2, 1, run.count, width).clearContent();
+    else sheet.deleteRows(run.start + 2, run.count);
+    removed += run.count;
+  }
+  return removed;
 }
 
 // Drops the sample rows of every tab. Real rows keep their order.
@@ -219,20 +232,33 @@ var PURGE_COLUMNS = {
     [TAB_TEAMLABELS, COLS_TEAMLABELS, 1]]
 };
 
-// Removes every row of one member ID (kind "member") or team ID (kind "team") from the data tabs and returns
-// { tab: rows removed } for the tabs that lost rows, or null when the ID does not have the right shape.
-// Call inside the script lock. Removing a member's 기기 row lets that member register again.
-function purgeById(ss, kind, id) {
-  var shaped = kind === "member" ? UUID_RE.test(id) : TEAM_RE.test(id);
-  if (!shaped) return null;
+// Removes every row of the given member IDs (kind "member") or team IDs (kind "team") from the data tabs
+// in one pass per tab and returns { tab: rows removed } for the tabs that lost rows. ids is a Set. Call
+// inside the script lock. Removing a member's 기기 row lets that member register again.
+function purgeByIds(ss, kind, ids) {
   var out = {};
   PURGE_COLUMNS[kind].forEach(function (t) {
     var sheet = ss.getSheetByName(t[0]);
     if (!sheet) return;
-    var n = removeRowsWhere(sheet, t[1].length, function (r) { return r[t[2] - 1] === id; });
+    var n = removeRowsWhere(sheet, t[1].length, function (r) { return ids.has(r[t[2] - 1]); });
     if (n > 0) out[t[0]] = n;
   });
   return out;
+}
+
+// One ID; null when it does not have the right shape.
+function purgeById(ss, kind, id) {
+  var shaped = kind === "member" ? UUID_RE.test(id) : TEAM_RE.test(id);
+  if (!shaped) return null;
+  return purgeByIds(ss, kind, new Set([id]));
+}
+
+// The member IDs in 기기 first seen after sinceMs (a flood of fake members arrives within a few hours).
+function membersFirstSeenAfter(ss, sinceMs) {
+  var sheet = ss.getSheetByName(TAB_DEVICES);
+  if (!sheet) return [];
+  return sheetRows(sheet, 3).filter(function (r) { return cellToMs(r[2]) > sinceMs; })
+    .map(function (r) { return r[0]; });
 }
 
 function purgePrompt(kind, label) {
@@ -252,6 +278,28 @@ function purgePrompt(kind, label) {
 
 function purgeMemberPrompt() { purgePrompt("member", "멤버 ID"); }
 function purgeTeamPrompt() { purgePrompt("team", "팀 ID"); }
+
+// Bulk purge for a member flood: every member first seen after a time, in one step. It shows how many members
+// it found and the first/last seen times, and deletes only after the owner confirms.
+function purgeRecentMembersPrompt() {
+  var ui = SpreadsheetApp.getUi();
+  var res = ui.prompt("이 시각 이후 처음 본 멤버 기록 지우기",
+    "이 시각 이후 처음 본 멤버를 모두 지웁니다. 시각을 2026-11-24T15:00:00+09:00 처럼 적으세요(시간대까지 적어야 정확합니다). 먼저 몇 명인지 보여 주고 확인을 받습니다.",
+    ui.ButtonSet.OK_CANCEL);
+  if (res.getSelectedButton() !== ui.Button.OK) return;
+  var sinceMs = Date.parse(String(res.getResponseText()).trim());
+  if (isNaN(sinceMs)) { ui.alert("시각을 읽을 수 없어 아무것도 지우지 않았습니다."); return; }
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var found = membersFirstSeenAfter(ss, sinceMs);
+  if (!found.length) { ui.alert("그 시각 이후 처음 본 멤버가 없습니다."); return; }
+  var sure = ui.alert(found.length + "명의 멤버 기록을 지웁니다. 원본, 한도, 사람, 팀이름, 기기 탭에서 지워지고 되돌릴 수 없습니다. 계속할까요?",
+    ui.ButtonSet.OK_CANCEL);
+  if (sure !== ui.Button.OK) return;
+  var removed = withScriptLock(function () { return purgeByIds(ss, "member", new Set(found)); });
+  refreshAll();
+  var lines = Object.keys(removed).map(function (tab) { return tab + ": " + removed[tab] + "행"; });
+  ui.alert("지웠습니다. (" + found.length + "명)\n" + lines.join("\n"));
+}
 
 function appendRows(sheet, width, rows) {
   if (!rows.length) return;
@@ -293,7 +341,7 @@ function seedSampleData() {
         var id = sampleMemberId(idx);
         var n = idx;
         people.push([id, nick, nowIso, "", "2.5.0", n % 3 === 2 ? "windows" : "mac"]);
-        devices.push([id, sha256Hex("sample-secret-" + n), nowIso, nowIso]);
+        devices.push([id, sha256Hex("sample-secret-" + n), nowIso, nowIso, 0, 0, 0, 0]);
         if (pi === 0) labels.push([dept.team, id, dept.label, nowIso]);
         var level = 1 + ((n * 7) % 5);   // 1..5: a spread of heavy and light users
         for (var d = firstDay; d <= todayNum; d++) {

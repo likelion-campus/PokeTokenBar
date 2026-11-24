@@ -32,6 +32,18 @@ function ensureSheets(ss) {
     }
     if (spec.hidden) sheet.hideSheet();
   });
+  ensureDeviceColumns(ss.getSheetByName(TAB_DEVICES));
+}
+
+// A 기기 tab made before the per-member hourly counters has 4 columns (setup trimmed it); widen it and
+// add the headers. One cell read when nothing is missing.
+function ensureDeviceColumns(sheet) {
+  var need = COLS_DEVICES.length;
+  var max = sheet.getMaxColumns();
+  if (max < need) sheet.insertColumnsAfter(max, need - max);
+  if (sheet.getRange(1, need).getValues()[0][0] !== COLS_DEVICES[need - 1]) {
+    sheet.getRange(1, 1, 1, need).setValues([COLS_DEVICES]);
+  }
 }
 
 // A Date cell (Sheets converts "2026-11-16" text) or a string becomes "yyyy-MM-dd"; anything else "".
@@ -172,15 +184,23 @@ function completeRows(sheet, rows, indexes, readWidth, width) {
 }
 
 // Writes the changed rows and appends the new ones. dirty: indexes of rows whose built value differs
-// from what was read. spans ([[firstCol, count], ...], 1-based) limits an in-place rewrite to the
-// columns the script owns, so an owner's edit to another column of the row is never overwritten.
+// from what was read. Each run of adjacent changed rows is one setValues call per span, so a report
+// holds the script lock for as many calls as it has runs, not rows. spans ([[firstCol, count], ...],
+// 1-based) limits an in-place rewrite to the columns the script owns, so an owner's edit to another
+// column of the row is never overwritten.
 function flushRows(sheet, width, rows, existingCount, dirty, spans) {
-  dirty.forEach(function (i) {
+  var sorted = Array.from(dirty).sort(function (a, b) { return a - b; });
+  var k = 0;
+  while (k < sorted.length) {
+    var end = k;
+    while (end + 1 < sorted.length && sorted[end + 1] === sorted[end] + 1) end++;
     (spans || [[1, width]]).forEach(function (span) {
-      var part = rows[i].slice(span[0] - 1, span[0] - 1 + span[1]);
-      sheet.getRange(i + 2, span[0], 1, span[1]).setValues(asTextRows([part]));
+      var part = [];
+      for (var j = k; j <= end; j++) part.push(rows[sorted[j]].slice(span[0] - 1, span[0] - 1 + span[1]));
+      sheet.getRange(sorted[k] + 2, span[0], part.length, span[1]).setValues(asTextRows(part));
     });
-  });
+    k = end + 1;
+  }
   if (rows.length > existingCount) {
     var added = rows.slice(existingCount);
     ensureRows(sheet, existingCount + 1 + added.length);
@@ -188,16 +208,16 @@ function flushRows(sheet, width, rows, existingCount, dirty, spans) {
   }
 }
 
-// items: [{ key, build(oldRow | null) -> newRow }]. Existing rows are rewritten in place (one
-// setValues per row, skipped when build returns an equal row), new rows appended in one block. A
-// repeated key within items updates the same row.
+// items: [{ key, build(oldRow | null) -> newRow }]. planRows reads and builds without writing; applyPlan
+// writes. Existing rows are rewritten in place (skipped when build returns an equal row), new rows
+// appended in one block. A repeated key within items updates the same row.
 //   opts.readWidth: read only the first N columns (the key columns). The rows the items hit are then
 //     completed to the full width (completeRows) so they can be compared. Defaults to width.
 //   opts.ignoreCols: 0-based columns left out of the "unchanged" comparison.
+//   opts.normalizeOld(row) -> row: the old row as it is compared (Sheets may have turned text into a Date or number).
 //   opts.spans: see flushRows.
-//   opts.refuse(newCount, existingCount): a reason string stops the call before anything is written.
-// Returns { added: new rows appended, refused: reason or null }.
-function upsertRows(sheet, width, keyOfRow, items, opts) {
+// Returns { sheet, width, rows, existingCount, dirty, spans, added: new rows to append }.
+function planRows(sheet, width, keyOfRow, items, opts) {
   var o = opts || {};
   var readWidth = o.readWidth || width;
   var rows = sheetRows(sheet, readWidth);
@@ -217,14 +237,24 @@ function upsertRows(sheet, width, keyOfRow, items, opts) {
       index.set(item.key, rows.length - 1);
     } else {
       var built = item.build(rows[i]);
-      if (i < existingCount && !rowsEqual(built, rows[i], o.ignoreCols)) dirty.add(i);
+      var oldRow = o.normalizeOld ? o.normalizeOld(rows[i]) : rows[i];
+      if (i < existingCount && !rowsEqual(built, oldRow, o.ignoreCols)) dirty.add(i);
       rows[i] = built;
     }
   });
-  var refused = o.refuse ? o.refuse(rows.length - existingCount, existingCount) : null;
-  if (refused) return { added: 0, refused: refused };
-  flushRows(sheet, width, rows, existingCount, dirty, o.spans);
-  return { added: rows.length - existingCount, refused: null };
+  return { sheet: sheet, width: width, rows: rows, existingCount: existingCount, dirty: dirty, spans: o.spans || null,
+    added: rows.length - existingCount };
+}
+
+function applyPlan(plan) {
+  flushRows(plan.sheet, plan.width, plan.rows, plan.existingCount, plan.dirty, plan.spans);
+}
+
+// Plan and write in one call, for tabs with no cap (the Enterprise tabs).
+function upsertRows(sheet, width, keyOfRow, items, opts) {
+  var plan = planRows(sheet, width, keyOfRow, items, opts);
+  applyPlan(plan);
+  return { added: plan.added };
 }
 
 function sha256Hex(text) {
@@ -232,34 +262,50 @@ function sha256Hex(text) {
   return bytes.map(function (b) { return ("0" + (b & 0xff).toString(16)).slice(-2); }).join("");
 }
 
-// Returns "ok" when the member may write (first sight or a matching secret), "device_mismatch" for a
-// known member with another secret, and "sheet_full" / "rate_limited" when a first sight would pass the
-// member caps. budget counts what this clock hour already took in (see readBudget).
-function checkDevice(sheet, member, nowMs, budget) {
+// Looks the member up in 기기 without writing. status is "ok" (first sight or a matching secret),
+// "device_mismatch" for a known member with another secret, or "sheet_full" / "rate_limited" when a first
+// sight would pass the member caps. For "ok" it also carries what writeReport needs: the row to write
+// (rowNum), whether the member is new or first seen in this clock hour (firstThisHour: such members are
+// also charged against the shared hourly pool), and what the member already took in this hour. budget
+// counts what this clock hour already took in (see readBudget).
+function lookupDevice(sheet, member, nowMs, budget) {
   var hash = sha256Hex(member.secret);
+  var hour = Math.floor(nowMs / 3600000);
   var rows = sheetRows(sheet, COLS_DEVICES.length);
   for (var i = 0; i < rows.length; i++) {
-    if (rows[i][0] === member.id) {
-      if (rows[i][1] !== hash) return "device_mismatch";
-      sheet.getRange(i + 2, 4).setValue(msToIso(nowMs));
-      return "ok";
-    }
+    if (rows[i][0] !== member.id) continue;
+    if (rows[i][1] !== hash) return { status: "device_mismatch" };
+    var same = Number(rows[i][4]) === hour;
+    return { status: "ok", hash: hash, rowNum: i + 2, isNew: false,
+      firstThisHour: Math.floor(cellToMs(rows[i][2]) / 3600000) === hour,
+      raw: same ? Number(rows[i][5]) || 0 : 0, limits: same ? Number(rows[i][6]) || 0 : 0,
+      teams: same ? Number(rows[i][7]) || 0 : 0 };
   }
-  if (rows.length >= MAX_MEMBERS_TOTAL) return "sheet_full";
-  if (budget.members >= MAX_NEW_MEMBERS_PER_HOUR) return "rate_limited";
-  ensureRows(sheet, rows.length + 2);
-  sheet.getRange(rows.length + 2, 1, 1, 4).setValues([[member.id, hash, msToIso(nowMs), msToIso(nowMs)]]);
-  budget.members++;
-  return "ok";
+  if (rows.length >= MAX_MEMBERS_TOTAL) return { status: "sheet_full" };
+  if (budget.members >= MAX_NEW_MEMBERS_PER_HOUR) return { status: "rate_limited" };
+  return { status: "ok", hash: hash, rowNum: rows.length + 2, isNew: true, firstThisHour: true, raw: 0, limits: 0, teams: 0 };
 }
 
-// What this clock hour has taken in so far, kept in the document properties (the script lock is held, so
-// there is no race). A new hour starts from zero.
+// Registers a new member or stamps a known one, with the hour's counters after this report.
+function writeDevice(sheet, dev, member, nowMs, hour, budget) {
+  var now = msToIso(nowMs);
+  if (dev.isNew) {
+    ensureRows(sheet, dev.rowNum);
+    sheet.getRange(dev.rowNum, 1, 1, COLS_DEVICES.length).setValues([[member.id, dev.hash, now, now, hour, dev.raw, dev.limits, dev.teams]]);
+    budget.members++;
+  } else {
+    sheet.getRange(dev.rowNum, 4, 1, COLS_DEVICES.length - 3).setValues([[now, hour, dev.raw, dev.limits, dev.teams]]);
+  }
+}
+
+// What this clock hour has taken in so far from members first seen in it, kept in the document properties
+// (the script lock is held, so there is no race). A new hour starts from zero.
 function readBudget(nowMs) {
   var hour = Math.floor(nowMs / 3600000);
   var b = null;
   try { b = JSON.parse(PropertiesService.getDocumentProperties().getProperty(INTAKE_PROP)); } catch (e) { b = null; }
-  if (!b || b.hour !== hour) b = { hour: hour, members: 0, raw: 0, limits: 0 };
+  if (!b || b.hour !== hour) b = { hour: hour, members: 0, raw: 0, limits: 0, teams: 0 };
+  if (typeof b.teams !== "number") b.teams = 0;
   return b;
 }
 
@@ -267,14 +313,14 @@ function saveBudget(budget) {
   PropertiesService.getDocumentProperties().setProperty(INTAKE_PROP, JSON.stringify(budget));
 }
 
-// The refuse callback for one tab: over the total cap is "sheet_full", over this hour's cap "rate_limited".
-function refuseOver(hourlyLeft, total) {
-  return function (newCount, existingCount) {
-    if (newCount === 0) return null;
-    if (existingCount + newCount > total) return "sheet_full";
-    if (newCount > hourlyLeft) return "rate_limited";
-    return null;
-  };
+// The reason new rows are refused, or null. Over the tab's total is "sheet_full"; over what the member
+// may still add this hour, or over the shared pool left (Infinity when the member is not charged to it),
+// is "rate_limited".
+function refuseNew(added, existing, total, memberLeft, poolLeft) {
+  if (added === 0) return null;
+  if (existing + added > total) return "sheet_full";
+  if (added > memberLeft || added > poolLeft) return "rate_limited";
+  return null;
 }
 
 // The index k in 0..count-1 whose reset time (resetsAtOf(k), epoch ms) is nearest to resetsMs and within
@@ -292,7 +338,8 @@ function nearestWindow(count, resetsAtOf, resetsMs) {
 // A limit row is identified by memberId|account|tool plus its weekly window, so a poster can only touch
 // rows carrying its own (device-checked) memberId. The same window is the existing row whose reset time
 // lies within 24 hours of the incoming one: windows are 7 days apart and the source jitters by seconds.
-function upsertLimits(sheet, member, limits, budget) {
+// Reads and builds without writing, like planRows.
+function planLimits(sheet, member, limits) {
   var width = COLS_LIMITS.length;
   var rows = sheetRows(sheet, width);
   var byIdentity = new Map();   // memberId|account|tool -> [row index]
@@ -329,14 +376,27 @@ function upsertLimits(sheet, member, limits, budget) {
     if (match < existingCount && !rowsEqual(row, old)) dirty.add(match);
     rows[match] = row;
   });
-  var refused = refuseOver(MAX_NEW_LIMIT_ROWS_PER_HOUR - budget.limits, MAX_LIMIT_ROWS_TOTAL)(rows.length - existingCount, existingCount);
-  if (refused) return { added: 0, refused: refused };
-  flushRows(sheet, width, rows, existingCount, dirty, null);
-  return { added: rows.length - existingCount, refused: null };
+  return { sheet: sheet, width: width, rows: rows, existingCount: existingCount, dirty: dirty, spans: null,
+    added: rows.length - existingCount };
 }
 
-function writeReport(ss, p, nowMs, tz, budget) {
+// Sheets may have turned a stored date text into a Date and a version like "1.2" into a number; compare
+// the old row as the text it was written as, so an unchanged row is really skipped.
+function normalizeRawRow(tz) {
+  return function (r) {
+    var c = r.slice();
+    c[2] = cellToDateString(r[2], tz);
+    if (typeof c[10] === "number") c[10] = String(c[10]);
+    return c;
+  };
+}
+
+// Plans every tab, evaluates every refusal, then writes. A refused raw list refuses the whole report
+// (nothing is written, the sender retries). A refused limit list or team list is dropped and the rest
+// is accepted: usage must land even while 한도 is full or the member is over its limit share.
+function writeReport(ss, p, nowMs, tz, budget, dev) {
   var now = msToIso(nowMs);
+  var hour = Math.floor(nowMs / 3600000);
   var member = p.member;
 
   var rawItems = [];
@@ -354,23 +414,26 @@ function writeReport(ss, p, nowMs, tz, budget) {
     if (!teamLabelFor.has(d.team)) teamLabelFor.set(d.team, "");
     if (d.teamLabel && !teamLabelFor.get(d.team)) teamLabelFor.set(d.team, d.teamLabel);
   });
-  p.limits.forEach(function (l) { if (!teamLabelFor.has(l.team)) teamLabelFor.set(l.team, ""); });
+
+  // The pool is charged only for a member first seen in this hour.
+  function poolLeft(used, cap) { return dev.firstThisHour ? cap - used : Infinity; }
 
   // Only the key columns (A:D) are read for the whole tab; the rows a report hits are completed so an
   // unchanged resend writes nothing (받은시각, the last column, does not count as a change).
-  var raw = upsertRows(ss.getSheetByName(TAB_RAW), COLS_RAW.length, function (r) {
+  var rawPlan = planRows(ss.getSheetByName(TAB_RAW), COLS_RAW.length, function (r) {
     return r[0] + "|" + cellToDateString(r[2], tz) + "|" + r[3];
-  }, rawItems, { readWidth: 4, ignoreCols: [COLS_RAW.length - 1],
-    refuse: refuseOver(MAX_NEW_RAW_ROWS_PER_HOUR - budget.raw, MAX_RAW_ROWS_TOTAL) });
-  if (raw.refused) return { ok: false, error: raw.refused };
-  budget.raw += raw.added;
+  }, rawItems, { readWidth: 4, ignoreCols: [COLS_RAW.length - 1], normalizeOld: normalizeRawRow(tz) });
+  var rawRefused = refuseNew(rawPlan.added, rawPlan.existingCount, MAX_RAW_ROWS_TOTAL,
+    MAX_MEMBER_RAW_ROWS_PER_HOUR - dev.raw, poolLeft(budget.raw, MAX_NEW_RAW_ROWS_PER_HOUR));
+  if (rawRefused) return { ok: false, error: rawRefused };
 
-  var lim = upsertLimits(ss.getSheetByName(TAB_LIMITS), member, p.limits, budget);
-  if (lim.refused) return { ok: false, error: lim.refused };
-  budget.limits += lim.added;
+  var limPlan = planLimits(ss.getSheetByName(TAB_LIMITS), member, p.limits);
+  var limitsOk = !refuseNew(limPlan.added, limPlan.existingCount, MAX_LIMIT_ROWS_TOTAL,
+    MAX_MEMBER_LIMIT_ROWS_PER_HOUR - dev.limits, poolLeft(budget.limits, MAX_NEW_LIMIT_ROWS_PER_HOUR));
+  if (limitsOk) p.limits.forEach(function (l) { if (!teamLabelFor.has(l.team)) teamLabelFor.set(l.team, ""); });
 
   // 합칠대상 (D) belongs to the owner: a report writes B:C and E:F only.
-  upsertRows(ss.getSheetByName(TAB_PEOPLE), COLS_PEOPLE.length, function (r) { return r[0]; }, [{
+  var peoplePlan = planRows(ss.getSheetByName(TAB_PEOPLE), COLS_PEOPLE.length, function (r) { return r[0]; }, [{
     key: member.id,
     build: function (old) {
       return [member.id, member.nickname, now, old === null ? "" : old[3], member.appVersion, member.platform];
@@ -384,7 +447,7 @@ function writeReport(ss, p, nowMs, tz, budget) {
       build: function (old) { return old === null ? [team, "", label, localDateString(nowMs, tz)] : old; }
     });
   });
-  upsertRows(ss.getSheetByName(TAB_DEPTS), COLS_DEPTS.length, function (r) { return r[0]; }, deptItems);
+  var deptPlan = planRows(ss.getSheetByName(TAB_DEPTS), COLS_DEPTS.length, function (r) { return r[0]; }, deptItems);
 
   var labelItems = [];
   var seen = new Set();
@@ -396,9 +459,34 @@ function writeReport(ss, p, nowMs, tz, budget) {
       build: function () { return [d.team, member.id, d.teamLabel, now]; }
     });
   });
-  upsertRows(ss.getSheetByName(TAB_TEAMLABELS), COLS_TEAMLABELS.length, function (r) { return r[0] + "|" + r[1]; }, labelItems);
+  var labelPlan = planRows(ss.getSheetByName(TAB_TEAMLABELS), COLS_TEAMLABELS.length,
+    function (r) { return r[0] + "|" + r[1]; }, labelItems);
+  var teamAdded = deptPlan.added + labelPlan.added;
+  var teamsOk = !(refuseNew(deptPlan.added, deptPlan.existingCount, MAX_DEPTS_TOTAL, Infinity, Infinity) ||
+    refuseNew(labelPlan.added, labelPlan.existingCount, MAX_TEAMLABELS_TOTAL, Infinity, Infinity) ||
+    refuseNew(teamAdded, 0, Infinity, MAX_MEMBER_TEAM_ROWS_PER_HOUR - dev.teams, poolLeft(budget.teams, MAX_NEW_TEAM_ROWS_PER_HOUR)));
 
-  return { ok: true, accepted: { days: rawItems.length, limits: p.limits.length }, dropped: p.dropped };
+  // Nothing is refused from here on: write.
+  var limAdded = limitsOk ? limPlan.added : 0;
+  var teamWritten = teamsOk ? teamAdded : 0;
+  dev.raw += rawPlan.added;
+  dev.limits += limAdded;
+  dev.teams += teamWritten;
+  if (dev.firstThisHour) {
+    budget.raw += rawPlan.added;
+    budget.limits += limAdded;
+    budget.teams += teamWritten;
+  }
+  writeDevice(ss.getSheetByName(TAB_DEVICES), dev, member, nowMs, hour, budget);
+  applyPlan(rawPlan);
+  if (limitsOk) applyPlan(limPlan);
+  applyPlan(peoplePlan);
+  if (teamsOk) {
+    applyPlan(deptPlan);
+    applyPlan(labelPlan);
+  }
+  return { ok: true, accepted: { days: rawItems.length, limits: limitsOk ? p.limits.length : 0 },
+    dropped: p.dropped + (limitsOk ? 0 : p.limits.length) };
 }
 
 function handleReport(ss, text, nowMs, tz) {
@@ -410,12 +498,16 @@ function handleReport(ss, text, nowMs, tz) {
   try {
     ensureSheets(ss);
     var budget = readBudget(nowMs);
+    var before = JSON.stringify(budget);
     try {
-      var device = checkDevice(ss.getSheetByName(TAB_DEVICES), p.member, nowMs, budget);
-      if (device !== "ok") return { ok: false, error: device };
-      return writeReport(ss, p, nowMs, tz, budget);
+      var dev = lookupDevice(ss.getSheetByName(TAB_DEVICES), p.member, nowMs, budget);
+      if (dev.status !== "ok") return { ok: false, error: dev.status };
+      return writeReport(ss, p, nowMs, tz, budget, dev);
     } finally {
-      saveBudget(budget);
+      // Only a changed budget is written, and a failed write must not fail an otherwise good request.
+      if (JSON.stringify(budget) !== before) {
+        try { saveBudget(budget); } catch (e) { console.error("saveBudget failed: " + (e && e.message)); }
+      }
     }
   } finally {
     lock.releaseLock();

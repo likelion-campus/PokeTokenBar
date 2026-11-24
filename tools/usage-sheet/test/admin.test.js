@@ -168,7 +168,7 @@ test("refreshAll releases every lock, even when rendering throws", () => {
   assert.equal(S.fakes.lockStats.released, S.fakes.lockStats.acquired);
 });
 
-test("onOpen builds the menu with seven items in order", () => {
+test("onOpen builds the menu with eight items in order", () => {
   const { S } = fresh();
   S.onOpen({});
   assert.equal(S.fakes.menus.length, 1);
@@ -176,6 +176,7 @@ test("onOpen builds the menu with seven items in order", () => {
   assert.deepEqual(plain(S.fakes.menus[0].items), [
     ["지금 새로 고침", "refreshAll"], ["샘플 데이터 넣기", "seedSampleData"], ["샘플 데이터 지우기", "clearSampleData"],
     ["멤버 ID 기록 지우기", "purgeMemberPrompt"], ["팀 ID 기록 지우기", "purgeTeamPrompt"],
+    ["이 시각 이후 처음 본 멤버 지우기", "purgeRecentMembersPrompt"],
     ["Enterprise API 키 넣기", "setEnterpriseKey"], ["Enterprise API 키 지우기", "clearEnterpriseKey"],
   ]);
 });
@@ -235,7 +236,7 @@ test("setup keeps a default tab that has data", () => {
   assert.equal(ss.getSheetByName("시트1") !== null, true);
 });
 
-test("removeSampleRows writes the kept rows first and only clears the tail", () => {
+test("removeSampleRows deletes the sample rows with deleteRows and rewrites nothing", () => {
   const { S, ss } = fresh();
   S.setup();
   S.seedSampleData();
@@ -245,10 +246,7 @@ test("removeSampleRows writes the kept rows first and only clears the tail", () 
   const total = people._rows.length - 1;
   people._ops.length = 0;
   S.removeSampleRows(ss);
-  assert.equal(people._ops[0][0], "set");
-  assert.equal(people._ops[0][1], 2);
-  assert.deepEqual(people._ops[1], ["clear", 3, total - 1]);
-  assert.equal(people._ops.length, 2);
+  assert.deepEqual(people._ops, [["delete", 3, total - 1]]);
   assert.deepEqual(body(ss, "사람").map((r) => r[0]), [MEMBER]);
 });
 
@@ -414,4 +412,65 @@ test("the purge menu entry asks, purges under the lock and reports the counts", 
   const n = S.fakes.ui.alerts.length;
   S.purgeMemberPrompt();
   assert.equal(S.fakes.ui.alerts.length, n);
+});
+
+// Item 4 of the PR review: a purge deletes whole rows, so the owner's own columns stay with their row.
+test("purge keeps an owner's note column aligned: it moves with its row and no whole-tab rewrite happens", () => {
+  const { S, ss } = fresh();
+  reportFor(S, MEMBER, "t_keep", "남김");
+  reportFor(S, OTHER, "t_other", "지움");
+  const people = ss.getSheetByName("사람");
+  const idx = people._rows.findIndex((r) => r[0] === OTHER);
+  const keep = people._rows.findIndex((r) => r[0] === MEMBER);
+  people._rows[idx][6] = "지운 사람의 메모";
+  people._rows[keep][6] = "남긴 사람의 메모";
+  people._ops.length = 0;
+  S.purgeById(ss, "member", OTHER);
+  assert.deepEqual(body(ss, "사람").map((r) => [r[0], r[6]]), [[MEMBER, "남긴 사람의 메모"]]);
+  assert.equal(people._ops.some((o) => o[0] === "set" || o[0] === "clear"), false);
+});
+
+test("purge deletes separated runs of rows bottom-up, one call per run", () => {
+  const { S, ss } = fresh();
+  S.ensureSheets(ss);
+  const raw = ss.getSheetByName("원본");
+  const row = (id) => [id, "n", "2026-11-16", "claude_code", "t_x1", 1, 1, 1, 1, 4, "2.5.0", "mac", "x"];
+  [OTHER, OTHER, MEMBER, OTHER, OTHER, OTHER, MEMBER].forEach((id) => raw._rows.push(row(id)));
+  raw._ops.length = 0;
+  assert.equal(S.removeRowsWhere(raw, S.COLS_RAW.length, (r) => r[0] === OTHER), 5);
+  assert.deepEqual(raw._ops, [["delete", 5, 3], ["delete", 2, 2]]);
+  assert.deepEqual(body(ss, "원본").map((r) => r[0]), [MEMBER, MEMBER]);
+});
+
+test("a purge that matches every row of a full grid clears instead of deleting (Sheets refuses to delete all rows)", () => {
+  const { S, ss } = fresh();
+  reportFor(S, OTHER, "t_other", "지움");
+  const dev = ss.getSheetByName("기기");
+  dev._maxRows = dev._rows.length;   // the grid holds exactly the header and the member row
+  assert.doesNotThrow(() => S.purgeById(ss, "member", OTHER));
+  assert.equal(body(ss, "기기").length, 0);
+});
+
+test("the bulk purge removes the members first seen after a time, after confirming, and keeps the earlier ones", () => {
+  const { S, ss } = fresh();
+  reportFor(S, MEMBER, "t_keep", "남김");
+  const later = NOW + 5 * 3600000;
+  const b = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "fixtures", "valid-basic.json"), "utf8")).body;
+  b.member.id = OTHER; b.member.nickname = "가짜";
+  assert.equal(plain(S.handleReport(ss, JSON.stringify(b), later, TZ)).ok, true);
+  assert.deepEqual(plain(S.membersFirstSeenAfter(ss, NOW + 3600000)), [OTHER]);
+  S.fakes.ui.next = { button: "OK", text: new Date(NOW + 3600000).toISOString() };
+  S.fakes.ui.nextAlertButton = "CANCEL";
+  S.purgeRecentMembersPrompt();
+  assert.equal(body(ss, "기기").length, 2, "cancel deletes nothing");
+  assert.match(S.fakes.ui.alerts.at(-1), /1명/);
+  S.fakes.ui.nextAlertButton = "OK";
+  S.purgeRecentMembersPrompt();
+  assert.deepEqual(body(ss, "기기").map((r) => r[0]), [MEMBER]);
+  assert.equal(JSON.stringify(body(ss, "원본")).includes(OTHER), false);
+  assert.equal(JSON.stringify(body(ss, "원본")).includes(MEMBER), true);
+  S.fakes.ui.next = { button: "OK", text: "not a time" };
+  S.purgeRecentMembersPrompt();
+  assert.match(S.fakes.ui.alerts.at(-1), /읽을 수 없어/);
+  assert.equal(body(ss, "기기").length, 1);
 });

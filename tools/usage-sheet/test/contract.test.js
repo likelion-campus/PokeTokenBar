@@ -74,14 +74,14 @@ test("bad json", () => {
   assert.equal(S.parsePayload("null", NOW, TZ).error, "bad_json");
 });
 
-test("63 days is too_many_rows; 62 is fine", () => {
+test("22 days is too_many_rows; 21 (the most the app sends) is fine", () => {
   const b = validBody();
   const mk = (n) => Array.from({ length: n }, (_, i) => ({
     date: S.localDateString(NOW - i * 86400000, TZ), team: "t_ab12cd34ef56", tools: [],
   }));
-  b.days = mk(63);
+  b.days = mk(22);
   assert.equal(parse(b).error, "too_many_rows");
-  b.days = mk(62);
+  b.days = mk(21);
   assert.equal(parse(b).ok, true);
 });
 
