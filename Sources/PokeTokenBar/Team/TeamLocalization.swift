@@ -470,8 +470,7 @@ extension L {
     var plazaShortcutChat: String { "한마디" }
     var plazaShortcutEmotes: String { "말풍선" }
     var plazaShortcutZoom: String { "확대·축소" }
-    var plazaShortcutFirework: String { "불꽃놀이" }
-    var plazaShortcutDance: String { "춤" }
+    var plazaShortcutDanceFirework: String { "춤 · 불꽃" }
     var plazaShortcutPray: String { "기도(알)" }
     /// 오늘의 기도 부화를 이미 썼을 때 알의 안내 줄 앞에 붙는 말. 기도 자체는 그대로 된다.
     var plazaPrayerHatchUsedHint: String { "오늘은 기도로 이미 부화시켰어요 · 내일 다시 기도로 부화할 수 있어요" }

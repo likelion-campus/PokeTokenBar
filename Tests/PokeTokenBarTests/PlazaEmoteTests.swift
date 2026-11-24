@@ -108,7 +108,7 @@ final class PlazaEmoteTests: XCTestCase {
         XCTAssertEqual(pressed, [], "other keys, even with a '1' character, are not emotes")
     }
 
-    /// Z jumps, X greets and C tackles, also with Hangul input (the characters are "ㅋ", "ㅌ", "ㅊ"); not with
+    /// Z jumps, X greets, C tackles and B pulls, also with Hangul input (the characters are "ㅋ", "ㅌ", "ㅊ", "ㅠ"); not with
     /// Cmd/Ctrl/Opt or when held. J no longer jumps.
     func testZXCKeysWorkWithHangulInputOnly() async {
         let scene = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: map.spawn, zoom: 2, nickname: "나")
@@ -117,16 +117,17 @@ final class PlazaEmoteTests: XCTestCase {
         scene.onGreetKey = { pressed.append("greet") }
         scene.onTackleKey = { pressed.append("tackle") }
         scene.onGroupPhotoKey = { pressed.append("groupPhoto") }
-        for (code, hangul) in [(UInt16(6), "ㅋ"), (7, "ㅌ"), (8, "ㅊ"), (5, "ㅎ")] {
+        scene.onDragKey = { pressed.append("drag") }
+        for (code, hangul) in [(UInt16(6), "ㅋ"), (7, "ㅌ"), (8, "ㅊ"), (5, "ㅎ"), (11, "ㅠ")] {
             XCTAssertEqual(scene.handleKeyDown(keyCode: code, characters: hangul, isRepeat: false), .swallowed)
             scene.handleKeyDown(keyCode: code, characters: hangul, isRepeat: true)
             for mod: PlazaModifiers in [.command, .control, .option] {
                 scene.handleKeyDown(keyCode: code, characters: hangul, isRepeat: false, modifiers: mod)
             }
         }
-        XCTAssertEqual(pressed, ["jump", "greet", "tackle", "groupPhoto"])
+        XCTAssertEqual(pressed, ["jump", "greet", "tackle", "groupPhoto", "drag"])
         scene.handleKeyDown(keyCode: 38, characters: "j", isRepeat: false)
-        XCTAssertEqual(pressed, ["jump", "greet", "tackle", "groupPhoto"], "J is not a shortcut any more")
+        XCTAssertEqual(pressed, ["jump", "greet", "tackle", "groupPhoto", "drag"], "J is not a shortcut any more")
     }
 
     func testModifiedOrRepeatedEmoteKeysDoNotFire() async {
