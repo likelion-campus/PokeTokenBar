@@ -364,6 +364,26 @@ enum LocalUsageReader {
         return v.isRegularFile == true && v.isSymbolicLink != true
     }
 
+    /// 로그 파일을 읽기용으로 연다. 마지막 경로 요소가 심볼릭 링크면 열지 않는다(`O_NOFOLLOW`) —
+    /// `isPlainLogFile` 검사와 열기 사이에 파일이 링크로 바뀌어도(`y.jsonl -> /dev/zero`) 따라가지 않는다.
+    /// Windows 에는 `O_NOFOLLOW` 가 없어 일반 열기로 둔다(그쪽 링크는 열거 단계 검사가 거른다).
+    static func openLogHandle(_ url: URL) throws -> FileHandle {
+        #if os(Windows)
+        return try FileHandle(forReadingFrom: url)
+        #else
+        let fd = open(url.path, O_RDONLY | O_NOFOLLOW)
+        guard fd >= 0 else {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+        }
+        return FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+        #endif
+    }
+
+    /// 파일 하나에서 한 번에 읽는 최대 바이트. 정상 로그(활성 세션이 수백 MB)보다 훨씬 크고,
+    /// 끝나지 않는 파일이 메모리를 끝없이 채우는 것만 막는다. 초과분은 읽지 않는다
+    /// (증분 리더는 오프셋이 거기까지만 전진한다).
+    static let maxLogReadBytes = 2 * 1024 * 1024 * 1024
+
     /// `root` 하위(재귀)의 `.jsonl` 파일 중 `modifiedSince` 이후 수정된 것.
     static func jsonlFiles(in root: URL, modifiedSince: Date, allowJSON: Bool = false) -> [URL] {
         let fm = FileManager.default
@@ -486,10 +506,10 @@ enum LocalUsageReader {
     static func parseClaudeFile(_ url: URL, fromOffset: Int, fmt: DateFormatter)
         -> (entries: [Entry], newOffset: Int, costState: ClaudeCostState?)?
     {
-        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        guard let handle = try? openLogHandle(url) else { return nil }
         defer { try? handle.close() }
         guard (try? handle.seek(toOffset: UInt64(fromOffset))) != nil,
-              let data = try? handle.readToEnd() else { return nil }
+              let data = try? handle.read(upToCount: maxLogReadBytes) ?? Data() else { return nil }
         let parsed = parseClaudeData(data, fmt: fmt)
         let session = claudeSessionID(forTranscript: url)
         let entries = parsed.entries.map { entry in
@@ -867,19 +887,21 @@ enum LocalUsageReader {
     /// 대형 JSONL 을 파일 크기와 무관한 메모리로 순회한다. 완성된 한 줄만
     /// 소유하므로 피크는 파일 전체가 아니라 가장 긴 라인 + 청크 크기에 비례한다.
     private static func forEachCodexLine(in url: URL, body: (Data) -> Void) throws {
-        let handle = try FileHandle(forReadingFrom: url)
+        let handle = try openLogHandle(url)
         defer { try? handle.close() }
 
         let chunkSize = 1024 * 1024
         var buffer = Data()
         buffer.reserveCapacity(chunkSize)
+        var totalRead = 0
 
-        while true {
+        while totalRead < maxLogReadBytes {
             let readChunk = try autoreleasepool { () throws -> Bool in
                 guard let chunk = try handle.read(upToCount: chunkSize), !chunk.isEmpty else {
                     return false
                 }
 
+                totalRead += chunk.count
                 buffer.append(chunk)
                 var lineStart = buffer.startIndex
                 while lineStart < buffer.endIndex,
@@ -1099,7 +1121,7 @@ enum LocalUsageReader {
         at url: URL,
         byteLimit: Int = codexProbeByteLimit
     ) throws -> String? {
-        let handle = try FileHandle(forReadingFrom: url)
+        let handle = try openLogHandle(url)
         defer { try? handle.close() }
 
         var buffer = Data()
