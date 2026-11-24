@@ -68,6 +68,23 @@ final class WindowsCrashLogTests: XCTestCase {
         XCTAssertFalse(lines.contains { $0.contains("previous session crash record:") }, "drained once")
     }
 
+    /// Two instances with their own state folders share one log folder: each has its own marker and crash log (F7 of the 2026-11 audit).
+    func testTwoInstancesKeepSeparateMarkersAndCrashLogs() throws {
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let a = "-aaaaaaaaaaaa", b = "-bbbbbbbbbbbb"
+        XCTAssertNotEqual(WindowsCrashLog.markerFile(instance: a), WindowsCrashLog.markerFile(instance: b))
+        XCTAssertNotEqual(WindowsCrashLog.crashLogFile(instance: a), WindowsCrashLog.crashLogFile(instance: b))
+        WindowsCrashLog.prepare(logsDirectory: dir, dumpsOptedIn: false, instance: a) { self.lines.append("a: " + $0) }
+        let record = "[CRASH] exception 0xC0000005 at 0x00007FF600001234\n"
+        try Data(record.utf8).write(to: dir.appendingPathComponent(WindowsCrashLog.crashLogFile(instance: a)))
+        WindowsCrashLog.prepare(logsDirectory: dir, dumpsOptedIn: false, instance: b) { self.lines.append("b: " + $0) }  // B starts while A runs
+        XCTAssertEqual(lines, [], "B saw neither A's marker nor A's crash record: \(lines)")
+        XCTAssertTrue(exists(WindowsCrashLog.markerFile(instance: a)) && exists(WindowsCrashLog.crashLogFile(instance: a)), "A's files are untouched")
+        WindowsCrashLog.markClean(logsDirectory: dir, instance: b)
+        XCTAssertTrue(exists(WindowsCrashLog.markerFile(instance: a)), "B's clean exit leaves A's marker")
+        XCTAssertFalse(exists(WindowsCrashLog.markerFile(instance: b)))
+    }
+
     func testOnlyThreeDumpsAreKeptNewestByModificationTime() throws {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         // Names in the order a name sort would rank them; the modification times say otherwise, as they do for

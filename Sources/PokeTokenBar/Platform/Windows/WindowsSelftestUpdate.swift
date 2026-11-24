@@ -92,7 +92,7 @@ extension WindowsSelftest {
                                       packaged: WindowsInstall.isPackagedLayout) else {
             for name in updateCheckNames {
                 r.add(name, !onCI, onCI ? "no loopback server or feed (CI=\(environment["CI"] ?? "unset"), installed=\(WindowsInstall.isPackagedLayout))"
-                                         : "skipped (CI not set)")
+                                         : "skipped: the loopback update feed needs CI=true and an installed copy (the update flags keep their own rule; a person's PC has neither)")
             }
             return
         }

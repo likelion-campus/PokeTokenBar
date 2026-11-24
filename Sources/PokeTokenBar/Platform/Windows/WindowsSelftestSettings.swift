@@ -31,7 +31,7 @@ extension WindowsSelftest {
 
     static func runTransport(_ r: WindowsSelftest.Recorder, _ app: WindowsAppDelegate) async {
         guard WindowsSelftest.onCI, let probe = WindowsSelftestPopoverWindow.makeProbe() else {
-            r.add("settings.teamTransport", true, "skipped: CI not set")
+            r.add("settings.teamTransport", true, "skipped: not the runner (PTB_SELFTEST_RUNNER unset)")
             return
         }
         defer { probe.destroy() }
@@ -42,8 +42,8 @@ extension WindowsSelftest {
 
     static func run(_ r: WindowsSelftest.Recorder, _ app: WindowsAppDelegate) async {
         guard WindowsSelftest.onCI else {
-            for name in names where name != "settings.teamTransport" { r.add(name, true, "skipped: CI not set (the page takes the foreground; real keys and the clipboard are used)") }
-            for name in WindowsSelftestAdvanced.names { r.add(name, true, "skipped: CI not set (the page takes the foreground; real keys and the clipboard are used)") }  // stage 7 Task 14
+            for name in names where name != "settings.teamTransport" { r.add(name, true, "skipped: not the runner (PTB_SELFTEST_RUNNER unset) (the page takes the foreground; real keys and the clipboard are used)") }
+            for name in WindowsSelftestAdvanced.names { r.add(name, true, "skipped: not the runner (PTB_SELFTEST_RUNNER unset) (the page takes the foreground; real keys and the clipboard are used)") }  // stage 7 Task 14
             return
         }
         guard let probe = WindowsSelftestPopoverWindow.makeProbe() else {

@@ -26,18 +26,64 @@ enum WindowsSelftest {
 
     nonisolated(unsafe) private static var progressURL: URL?
 
-    /// CI runs may show balloons and type into windows; a person's PC may not (this file is on the env-read allow-list).
-    static var onCI: Bool { ProcessInfo.processInfo.environment["CI"] != nil }
+    /// The runner-only group (real input, clipboard, keyboard layouts, the Run key, a High Contrast switch, a joined team, balloons) runs only
+    /// where the workflows set `PTB_SELFTEST_RUNNER=1`. It is NOT "the variable `CI` exists": a person's shell can have `CI` set to anything
+    /// (this file is on the env-read allow-list). The name stays `onCI` because `SelftestUserPCSafetyScanTests` keys on it.
+    static var onCI: Bool { ProcessInfo.processInfo.environment[runnerVariable] == "1" }
+    static let runnerVariable = "PTB_SELFTEST_RUNNER"
     /// Length of the idle windows (`PTB_SELFTEST_IDLE_SECONDS`, default 60), read here for the other selftest files too.
     static var idleSeconds: Double { Double(ProcessInfo.processInfo.environment["PTB_SELFTEST_IDLE_SECONDS"] ?? "") ?? 60 }
     /// `OPENSSL_CONF` as the process sees it (the workflow points it at a poisoned file; OpenSSL must never read it).
     static var opensslConf: String? { ProcessInfo.processInfo.environment["OPENSSL_CONF"] }
 
+    /// The fresh state folder a person's `--selftest` runs in (nil on the runner, or when the caller chose `PTB_STATE_DIR`).
+    nonisolated(unsafe) private(set) static var temporaryStateDirectory: URL?
+
+    /// `--selftest` without `PTB_STATE_DIR` on a person's PC works in a fresh temporary state folder, so the checks that refresh the store
+    /// (credits, candies, a language migration) can never write the person's real `companion-state.json` / `team-feed.json`; the settings
+    /// already go to the selftest's own suite. Called first thing in `WindowsApp.run`, before any store reads the folder. The runner keeps
+    /// its own (ephemeral) default folder, which the installer and update checks look at.
+    static func isolateStateIfNeeded(_ arguments: [String]) {
+        // Every selftest process of a person's run (the children too: --selftest-second, -popover-helper, -crash, ...) shuts the live
+        // gate; the update flags are a different mechanism with their own rule.
+        guard !onCI, arguments.contains(where: { $0.hasPrefix("--selftest") && !WindowsSelftestUpdate.flags.contains($0) }) else { return }
+        AppEnv.liveFetchForbidden = true  // no credential is read and no request is sent for a person (limits, status pages)
+        guard arguments.contains("--selftest"), (ProcessInfo.processInfo.environment["PTB_STATE_DIR"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return }
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("PokeTokenBar-selftest-state-\(UUID().uuidString)", isDirectory: true)
+        guard (try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)) != nil else {
+            AppLog.write("selftest: cannot make a temporary state folder; leaving the run to the default folder")
+            return
+        }
+        PlatformCompat.setEnvironment("PTB_STATE_DIR", dir.path)
+        temporaryStateDirectory = dir
+    }
+
+    /// Removes that folder as the selftest exits (only the one this process made).
+    @MainActor static func removeTemporaryState() {
+        guard let dir = temporaryStateDirectory else { return }
+        temporaryStateDirectory = nil
+        try? FileManager.default.removeItem(at: dir)
+        // The app's team settings for a state folder live in `ptb.team.<hash of the folder>.plist` (+ `.bak`) next to the real settings;
+        // the hash is of this one-off folder, so the file is only ever this run's.
+        // The crash log the filter opened for this instance and its running marker (named after the state folder; nothing drains a one-off one).
+        let logs = PlatformCompat.logsDirectory()
+        let instance = WinSingleInstance.stateSuffix(stateDirectory: dir, defaultDirectory: WindowsAppDelegate.defaultStateDirectory)
+        for name in [WindowsCrashLog.crashLogFile(instance: instance), WindowsCrashLog.markerFile(instance: instance)] where !instance.isEmpty {
+            try? FileManager.default.removeItem(at: logs.appendingPathComponent(name))
+        }
+        if let suite = TeamSettings.suiteName(for: dir, defaultDirectory: URL(fileURLWithPath: "/ptb-no-default")) {
+            let plist = WinDefaultsSync.plistURL(suite: suite)
+            for file in [plist, SettingsPlistGuard.backupURL(for: plist)] where (try? FileManager.default.removeItem(at: file)) != nil {
+                AppLog.write("selftest: removed the temporary state folder's settings file \(file.lastPathComponent)")
+            }
+        }
+    }
+
     /// Starts the run on the main actor once the loop turns, then exits with its result.
     @MainActor static func start(_ app: WindowsAppDelegate, writingTo url: URL) {
-        let progress = url.appendingPathExtension("lines")
-        try? FileManager.default.removeItem(at: progress)
-        try? FileManager.default.removeItem(at: url)
+        let progress = SelftestOutputTarget.progressURL(url)
+        SelftestOutputTarget.removeStale(url)  // a regular file only: a folder was refused before this (`WindowsApp.run`)
         // Created here, before `run` opens the stall probe's window: on Windows a Foundation `Data.write` flushes
         // (FlushFileBuffers), and the first `Recorder.add` used to create the file that way inside the window, so a
         // slow disk failed `loop.mainThreadStalls` by name (85 ms, run 43649753131). Appends go through FileHandle.
@@ -81,6 +127,8 @@ enum WindowsSelftest {
         r.add("build.shims", ptb_shim_abi() == 1, "CWinShim abi=\(ptb_shim_abi()) openssl=\(String(cString: ptb_tls_openssl_version()))")
         graphicsLazinessCheck(r)  // stage 6 task 2 (WindowsSelftestGraphics.swift): before anything asks for Direct2D
         pathChecks(r)
+        // Which group runs: a lost PTB_SELFTEST_RUNNER must not leave CI green while testing less (run-selftest.ps1 requires "runner" when it set the flag).
+        r.add("selftest.mode", true, onCI ? "runner" : "person")
         await storeChecks(r, app)
         let quiet = await waitStable(timeout: 120, quiet: 1) { !app.store.isRefreshing && !WinDefaultsSync.isSyncPending }
         if let stalls {
@@ -98,6 +146,7 @@ enum WindowsSelftest {
         await shellChecks(r)
         await crashChecks(r)
         await singleInstanceCheck(r, app)
+        singleInstanceForeignHolderCheck(r)
         await exitDeadlineCheck(r)  // stage 8: quitting with a stuck socket thread
         await guardChecks(r)
         let real = WinDefaultsSync.expectedPlistURL()
@@ -325,8 +374,8 @@ enum WindowsSelftest {
     /// Real typed input: `SendInput(KEYEVENTF_UNICODE)` to a shown foreground window (F15). CI only, so a user's own
     /// selftest never types into their desktop.
     @MainActor private static func typedCharCheck(_ r: Recorder) async {
-        guard ProcessInfo.processInfo.environment["CI"] != nil else {
-            r.add("loop.typedUnicodeChar", true, "skipped: CI not set (the selftest types only on CI)")
+        guard onCI else {
+            r.add("loop.typedUnicodeChar", true, "skipped: not the runner (PTB_SELFTEST_RUNNER unset) (the selftest types only on CI)")
             return
         }
         let window: WinSinkWindow
@@ -669,6 +718,31 @@ enum WindowsSelftest {
         }
     }
 
+    /// A name held by something that is not this app (here: this process's own mutex under a name no sink window carries) tells the person
+    /// instead of exiting silently, and posts nothing. The other branch (a window of another executable answers) needs a second program
+    /// with the same window class and cannot be built here; `sameExecutable` is checked on its own.
+    @MainActor private static func singleInstanceForeignHolderCheck(_ r: Recorder) {
+        let name = "Local\\PokeTokenBar-Selftest-Foreign-\(UUID().uuidString)"
+        guard let held = CreateMutexW(nil, true, WinStr.w(name)) else { r.add("singleInstance.foreignHolder", false, "CreateMutexW failed"); return }
+        defer { _ = CloseHandle(held) }
+        var told: [WinSingleInstance.ForeignHolder] = []
+        let outcome = WinSingleInstance.acquire(name: name, onForeignHolder: { told.append($0) })
+        let me = WinSingleInstance.ownImagePath()
+        let same = WinSingleInstance.sameExecutable(me, me.uppercased().replacingOccurrences(of: "\\", with: "/"))
+        let other = !WinSingleInstance.sameExecutable(me, "C:\\Windows\\System32\\cmd.exe")
+        // The holder's path (`QueryFullProcessImageNameW`) and this copy's spelling must agree for the same file, or every start from a
+        // junction, a `subst` drive or an 8.3 path would be told it is "another program".
+        let image = WinSingleInstance.imagePath(ofProcess: GetCurrentProcessId()).map { WinSingleInstance.sameExecutable($0, me) } ?? false
+        let texts = [AppLanguage.en, .ko, .ja].map { WinSingleInstance.foreignHolderText(.noAnswer, language: $0) }
+            + [WinSingleInstance.foreignHolderText(.otherProgram(pid: 1, image: "D:\\x\\PokeTokenBar.exe"), language: .en)]
+        let longPath = "C:\\" + String(repeating: "a", count: 5000) + "\\PokeTokenBar.exe"
+        let bounded = WinSingleInstance.shownPath(longPath).count <= 200 && WinSingleInstance.shownPath(longPath).hasSuffix("PokeTokenBar.exe")
+            && !WinSingleInstance.shownPath("C:\\x\n\\y").contains("\n")
+        let wording = bounded && Set(texts).count == 4 && texts[3].contains("Another copy of PokeTokenBar")
+        r.add("singleInstance.foreignHolder", outcome == .yielded && told == [.noAnswer] && same && other && image && wording,
+              "outcome=\(outcome) told=\(told) sameExecutable(case/separator)=\(same) differs from cmd.exe=\(other) own image path matches=\(image) wording=\(wording)")
+    }
+
     // MARK: - tray (Task 6): the runner has a working shell tray, so add / modify / rect / re-add / delete are real
 
     @MainActor private static func trayChecks(_ r: Recorder, _ app: WindowsAppDelegate) async {
@@ -736,7 +810,7 @@ enum WindowsSelftest {
         r.add("sink.handlerList", orderBoth == [1, 2] && both == 7 && orderOne == [2] && none == 0,
               "two handlers: order=\(orderBoth) result=\(both); after off(first): \(orderOne); after off(second): result=\(none)")
 
-        if ProcessInfo.processInfo.environment["CI"] != nil {
+        if onCI {
             let ok = tray.showBalloon(title: "PokeTokenBar", body: "selftest", sound: false)
             r.add("tray.balloon", ok, "NIM_MODIFY with NIF_INFO returned \(ok)")
         } else {
@@ -843,8 +917,14 @@ enum WindowsSelftest {
     /// and is refused (401/403), which is recorded, not a failure. Offline is recorded too: the file was read.
     @MainActor private static func limitsCheck(_ r: Recorder) async {
         // `PlatformLimits.current` is a `static let`: touched before WindowsApp set the factory it would keep the stubs.
-        let live = PlatformLimits.current is WindowsLimitsProviders
-        r.add("limits.factory", live, "PlatformLimits.current is \(type(of: PlatformLimits.current))")
+        // The runner has the Windows providers; a person's run keeps the stubs (nothing reads their credentials) and the fetch gate shut.
+        let live = onCI ? PlatformLimits.current is WindowsLimitsProviders
+            : !(PlatformLimits.current is WindowsLimitsProviders) && !AppEnv.allowsLiveLimitsFetch
+        r.add("limits.factory", live, "PlatformLimits.current is \(type(of: PlatformLimits.current)); live fetch allowed=\(AppEnv.allowsLiveLimitsFetch)")
+        guard onCI else {  // the packaged app's gate is open, so the fixture token would go to Anthropic's endpoint
+            r.add("limits.claude", true, "skipped: not on the runner (the check sends a fixture token to Anthropic's usage endpoint, which a person's PC never does)")
+            return
+        }
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("ptb-selftest-claude-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
         let expiresAt = Int((Date().timeIntervalSince1970 + 3600) * 1000)

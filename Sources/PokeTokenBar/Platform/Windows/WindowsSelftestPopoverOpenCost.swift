@@ -157,7 +157,7 @@ private func winPaintSpyQueued(_ code: Int32, _ wParam: WPARAM, _ lParam: LPARAM
 
     static func run(_ r: WindowsSelftest.Recorder, _ app: WindowsAppDelegate) async {
         guard WindowsSelftest.onCI else {
-            for name in names { r.add(name, true, "skipped: CI not set (the popover takes the foreground)") }
+            for name in names { r.add(name, true, "skipped: not the runner (PTB_SELFTEST_RUNNER unset) (the popover takes the foreground)") }
             return
         }
         guard let probe = WindowsSelftestPopoverWindow.makeProbe() else {

@@ -25,6 +25,8 @@ if (-not (Test-Path $baseIndex)) {
     Set-Content -Path $baseIndex -Encoding ascii -Value ('{"fetchedAt":' + $since2001 + ',"entries":[' + $entries + ']}')
     Write-Host "seeded $baseIndex (649 bases) so the selftest does not build the base index over the network"
 }
+# The runner-only checks (real input, clipboard, Run key, High Contrast, a joined team) need PTB_SELFTEST_RUNNER=1, which only the workflows set.
+Write-Host "selftest mode: $(if ($env:PTB_SELFTEST_RUNNER -eq '1') { 'runner (runner-only checks run)' } else { "a person's PC (runner-only checks are skipped)" })"
 $selftestArgs = @("--selftest", "--selftest-out", $Out)
 if ($DumpUi) { $selftestArgs += @("--dump-ui", [System.IO.Path]::GetFullPath($DumpUi)) }
 $p = Start-Process -FilePath (Resolve-Path $Exe).Path -ArgumentList $selftestArgs -PassThru
@@ -56,4 +58,11 @@ if ($ExpectStrategy) {
     $s = $j.checks | Where-Object { $_.name -eq "loop.strategy" }
     if (-not $s -or $s.detail -notlike "strategy=$ExpectStrategy *") { $problems += "loop.strategy is not $ExpectStrategy" }
 }
+if ($env:PTB_SELFTEST_RUNNER -eq '1') {
+    # The flag was set, so the runner-only group must have run: a variable lost on the way would otherwise leave CI green while testing less.
+    $mode = $j.checks | Where-Object { $_.name -eq "selftest.mode" }
+    if (-not $mode -or $mode.detail -ne "runner") { $problems += "PTB_SELFTEST_RUNNER=1 was set but selftest.mode is '$($mode.detail)'" }
+}
+$lb = $j.checks | Where-Object { $_.name -eq "team.loopbackExchange" }
+if (-not $lb -or $lb.detail -like "skipped*") { $problems += "team.loopbackExchange missing or skipped (the path every person's run takes)" }
 if ($problems) { Write-Host "::error::selftest: $($problems -join '; ')"; exit 1 }

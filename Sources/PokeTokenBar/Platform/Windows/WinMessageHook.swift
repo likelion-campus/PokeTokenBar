@@ -72,7 +72,7 @@ import WinSDK
         // (post-merge review of the kit; defect log, the modal-loop entry).
         // Page Up/Down, Home and End on a scrolling page, when the focused control does not use them (the Mac's scroll view takes them).
         if message == UINT(WM_KEYDOWN), let target = m.pointee.hwnd, WinModalPump.depth == 0, !inMenuOrMoveLoop(),
-           WinScrollArea.handlePageKey(target, vk: Int(m.pointee.wParam)) {
+           WinScrollArea.handlePageKey(target, vk: Int(truncatingIfNeeded: m.pointee.wParam)) {
             m.pointee.message = UINT(WM_NULL)
             return
         }

@@ -31,6 +31,7 @@ public struct CursorRateLimitsProvider: CursorLimitsProviding, Sendable {
     public init() {}
 
     public func fetch() async throws -> CursorRateLimitStatus? {
+        guard !AppEnv.liveFetchForbidden else { return nil }  // a person's Windows selftest: no token read, no request
         guard CursorAuthentication.isEnabled else { return nil }
         guard let credential = CursorAuthentication.current() else {
             AppLog.writeIfChanged("cursor-limits-session", "cursor limits: no session token")
