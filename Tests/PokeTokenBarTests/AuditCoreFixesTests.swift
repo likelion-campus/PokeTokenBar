@@ -192,6 +192,56 @@ final class AuditCoreFixesTests: XCTestCase {
         XCTAssertEqual(store.state.usedSinceInstall, 12_345, "the real save is adopted, not replaced")
     }
 
+    func testPendingDifficultyRescaleIsReplayedWhenTheSaveIsAdopted() async throws {
+        // A legacy stored difficulty (20x) is narrowed at load and the banked growth repriced. On the placeholder that
+        // had nothing to reprice; the real save adopted later must get the same repricing as a normal launch.
+        func makeSuite() -> UserDefaults {
+            let d = TestDefaults.make(suite: "ptb.test.audit.rescale.\(UUID().uuidString)")
+            d.set(20.0, forKey: "growthDifficulty")
+            return d
+        }
+        func fileWithPet(_ tag: String) throws -> URL {
+            let url = tempDir(tag).appendingPathComponent("companion-state.json")
+            var st = sampleState(tokens: 1)
+            st.active?.usedAtStage = 100_000
+            try JSONEncoder().encode(st).write(to: url)
+            return url
+        }
+        let controlURL = try fileWithPet("rescale-control")
+        let control = CompanionStore(provider: AuditOfflineProvider(), clock: { self.baseNow }, fileURL: controlURL, defaults: makeSuite())
+        let expected = try XCTUnwrap(control.state.active?.usedAtStage)
+        XCTAssertNotEqual(expected, 100_000, "premise: the narrowed difficulty reprices the bank")
+
+        let url = try fileWithPet("rescale-adopt")
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: url.path)
+        try XCTSkipIf(FileManager.default.isReadableFile(atPath: url.path), "permissions are not enforced here (root)")
+        let store = CompanionStore(provider: AuditOfflineProvider(), clock: { self.baseNow }, fileURL: url, defaults: makeSuite())
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: url.path)
+        store.update(todayTokensByProvider: [:], todayDate: "2026-01-01", monthTotal: 0,
+                     burnTier: .idle, limitWarning: false, hasUsageData: false)
+        XCTAssertEqual(store.state.active?.usedAtStage, expected)
+    }
+
+    func testSaveThatBecomesReadableButDoesNotDecodeIsRecoveredLikeAtLaunch() async throws {
+        let dir = tempDir("adopt-corrupt")
+        let url = dir.appendingPathComponent("companion-state.json")
+        try SaveSnapshotManager.createSnapshot(state: sampleState(tokens: 777), for: url, date: baseNow.addingTimeInterval(-3600))
+        try JSONEncoder().encode(sampleState(tokens: 1)).write(to: url)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: url.path)
+        try XCTSkipIf(FileManager.default.isReadableFile(atPath: url.path), "permissions are not enforced here (root)")
+        let store = CompanionStore(provider: AuditOfflineProvider(), clock: { self.baseNow }, fileURL: url)
+        XCTAssertTrue(store.persistenceBlocked)
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: url.path)
+        let garbage = Data("{ not json".utf8)
+        try garbage.write(to: url)
+        store.update(todayTokensByProvider: [:], todayDate: "2026-01-01", monthTotal: 0,
+                     burnTier: .idle, limitWarning: false, hasUsageData: false)
+        XCTAssertFalse(store.persistenceBlocked, "the original was moved aside, as at launch")
+        XCTAssertEqual(store.state.usedSinceInstall, 777, "recovered from the newest snapshot")
+        XCTAssertEqual(try Data(contentsOf: url.appendingPathExtension("corrupt")), garbage)
+    }
+
     // MARK: 5. inventory counts
 
     func testSanitizedClampsInventoryCounts() async {

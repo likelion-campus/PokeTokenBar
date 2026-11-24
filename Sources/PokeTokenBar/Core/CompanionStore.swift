@@ -99,6 +99,9 @@ final class CompanionStore {
         if previousGrowth != growthDifficulty {
             rescaleBankedGrowth(from: previousGrowth, to: growthDifficulty)
             save()
+            // 자리표시 상태에는 다시 매길 진행이 없다. defaults 는 아래에서 새 값으로 덮이므로, 나중에 받아들이는
+            // 진짜 세이브에 한 번 적용하도록 기억해 둔다.
+            if statePlaceholder { pendingGrowthRescale = (previousGrowth, growthDifficulty) }
         }
         defaults.set(growthDifficulty, forKey: "growthDifficulty")
         defaults.set(shopDifficulty, forKey: "shopDifficulty")
@@ -2086,8 +2089,18 @@ final class CompanionStore {
                                                   todayTokensByProvider: todayTokensByProvider,
                                                   todayDate: todayDate,
                                                   hasUsageData: hasUsageData)
-        // 이전 개체 기준으로 진행 중이던 비동기·연출을 전부 무효화한다. activeGeneration 을 올리지
-        // 않으면 먼저 떠 있던 라인 로드가 완료되며 새로 불러온 개체를 덮어쓴다.
+        invalidateInFlightWork()
+        migratePokemonProfilesIfNeeded()
+        seedDexCompletionsIfNeeded()
+        save()
+        startLoadsForCurrentState()
+        AppLog.write("save imported from \(envelope.sourceDevice): dex=\(state.dex.count) lifetime=\(state.usedSinceInstall)")
+    }
+
+    /// 이전 개체 기준으로 진행 중이던 비동기·연출을 전부 무효화한다. activeGeneration 을 올리지
+    /// 않으면 먼저 떠 있던 라인 로드가 완료되며 새로 불러온 개체를 덮어쓴다.
+    /// 세이브를 불러올 때와, 늦게 읽힌 세이브를 받아들일 때(자리표시 개체 기준 작업) 같이 쓴다.
+    private func invalidateInFlightWork() {
         activeGeneration += 1
         currentLine = nil
         prefetchedLineID = nil
@@ -2101,12 +2114,11 @@ final class CompanionStore {
         candyFeedbackAmount = 0
         mintFeedbackNature = nil
         displayState = state.active != nil ? .idle : .egg
-        migratePokemonProfilesIfNeeded()
-        seedDexCompletionsIfNeeded()
-        save()
+    }
+
+    private func startLoadsForCurrentState() {
         if state.active != nil { Task { await loadCurrentLine() } }
         if detailProvider != nil { Task { await preparePokemonProfiles() } }
-        AppLog.write("save imported from \(envelope.sourceDevice): dex=\(state.dex.count) lifetime=\(state.usedSinceInstall)")
     }
 
     /// 덮어쓰기 직전 현재 상태를 옆에 남긴다 — 잘못 불러왔을 때 되돌릴 수단.
@@ -2354,27 +2366,7 @@ final class CompanionStore {
             return
         }
         guard let s = try? JSONDecoder().decode(CompanionState.self, from: data) else {
-            // 디코드 실패(전면 손상/미래 스키마) → 원본을 .corrupt 로 백업 후 유효한 스냅샷으로 복구 시도.
-            let backup = fileURL.appendingPathExtension("corrupt")
-            try? FileManager.default.removeItem(at: backup)
-            do {
-                try FileManager.default.moveItem(at: fileURL, to: backup)
-                AppLog.write("companion state decode failed — original backed up to \(backup.lastPathComponent)")
-            } catch {
-                AppLog.write("failed to move corrupt state file to \(backup.lastPathComponent): \(error)")
-                // 원본이 그대로 남았다. 이 세션이 저장하면 그 원본(손으로 고칠 수도 있는 유일한 사본)이 사라진다.
-                blockPersistence("corrupt companion state could not be moved aside")
-            }
-
-            if let recovered = SaveSnapshotManager.loadLatestValidSnapshot(for: fileURL, now: clock()) {
-                state = SaveTransfer.sanitized(recovered)
-                AppLog.write("automatically recovered companion state from snapshot")
-                save()
-            } else {
-                state = CompanionState()
-                AppLog.write("no snapshot available, starting fresh")
-                if persistenceBlocked { statePlaceholder = true }
-            }
+            handleUndecodableSave()
             return
         }
         // 불러오기 경계와 같은 정규화를 디스크에서 읽을 때도 건다. 불러오기만 막으면 **이미 저장된**
@@ -2382,6 +2374,31 @@ final class CompanionStore {
         // (디코드는 *성공*하므로 위의 .corrupt 복구도 발동하지 않는다). 여기서 걸면 자가 복구된다.
         state = SaveTransfer.sanitized(s)
     }
+    /// 디코드 실패(전면 손상/미래 스키마) → 원본을 .corrupt 로 백업 후 유효한 스냅샷으로 복구 시도.
+    /// 기동 때(`load`)와 늦게 읽힌 세이브가 디코드되지 않을 때(`adoptUnreadableSaveIfReadable`) 같은 규칙.
+    private func handleUndecodableSave() {
+        let backup = fileURL.appendingPathExtension("corrupt")
+        try? FileManager.default.removeItem(at: backup)
+        do {
+            try FileManager.default.moveItem(at: fileURL, to: backup)
+            AppLog.write("companion state decode failed — original backed up to \(backup.lastPathComponent)")
+        } catch {
+            AppLog.write("failed to move corrupt state file to \(backup.lastPathComponent): \(error)")
+            // 원본이 그대로 남았다. 이 세션이 저장하면 그 원본(손으로 고칠 수도 있는 유일한 사본)이 사라진다.
+            blockPersistence("corrupt companion state could not be moved aside")
+        }
+
+        if let recovered = SaveSnapshotManager.loadLatestValidSnapshot(for: fileURL, now: clock()) {
+            state = SaveTransfer.sanitized(recovered)
+            AppLog.write("automatically recovered companion state from snapshot")
+            save()
+        } else {
+            state = CompanionState()
+            AppLog.write("no snapshot available, starting fresh")
+            if persistenceBlocked { statePlaceholder = true }
+        }
+    }
+
     /// 파일이 존재하는데 읽지 못하는 순간(스캐너·쓰는 쪽의 rename 마무리)을 잠깐 재시도로 넘긴다.
     /// `SettingsPlistGuard.readExisting` 과 같은 규칙.
     private static func readExisting(_ url: URL, attempts: Int = 4) -> Data? {
@@ -2404,6 +2421,8 @@ final class CompanionStore {
     private(set) var statePlaceholder = false
     /// 존재하지만 못 읽은 세이브를 새로고침마다 한 번씩 다시 읽어 본다.
     private var unreadableSavePending = false
+    /// init 이 자리표시 상태에서 못 한 난이도 재산정(이전 → 새 값). 진짜 세이브를 받아들일 때 한 번 적용한다.
+    private var pendingGrowthRescale: (from: Double, to: Double)?
 
     /// 그 사이 읽을 수 있게 된 세이브(스캐너가 손을 뗐다)를 받아들이고 저장을 되살린다. 메인에서 도는 새로고침 경로라
     /// 재시도 대기 없이 한 번만 읽는다.
@@ -2418,15 +2437,27 @@ final class CompanionStore {
         }
         guard let data = try? Data(contentsOf: fileURL) else { return }
         unreadableSavePending = false
-        guard let s = try? JSONDecoder().decode(CompanionState.self, from: data) else {
-            AppLog.write("companion state became readable but does not decode: left alone, no saves this session")
-            return
-        }
-        state = SaveTransfer.sanitized(s)
+        // 기동과 똑같이 시작한다: 막힘을 풀고, 디코드되면 받아들이고, 안 되면 .corrupt 로 옮겨 스냅샷에서 복구한다
+        // (옮기지 못하면 그 핸들러가 다시 막는다).
         persistenceBlocked = false
         statePlaceholder = false
+        if let s = try? JSONDecoder().decode(CompanionState.self, from: data) {
+            state = SaveTransfer.sanitized(s)
+            if let rescale = pendingGrowthRescale {
+                rescaleBankedGrowth(from: rescale.from, to: rescale.to)
+                save()
+            }
+            AppLog.write("companion state became readable: adopted, saves back on")
+        } else {
+            AppLog.write("companion state became readable but does not decode")
+            handleUndecodableSave()
+        }
+        pendingGrowthRescale = nil
+        // 자리표시 개체 기준으로 떠 있던 라인 로드·부화·연출이 진짜 개체에 닿지 않게 하고, 진짜 개체의 라인을 로드한다.
+        invalidateInFlightWork()
+        isHatching = false   // a hatch started on the placeholder holds the lock; the real pet's line load must not wait for it
         settleLoadedState()
-        AppLog.write("companion state became readable: adopted, saves back on")
+        startLoadsForCurrentState()
     }
 
     private func save() {
