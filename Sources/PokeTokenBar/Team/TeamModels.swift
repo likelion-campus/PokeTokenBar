@@ -56,9 +56,11 @@ struct TeamMonSummary: Codable, Equatable, Sendable {
     /// Shown above the name in the plaza. Left out when unknown; earlier versions ignore it.
     @LossyOptional var nature: PokemonNature? = nil
 
-    /// What a peer sent, without a name or form too long to be real. The character still shows.
+    /// What a peer sent, without a name or form too long to be real, and without a species this version has no sprite for
+    /// (it shows as an egg: nothing is fetched for it). The character still shows.
     var bounded: TeamMonSummary {
         var c = self
+        if let id = speciesID, !PokedexRegion.nationalRange.contains(id) { c.speciesID = nil; c.speciesName = nil; c.form = nil }
         if (speciesName?.utf8.count ?? 0) > TeamWire.maxFieldBytes { c.speciesName = nil }
         if (form?.rawValue.utf8.count ?? 0) > TeamWire.maxFieldBytes { c.form = nil }
         return c
@@ -75,10 +77,27 @@ struct TeamDexSpecies: Codable, Equatable, Sendable {
 }
 
 struct TeamMemberProfile: Codable, Equatable, Sendable {
+    /// One cell per species, and one more per catalogued form of it: the most an honest dex has.
+    static let maxDexEntries = PokedexRegion.nationalRange.reduce(0) { $0 + max(1, PokemonForm.entries(speciesID: $1).count) }
+
     var memberID: String
     var nickname: String
     var current: TeamMonSummary
     var dex: [TeamDexSpecies]
+
+    /// What a peer sent, within what a real dex holds: a species of this version, at most `maxDexEntries` cells, and a name
+    /// no longer than a field (a longer one reads as the number, as a species without a name does). The card lays out
+    /// every name when it opens, so none of this is left to the card.
+    var bounded: TeamMemberProfile {
+        var p = self
+        p.current = current.bounded
+        p.dex = Array(dex.lazy.filter { PokedexRegion.nationalRange.contains($0.speciesID) }.prefix(Self.maxDexEntries).map {
+            var e = $0
+            if e.name.utf8.count > TeamWire.maxFieldBytes { e.name = "#\(e.speciesID)" }
+            return e
+        })
+        return p
+    }
 }
 
 /// What CompanionStore reports: the species/individual part of a TeamEvent only.

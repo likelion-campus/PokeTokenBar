@@ -65,6 +65,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         plaza?.persistState()
+        teamRuntime?.flush()
     }
 
     func applicationWillFinishLaunching(_ notification: Notification) {

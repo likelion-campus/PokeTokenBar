@@ -59,7 +59,9 @@ actor SpriteStore {
         let url = Self.spriteURL(speciesID: speciesID, animated: animated, shiny: shiny, form: form, back: back)
         guard let (d, resp) = try? await PlatformCompat.oneShotData(from: url) else { return nil }
         let status = (resp as? HTTPURLResponse)?.statusCode
-        if back, status == 404 { confirmedMissing.insert(key) }
+        // A 404 is the server's answer for this sprite, front or back: asking again would only repeat it (a teammate's character
+        // is theirs to choose, and an unknown form of a species would otherwise be asked for every time it is shown).
+        if status == 404 { confirmedMissing.insert(key) }
         guard status == 200, !d.isEmpty else { return nil }
         try? d.write(to: file, options: .atomic)   // torn write 방지 — 크래시/강제종료 시 손상 캐시가 남지 않게
         remember(key, d)

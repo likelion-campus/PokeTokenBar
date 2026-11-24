@@ -316,18 +316,23 @@ enum TeamWire {
 
     struct FrameDecoder {
         private var buffer = Data()
+        /// How many whole frames the last `append` took off the buffer, whether or not this version could read them.
+        private(set) var lastFrameCount = 0
 
         mutating func append(_ chunk: Data) throws -> [TeamMessage] {
             buffer.append(chunk)
             var out: [TeamMessage] = []
-            while buffer.count >= 4 {
-                let s = buffer.startIndex
-                let length = buffer[s..<s + 4].reduce(0) { ($0 << 8) | Int($1) }
+            var offset = buffer.startIndex
+            lastFrameCount = 0
+            defer { if offset > buffer.startIndex { buffer.removeSubrange(buffer.startIndex..<offset) } }
+            while buffer.endIndex - offset >= 4 {
+                let length = buffer[offset..<offset + 4].reduce(0) { ($0 << 8) | Int($1) }
                 guard length <= TeamWire.maxFrameBytes else { throw WireError.frameTooLarge }
-                guard buffer.count >= 4 + length else { break }
-                let body = buffer[s + 4..<s + 4 + length]
-                buffer = Data(buffer[(s + 4 + length)...])
-                if let message = try TeamWire.decode(Data(body)) { out.append(message) }
+                guard buffer.endIndex - offset >= 4 + length else { break }
+                let body = Data(buffer[offset + 4..<offset + 4 + length])
+                offset += 4 + length
+                lastFrameCount += 1
+                if let message = try TeamWire.decode(body) { out.append(message) }
             }
             return out
         }

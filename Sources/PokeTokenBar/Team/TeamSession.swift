@@ -65,12 +65,31 @@ final class TeamSession {
     /// A profile is the whole dex, asked for when someone opens a card.
     nonisolated static let profileReplyBurst = 5
     nonisolated static let profileReplyInterval: TimeInterval = 2
+    /// A link that has not said `hello` by now is not a teammate. An honest app says it the moment the link is ready, so
+    /// this is only the time a bad network needs; the check runs on the tick, so the link may live one tick longer.
+    static let helloDeadline: TimeInterval = silenceLimit
+    /// Rows a link may sync (`live: false`) in a burst. A full feed is 300 events and 3000 reactions in frames of 100: 33
+    /// frames, and an honest peer may be asked for it `inventoryReplyBurst` (3) times at once: 99, rounded up.
+    nonisolated static let syncedFrameBurst = 120
+    /// Synced frames a link may send per second, after the burst. The inventory limit lets an honest peer ask for
+    /// 33 frames every `inventoryReplyInterval` (30 s): 1.1 a second. Past this the frame is ignored, the link stays,
+    /// and the next inventory (every five minutes) brings the rows again.
+    nonisolated static let syncedFramesPerSecond = 2.0
+    /// Changes to a shared value (schedule, team name, campfire, ice break) one link may make in a burst. A person
+    /// changes one of these by hand, a few times a minute at most; 20 covers a team settling on one value at connect.
+    nonisolated static let sharedValueBurst = 20
+    /// Seconds to earn one more change on a link. A change that does not fit is ignored, and since the sender repeats its
+    /// value with every presence, it is taken at the next one that fits.
+    nonisolated static let sharedValueInterval: TimeInterval = 4
+    /// Presences sent because an adopted shared value changed are at most this far apart; the rest wait for the tick.
+    static let adoptionBroadcastInterval: TimeInterval = 2
     static let pruneInterval: TimeInterval = 3600
     /// `hasIncompatiblePeer` clears when no mismatch was seen for this long.
     static let incompatibleNoticeLifetime: TimeInterval = 600
 
     private struct Link {
         let initiatedByMe: Bool
+        let connectedAt: Date
         /// Higher is newer.
         let sequence: Int
         /// Nil until the peer's `hello` arrives.
@@ -82,6 +101,15 @@ final class TeamSession {
                                                perSecond: 1 / TeamSession.inventoryReplyInterval)
         var profileReplies = TeamTokenBucket(capacity: Double(TeamSession.profileReplyBurst),
                                              perSecond: 1 / TeamSession.profileReplyInterval)
+        var syncedFrames = TeamTokenBucket(capacity: Double(TeamSession.syncedFrameBurst),
+                                           perSecond: TeamSession.syncedFramesPerSecond)
+        var sharedValueChanges = TeamTokenBucket(capacity: Double(TeamSession.sharedValueBurst),
+                                                 perSecond: 1 / TeamSession.sharedValueInterval)
+        /// The shared values this link last sent, to tell a change from a repeat.
+        var lastSchedule: PlazaSchedule?
+        var lastTeamName: TeamNameStamp?
+        var lastCampfire: PlazaCampfireSwitch?
+        var lastIceBreak: PlazaIceBreak?
     }
 
     private struct PendingProfile {
@@ -117,6 +145,9 @@ final class TeamSession {
     @ObservationIgnored private var running = false
     @ObservationIgnored private var lastIncompatible: Date?
     @ObservationIgnored private var lastPrune = Date.distantPast
+    @ObservationIgnored private var lastAdoptionBroadcast = Date.distantPast
+    /// An adopted shared value changed what I send, and the presence that says so is waiting for the tick.
+    @ObservationIgnored private var presenceOwed = false
     /// The code the app had last time `applySettings` looked; the baseline for "did the team change".
     @ObservationIgnored private var knownCode: TeamCode?
     @ObservationIgnored private var sentNickname: String?
@@ -217,6 +248,13 @@ final class TeamSession {
         for (peer, link) in links where now.timeIntervalSince(link.lastReceived) >= Self.silenceLimit {
             transport.disconnect(peer, coveredBy: nil)
             dropLink(peer)
+        }
+        for (peer, link) in links where link.memberID == nil && now.timeIntervalSince(link.connectedAt) >= Self.helloDeadline {
+            transport.disconnect(peer, coveredBy: nil)
+            dropLink(peer)
+        }
+        if presenceOwed, now.timeIntervalSince(lastAdoptionBroadcast) >= Self.adoptionBroadcastInterval {
+            sendAdoptedPresence()
         }
         for (peer, link) in links where link.memberID != nil {
             if now.timeIntervalSince(link.lastSent) >= Self.heartbeatInterval { send(.presence(makePresence()), to: peer) }
@@ -397,7 +435,7 @@ final class TeamSession {
         guard running else { return }
         linkCounter += 1
         let now = clock()
-        links[peer] = Link(initiatedByMe: initiatedByMe, sequence: linkCounter, memberID: nil,
+        links[peer] = Link(initiatedByMe: initiatedByMe, connectedAt: now, sequence: linkCounter, memberID: nil,
                            lastReceived: now, lastSent: now, lastInventory: now)
         let hello = TeamHello(memberID: settings.memberID, nickname: TeamSettings.validNickname(settings.nickname) ?? "",
                               protocolVersion: TeamWire.protocolVersion, current: currentCharacter)
@@ -418,6 +456,7 @@ final class TeamSession {
 
     private func resetConnections() {
         links = [:]
+        presenceOwed = false
         members = [:]
         asleepMembers = [:]
         hasIncompatiblePeer = false
@@ -446,6 +485,21 @@ final class TeamSession {
             break
         case .presence(let presence):
             guard var member = members[memberID] else { return }
+            // Schedule, team name, campfire and ice break are last-writer-wins: the newest stamp wins and a modified app can
+            // always send a newer one. Each change costs a save, a re-draw of the plaza and a presence to everyone, so
+            // a link may change them only so often; the rest is taken from its next presence (it repeats its values).
+            var sharedAllowed = true
+            if let link = links[peer],
+               presence.schedule != link.lastSchedule || presence.teamName != link.lastTeamName
+                || presence.campfire != link.lastCampfire || presence.iceBreak != link.lastIceBreak {
+                sharedAllowed = links[peer]?.sharedValueChanges.take(now: clock()) == true
+                if sharedAllowed {
+                    links[peer]?.lastSchedule = presence.schedule
+                    links[peer]?.lastTeamName = presence.teamName
+                    links[peer]?.lastCampfire = presence.campfire
+                    links[peer]?.lastIceBreak = presence.iceBreak
+                }
+            }
             if let nickname = TeamSettings.validNickname(presence.nickname) { member.nickname = nickname }
             member.character = presence.character.bounded
             member.inPlaza = presence.inPlaza
@@ -464,8 +518,10 @@ final class TeamSession {
             let mimic = presence.mimicOf.flatMap { $0.utf8.count <= TeamWire.maxFieldBytes ? $0 : nil }
             if mimic != member.mimicOf { member.mimicSeenAt = mimic == nil ? nil : clock() }
             member.mimicOf = mimic
-            member.iceBreak = presence.iceBreak
-            member.campfire = presence.campfire
+            if sharedAllowed {
+                member.iceBreak = presence.iceBreak
+                member.campfire = presence.campfire
+            }
             member.activity = presence.activity?.bounded
             member.bodySize = PlazaBodySize.clamped(presence.bodySize)
             member.isFlushed = presence.isFlushed == true
@@ -474,7 +530,7 @@ final class TeamSession {
             members[memberID] = member
             // 코드가 막 바뀌어 이전 팀 링크가 아직 살아 있는 동안에는 받은 일정을 새 팀 몫으로 저장하지 않는다.
             // 팀 이름도 같다. 일정이나 이름 중 하나라도 받아들였으면 presence 는 한 번만 다시 보낸다.
-            if settings.code == knownCode {
+            if sharedAllowed, settings.code == knownCode {
                 var adopted = false
                 if let schedule = presence.schedule, settings.adoptSchedule(schedule, now: clock()) {
                     sentSchedule = settings.schedule
@@ -484,7 +540,7 @@ final class TeamSession {
                     sentTeamName = settings.teamNameStamp
                     adopted = true
                 }
-                if adopted { broadcast(.presence(makePresence())) }
+                if adopted { broadcastAdoption() }
             }
         case .inventory(let eventIDs, let reactionIDs):
             guard links[peer]?.inventoryReplies.take(now: clock()) == true else { return }
@@ -492,6 +548,8 @@ final class TeamSession {
         case .events(let events, let live):
             // Nothing honest sends more, and a store pass over a frame this size stops the main thread for seconds.
             guard events.count <= Self.batchSize else { return }
+            // A synced frame is what an inventory asked for, so only so many come: each one is a pass over the store.
+            if !live, links[peer]?.syncedFrames.take(now: clock()) != true { return }
             // A live frame is the sender's own news. Synced rows are other members' too, and nothing can check those.
             if live, events.contains(where: { $0.authorID != memberID }) { return }
             let added = feed.insert(events)
@@ -500,13 +558,24 @@ final class TeamSession {
             if live, events.count == 1, let e = added.first, e.kind.isBig, e.occurredAt != nil { onBigEvent?(e) }
         case .reactions(let reactions, let live):
             guard reactions.count <= Self.batchSize else { return }
+            if !live, links[peer]?.syncedFrames.take(now: clock()) != true { return }
             if live, reactions.contains(where: { $0.authorID != memberID }) { return }
             for r in feed.insert(reactions) {
                 guard live, let event = feed.events.first(where: { $0.id == r.eventID }),
                       event.authorID == settings.memberID else { continue }
                 onReactionToMine?(r, event)
             }
-        case .emote(let emote):
+        case .emote(var emote):
+            // A jump may carry an ice break, which the plaza adopts, saves and tells everyone in my next presence: the same
+            // last-writer-wins value as in a presence, so it spends the same per-link budget. Out of budget the jump
+            // still plays; the sender repeats its ice break in every presence, so the team converges.
+            if let ice = emote.iceBreak, ice != links[peer]?.lastIceBreak {
+                if links[peer]?.sharedValueChanges.take(now: clock()) == true {
+                    links[peer]?.lastIceBreak = ice
+                } else {
+                    emote.iceBreak = nil
+                }
+            }
             onEmote?(memberID, emote)
         case .chat(let chat):
             if TeamChat.prepared(chat.text) == chat.text { onChat?(memberID, chat.text, chat.isLoud ?? false) }
@@ -514,8 +583,9 @@ final class TeamSession {
             guard links[peer]?.profileReplies.take(now: clock()) == true else { return }
             send(.profile(profileProvider()), to: peer)
         case .profile(let profile):
+            let bounded = profile.bounded
             for (id, pending) in pendingProfiles where pending.memberID == memberID {
-                finishProfileRequest(id, with: profile)
+                finishProfileRequest(id, with: bounded)
             }
         }
     }
@@ -607,6 +677,22 @@ final class TeamSession {
     private func broadcast(_ message: TeamMessage) {
         guard running else { return }
         for (peer, link) in links where link.memberID != nil { send(message, to: peer) }
+    }
+
+    /// An adopted shared value changed what I send: tell everyone at once, unless that was done a moment ago, then with the
+    /// next tick, and once for all the changes in between.
+    private func broadcastAdoption() {
+        if clock().timeIntervalSince(lastAdoptionBroadcast) >= Self.adoptionBroadcastInterval {
+            sendAdoptedPresence()
+        } else {
+            presenceOwed = true
+        }
+    }
+
+    private func sendAdoptedPresence() {
+        presenceOwed = false
+        lastAdoptionBroadcast = clock()
+        broadcast(.presence(makePresence()))
     }
 
     private func sendInventory(to peer: TeamPeerID) {
