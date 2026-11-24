@@ -35,9 +35,9 @@ struct PlazaSceneMember: Equatable, Sendable {
 /// `SpriteKitStage`, whose `SKScene` hands this scene its frames, size changes, keys and pause changes).
 @MainActor final class PlazaScene {
     /// 한 프레임에 걸을 수 있는 최대 시간. 잠자기 뒤 같은 큰 간격을 막는다.
-    /// 가장 짧은 칸(달리기)보다 짧아야 한 프레임에 칸이 하나만 바뀐다. 두 칸을 한 번에 가면 그 사이 칸을 팀원에게
-    /// 보내지 못해, 팀원 화면에서는 두 칸 떨어진 칸으로 순간 이동한다.
-    static let maxFrameDelta: TimeInterval = 0.07
+    /// 가장 짧은 칸(폭탄을 들고 달리기, `PlazaBomb.holderRunStepDuration` 0.0625초)보다 짧아야 한 프레임에 칸이 하나만
+    /// 바뀐다. 두 칸을 한 번에 가면 그 사이 칸을 팀원에게 보내지 못해, 팀원 화면에서는 두 칸 떨어진 칸으로 순간 이동한다.
+    static let maxFrameDelta: TimeInterval = 0.06
 
     static let characterScale = PlazaActor.characterScale
 
@@ -1540,6 +1540,19 @@ struct PlazaSceneMember: Equatable, Sendable {
                                                                           width: v.width - left - right, height: v.height))
         return fireworkLayer.launch(PlazaFireworks.style(id: style), at: burst, rise: PlazaFireworks.rise(head: head, burst: burst),
                                     owner: memberID)
+    }
+
+    /// 미니게임에 든 캐릭터 발밑에 고리를 깐다. `marks`는 팀원 ID별 표시, `mine`은 내 표시다. 없는 캐릭터는 고리를 지운다.
+    func setGameMarks(_ marks: [String: PlazaGameMark], mine: PlazaGameMark?) {
+        me.setGameMark(mine)
+        for (id, r) in remotes { r.actor.setGameMark(marks[id]) }
+    }
+
+    /// 테스트용: 발밑에 고리가 깔린 캐릭터들과 그 표시(나는 "").
+    var gameMarks: [String: PlazaGameMark] {
+        var out = remotes.compactMapValues { $0.actor.gameMark }
+        out[""] = me.gameMark
+        return out
     }
 
     /// 미니게임 폭탄을 든 캐릭터 머리 위에 폭탄을 띄운다. `isMe`면 나, 아니면 `holder`(nil이면 아무도 없다).

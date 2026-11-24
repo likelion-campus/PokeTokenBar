@@ -17,6 +17,10 @@ struct PlazaGameMenu: Equatable {
     }
 }
 
+/// How a character in a running game is marked, on the ground under it and on the minimap: still in, holding the live
+/// bomb, or out. A character with no mark is not playing.
+enum PlazaGameMark: Equatable, Sendable { case alive, holder, out }
+
 /// What the plaza draws for the minigame right now: derived from the engine on every tick, never stored.
 struct PlazaGameView: Equatable {
     struct Button: Equatable {
@@ -48,11 +52,23 @@ struct PlazaGameView: Equatable {
     /// Who has the bomb over their head.
     var holder: String?
     var urgent = false
+    /// Everyone in the locked game, for players and watchers alike: who is still in and who is out, each in the game's
+    /// order. Empty before the players are locked in and after the game ends.
+    var alive: [String] = []
+    var out: [String] = []
+    /// The line that names them under the hint, as long as the game runs.
+    var status: String?
+
+    /// The mark of one member; nil when they do not play.
+    func mark(of id: String) -> PlazaGameMark? {
+        if id == holder { return .holder }
+        return alive.contains(id) ? .alive : out.contains(id) ? .out : nil
+    }
 
     /// `name`: a member's nickname. `joinedCount`: how many said yes, the host included. `canPlay`: I am not an egg.
-    /// `inWater`: I am swimming (no throwing there). `flash`: an explosion or the result, shown as the title until it
-    /// runs out. Who gets the next bomb stays hidden until it is live, so nobody gets a head start on the holder.
-    static func make(engine: PlazaGameEngine, now: Date, joinedCount: Int, canPlay: Bool, inWater: Bool = false, flash: Title?,
+    /// `flash`: an explosion or the result, shown as the title until it runs out. Who gets the next bomb stays hidden
+    /// until it is live, so nobody gets a head start on the holder.
+    static func make(engine: PlazaGameEngine, now: Date, joinedCount: Int, canPlay: Bool, flash: Title?,
                      name: (String) -> String?) -> PlazaGameView {
         var view = PlazaGameView()
         guard let s = engine.state, let phase = engine.phase(now: now) else { return view }
@@ -90,6 +106,8 @@ struct PlazaGameView: Equatable {
             }
             view.card = card
         case .countdown:
+            view.alive = s.players
+            view.status = l.plazaGameStatus(alive: s.players.map(nick), out: [], holder: nil)
             guard isPlayer, let starts = s.startsAt else { break }
             view.title = Title(text: "\(max(1, Int((starts - t).rounded(.up))))", tone: .count)
             if let kind {
@@ -101,9 +119,12 @@ struct PlazaGameView: Equatable {
             let live = t >= b.roundStartsAt
             view.holder = live ? b.holder : nil
             if live, let explodes = PlazaBomb.explodesAt(s) { view.urgent = explodes - t <= PlazaBomb.urgentSeconds }
+            let alive = PlazaBomb.alive(s)
+            view.alive = alive
+            view.out = b.out.filter(s.players.contains)
+            view.status = l.plazaGameStatus(alive: alive.map(nick), out: view.out.map(nick), holder: view.holder.map(nick))
             guard isPlayer else { break }
             if live, t < b.roundStartsAt + 1 { view.title = Title(text: b.round == 1 ? l.plazaGameGo : l.plazaGameNextBomb, tone: .go) }
-            let alive = PlazaBomb.alive(s)
             if !alive.contains(me) {
                 view.hint = l.plazaGameOutHint(left: alive.count)
             } else if !live {
@@ -112,7 +133,7 @@ struct PlazaGameView: Equatable {
                 if let from = b.from, let at = b.passedAt, t - at < PlazaBomb.returnImmunity {
                     view.hint = l.plazaGameNoReturnHint(nickname: nick(from))
                 } else {
-                    view.hint = inWater ? l.plazaGameWaterHint : l.plazaGameHoldHint
+                    view.hint = l.plazaGameHoldHint
                 }
             } else {
                 view.hint = l.plazaGameRunHint(nickname: nick(b.holder))

@@ -166,6 +166,10 @@ import Observation
                 canvas.fillEllipse(in: circle)
                 canvas.setStrokeColor(dot.isMe ? .white : Self.dark)
                 canvas.strokeEllipse(in: circle, lineWidth: dot.isMe ? 1.5 : 1)
+                if !dot.hasBomb, let mark = dot.game {
+                    canvas.setStrokeColor(mark == .out ? PlazaGameMarkArt.outColor : PlazaGameMarkArt.aliveColor)
+                    canvas.strokeEllipse(in: circle.insetBy(dx: -2, dy: -2), lineWidth: 1.5)
+                }
                 if dot.hasBomb {
                     canvas.setStrokeColor(Self.bombRing)
                     canvas.strokeEllipse(in: circle.insetBy(dx: -2.5, dy: -2.5), lineWidth: 2)

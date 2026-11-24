@@ -1126,6 +1126,8 @@ import Observation
     var gameState: PlazaGameState? { game.state }
     var gameJoined: String? { game.joined }
     var gameCard: PlazaGameView.Card? { gameModel.card }
+    /// 판이 도는 동안 안내 아래에 보이는 명단.
+    var gameStatus: String? { overlayModel.gameStatus }
     var gameTitle: PlazaGameView.Title? { gameModel.title }
 
     /// 판이 살아 있는 동안은 0.2초마다, 없으면 1초마다 본다(팀원 소식이 올 때도 `observeMembers`가 부른다).
@@ -1237,14 +1239,19 @@ import Observation
                 + (game.joined == s.id && s.host != me ? 1 : 0)
         }
         let view = PlazaGameView.make(engine: game, now: now, joinedCount: joined, canPlay: subject().speciesID != nil,
-                                      inWater: scene?.isMeInWater == true, flash: gameFlashes.first(where: { $0.from <= now })?.title,
+                                      flash: gameFlashes.first(where: { $0.from <= now })?.title,
                                       name: { [members, nickname] in $0 == me ? nickname() : members[$0]?.nickname })
-        let hintChanged = view.hint != gameView.hint, holderChanged = view.holder != gameView.holder
+        let hintChanged = view.hint != gameView.hint || view.status != gameView.status
+        let marksChanged = view.holder != gameView.holder || view.alive != gameView.alive || view.out != gameView.out
         gameView = view
-        if holderChanged { refreshMinimap() }
+        if marksChanged { refreshMinimap() }
         if gameModel.card != view.card { gameModel.card = view.card }
         if gameModel.title != view.title { gameModel.title = view.title }
         scene?.setBomb(holder: view.holder, isMe: view.holder == me, urgent: view.urgent)
+        // 팀원이 뒤늦게 장면에 들어와도 고리가 깔리게 매번 맞춘다(바뀐 것만 노드를 만진다).
+        scene?.setGameMarks(Dictionary(uniqueKeysWithValues: (view.alive + view.out).filter { $0 != me }.compactMap { id in
+            view.mark(of: id).map { (id, $0) }
+        }), mine: view.mark(of: me))
         if hintChanged { refreshHint() }
     }
 
@@ -1568,7 +1575,6 @@ import Observation
             // 닿을 때 겨눈 칸에 더는 없으면 빗나간 것이다(걸어서 피했다).
             if isMe {
                 guard self.scene?.myBody.covers(shot.endTile) == true else { return }
-                self.takeBomb(from: sender)
                 if self.myMimic != nil { self.revealMe(by: sender) }
                 else if self.canBePushed { self.shove(by: sender) { self.scene?.pushMe(direction, tiles: pushed) ?? false } }
             } else if isDitto, self.shownDitto?.isDecoy == false, self.scene?.body(of: PlazaDitto.sceneKey)?.covers(shot.endTile) == true {
@@ -1787,6 +1793,9 @@ import Observation
             text = canPray() ? L(.ko).plazaPrayHint(prayers: prayerCount()) : L(.ko).plazaPrayDoneHint(prayers: prayerCount())
         }
         if overlayModel.hint != text { overlayModel.hint = text }
+        // 미니게임 명단은 다른 안내와 상관없이 판이 도는 동안 늘 보인다(사진 모드에서는 안내 줄과 함께 숨는다).
+        let status = isPhotoMode ? nil : gameView.status
+        if overlayModel.gameStatus != status { overlayModel.gameStatus = status }
     }
 
     func refreshHintForTesting() { refreshHint() }
@@ -2297,13 +2306,13 @@ import Observation
         var dots = members.values.sorted { $0.memberID < $1.memberID }.compactMap { m -> PlazaMinimapModel.Dot? in
             guard let tile = scene.memberTiles[m.memberID] else { return nil }
             return .init(id: m.memberID, tile: tile, color: scene.memberNameColor(m.memberID) ?? PlazaNameColor.palette[0],
-                         isMe: false, isAway: m.isIdle, hasBomb: gameView.holder == m.memberID)
+                         isMe: false, isAway: m.isIdle, hasBomb: gameView.holder == m.memberID, game: gameView.mark(of: m.memberID))
         }
         if shownDitto?.isDecoy == true, let tile = scene.dittoTile, let color = scene.memberNameColor(PlazaDitto.sceneKey) {
             dots.append(.init(id: PlazaDitto.sceneKey, tile: tile, color: color, isMe: false, isAway: false))
         }
         dots.append(.init(id: memberID(), tile: scene.walker.tile, color: scene.nameColor, isMe: true, isAway: false,
-                          hasBomb: gameView.holder == memberID()))
+                          hasBomb: gameView.holder == memberID(), game: gameView.mark(of: memberID())))
         if dots != minimap.dots { minimap.dots = dots }
         if scene.visibleWorldRect != minimap.view { minimap.view = scene.visibleWorldRect }
         if scene.itemTile != minimap.item { minimap.item = scene.itemTile }
