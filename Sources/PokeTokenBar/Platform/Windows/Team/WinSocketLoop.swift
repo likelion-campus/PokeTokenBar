@@ -143,6 +143,8 @@ final class WinSocketLoop: @unchecked Sendable {
     /// The generation (the `listen` return value) of the listener that accepted `id`; nil for dials and closed ids.
     /// Recorded before `.accepted` is posted.
     func listenerGeneration(of id: WinConnID) -> Int? { engine.listenerGeneration(of: id) }
+    /// The remote host (numeric, no port) an inbound connection came from; nil once it is gone.
+    func remoteHost(of id: WinConnID) -> String? { engine.remoteHost(of: id) }
 
     /// Asks for the next `.data` of a link (after `.ready`; one asked before `.ready` is kept for it).
     func receiveNext(_ id: WinConnID) { engine.receiveNext(id) }
