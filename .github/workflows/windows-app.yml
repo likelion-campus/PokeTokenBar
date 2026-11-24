@@ -1680,15 +1680,21 @@ jobs:
               "scheduled $Name ($Logon$(if ($Repeat) { ', every minute' })) at $($At.ToUniversalTime().ToString('HH:mm:ss'))Z"
           }
           # Positive control: the same task path, before the in-app step; its check run must arrive.
+          # Positive controls: the same task paths (an Interactive one and an S4U one, which runs outside the desktop session), before
+          # the in-app step; both check runs must arrive.
           Add-Task 'ptb-diag-control' $hb 'control' (Get-Date).AddSeconds(30)
-          $deadline = (Get-Date).AddSeconds(100)
-          do { Start-Sleep -Seconds 5; $info = Get-ScheduledTaskInfo -TaskName 'ptb-diag-control' } while ((Get-Date) -lt $deadline -and ($info.LastTaskResult -eq 267011 -or $info.LastTaskResult -eq 267009))
-          "control task: last run $($info.LastRunTime) result 0x$('{0:X}' -f $info.LastTaskResult)"
-          Unregister-ScheduledTask -TaskName 'ptb-diag-control' -Confirm:$false
+          Add-Task 'ptb-diag-controlS4U' $hb 'controlS4U' (Get-Date).AddSeconds(35) -Logon S4U
+          $deadline = (Get-Date).AddSeconds(110)
+          foreach ($name in 'ptb-diag-control', 'ptb-diag-controlS4U') {
+              do { Start-Sleep -Seconds 5; $info = Get-ScheduledTaskInfo -TaskName $name } while ((Get-Date) -lt $deadline -and ($info.LastTaskResult -eq 267011 -or $info.LastTaskResult -eq 267009))
+              "${name}: last run $($info.LastRunTime) result 0x$('{0:X}' -f $info.LastTaskResult)"
+              Unregister-ScheduledTask -TaskName $name -Confirm:$false
+          }
           $t0 = Get-Date
-          foreach ($s in 8, 16, 24, 32, 40, 48) { Add-Task "ptb-diag-hb$s" $hb "hb$s" $t0.AddSeconds($s + 2) }
-          Add-Task 'ptb-diag-hbA' $hb 'hbA' $t0.AddSeconds(62) -Repeat
-          Add-Task 'ptb-diag-hbB' $hb 'hbB' $t0.AddSeconds(92) -Repeat
+          # Interactive (I) and S4U (S, outside the desktop session) alternate: a lost desktop session stops only the I ones.
+          foreach ($s in 8, 16, 24, 32, 40, 48) { if ($s % 16) { Add-Task "ptb-diag-hb$s" $hb "hb${s}I" $t0.AddSeconds($s + 2) } else { Add-Task "ptb-diag-hb$s" $hb "hb${s}S" $t0.AddSeconds($s + 2) -Logon S4U } }
+          Add-Task 'ptb-diag-hbA' $hb 'hbAI' $t0.AddSeconds(62) -Repeat
+          Add-Task 'ptb-diag-hbB' $hb 'hbBS' $t0.AddSeconds(92) -Repeat -Logon S4U
           Add-Task 'ptb-diag-snap4' $snap 'snap4' $t0.AddMinutes(4)
       - name: The in-app update from a loopback feed
         id: in-app-update
