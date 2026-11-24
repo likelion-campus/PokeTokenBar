@@ -223,6 +223,7 @@ enum SaveTransfer {
             imported.candyWindowEpoch, imported.candyGrantTier,
             current.candyWindowEpoch, current.candyGrantTier)
         state.candyFeatureSeeded = imported.candyFeatureSeeded || current.candyFeatureSeeded
+        state.formatVersion = CompanionState.currentFormatVersion
         let hasCurrentProviderData = hasUsageData && !todayTokensByProvider.isEmpty
         if hasCurrentProviderData {
             // 신규 설치와 같은 규칙: 불러온 시점 이전의 이 기기 사용량은 소급 적립하지 않는다.

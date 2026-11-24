@@ -772,6 +772,8 @@ PokeTokenBarApp.swift#AppDelegate.startOutsideClickMonitor | A2
 PokeTokenBarApp.swift#AppDelegate.stopOutsideClickMonitor | A2
 PokeTokenBarApp.swift#AppDelegate.observeDisplaySleep | A1
 PokeTokenBarApp.swift#AppDelegate.setDisplayAwake | A1
+PokeTokenBarApp.swift#AppDelegate.reconcileDisplayAwake | A1
+PokeTokenBarApp.swift#AppDelegate.displayAwakeCorrection | A1
 PokeTokenBarApp.swift#AppDelegate.syncMenuAnimation | A1
 OutsideClickMonitor.swift#OutsideClickMonitor | A2
 OutsideClickMonitor.swift#OutsideClickMonitor.start | A2

@@ -277,6 +277,21 @@ final class UsageStoreTests: XCTestCase {
         XCTAssertEqual(store.todayTotalTokens, 1_000, "복구 직후 1회 갱신으로 스냅샷이 채워져야 한다")
     }
 
+    /// [audit-stability #1] The owner re-derives its own awake flags when the store finds the screens awake without
+    /// `screensDidWake`; while they sleep the callback stays quiet.
+    func testMissedWakeIsReportedToTheOwnerOnlyWhenTheScreensAreAwake() async {
+        let displays = DisplayState(asleep: true)
+        let store = makeSleepStore(displays: displays)
+        var reports = 0
+        store.onWakeMissed = { reports += 1 }
+        store.suspendPolling()
+        await store.runSuspendedPollingProbe()
+        XCTAssertEqual(reports, 0)
+        displays.asleep = false
+        await store.runSuspendedPollingProbe()
+        XCTAssertEqual(reports, 1)
+    }
+
     func testSuspendedPollingProbeStaysSuspendedWhileDisplaysSleep() async {
         let displays = DisplayState(asleep: true)
         let store = makeSleepStore(displays: displays)

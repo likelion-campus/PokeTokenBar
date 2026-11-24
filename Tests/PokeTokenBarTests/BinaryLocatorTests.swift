@@ -82,4 +82,150 @@ final class BinaryLocatorTests: XCTestCase {
         XCTAssertTrue(paths.contains { $0.contains("/.volta/bin/ccusage") })
         #endif
     }
+
+    // MARK: not-found is remembered (audit-stability #3)
+
+    private func withFakes(override: @escaping (String) -> String? = { _ in nil },
+                           shell: @escaping (String) -> String?, _ body: () -> Void) {
+        let savedShell = BinaryLocator.shellResolver, savedOverride = BinaryLocator.overrideReader
+        BinaryLocator.shellResolver = shell
+        BinaryLocator.overrideReader = override
+        BinaryLocator.reset()
+        defer {
+            BinaryLocator.shellResolver = savedShell
+            BinaryLocator.overrideReader = savedOverride
+            BinaryLocator.reset()
+        }
+        body()
+    }
+
+    final class Counter: @unchecked Sendable { var n = 0 }
+
+    func testNotFoundSpawnsTheShellOnlyOncePerProcess() {
+        let spawns = Counter()
+        withFakes(shell: { _ in spawns.n += 1; return nil }) {
+            for _ in 0..<5 { XCTAssertNil(BinaryLocator.resolve("ptb-absent-tool", staticPaths: [])) }
+            XCTAssertEqual(spawns.n, 1)
+        }
+    }
+
+    func testNotFoundIsRememberedPastTheOldTenMinuteWindow() {
+        // The removed TTL re-spawned once the entry was 10 minutes old; no clock is read any more, so a later
+        // call can only spawn again through the explicit signals below.
+        let spawns = Counter()
+        withFakes(shell: { _ in spawns.n += 1; return nil }) {
+            _ = BinaryLocator.resolve("ptb-absent-tool2", staticPaths: [])
+            _ = BinaryLocator.resolve("ptb-absent-tool2", staticPaths: ["/nonexistent/ptb-absent-tool2"])
+            XCTAssertEqual(spawns.n, 1)
+        }
+    }
+
+    func testStaticPathInstalledLaterIsFoundWithoutAShell() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("ptb-bin-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        // Windows decides "executable" by the extension (WindowsPathTests uses `.cmd` for the same reason).
+        #if os(Windows)
+        let tool = dir.appendingPathComponent("ptb-late-tool.cmd").path
+        let body = "@echo off\r\n"
+        #else
+        let tool = dir.appendingPathComponent("ptb-late-tool").path
+        let body = "#!/bin/sh\n"
+        #endif
+        let spawns = Counter()
+        withFakes(shell: { _ in spawns.n += 1; return nil }) {
+            XCTAssertNil(BinaryLocator.resolve("ptb-late-tool", staticPaths: [tool]))
+            FileManager.default.createFile(atPath: tool, contents: Data(body.utf8),
+                                           attributes: [.posixPermissions: 0o755])
+            XCTAssertEqual(BinaryLocator.resolve("ptb-late-tool", staticPaths: [tool]), tool)
+            XCTAssertEqual(spawns.n, 1, "installing into a static path must not cost another shell")
+        }
+    }
+
+    func testChangedManualPathReChecksOnce() {
+        let spawns = Counter()
+        let setting = Counter()   // 0 = unset, 1 = set to a bogus path
+        withFakes(override: { _ in setting.n == 0 ? nil : "/nonexistent/ptb-override" },
+                  shell: { _ in spawns.n += 1; return nil }) {
+            _ = BinaryLocator.resolve("ptb-absent-tool3", staticPaths: [])
+            setting.n = 1
+            _ = BinaryLocator.resolve("ptb-absent-tool3", staticPaths: [])
+            _ = BinaryLocator.resolve("ptb-absent-tool3", staticPaths: [])
+            XCTAssertEqual(spawns.n, 2, "one spawn per distinct manual-path value, not per call")
+        }
+    }
+
+    func testNotFoundIsLookedForAgainOnAManualRefresh() {
+        let spawns = Counter()
+        withFakes(shell: { _ in spawns.n += 1; return nil }) {
+            _ = BinaryLocator.resolve("ptb-absent-tool4", staticPaths: [])
+            _ = BinaryLocator.resolve("ptb-absent-tool4", staticPaths: [])
+            XCTAssertEqual(spawns.n, 1)
+            BinaryLocator.forgetNotFound()
+            _ = BinaryLocator.resolve("ptb-absent-tool4", staticPaths: [])
+            XCTAssertEqual(spawns.n, 2, "a person pressed refresh: ask the shell again")
+            _ = BinaryLocator.resolve("ptb-absent-tool4", staticPaths: [])
+            XCTAssertEqual(spawns.n, 2)
+        }
+    }
+
+    func testForgetNotFoundKeepsWhatWasFound() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("ptb-bin-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        #if os(Windows)
+        let tool = dir.appendingPathComponent("ptb-found-tool.cmd").path
+        let body = "@echo off\r\n"
+        #else
+        let tool = dir.appendingPathComponent("ptb-found-tool").path
+        let body = "#!/bin/sh\n"
+        #endif
+        FileManager.default.createFile(atPath: tool, contents: Data(body.utf8), attributes: [.posixPermissions: 0o755])
+        let spawns = Counter()
+        withFakes(shell: { _ in spawns.n += 1; return tool }) {
+            XCTAssertEqual(BinaryLocator.resolve("ptb-found-tool", staticPaths: []), tool)
+            BinaryLocator.forgetNotFound()
+            XCTAssertEqual(BinaryLocator.resolve("ptb-found-tool", staticPaths: []), tool)
+            XCTAssertEqual(spawns.n, 1)
+        }
+    }
+
+    func testNotFoundIsLookedForAgainOnlyOncePerRecheckInterval() {
+        let spawns = Counter()
+        let savedNow = BinaryLocator.now
+        let clock = Clock()
+        BinaryLocator.now = { clock.now }
+        defer { BinaryLocator.now = savedNow }
+        withFakes(shell: { _ in spawns.n += 1; return nil }) {
+            _ = BinaryLocator.resolve("ptb-absent-tool5", staticPaths: [])
+            clock.now.addTimeInterval(BinaryLocator.notFoundRecheckInterval - 60)
+            _ = BinaryLocator.resolve("ptb-absent-tool5", staticPaths: [])
+            XCTAssertEqual(spawns.n, 1, "still inside the interval")
+            clock.now.addTimeInterval(120)
+            _ = BinaryLocator.resolve("ptb-absent-tool5", staticPaths: [])
+            XCTAssertEqual(spawns.n, 2, "a tool installed later through nvm/fnm is found without a relaunch")
+            _ = BinaryLocator.resolve("ptb-absent-tool5", staticPaths: [])
+            XCTAssertEqual(spawns.n, 2, "the interval restarts from the last look")
+        }
+    }
+
+    final class Clock: @unchecked Sendable { var now = Date(timeIntervalSince1970: 1_700_000_000) }
+
+    func testShellWaitIsNotHeldUnderTheCacheLock() {
+        // A slow shell for one binary must not block a lookup of another (the lock is not held while waiting).
+        let started = DispatchSemaphore(value: 0), release = DispatchSemaphore(value: 0)
+        withFakes(shell: { name in
+            if name == "ptb-slow-tool" { started.signal(); _ = release.wait(timeout: .now() + 10) }
+            return nil
+        }) {
+            let done = DispatchSemaphore(value: 0)
+            DispatchQueue.global().async { _ = BinaryLocator.resolve("ptb-slow-tool", staticPaths: []); done.signal() }
+            XCTAssertEqual(started.wait(timeout: .now() + 5), .success)
+            let other = DispatchSemaphore(value: 0)
+            DispatchQueue.global().async { _ = BinaryLocator.resolve("ptb-fast-tool", staticPaths: []); other.signal() }
+            XCTAssertEqual(other.wait(timeout: .now() + 3), .success, "a second lookup waited behind the shell")
+            release.signal()
+            XCTAssertEqual(done.wait(timeout: .now() + 5), .success)
+        }
+    }
 }

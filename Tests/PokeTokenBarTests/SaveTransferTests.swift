@@ -559,7 +559,9 @@ final class SaveTransferTests: XCTestCase {
                                      "representativeSpeciesID", "representativeForm", "dex",
                                      "collectedFinals", "inventory",
                                      "notifiedDexCompletions", "dexCompletionsSeeded"]
-        let deviceLedger: Set<String> = ["installBaselineSet", "claimedTodayTokensByProvider", "lastDate"]
+        // formatVersion = 로컬(받은 세이브는 현재 형식으로 재작성).
+        let deviceLedger: Set<String> = ["installBaselineSet", "claimedTodayTokensByProvider", "lastDate",
+                                         "formatVersion"]
         let accountLedger: Set<String> = ["candyGrantTier", "candyWindowEpoch", "candyFeatureSeeded"]
         let devicePreference: Set<String> = ["language"]
 

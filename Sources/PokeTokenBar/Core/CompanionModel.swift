@@ -307,13 +307,48 @@ struct CandyWindow: Sendable {
     /// 창 epoch (`resets_at` / reset unix). key 는 안정, epoch 가 바뀌면 새 창 → 재무장(#326).
     /// nil 이면 100% 미만 관측으로만 재무장한다(Codex — credits 로 100% 를 넘겨 쓴다).
     let epoch: String?
+    /// The provider's own id for this window (an Antigravity `bucketId`, a Codex `limitId`) when it has one; it breaks
+    /// ties between windows whose keys collide (see `uniquelyKeyed`). Not part of the saved state.
+    let identity: String?
 
-    init(key: String, name: String, kind: WindowClass, utilization: Double, epoch: String? = nil) {
+    init(key: String, name: String, kind: WindowClass, utilization: Double, epoch: String? = nil, identity: String? = nil) {
+        self.identity = identity
         self.key = key
         self.name = name
         self.kind = kind
         self.utilization = utilization
         self.epoch = epoch
+    }
+
+    /// Keys must name exactly one window: two windows sharing a key share one grant tier, so one at 100% grants
+    /// and the other (below 100%) re-arms it, and the next poll grants again. Among windows that share a key, the one
+    /// with the smallest `identity` (the provider's own id; none sorts last, then input order) keeps the plain key,
+    /// so a saved tier still matches it and the choice does not depend on the order the provider listed them in. The
+    /// others get `#<identity>`, or `#<rank>` when they have no (distinct) identity.
+    static func uniquelyKeyed(_ windows: [CandyWindow]) -> [CandyWindow] {
+        var byKey: [String: [Int]] = [:]
+        for (i, w) in windows.enumerated() { byKey[w.key, default: []].append(i) }
+        var result = windows
+        for (key, indices) in byKey where indices.count > 1 {
+            let ranked = indices.sorted { a, b in
+                switch (windows[a].identity, windows[b].identity) {
+                case let (x?, y?): return x != y ? x < y : a < b
+                case (_?, nil): return true
+                case (nil, _?): return false
+                case (nil, nil): return a < b
+                }
+            }
+            var used: Set<String> = [key]
+            for (rank, index) in ranked.enumerated() where rank > 0 {
+                let w = windows[index]
+                var candidate = w.identity.map { "\(key)#\($0)" } ?? "\(key)#\(rank + 1)"
+                var n = rank + 1
+                while !used.insert(candidate).inserted { n += 1; candidate = "\(key)#\(n)" }
+                result[index] = CandyWindow(key: candidate, name: w.name, kind: w.kind,
+                                            utilization: w.utilization, epoch: w.epoch, identity: w.identity)
+            }
+        }
+        return result
     }
 }
 
@@ -712,6 +747,11 @@ struct CompanionState: Codable, Sendable {
     var notifiedDexCompletions: Set<String> = []
     // 완성 추적 첫 실행 시드 완료 — 기능 출시 전 이미 완성한 세대에 알림 폭주를 막는다(candyFeatureSeeded 패턴).
     var dexCompletionsSeeded = false
+    /// Save format marker. Bump it whenever a build starts writing something an older build cannot decode
+    /// (a new enum case in `active`/`dex`, ...): the older build then leaves the file alone instead of
+    /// decoding it leniently and overwriting what it dropped. Absent = a save from before the marker (0).
+    static let currentFormatVersion = 1
+    var formatVersion = CompanionState.currentFormatVersion
 
     init() {}
 
@@ -756,6 +796,8 @@ struct CompanionState: Codable, Sendable {
         candyFeatureSeeded = c.lenient(Bool.self, forKey: .candyFeatureSeeded, default: false)
         notifiedDexCompletions = c.lenient(Set<String>.self, forKey: .notifiedDexCompletions, default: [])
         dexCompletionsSeeded = c.lenient(Bool.self, forKey: .dexCompletionsSeeded, default: false)
+        // Read as found (0 before the marker existed); the store compares it with this build's and rewrites its own.
+        formatVersion      = c.lenient(Int.self, forKey: .formatVersion, default: 0)
     }
 
     /// 졸업 기록 또는 현재 개체가 실제로 도달한 단계에 이 종이 포함되는가.
