@@ -61,53 +61,67 @@ extension PlazaSeasonTests {
         }
     }
 
-    func testSummerThrowsTheWaterBalloonPictureAsItIsAndOnlyInSummer() async throws {
-        let balloon = try XCTUnwrap(BundledArt.image(PlazaResources.waterBalloonName), "the bundled picture loads")
-        XCTAssertEqual([balloon.width, balloon.height], [14, 18])
-        let art = PlazaSnowballArt.art(.summer, ball: balloon)
-        XCTAssertTrue(art.ball.image === balloon)
-        XCTAssertEqual(art.ball.scale, 1, "one picture pixel is one world pixel")
-        XCTAssertFalse(art.burst.contains { $0.image === balloon })
+    func testSummerThrowsTheFiveBalloonsAsTheyAre() async throws {
+        let sheet = try XCTUnwrap(BundledArt.image(PlazaResources.balloonSheetName), "the bundled strip loads")
+        XCTAssertEqual([sheet.width, sheet.height], [80, 21])
+        let sources = PlazaResources.ballSources(.summer)
+        XCTAssertEqual(sources.map(\.name), Array(repeating: "plaza-balloons", count: 5))
+        XCTAssertEqual(sources.map(\.crop), (0..<5).map { PlazaPixelRect(x: 16 * $0, y: 0, width: 16, height: 21) })
+        let cells = try sources.map { try XCTUnwrap(sheet.cropping(to: try XCTUnwrap($0.crop))) }
+        XCTAssertEqual(Set(cells.map { PlazaParityGoldens.sha256Hex($0.pixels.bytes) }).count, 5, "five different balloons")
+        // Each cell is one whole balloon: its body colour fills the middle, and nothing of a neighbour is in it.
+        let bodies: [(r: UInt8, g: UInt8, b: UInt8)] = cells.map { let p = $0.pixels.bytes, i = (10 * 16 + 5) * 4; return (p[i], p[i + 1], p[i + 2]) }
+        XCTAssertTrue(bodies[0].r > 200 && bodies[0].g < 80 && bodies[0].b < 80, "red \(bodies[0])")
+        XCTAssertTrue(bodies[1].b > 200 && bodies[1].r < 80, "blue \(bodies[1])")
+        XCTAssertTrue(bodies[2].g > 200 && bodies[2].r < 80 && bodies[2].b < 80, "green \(bodies[2])")
+        XCTAssertTrue(bodies[3].r > 200 && bodies[3].g > 180 && bodies[3].b < 80, "yellow \(bodies[3])")
+        XCTAssertTrue(bodies[4].b > 200 && bodies[4].r > 80 && bodies[4].g < 80, "purple \(bodies[4])")
+        XCTAssertEqual(sources.map(\.scale), [2, 2, 2, 2, 2], "one picture pixel is two world pixels")
+        let art = PlazaSnowballArt.art(.summer, balls: cells.map { ($0, 2) })
+        XCTAssertTrue(zip(art.balls, cells).allSatisfy { $0.image === $1 })
+        XCTAssertEqual(art.balls.map(\.scale), [2, 2, 2, 2, 2])
+        XCTAssertFalse(art.burst.contains { piece in cells.contains { $0 === piece.image } })
         XCTAssertEqual(art.burst.map { $0.image.pixels.bytes }, PlazaSnowballArt.art(.summer).burst.map { $0.image.pixels.bytes })
-        let summer = PlazaResources.ballSource(.summer)
-        XCTAssertEqual(summer?.name, PlazaResources.waterBalloonName)
-        XCTAssertNil(summer?.crop)
     }
 
     func testEachSeasonHasItsBallSource() async {
-        XCTAssertNil(PlazaResources.ballSource(.winter), "winter keeps the grid snowball")
-        XCTAssertEqual(PlazaResources.ballSource(.summer)?.name, "plaza-water-balloon")
-        for (season, y) in [(PlazaSeason.spring, 129), (.autumn, 33)] {
-            let source = PlazaResources.ballSource(season)
-            XCTAssertEqual(source?.name, "plaza-leaf-sheet", "\(season)")
-            XCTAssertEqual(source?.crop, PlazaPixelRect(x: 33, y: y, width: 17, height: 15), "\(season)")
-        }
+        XCTAssertTrue(PlazaResources.ballSources(.winter).isEmpty, "winter keeps the grid snowball")
+        let spring = PlazaResources.ballSources(.spring)
+        XCTAssertEqual(spring.map(\.name), ["plaza-sakura"])
+        XCTAssertEqual(spring.map(\.crop), [nil], "the whole file")
+        XCTAssertEqual(spring.map(\.scale) + PlazaResources.ballSources(.autumn).map(\.scale), [1, 1], "one picture pixel is one world pixel")
+        let autumn = PlazaResources.ballSources(.autumn)
+        XCTAssertEqual(autumn.map(\.name), ["plaza-leaf-sheet"])
+        XCTAssertEqual(autumn.map(\.crop), [PlazaPixelRect(x: 33, y: 33, width: 17, height: 15)])
     }
 
-    /// 번들 시트에서 자른 봄·가을 공의 픽셀 SHA-256(시트나 자를 영역이 바뀌면 걸린다).
+    /// 번들 그림에서 얻은 봄·가을 공의 픽셀 SHA-256(파일이나 자를 영역이 바뀌면 걸린다).
     static let pinnedCuts: [PlazaSeason: String] = [
-        .spring: "d41ec3dd75113f7fd81e5c851a64b6ddaad129597d6793e8aeb7f38e65965433",
+        .spring: "cb2efa9a4751bc63218cc1bbbeae03030ec782682780b49dca021befcbb73ba3",
         .autumn: "74e7449c94e216ff0b62536fbba0edefbb15e88f0ee6044aa4c9e5103e695d7c",
     ]
 
     func testEverySeasonThrowsItsOwnBundledPicture() async throws {
-        XCTAssertNil(PlazaResources.ballSource(.winter))
         let grid = PlazaSnowballArt.art(.winter).ball
         XCTAssertEqual([grid.image.width, grid.image.height], [4, 4], "winter keeps the grid snowball")
-        XCTAssertNotNil(BundledArt.image(PlazaResources.waterBalloonName), "the summer balloon loads")
         var cuts: [PlazaSeason: PlazaImage] = [:]
-        for season in [PlazaSeason.spring, .autumn] {
-            let source = try XCTUnwrap(PlazaResources.ballSource(season))
-            let sheet = try XCTUnwrap(BundledArt.image(source.name), "\(season): the sheet is bundled")
-            let cut = try XCTUnwrap(sheet.cropping(to: try XCTUnwrap(source.crop)))
-            XCTAssertEqual([cut.width, cut.height], [17, 15], "\(season)")
-            XCTAssertTrue((12...20).contains(15 * PlazaSnowballArt.ballScale(cut)), "\(season) flies 12-20 world px high")
+        for (season, size) in [(PlazaSeason.spring, [38, 34]), (.autumn, [17, 15])] {
+            let sources = PlazaResources.ballSources(season)
+            XCTAssertEqual(sources.count, 1, "\(season)")
+            let file = try XCTUnwrap(BundledArt.image(sources[0].name), "\(season): the file is bundled")
+            let cut = try XCTUnwrap(sources[0].crop.map { file.cropping(to: $0) } ?? file)
+            XCTAssertEqual([cut.width, cut.height], size, "\(season)")
             XCTAssertEqual(PlazaParityGoldens.sha256Hex(cut.pixels.bytes), Self.pinnedCuts[season], "\(season) cut")
-            XCTAssertTrue(PlazaSnowballArt.art(season, ball: cut).ball.image === cut)
+            XCTAssertTrue(PlazaSnowballArt.art(season, balls: [(cut, 1)]).ball.image === cut)
             cuts[season] = cut
         }
-        XCTAssertNotEqual(cuts[.spring]?.pixels.bytes, cuts[.autumn]?.pixels.bytes)
-        let balls = [grid.image] + cuts.values + [BundledArt.image(PlazaResources.waterBalloonName)].compactMap { $0 }
+        // The blossom is only its two pinks: no outline, nothing see-through.
+        let blossom = try XCTUnwrap(cuts[.spring]).pixels.bytes
+        var colours = Set<[UInt8]>()
+        for i in stride(from: 0, to: blossom.count, by: 4) where blossom[i + 3] > 0 { colours.insert(Array(blossom[i..<i + 4])) }
+        XCTAssertEqual(colours, [[242, 184, 190, 255], [242, 84, 139, 255], [242, 23, 107, 255]])
+        let balloons = try XCTUnwrap(BundledArt.image(PlazaResources.balloonSheetName))
+        let balls = [grid.image] + cuts.values + PlazaResources.balloonFrames.compactMap { balloons.cropping(to: $0) }
         for season in PlazaSeason.allCases {
             for piece in PlazaSnowballArt.art(season).burst {
                 XCTAssertFalse(balls.contains { $0.pixels.bytes == piece.image.pixels.bytes && $0 !== grid.image }, "\(season) burst piece equals a ball")
@@ -126,19 +140,29 @@ extension PlazaSeasonTests {
                 s.seasonChoice = PlazaSeasonChoice(rawValue: season.rawValue) ?? .summer
             }
             XCTAssertEqual(s.shownSeason, season)
-            s.playSnowball(by: nil, shot: PlazaSnowballShot(from: map.spawn, direction: .up, end: .ground(TilePoint(x: map.spawn.x, y: map.spawn.y - 3)))) {}
-            // 기대하는 공은 ballSource 를 거치지 않고, 시험이 적은 파일 이름과 자를 영역으로 직접 만든다.
+            // 기대하는 공은 ballSources 를 거치지 않고, 시험이 적은 파일 이름과 자를 영역으로 직접 만든다.
             // 겨울은 파일이 없다: 번들에 눈뭉치 파일이 있어도 격자 공이 그대로여야 한다.
-            let leaf = BundledArt.image("plaza-leaf-sheet")
-            let file: PlazaImage? = switch season {
-            case .winter: nil
-            case .spring: leaf?.cropping(to: PlazaPixelRect(x: 33, y: 129, width: 17, height: 15))
-            case .summer: BundledArt.image("plaza-water-balloon")
-            case .autumn: leaf?.cropping(to: PlazaPixelRect(x: 33, y: 33, width: 17, height: 15))
+            let balloons = BundledArt.image("plaza-balloons")
+            let files: [PlazaImage?] = switch season {
+            case .winter: []
+            case .spring: [BundledArt.image("plaza-sakura")]
+            case .summer: (0..<5).map { balloons?.cropping(to: PlazaPixelRect(x: 16 * $0, y: 0, width: 16, height: 21)) }
+            case .autumn: [BundledArt.image("plaza-leaf-sheet")?.cropping(to: PlazaPixelRect(x: 33, y: 33, width: 17, height: 15))]
             }
-            let want = PlazaSnowballArt.art(season, ball: file).ball
-            XCTAssertEqual(s.snowballBallImages.last?.pixels.bytes, want.image.pixels.bytes, "\(season)")
-            XCTAssertEqual(s.snowballBallSizes.last, CGSize(width: CGFloat(want.image.width) * want.scale, height: CGFloat(want.image.height) * want.scale), "\(season)")
+            let want = PlazaSnowballArt.art(season, balls: try files.map { (try XCTUnwrap($0, "\(season)"), season == .summer ? 2 : 1) }).balls
+            // 그림이 여럿인 계절은 던질 때마다 다음 그림이고, 다 쓰면 처음으로 돌아간다. 차례는 계절을 넘어 이어진다.
+            let before = s.snowballBallImages.count
+            for _ in 0...want.count {
+                s.playSnowball(by: nil, shot: PlazaSnowballShot(from: map.spawn, direction: .up, end: .ground(TilePoint(x: map.spawn.x, y: map.spawn.y - 3)))) {}
+            }
+            let thrown = Array(s.snowballBallImages.dropFirst(before)), sizes = Array(s.snowballBallSizes.dropFirst(before))
+            XCTAssertEqual(thrown.count, want.count + 1, "\(season)")
+            let first = try XCTUnwrap(want.firstIndex { $0.image.pixels.bytes == thrown[0].pixels.bytes }, "\(season)")
+            for (k, image) in thrown.enumerated() {
+                let piece = want[(first + k) % want.count]
+                XCTAssertEqual(image.pixels.bytes, piece.image.pixels.bytes, "\(season) throw \(k)")
+                XCTAssertEqual(sizes[k], CGSize(width: CGFloat(piece.image.width) * piece.scale, height: CGFloat(piece.image.height) * piece.scale), "\(season) throw \(k)")
+            }
         }
     }
 
@@ -348,7 +372,7 @@ extension PlazaSeasonTests {
         s.refreshSnowDay()
         s.update(0)
         s.playSnowball(by: nil, shot: PlazaSnowballShot(from: map.spawn, direction: .up, end: .ground(TilePoint(x: map.spawn.x, y: map.spawn.y - 3)))) {}
-        XCTAssertEqual(s.snowballBallSizes, [CGSize(width: 14, height: 18)])
+        XCTAssertEqual(s.snowballBallSizes, [CGSize(width: 32, height: 42)])
     }
 
     func testTheFlyingThingChangesWithTheSeason() async throws {
@@ -363,8 +387,8 @@ extension PlazaSeasonTests {
         }
         XCTAssertEqual(try ballSize(), CGSize(width: 16, height: 16), "a snowball is a 4×4 grid of 4-pixel cells")
         s.seasonChoice = .summer
-        XCTAssertEqual(s.snowballBallSizes, [CGSize(width: 14, height: 18)], "the ball already in the air turns too")
-        XCTAssertEqual(try ballSize(), CGSize(width: 14, height: 18))
+        XCTAssertEqual(s.snowballBallSizes, [CGSize(width: 32, height: 42)], "the ball already in the air turns too")
+        XCTAssertEqual(try ballSize(), CGSize(width: 32, height: 42))
         s.seasonChoice = .autumn
         XCTAssertEqual(Set(s.snowballBallSizes.map { "\($0)" }).count, 1)
         XCTAssertEqual(s.snowballBallSizes.first, CGSize(width: 17, height: 15), "autumn throws the leaf clump")

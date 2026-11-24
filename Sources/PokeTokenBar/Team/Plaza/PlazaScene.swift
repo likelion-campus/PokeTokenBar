@@ -465,7 +465,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         self.footprintLayer = PlazaFootprintLayer(worldHeight: map.pixelSize.height)
         self.snowballLayer = PlazaSnowballLayer(worldHeight: map.pixelSize.height)
         // 처음 보이는 계절(`shownSeason`)의 그림으로 시작한다. `refreshSnowDay`는 계절이 바뀔 때만 그림을 바꾼다.
-        snowballLayer.setArt(PlazaSnowballArt.art(.summer, ball: PlazaScene.ballImages[.summer]))
+        snowballLayer.setArt(PlazaSnowballArt.art(.summer, balls: PlazaScene.ballImages[.summer] ?? []))
         self.walker = PlazaWalker(tile: start)
         self.lastReported = (start, .down, false)
         self.nickname = nickname
@@ -2291,14 +2291,18 @@ struct PlazaSceneMember: Equatable, Sendable {
     /// 테스트용: 지금 그리는 지도 그림.
     var shownMapImage: PlazaImage { mapImage }
 
-    /// 계절마다 던지는 공 그림. 프로세스당 한 번 읽고(필요하면 한 칸을 잘라), 없는 계절은 눈 격자 공으로 던진다.
-    private static let ballImages: [PlazaSeason: PlazaImage] = {
-        var out: [PlazaSeason: PlazaImage] = [:]
+    /// 계절마다 던지는 공 그림들. 프로세스당 파일마다 한 번 읽고(필요하면 한 칸씩 잘라), 없는 계절은 눈 격자 공으로 던진다.
+    private static let ballImages: [PlazaSeason: [PlazaSnowballArt.Piece]] = {
+        var out: [PlazaSeason: [PlazaSnowballArt.Piece]] = [:]
+        var files: [String: PlazaImage] = [:]
         for season in PlazaSeason.allCases {
-            guard let source = PlazaResources.ballSource(season),
-                  let file = PlatformPlaza.graphics.assetURL(source.name, ext: "png").flatMap({ PlatformPlaza.graphics.decodeImage(at: $0) })
-            else { continue }
-            out[season] = source.crop.map { file.cropping(to: $0) } ?? file
+            out[season] = PlazaResources.ballSources(season).compactMap { source -> PlazaSnowballArt.Piece? in
+                let file = files[source.name]
+                    ?? PlatformPlaza.graphics.assetURL(source.name, ext: "png").flatMap { PlatformPlaza.graphics.decodeImage(at: $0) }
+                files[source.name] = file
+                let image = source.crop.map { file?.cropping(to: $0) } ?? file
+                return image.map { ($0, source.scale) }
+            }
         }
         return out
     }()
@@ -2319,7 +2323,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         if let grass { tallGrassLayer?.setArt(grass) }
         shownSeason = s
         for layer in treeLayers { layer.setSeason(s) }
-        snowballLayer.setArt(PlazaSnowballArt.art(s, ball: PlazaScene.ballImages[s]))
+        snowballLayer.setArt(PlazaSnowballArt.art(s, balls: PlazaScene.ballImages[s] ?? []))
         if s != .winter { footprintLayer.removeAll() }
         refreshIce(hit: nil)
         onSeasonChange?(s)

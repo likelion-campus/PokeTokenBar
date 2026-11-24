@@ -43,6 +43,16 @@ final class PlazaResourcesTests: XCTestCase {
         }
     }
 
+    func testCreditsNameTheBalloonAndBlossomArtists() throws {
+        let credits = try text("CREDITS", "md")
+        for needle in ["Kris Occhipinti", "Balloon Pop Sprite", "https://opengameart.org/content/balloon-pop-sprite", "plaza-balloons.png",
+                       "CC-BY-SA 4.0", "https://creativecommons.org/licenses/by-sa/4.0/", "No pixel is redrawn",
+                       "tiopalada", "Spring VFX Pack", "https://opengameart.org/content/spring-vfx-pack", "plaza-sakura.png", "CC0 1.0",
+                       "(490, 874)"] {
+            XCTAssertTrue(credits.contains(needle), needle)
+        }
+    }
+
     func testLeafSheetLoads() throws {
         let sheet = try XCTUnwrap(BundledArt.image(PlazaResources.leafSheetName))
         XCTAssertEqual([sheet.width, sheet.height], [128, 160])
