@@ -470,8 +470,7 @@ extension L {
     var plazaShortcutChat: String { "한마디" }
     var plazaShortcutEmotes: String { "말풍선" }
     var plazaShortcutZoom: String { "확대·축소" }
-    var plazaShortcutFirework: String { "불꽃놀이" }
-    var plazaShortcutDance: String { "춤" }
+    var plazaShortcutDanceFirework: String { "춤 · 불꽃" }
     var plazaShortcutPray: String { "기도(알)" }
     /// 기도한 직후 잠깐 보이는 횟수.
     func plazaPrayedHint(prayers: Int) -> String { "기도 \(prayers)번" }

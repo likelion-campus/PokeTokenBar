@@ -82,6 +82,8 @@ struct PlazaSceneMember: Equatable, Sendable {
     var onGreetKey: (() -> Void)?
     /// C(몸통박치기). 판이 닫혀 있을 때만 온다. keyCode로만 판정한다.
     var onTackleKey: (() -> Void)?
+    /// B(끌어당기기). 판이 닫혀 있을 때만 온다. keyCode로만 판정한다.
+    var onDragKey: (() -> Void)?
     /// V(눈덩이). 판이 닫혀 있을 때만 온다. keyCode로만 판정한다.
     var onSnowballKey: (() -> Void)?
     /// G(단체 사진). 판이 닫혀 있을 때만 온다. keyCode로만 판정한다.
@@ -865,10 +867,10 @@ struct PlazaSceneMember: Equatable, Sendable {
             }
             return .swallowed
         }
-        // C(몸통박치기)와 V(눈덩이), P(사진)도 말풍선 키와 같은 규칙: 수정 키가 눌렸거나 자동 반복이면 하지 않는다(P를 누르고 있어도 한 번만 찍는다).
-        if keyCode == Self.cKeyCode || keyCode == Self.vKeyCode || keyCode == Self.pKeyCode {
+        // C(몸통박치기)와 V(눈덩이), B(끌어당기기), P(사진)도 말풍선 키와 같은 규칙: 수정 키가 눌렸거나 자동 반복이면 하지 않는다(P를 누르고 있어도 한 번만 찍는다).
+        if let action = [Self.cKeyCode: onTackleKey, Self.vKeyCode: onSnowballKey, PlazaKeyCode.b: onDragKey, Self.pKeyCode: onPhotoKey][keyCode] {
             if !isRepeat && modifiers.isDisjoint(with: Self.emoteBlockingModifiers) {
-                if keyCode == Self.cKeyCode { onTackleKey?() } else if keyCode == Self.vKeyCode { onSnowballKey?() } else { onPhotoKey?() }
+                action?()
             }
             return .swallowed
         }
