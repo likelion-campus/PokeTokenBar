@@ -364,19 +364,10 @@ enum LocalUsageReader {
         return v.isRegularFile == true && v.isSymbolicLink != true
     }
 
-    /// 로그 파일을 읽기용으로 연다. 마지막 경로 요소가 심볼릭 링크면 열지 않는다(`O_NOFOLLOW`) —
-    /// `isPlainLogFile` 검사와 열기 사이에 파일이 링크로 바뀌어도(`y.jsonl -> /dev/zero`) 따라가지 않는다.
-    /// Windows 에는 `O_NOFOLLOW` 가 없어 일반 열기로 둔다(그쪽 링크는 열거 단계 검사가 거른다).
+    /// 로그 파일을 읽기용으로 연다. 마지막 경로 요소가 심볼릭 링크면 열지 않는다(`isPlainLogFile` 검사와
+    /// 열기 사이에 파일이 링크로 바뀌어도 `y.jsonl -> /dev/zero` 를 따라가지 않는다). OS 분기는 `PlatformCompat`.
     static func openLogHandle(_ url: URL) throws -> FileHandle {
-        #if os(Windows)
-        return try FileHandle(forReadingFrom: url)
-        #else
-        let fd = open(url.path, O_RDONLY | O_NOFOLLOW)
-        guard fd >= 0 else {
-            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
-        }
-        return FileHandle(fileDescriptor: fd, closeOnDealloc: true)
-        #endif
+        try PlatformCompat.openForReadingWithoutFollowingLinks(url)
     }
 
     /// 파일 하나에서 한 번에 읽는 최대 바이트. 정상 로그(활성 세션이 수백 MB)보다 훨씬 크고,

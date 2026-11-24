@@ -13,23 +13,16 @@ private struct AuditOfflineProvider: PokeProviding {
 @MainActor
 final class AuditCoreFixesTests: XCTestCase {
     private let baseNow = Date(timeIntervalSince1970: 1_700_000_000)
-    private var dirs: [URL] = []
-
-    override func tearDown() {
-        for d in dirs {
-            // Restore permissions a test may have removed so the cleanup can run.
-            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: d.path)
-            try? FileManager.default.removeItem(at: d)
-        }
-        dirs = []
-        super.tearDown()
-    }
 
     private func tempDir(_ tag: String) -> URL {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("ptb-audit-\(tag)-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        dirs.append(dir)
+        addTeardownBlock {
+            // Restore permissions a test may have removed so the cleanup can run.
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: dir.path)
+            try? FileManager.default.removeItem(at: dir)
+        }
         return dir
     }
 
@@ -43,14 +36,14 @@ final class AuditCoreFixesTests: XCTestCase {
 
     // MARK: 1. saturating token sums
 
-    func testSaturatingAddClampsInsteadOfTrapping() {
+    func testSaturatingAddClampsInsteadOfTrapping() async {
         XCTAssertEqual(Int.max.saturatingAdding(1), Int.max)
         XCTAssertEqual(Int.min.saturatingAdding(-1), Int.min)
         XCTAssertEqual([Int.max, Int.max, 5].saturatingSum(), Int.max)
         XCTAssertEqual([1, 2, 3].saturatingSum(), 6)
     }
 
-    func testBucketAddAndTotalSaturate() {
+    func testBucketAddAndTotalSaturate() async {
         var bucket = LocalUsageReader.Bucket()
         let entry = LocalUsageReader.Entry(id: "x", date: baseNow, localDay: "2023-11-14", model: "m",
                                            input: Int.max, output: Int.max, cacheWrite: Int.max, cacheRead: Int.max)
@@ -60,14 +53,14 @@ final class AuditCoreFixesTests: XCTestCase {
         XCTAssertEqual(bucket.total, Int.max)
     }
 
-    func testPerEntryCeilingLeavesRoomForManyEntries() {
+    func testPerEntryCeilingLeavesRoomForManyEntries() async {
         // 4 buckets x 1e8 entries must still fit in Int64 (the old 1e15 ceiling overflowed after 2,306 entries).
         XCTAssertLessThan(LocalUsageReader.maxParsedTokenValue, Int.max / 4 / 100_000_000)
     }
 
     // MARK: 2. numeric timestamps
 
-    func testPlausibleDateRejectsValuesOutsideTheWindow() {
+    func testPlausibleDateRejectsValuesOutsideTheWindow() async {
         XCTAssertNil(LocalUsageReader.plausibleDate(epochSeconds: 1e300))
         XCTAssertNil(LocalUsageReader.plausibleDate(epochSeconds: .infinity))
         XCTAssertNil(LocalUsageReader.plausibleDate(epochSeconds: .nan))
@@ -76,7 +69,7 @@ final class AuditCoreFixesTests: XCTestCase {
         XCTAssertEqual(LocalUsageReader.plausibleDate(epochSeconds: 1_700_000_000)?.timeIntervalSince1970, 1_700_000_000)
     }
 
-    func testKimiRecordWithAbsurdTimeIsSkippedNotTrapped() throws {
+    func testKimiRecordWithAbsurdTimeIsSkippedNotTrapped() async throws {
         let dir = tempDir("kimi")
         let file = dir.appendingPathComponent("wire.jsonl")
         let good = #"{"type":"usage.record","time":1700000000000,"usage":{"inputOther":5,"output":2},"usageScope":"turn"}"#
@@ -87,7 +80,7 @@ final class AuditCoreFixesTests: XCTestCase {
         XCTAssertEqual(entries.first?.input, 5)
     }
 
-    func testActiveBlockIdDoesNotTrapOnAnExtremeDate() {
+    func testActiveBlockIdDoesNotTrapOnAnExtremeDate() async {
         let far = Date(timeIntervalSince1970: 1e300)
         let entry = LocalUsageReader.Entry(id: "x", date: far, localDay: "x", model: "m",
                                            input: 1, output: 1, cacheWrite: 0, cacheRead: 0)
@@ -135,7 +128,7 @@ final class AuditCoreFixesTests: XCTestCase {
 
     // MARK: 5. inventory counts
 
-    func testSanitizedClampsInventoryCounts() {
+    func testSanitizedClampsInventoryCounts() async {
         var s = CompanionState()
         s.inventory[ItemKind.rareCandy.rawValue] = Int.max
         s.inventory[ItemKind.mint.rawValue] = 3
@@ -146,7 +139,7 @@ final class AuditCoreFixesTests: XCTestCase {
 
     // MARK: 6. snapshot legacy fallback, recovery skips undecodable envelopes
 
-    func testEnvelopeThatFailsDecodeIsNotReadAsAnEmptyLegacyState() throws {
+    func testEnvelopeThatFailsDecodeIsNotReadAsAnEmptyLegacyState() async throws {
         let stateURL = tempDir("envelope").appendingPathComponent("companion-state.json")
         try SaveSnapshotManager.createSnapshot(state: sampleState(tokens: 777), for: stateURL, date: baseNow.addingTimeInterval(-3600))
         let dir = SaveSnapshotManager.snapshotsDirectory(for: stateURL)
@@ -164,7 +157,7 @@ final class AuditCoreFixesTests: XCTestCase {
 
     // MARK: 7. a snapshot dated in the future
 
-    func testRecoveryDoesNotPreferAFutureDatedSnapshot() throws {
+    func testRecoveryDoesNotPreferAFutureDatedSnapshot() async throws {
         let stateURL = tempDir("future-recover").appendingPathComponent("companion-state.json")
         try SaveSnapshotManager.createSnapshot(state: sampleState(tokens: 100), for: stateURL, date: baseNow.addingTimeInterval(-3600))
         try SaveSnapshotManager.createSnapshot(state: sampleState(tokens: 200), for: stateURL, date: baseNow.addingTimeInterval(86_400 * 30))
@@ -188,7 +181,7 @@ final class AuditCoreFixesTests: XCTestCase {
 
     // MARK: 4. only plain log files are read
 
-    func testJsonlScanSkipsSymlinksAndKeepsRegularFiles() throws {
+    func testJsonlScanSkipsSymlinksAndKeepsRegularFiles() async throws {
         let dir = tempDir("symlink")
         let regular = dir.appendingPathComponent("real.jsonl")
         try Data("{}\n".utf8).write(to: regular)
@@ -198,7 +191,7 @@ final class AuditCoreFixesTests: XCTestCase {
         XCTAssertEqual(files, ["real.jsonl"])
     }
 
-    func testOpenLogHandleRefusesASymlinkEvenToARegularFile() throws {
+    func testOpenLogHandleRefusesASymlinkEvenToARegularFile() async throws {
         #if !os(Windows)
         let dir = tempDir("nofollow")
         let target = dir.appendingPathComponent("target.jsonl")
@@ -213,7 +206,7 @@ final class AuditCoreFixesTests: XCTestCase {
 
     // MARK: 8. chunked readers
 
-    func testKimiReaderHandlesLinesLargerThanOneChunk() throws {
+    func testKimiReaderHandlesLinesLargerThanOneChunk() async throws {
         let file = tempDir("chunk").appendingPathComponent("wire.jsonl")
         let pad = String(repeating: "x", count: 1_500_000)   // > the 1 MiB read chunk
         let big = #"{"type":"message","pad":"\#(pad)","note":"usage.record"}"#
@@ -226,7 +219,7 @@ final class AuditCoreFixesTests: XCTestCase {
 
     // MARK: 10. refresh interval
 
-    func testRefreshIntervalIsClamped() {
+    func testRefreshIntervalIsClamped() async {
         XCTAssertEqual(UsageStore.clampedRefreshInterval(nil), 120)
         XCTAssertEqual(UsageStore.clampedRefreshInterval(0), 0, "manual stays manual")
         XCTAssertEqual(UsageStore.clampedRefreshInterval(0.01), 30)
@@ -237,7 +230,7 @@ final class AuditCoreFixesTests: XCTestCase {
         XCTAssertEqual(UsageStore.clampedRefreshInterval(.infinity), 120)
     }
 
-    func testStoredTinyRefreshIntervalIsClampedAtLoad() {
+    func testStoredTinyRefreshIntervalIsClampedAtLoad() async {
         let defaults = TestDefaults.make(suite: "ptb.test.audit.interval.\(UUID().uuidString)")
         defaults.set(0.01, forKey: "refreshInterval")
         let store = makeHermeticUsageStore(providers: [], defaults: defaults)

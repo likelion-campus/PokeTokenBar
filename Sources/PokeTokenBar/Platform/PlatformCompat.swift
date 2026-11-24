@@ -65,6 +65,19 @@ enum PlatformCompat {
         #endif
     }
 
+    /// Opens a file for reading and refuses a symbolic link at the last path component (`O_NOFOLLOW`), so a link
+    /// swapped in after an enumeration check is not followed. Windows has no `O_NOFOLLOW`: a plain open (the
+    /// enumeration step already skipped links there).
+    static func openForReadingWithoutFollowingLinks(_ url: URL) throws -> FileHandle {
+        #if os(Windows)
+        return try FileHandle(forReadingFrom: url)
+        #else
+        let fd = open(url.path, O_RDONLY | O_NOFOLLOW)
+        guard fd >= 0 else { throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno)) }
+        return FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+        #endif
+    }
+
     /// The user's preferred UI languages, most preferred first, as BCP-47 tags (`AppLanguage.systemDefault` reads the first).
     /// Mac: exactly `Locale.preferredLanguages`. Windows: swift-corelibs `Locale.preferredLanguages` reads the
     /// `AppleLanguages` preference, which nothing sets on Windows (it is empty), so the display-language list comes from
