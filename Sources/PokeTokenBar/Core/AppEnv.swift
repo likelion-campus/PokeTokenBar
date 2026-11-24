@@ -45,7 +45,7 @@ enum AppEnv {
     nonisolated(unsafe) private static var exemptHosts = Set<String>()
 
     /// The one request choke point (`PlatformCompat.oneShotData`/`oneShotDownload`): while `liveFetchForbidden` is set, only loopback, the
-    /// reserved test names and the hosts of an `exempting` block may be reached. nil = allowed.
+    /// reserved test names and the hosts between `beginExemption` and `endExemption` may be reached. nil = allowed.
     static func fetchBlock(for url: URL?) -> URLError? {
         guard liveFetchForbidden else { return nil }
         let host = (url?.host ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
@@ -66,13 +66,9 @@ enum AppEnv {
         change(&exemptHosts)
     }
 
-    /// The selftest's few requests a person is told about (TEAM.md): their hosts are reachable for the duration of `body` only.
-    static func exempting<T>(hosts: [String], _ body: () async throws -> T) async rethrows -> T {
-        let names = Set(hosts.map { $0.lowercased() })
-        changeExemptions { $0.formUnion(names) }
-        defer { changeExemptions { $0.subtract(names) } }
-        return try await body()
-    }
+    /// The selftest's few requests a person is told about (TEAM.md): their hosts are reachable between `beginExemption` and `endExemption` only.
+    static func beginExemption(hosts: [String]) { let names = Set(hosts.map { $0.lowercased() }); changeExemptions { $0.formUnion(names) } }
+    static func endExemption(hosts: [String]) { let names = Set(hosts.map { $0.lowercased() }); changeExemptions { $0.subtract(names) } }
 
     /// Whether a store may read and write its file. Always true for an injected path, which is how
     /// tests check persistence against a temporary file. A store that fell back to its default

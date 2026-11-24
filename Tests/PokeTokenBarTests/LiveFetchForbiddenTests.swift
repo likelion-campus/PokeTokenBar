@@ -86,7 +86,7 @@ final class LiveFetchForbiddenTests: XCTestCase {
         return URLSession(configuration: configuration)
     }
 
-    /// The request layer: a real host is refused before any session sees it; loopback and an `exempting` host pass.
+    /// The request layer: a real host is refused before any session sees it; loopback and an exempted host pass.
     func testTheRequestLayerRefusesEveryRealHostAndNothingReachesTheSession() async throws {
         AppEnv.liveFetchForbidden = true
         CountingProtocol.count = 0
@@ -104,9 +104,9 @@ final class LiveFetchForbiddenTests: XCTestCase {
         XCTAssertEqual(CountingProtocol.count, 0, "no request reached the session")
         _ = try await PlatformCompat.oneShotData(for: URLRequest(url: try XCTUnwrap(URL(string: "http://127.0.0.1:9/x"))), session: session)
         XCTAssertEqual(CountingProtocol.count, 1, "loopback passes")
-        _ = try await AppEnv.exempting(hosts: ["script.google.com"]) {
-            try await PlatformCompat.oneShotData(for: URLRequest(url: try XCTUnwrap(URL(string: "https://script.google.com/x"))), session: session)
-        }
+        AppEnv.beginExemption(hosts: ["script.google.com"])
+        _ = try await PlatformCompat.oneShotData(for: URLRequest(url: try XCTUnwrap(URL(string: "https://script.google.com/x"))), session: session)
+        AppEnv.endExemption(hosts: ["script.google.com"])
         XCTAssertEqual(CountingProtocol.count, 2, "an exempted host passes inside the block")
         do { _ = try await PlatformCompat.oneShotData(for: URLRequest(url: try XCTUnwrap(URL(string: "https://script.google.com/x"))), session: session); XCTFail("exemption outlived its block") } catch {}
         XCTAssertEqual(CountingProtocol.count, 2)
