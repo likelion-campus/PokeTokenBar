@@ -578,7 +578,7 @@ enum ActivityFixtures {
     /// A chart open and left alone: it must add no timer (the numbers are the gate's).
     static func startIdleProbe(mode: String) {
         guard WindowsSelftest.onCI else {
-            AppLog.write("popover activity idle probe: CI not set; nothing opened")
+            AppLog.write("popover activity idle probe: not the runner (PTB_SELFTEST_RUNNER unset); nothing opened")
             return
         }
         Task { @MainActor in

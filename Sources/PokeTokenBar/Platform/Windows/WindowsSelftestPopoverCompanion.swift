@@ -684,7 +684,7 @@ struct WinFixtureSpriteSource: PlazaSpriteSource {
     /// relative on the page.
     static func startIdleProbe(mode: String) {
         guard WindowsSelftest.onCI else {
-            AppLog.write("popover companion idle probe: CI not set; nothing opened")
+            AppLog.write("popover companion idle probe: not the runner (PTB_SELFTEST_RUNNER unset); nothing opened")
             return
         }
         prepare()

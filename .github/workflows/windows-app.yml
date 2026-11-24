@@ -403,6 +403,7 @@ jobs:
                   keyboardLayouts   = (Get-ItemProperty 'HKCU:\Keyboard Layout\Preload' -ErrorAction SilentlyContinue | Out-String).Trim()
                   clipboard         = (Get-Clipboard -Raw -ErrorAction SilentlyContinue)
                   stateFiles        = ((Get-ChildItem (Join-Path $env:LOCALAPPDATA 'PokeTokenBar') -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -in 'companion-state.json', 'team-feed.json' } | ForEach-Object { "$($_.Name):$($_.Length):$($_.LastWriteTimeUtc.Ticks)" } | Sort-Object) -join ';')
+                  crashFiles        = ((Get-ChildItem (Join-Path $env:LOCALAPPDATA 'PokeTokenBar\Logs') -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -like 'PokeTokenBar*.crash.log' -or $_.Name -like 'PokeTokenBar*.running' } | ForEach-Object Name | Sort-Object) -join ';')
                   settingsFiles     = ((Get-ChildItem (Join-Path $env:LOCALAPPDATA '*') -Filter '*.plist*' -File -ErrorAction SilentlyContinue | ForEach-Object Name | Sort-Object) -join ';')
               }
           }
@@ -424,6 +425,8 @@ jobs:
           $j = Get-Content st-noci.json -Raw | ConvertFrom-Json
           $skipped = @($j.checks | Where-Object { $_.detail -like 'skipped*' })
           "skipped checks off CI ($($skipped.Count)):"; $skipped | ForEach-Object { "  $($_.name): $($_.detail)" }
+          $mode = $j.checks | Where-Object { $_.name -eq 'selftest.mode' }
+          if (-not $mode -or $mode.detail -ne 'person') { $bad += "selftest.mode is '$($mode.detail)', expected person" }
           if ($j.result -ne 'pass') { $bad += "the selftest off CI did not pass (result $($j.result)): " + (($j.checks | Where-Object { -not $_.ok } | ForEach-Object name) -join ', ') }
           if ($bad.Count -gt 0) { throw "off-CI selftest: $($bad -join ' | ')" }
       # --- selftest user-PC safety (end) ---
@@ -1245,6 +1248,15 @@ jobs:
           # The marker and the crash log are named after the state folder (PokeTokenBar-<hash>.running / .crash.log; the default folder has
           # no hash), so side-by-side instances do not share them. The children and the relaunch use one state folder, and the folder holds
           # nothing else of this run's: clear every marker and record first, and the one that appears afterwards is this instance's.
+          # The default state folder keeps the plain names (what every installed app has): one crash child with no PTB_STATE_DIR.
+          Remove-Item Env:PTB_STATE_DIR -ErrorAction SilentlyContinue
+          Remove-Item -ErrorAction SilentlyContinue (Join-Path $logs 'PokeTokenBar*.crash.log'), (Join-Path $logs 'PokeTokenBar*.running')
+          $d = Start-Process -FilePath $exe -ArgumentList @('--selftest-crash', 'fatalError') -PassThru
+          $null = $d.Handle
+          if (-not $d.WaitForExit(60000)) { Stop-Process -Id $d.Id -Force; throw 'the default-folder crash child did not end in 60 s' }
+          foreach ($n in 'PokeTokenBar.crash.log', 'PokeTokenBar.running') { if (-not (Test-Path (Join-Path $logs $n))) { throw "the default state folder did not keep the plain name $n" } }
+          if ((Get-Content (Join-Path $logs 'PokeTokenBar.crash.log') -Raw) -notmatch '\[CRASH\] exception') { throw 'no crash record under the default name' }
+          'default-folder names: PokeTokenBar.crash.log and PokeTokenBar.running'
           $env:PTB_STATE_DIR = Join-Path $env:PTB_FIXTURE 'state-crash'
           New-Item -ItemType Directory -Force -Path $env:PTB_STATE_DIR | Out-Null
           Remove-Item -ErrorAction SilentlyContinue (Join-Path $logs 'PokeTokenBar-*.dmp'), (Join-Path $logs 'PokeTokenBar*.crash.log'), (Join-Path $logs 'PokeTokenBar*.running')

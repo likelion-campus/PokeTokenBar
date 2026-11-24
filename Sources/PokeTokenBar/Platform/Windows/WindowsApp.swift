@@ -68,9 +68,9 @@ public enum WindowsApp {
         if let i = arguments.firstIndex(of: "--selftest-popover-helper") { WindowsSelftestPopoverWindow.runHelper(Array(arguments[(i + 1)...])) }  // stage 7 Task 4
         WindowsSelftestUpdate.prepare(arguments)  // stage 8 Task 6: the CI-only update flags (the loopback feed, before the checker exists)
 
-        let app = WindowsAppDelegate(arguments: arguments)
-        guard app.launch() else { WindowsApp.exit(app.yielded ? 3 : 1, .launchFailed) }
-        WindowsInstall.leaveInstallFolder()  // not the install folder: Setup updates it, and what the app starts inherits it
+        // `--selftest-out`: resolved and checked before anything starts. A relative path means the folder the person ran it from, which
+        // `leaveInstallFolder` (below) changes; a folder or anything not a regular file is refused before the run clears the target.
+        var selftestOut: URL?
         if arguments.contains("--selftest") {
             let out = arguments.firstIndex(of: "--selftest-out").flatMap { $0 + 1 < arguments.count ? arguments[$0 + 1] : nil }
                 .map { URL(fileURLWithPath: $0) }
@@ -80,8 +80,12 @@ public enum WindowsApp {
                 try? FileHandle.standardOutput.write(contentsOf: Data((why + "\n").utf8))
                 WindowsApp.exit(2, .selftest)
             }
-            WindowsSelftest.start(app, writingTo: out)
+            selftestOut = out
         }
+        let app = WindowsAppDelegate(arguments: arguments)
+        guard app.launch() else { WindowsApp.exit(app.yielded ? 3 : 1, .launchFailed) }
+        WindowsInstall.leaveInstallFolder()  // not the install folder: Setup updates it, and what the app starts inherits it
+        if let selftestOut { WindowsSelftest.start(app, writingTo: selftestOut) }
         // The idle gate's plaza windows (WindowsSelftestPlaza.swift). Not a `--selftest…` flag on purpose: those switch the app to
         // the selftest's own settings suite, and the gate's settings (refresh off) are in the app's plist.
         if let i = arguments.firstIndex(of: "--plaza-idle-probe") {
@@ -230,13 +234,12 @@ private func crtExit(_ code: Int32) -> Never {
         _ = RunLoop.main  // 1 (F4; before any window)
         mutexName = WinSingleInstance.mutexName(stateDirectory: AppStatePaths.directory(),
                                                 defaultDirectory: Self.defaultStateDirectory)
-        let foreignHolder: (String) -> Void = { holder in
+        let foreignHolder: (WinSingleInstance.ForeignHolder) -> Void = { holder in
             // No tray exists yet in a copy that yields, so a message box (not a balloon) is the way to tell the person. Never on the
             // selftest's second starts: those run unattended.
             guard !self.arguments.contains("--selftest-second") else { return }
-            _ = MessageBoxW(nil, WinStr.w("PokeTokenBar could not start: its single-instance name is held by \(holder), not by PokeTokenBar. "
-                                          + "If PokeTokenBar is not running, sign out and in again or restart the PC."),
-                            WinStr.w("PokeTokenBar"), UINT(MB_OK) | UINT(MB_ICONWARNING))
+            let text = WinSingleInstance.foreignHolderText(holder, language: .systemDefault)
+            _ = MessageBoxW(nil, WinStr.w(text), WinStr.w("PokeTokenBar"), UINT(MB_OK) | UINT(MB_ICONWARNING))
         }
         if WinSingleInstance.acquire(name: mutexName, quietly: arguments.contains("--autostart"), onForeignHolder: foreignHolder) == .yielded {  // 2 (before anything that writes)
             yielded = true
@@ -248,7 +251,8 @@ private func crtExit(_ code: Int32) -> Never {
             return false
         }
         WindowsCrashLog.install(version: WindowsInstall.version ?? "0.0.0-dev",
-                                instance: WinSingleInstance.stateSuffix(stateDirectory: AppStatePaths.directory(), defaultDirectory: Self.defaultStateDirectory))  // 3
+                                instance: WinSingleInstance.stateSuffix(stateDirectory: AppStatePaths.directory(), defaultDirectory: Self.defaultStateDirectory),
+                                trimStderr: !arguments.contains("--selftest"))  // 3 (a person's selftest shares the logs with a running app: it must not rewrite its stderr.log)
         PlazaStoreSpriteFetcher.report = { AppLog.write($0) }   // fix/windows-pet-still: what the GIF loader finds, in the log
         Self.setPerMonitorDpiAwareness()  // 4
         loopStrategy = WinMainLoop.prepare()  // 5
@@ -269,7 +273,8 @@ private func crtExit(_ code: Int32) -> Never {
         if !WinMessageHook.install() { AppLog.write("text input stays ANSI: no WH_GETMESSAGE hook") }  // 7
         WinAppUserModelID.set()  // before any notification: the toast is attributed to the id the installer put on the shortcut
         Platform.current = WindowsPlatform.live(window: sink)  // 8
-        WindowsPlatform.limitsFactory = WindowsLimitsProviders()  // 8: Claude limits from the credentials file
+        // 8: Claude limits from the credentials file. A person's selftest keeps the stubs: it never reads their credentials.
+        if !(WinDefaultsSync.selftestOwnsSettings && !WindowsSelftest.onCI) { WindowsPlatform.limitsFactory = WindowsLimitsProviders() }
 
         let teamSuite = TeamSettings.suiteName(for: AppStatePaths.directory(), defaultDirectory: Self.defaultStateDirectory)
         var guarded: [String?] = [nil, teamSuite]  // 8b: before the first read of defaults
@@ -454,7 +459,9 @@ private func crtExit(_ code: Int32) -> Never {
 
     /// The Mac's `TeamSettings.defaultStore()` choice (standard, or a per-state-folder suite), as a syncing defaults.
     static func teamDefaults(fallback: WinSyncingDefaults) -> WinSyncingDefaults {
-        guard let suite = TeamSettings.suiteName(for: AppStatePaths.directory(), defaultDirectory: defaultStateDirectory)
+        // The selftest keeps the team settings in its own suite too (removed at exit): a state folder's own `ptb.team.<hash>` file would stay.
+        guard !WinDefaultsSync.selftestOwnsSettings,
+              let suite = TeamSettings.suiteName(for: AppStatePaths.directory(), defaultDirectory: defaultStateDirectory)
         else { return fallback }
         return WinSyncingDefaults(suiteName: suite) ?? fallback
     }

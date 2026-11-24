@@ -251,3 +251,5 @@ SelftestUserPCSafetyScanTests.swift
 PlazaPondSweepTests+Mac.swift
 # WindowsMessageParameterScanTests: scans the Windows sources with SharedSources (SharedSourcesScanTests.swift), which is Mac-only
 WindowsMessageParameterScanTests.swift
+# LiveFetchForbiddenTests: scans the Windows sources with SharedSources (SharedSourcesScanTests.swift), which is Mac-only
+LiveFetchForbiddenTests.swift

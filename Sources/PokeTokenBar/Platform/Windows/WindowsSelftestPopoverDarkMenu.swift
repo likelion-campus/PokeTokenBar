@@ -253,9 +253,8 @@ extension WindowsSelftest {
         WinDarkMode.testOverride = savedOverride
         let afterHC = readHighContrast()
         if afterHC?.flags.nonzeroOn != beforeHC.flags.nonzeroOn {
-            // one more try, then fail loudly
-            _ = writeHighContrast(0, scheme: beforeHC.scheme)
-            _ = await WindowsSelftest.waitUntil(timeout: 2.5) { false }
+            // one more try (the whole restore again: Windows changes the personalization values after a second switch too), then fail loudly
+            await restore()
             if readHighContrast()?.flags.nonzeroOn != beforeHC.flags.nonzeroOn { problems.append("THE RUNNER IS NOT BACK IN ITS PREVIOUS HIGH-CONTRAST STATE (before \(beforeHC.flags), after \(afterHC?.flags ?? 0))") }
         }
         detail += "restored: high contrast on=\(afterHC?.flags.nonzeroOn ?? false) (before \(beforeHC.flags.nonzeroOn)); \(WinMenuTheme.lastOutcome)"

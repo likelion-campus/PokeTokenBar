@@ -668,7 +668,11 @@ enum WinClipboardText {
         guard WinMessagePointer.readable(lParam, bytes: MemoryLayout<NMHDR>.size) != nil,
               let header = UnsafeMutablePointer<NMHDR>(bitPattern: Int(lParam)), let c = WinControl.control(header.pointee.hwndFrom) else { return nil }
         let code = Int32(bitPattern: header.pointee.code)
-        if code == -12 /* NM_CUSTOMDRAW */, c.usesCustomDraw { return WinCustomDraw.handle(c, header) }  // visual polish K3
+        if code == -12 /* NM_CUSTOMDRAW */, c.usesCustomDraw {  // visual polish K3
+            // The handler reads the whole NMCUSTOMDRAW, not just the header the check above covered.
+            guard WinMessagePointer.readable(lParam, bytes: MemoryLayout<NMCUSTOMDRAW>.size) != nil else { return nil }
+            return WinCustomDraw.handle(c, header)
+        }
         switch (c.kind, code) {
         case (.link, -2), (.link, -4):  // NM_CLICK, NM_RETURN
             c.clicked(c.hwnd)

@@ -34,8 +34,12 @@ enum AppEnv {
     /// Put the check at the network boundary, not before the credential read, so the Keychain path
     /// tests keep observing real reads. `LiveCredentialCallGateTests` requires it in every provider.
     static var allowsLiveLimitsFetch: Bool {
-        isBundledApp || isParityRun || allowLiveFetchForTesting
+        !liveFetchForbidden && (isBundledApp || isParityRun || allowLiveFetchForTesting)
     }
+
+    /// Closes the gate above whatever opens it: a run that must never use a person's credentials or send anything for them (the
+    /// Windows `--selftest` on a person's PC). Set once at launch, before any provider exists.
+    nonisolated(unsafe) static var liveFetchForbidden = false
 
     /// Whether a store may read and write its file. Always true for an injected path, which is how
     /// tests check persistence against a temporary file. A store that fell back to its default

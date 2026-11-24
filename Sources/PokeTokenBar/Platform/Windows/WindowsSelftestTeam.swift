@@ -25,8 +25,12 @@ extension WindowsSelftest {
               "OPENSSL_CONF=\(conf ?? "unset")\(conf != nil ? " (breaks OpenSSL if loaded)" : ""); TLS context built=\(built); "
                 + "baked-in OPENSSLDIR=\(WinTLS.configDirectory) (never read: OPENSSL_INIT_NO_LOAD_CONFIG)")
         let code = TeamCode.generate(using: &rng)
+        // Everyone's path first (the runner too: it is the only one a person's run takes): loopback only, no mDNS, direct dial.
+        await teamLoopbackChecks(r, code)
         guard onCI else {  // a person's PC: no LAN listener, no mDNS advertisement
-            await teamLoopbackChecks(r, code)
+            for name in ["team.discoverAndExchange", "team.restartRelinks", "team.wrongCodeRefused", "team.idle", "team.stopIsSeen"] {
+                r.add(name, true, "skipped: not on the runner (it needs DNS-SD and a listener on the LAN; a person's PC opens neither)")
+            }
             return
         }
         let a = SelftestMember("SelfA", code: code), b = SelftestMember("SelfB", code: code)
@@ -133,7 +137,7 @@ extension WindowsSelftest {
                 + "still_linked=\(linked) busy_threads=[\(sample.busy)]")
     }
 
-    /// A person's PC: two members listen on `[::1]` only, never advertise, and one dials the other directly (`connect(to:)`), so the
+    /// Every run (a person's PC and the runner): two members listen on `[::1]` only, never advertise, and one dials the other directly (`connect(to:)`), so the
     /// run opens nothing the LAN can see and raises no firewall prompt. The checks that need DNS-SD (restart, a wrong-code member's
     /// cooldown, the idle window, the goodbye) run on the runner only.
     @MainActor private static func teamLoopbackChecks(_ r: Recorder, _ code: TeamCode) async {
@@ -157,9 +161,6 @@ extension WindowsSelftest {
         r.add("team.loopbackExchange", joined && presence && tls?.cipher == "PSK-AES128-GCM-SHA256",
               "two members on [::1] only (no mDNS, no LAN listener): listening=\(listening) joined=\(joined) links a=\(a.transport.linkCount) "
                 + "b=\(b.transport.linkCount); tls=\(tls?.version ?? "-") \(tls?.cipher ?? "-") remote=\(tls?.peer ?? "-"); presence a->b=\(presence)")
-        for name in ["team.discoverAndExchange", "team.restartRelinks", "team.wrongCodeRefused", "team.idle", "team.stopIsSeen"] {
-            r.add(name, true, "skipped: not on the runner (it needs DNS-SD and a listener on the LAN; a person's PC opens neither)")
-        }
     }
 
     private static func fmt2(_ value: Double) -> String { String(format: "%.2f", value) }

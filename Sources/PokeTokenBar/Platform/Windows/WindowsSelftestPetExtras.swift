@@ -284,7 +284,7 @@ extension WindowsSelftest {
             ok = ok && hoverOK
             notes.append("real pointer over the pet -> \(placed.line)=\(up && placed.ok), the hover text=\(sameText); away -> hidden=\(hidden)")
         } else {
-            notes.append("the pointer: skipped (CI not set)")
+            notes.append("the pointer: skipped (not the runner: PTB_SELFTEST_RUNNER unset)")
         }
         // An event pops the callout by itself for 6 s (no pointer), then it goes.
         h.pet.extras.latestEventForTesting = CompanionStore.CompanionEvent(seq: 1_000, text: "FIXTURE: Bulbasaur hatched!", at: Date())
@@ -401,7 +401,7 @@ extension WindowsSelftest {
 
     static func settingsCheck(_ r: WindowsSelftest.Recorder, _ app: WindowsAppDelegate) async {
         guard WindowsSelftest.onCI, let pet = WinFloatingPet.current, let tray = app.tray else {
-            r.add("pet.extrasSettings", true, "skipped: CI not set (the popover takes the foreground)")
+            r.add("pet.extrasSettings", true, "skipped: not the runner (PTB_SELFTEST_RUNNER unset) (the popover takes the foreground)")
             return
         }
         guard let probe = WindowsSelftestPopoverWindow.makeProbe() else {

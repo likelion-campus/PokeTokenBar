@@ -9,6 +9,14 @@ import WinSDK
 enum WinSingleInstance {
     enum Outcome: Equatable { case acquired, yielded }
 
+    /// What holds the name when it is not a PokeTokenBar that answers.
+    enum ForeignHolder: Equatable {
+        /// No window of the app's class and title exists (the holder may be a program, or this app still starting up).
+        case noAnswer
+        /// A window with the app's class and title exists, but its process runs another executable (`image` nil: unreadable).
+        case otherProgram(pid: DWORD, image: String?)
+    }
+
     /// `WM_APP + 1`, posted to the running instance's sink by a second start.
     static let showMessage = UINT(WM_APP) + 1
     nonisolated(unsafe) private static var held: HANDLE?
@@ -31,7 +39,7 @@ enum WinSingleInstance {
     /// for anything — the user did not ask for the popover (post-merge review M3).
     /// `onForeignHolder`: called when the name is held by something that is not this app (no sink window answers, or the window's
     /// process runs another executable); nothing is posted to it and no foreground right is given. The app tells the user there.
-    static func acquire(name: String, quietly: Bool = false, onForeignHolder: ((String) -> Void)? = nil) -> Outcome {
+    static func acquire(name: String, quietly: Bool = false, onForeignHolder: ((ForeignHolder) -> Void)? = nil) -> Outcome {
         let handle = CreateMutexW(nil, false, WinStr.w(name))
         let error = GetLastError()
         guard let handle else {
@@ -47,7 +55,8 @@ enum WinSingleInstance {
                 // right to the running instance, which opens its popover for this launch (ruling 3) instead of a balloon.
                 var pid: DWORD = 0
                 _ = GetWindowThreadProcessId(running, &pid)
-                if let image = imagePath(ofProcess: pid), sameExecutable(image, ownImagePath()) {
+                let image = imagePath(ofProcess: pid)
+                if let image, sameExecutable(image, ownImagePath()) {
                     let allowed = AllowSetForegroundWindow(pid)
                     let allowError = allowed ? 0 : GetLastError()
                     _ = PostMessageW(running, showMessage, 0, 0)
@@ -55,12 +64,12 @@ enum WinSingleInstance {
                         + (allowed ? "ok" : "refused (\(allowError))"))
                 } else {
                     // Any program of this user can create a window with this class and title. It gets neither a message nor the foreground.
-                    AppLog.write("single instance: \(name) is answered by pid \(pid), which does not run this executable (\(imagePath(ofProcess: pid) ?? "image unreadable")); not asked")
-                    onForeignHolder?("another program (process \(pid))")
+                    AppLog.write("single instance: \(name) is answered by pid \(pid), which does not run this executable (\(image ?? "image unreadable")); not asked")
+                    onForeignHolder?(.otherProgram(pid: pid, image: image))
                 }
             } else {
                 AppLog.write("single instance: \(name) is held but no sink window answers")
-                onForeignHolder?("something that does not answer")
+                onForeignHolder?(.noAnswer)
             }
             return .yielded
         }
@@ -87,8 +96,10 @@ enum WinSingleInstance {
         return String(decoding: buffer.prefix(Int(size)), as: UTF16.self)
     }
 
-    /// This process's executable (`GetModuleFileNameW`); not `WindowsLoginItem.currentExecutablePath()`, which is main-actor isolated.
-    private static func ownImagePath() -> String {
+    /// This process's executable, spelled as `imagePath(ofProcess:)` spells another process's (links, junctions, `subst` drives and 8.3 names
+    /// resolved by the kernel), so the two compare equal when they are the same file. `GetModuleFileNameW` (as started) is the fallback.
+    static func ownImagePath() -> String {
+        if let image = imagePath(ofProcess: GetCurrentProcessId()) { return image }
         var buffer = [UInt16](repeating: 0, count: 32_768)
         let n = Int(GetModuleFileNameW(nil, &buffer, DWORD(buffer.count)))
         return String(decoding: buffer.prefix(n), as: UTF16.self)
@@ -98,6 +109,34 @@ enum WinSingleInstance {
     static func sameExecutable(_ a: String, _ b: String) -> Bool {
         func key(_ path: String) -> String { path.replacingOccurrences(of: "/", with: "\\").lowercased() }
         return key(a) == key(b)
+    }
+
+    /// The message box a copy that cannot start shows (no tray exists yet). A second copy of PokeTokenBar itself (same file name, another
+    /// folder, same state folder) is named as that; the unanswered name does not claim anything about who holds it.
+    static func foreignHolderText(_ holder: ForeignHolder, language: AppLanguage) -> String {
+        switch holder {
+        case .noAnswer:
+            switch language {
+            case .ko: return "PokeTokenBar를 시작하지 못했어요. 한 번에 하나만 실행하는 이름(Local\\PokeTokenBar-Team)이 이미 쓰이고 있는데, 응답하는 PokeTokenBar 창이 없어요. 방금 막 시작한 PokeTokenBar일 수도 있고, 다른 프로그램일 수도 있어요. PokeTokenBar가 실행 중이 아니라면 PC를 다시 시작해 보세요."
+            case .ja: return "PokeTokenBarを起動できませんでした。同時に1つだけ実行するための名前(Local\\PokeTokenBar-Team)が使用中ですが、応答するPokeTokenBarのウィンドウがありません。起動したばかりのPokeTokenBarか、別のプログラムかもしれません。PokeTokenBarが動いていなければ、PCを再起動してください。"
+            default: return "PokeTokenBar could not start. The name that keeps it to one copy (Local\\PokeTokenBar-Team) is in use, but no PokeTokenBar window answers. It may be a PokeTokenBar that is still starting, or another program. If PokeTokenBar is not running, restart the PC."
+            }
+        case .otherProgram(let pid, let image):
+            let name = image.map { ($0 as NSString).lastPathComponent } ?? ""
+            if let image, name.lowercased() == "poketokenbar.exe" {
+                switch language {
+                case .ko: return "PokeTokenBar가 이미 다른 위치에서 실행 중이에요(\(image)). 그 복사본을 트레이 아이콘에서 종료한 뒤 다시 시작해 주세요."
+                case .ja: return "PokeTokenBarはすでに別の場所から実行中です(\(image))。そのコピーをトレイアイコンから終了して、もう一度起動してください。"
+                default: return "Another copy of PokeTokenBar is already running from \(image). Quit that copy from its tray icon, then start this one again."
+                }
+            }
+            let who = image ?? "process \(pid)"
+            switch language {
+            case .ko: return "PokeTokenBar를 시작하지 못했어요. 한 번에 하나만 실행하는 이름(Local\\PokeTokenBar-Team)을 다른 프로그램(\(who))이 쓰고 있어요."
+            case .ja: return "PokeTokenBarを起動できませんでした。同時に1つだけ実行するための名前(Local\\PokeTokenBar-Team)を別のプログラム(\(who))が使用しています。"
+            default: return "PokeTokenBar could not start. The name that keeps it to one copy (Local\\PokeTokenBar-Team) is held by another program (\(who))."
+            }
+        }
     }
 }
 #endif

@@ -37,9 +37,9 @@ enum WindowsCrashLog {
     nonisolated(unsafe) private static var ownedMarkers = Set<String>()
 
     /// Once, as early as possible at launch (right after the single-instance check).
-    static func install(version: String, logsDirectory: URL = PlatformCompat.logsDirectory(), instance: String = "",
+    static func install(version: String, logsDirectory: URL = PlatformCompat.logsDirectory(), instance: String = "", trimStderr: Bool = true,
                         log: @escaping (String) -> Void = { AppLog.write($0) }, installHandlers: Bool = true) {
-        prepare(logsDirectory: logsDirectory, dumpsOptedIn: dumpsOptedIn, instance: instance, log: log)
+        prepare(logsDirectory: logsDirectory, dumpsOptedIn: dumpsOptedIn, instance: instance, trimStderr: trimStderr, log: log)
         guard installHandlers else { return }
         version.withCString { ptb_crash_set_version($0) }
         let crash = WinStr.w(WinPath.native(logsDirectory.appendingPathComponent(crashLogFile(instance: instance))))
@@ -54,7 +54,7 @@ enum WindowsCrashLog {
     }
 
     /// The file part of `install`, without touching the process (the unit tests call this one).
-    static func prepare(logsDirectory: URL, dumpsOptedIn: Bool, instance: String = "", log: (String) -> Void) {
+    static func prepare(logsDirectory: URL, dumpsOptedIn: Bool, instance: String = "", trimStderr: Bool = true, log: (String) -> Void) {
         try? FileManager.default.createDirectory(at: logsDirectory, withIntermediateDirectories: true)
         drainCrashLog(in: logsDirectory, instance: instance, log: log)
         let marker = logsDirectory.appendingPathComponent(markerFile(instance: instance))
@@ -66,7 +66,7 @@ enum WindowsCrashLog {
         lock.lock(); ownedMarkers.insert(marker.path); lock.unlock()
         // Existing dumps are the user's (an earlier opted-in run): left alone unless dumps are on, then newest three.
         if dumpsOptedIn { pruneDumps(in: logsDirectory) }
-        trimStderrLog(in: logsDirectory)
+        if trimStderr { trimStderrLog(in: logsDirectory) }
     }
 
     /// A clean exit: remove the marker(s) THIS process wrote (a helper process that exits through `WindowsApp.exit`
