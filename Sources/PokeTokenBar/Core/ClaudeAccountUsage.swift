@@ -149,7 +149,7 @@ enum ClaudePromptHistory {
 
     private static func promptDate(_ raw: Any?) -> Date? {
         if let number = raw as? NSNumber, number.doubleValue > 0 {
-            return Date(timeIntervalSince1970: number.doubleValue / 1000)
+            return LocalUsageReader.plausibleDate(epochSeconds: number.doubleValue / 1000)
         }
         if let text = raw as? String { return ISO8601Parser.date(from: text) }
         return nil

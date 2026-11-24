@@ -46,16 +46,17 @@ enum LocalUsageReader {
         var claudeSessionIDs: [String] {
             Array(Set((sessionIDs ?? []) + (sessionID.map { [$0] } ?? []))).sorted()
         }
-        var total: Int { input + output + cacheWrite + cacheRead }
+        var total: Int { input.saturatingAdding(output).saturatingAdding(cacheWrite).saturatingAdding(cacheRead) }
     }
 
     struct Bucket {
         var input = 0, output = 0, cacheWrite = 0, cacheRead = 0
         var cost = 0.0
         var costCoverage: CostCoverage = .empty
-        var total: Int { input + output + cacheWrite + cacheRead }
+        var total: Int { input.saturatingAdding(output).saturatingAdding(cacheWrite).saturatingAdding(cacheRead) }
         mutating func add(_ e: Entry) {
-            input += e.input; output += e.output; cacheWrite += e.cacheWrite; cacheRead += e.cacheRead
+            input = input.saturatingAdding(e.input); output = output.saturatingAdding(e.output)
+            cacheWrite = cacheWrite.saturatingAdding(e.cacheWrite); cacheRead = cacheRead.saturatingAdding(e.cacheRead)
             // Zero-usage/replay records must not make an unknown-only total look partially priced.
             guard e.total > 0 else { return }
             if let reported = e.explicitCost, reported.isFinite, reported >= 0 {
@@ -354,6 +355,28 @@ enum LocalUsageReader {
 
     // MARK: 스캔 (mtime 윈도우)
 
+    /// 로그로 읽어도 되는 파일인가 — 일반 파일이고 심볼릭 링크가 아닐 때만.
+    /// 열거는 링크된 *디렉터리*는 따라가지 않지만 링크된 *파일*은 그대로 돌려준다. 저장소가 커밋한
+    /// `y.jsonl -> /dev/zero` 가 로그 루트(Claude Desktop 작업 폴더의 `.claude/projects`)에 들어오면
+    /// `readToEnd()` 가 EOF 에 닿지 않아 메모리가 프로세스가 죽을 때까지 늘고, 새로고침·재기동마다 반복된다.
+    static func isPlainLogFile(_ url: URL) -> Bool {
+        guard let v = try? url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey]) else { return false }
+        return v.isRegularFile == true && v.isSymbolicLink != true
+    }
+
+    /// 로그 파일을 읽기용으로 연다. 마지막 경로 요소가 심볼릭 링크면 열지 않는다(`isPlainLogFile` 검사와
+    /// 열기 사이에 파일이 링크로 바뀌어도 `y.jsonl -> /dev/zero` 를 따라가지 않는다). OS 분기는 `PlatformCompat`.
+    static func openLogHandle(_ url: URL) throws -> FileHandle {
+        try PlatformCompat.openForReadingWithoutFollowingLinks(url)
+    }
+
+    /// Claude 증분 리더가 한 번에 메모리로 읽는 최대 바이트. 정상 로그(활성 세션이 수백 MB)보다 훨씬 크다.
+    /// 넘으면 거기까지만 읽고 `reachedCap` 으로 알려, 캐시가 도달한 오프셋을 저장해 다음 새로고침이 이어 읽는다
+    /// (잘린 채로 "다 읽음" 으로 굳히지 않는다). 테스트가 작은 값으로 바꾼다.
+    /// 청크 스트림 리더(Codex·Pi·omp·omo·Kimi)는 메모리가 이미 청크 크기로 묶여 있어 상한이 없다 —
+    /// 끝나지 않는 파일은 `isPlainLogFile` + `O_NOFOLLOW` 가 막는다.
+    nonisolated(unsafe) static var maxLogReadBytes = 2 * 1024 * 1024 * 1024
+
     /// `root` 하위(재귀)의 `.jsonl` 파일 중 `modifiedSince` 이후 수정된 것.
     static func jsonlFiles(in root: URL, modifiedSince: Date, allowJSON: Bool = false) -> [URL] {
         let fm = FileManager.default
@@ -365,6 +388,7 @@ enum LocalUsageReader {
         for case let url as URL in en {
             // 기본 .jsonl. .json 은 Gemini 전용(allowJSON) — Claude 루트 .meta.json 스캔 방지.
             guard url.pathExtension == "jsonl" || (allowJSON && url.pathExtension == "json") else { continue }
+            guard isPlainLogFile(url) else { continue }
             let v = try? url.resourceValues(forKeys: [.contentModificationDateKey])
             if let m = v?.contentModificationDate, m >= modifiedSince { out.append(url) }
         }
@@ -445,7 +469,7 @@ enum LocalUsageReader {
         var out = entries
         for (model, cost) in state.costByModel {
             guard let idx = indicesByModel[model], !idx.isEmpty else { continue }
-            let totalTokens = idx.reduce(0) { $0 + out[$1].total }
+            let totalTokens = idx.map { out[$0].total }.saturatingSum()
             guard totalTokens > 0 else { continue }
             var remaining = cost
             for (n, i) in idx.enumerated() {
@@ -473,12 +497,12 @@ enum LocalUsageReader {
     /// of the whole file. `newOffset` stops at the last complete line so a half-written record
     /// is retried next time. Nil means the file could not be read.
     static func parseClaudeFile(_ url: URL, fromOffset: Int, fmt: DateFormatter)
-        -> (entries: [Entry], newOffset: Int, costState: ClaudeCostState?)?
+        -> (entries: [Entry], newOffset: Int, costState: ClaudeCostState?, reachedCap: Bool)?
     {
-        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        guard let handle = try? openLogHandle(url) else { return nil }
         defer { try? handle.close() }
         guard (try? handle.seek(toOffset: UInt64(fromOffset))) != nil,
-              let data = try? handle.readToEnd() else { return nil }
+              let data = try? handle.read(upToCount: maxLogReadBytes) ?? Data() else { return nil }
         let parsed = parseClaudeData(data, fmt: fmt)
         let session = claudeSessionID(forTranscript: url)
         let entries = parsed.entries.map { entry in
@@ -486,7 +510,7 @@ enum LocalUsageReader {
             entry.sessionID = session
             return entry
         }
-        return (entries, fromOffset + parsed.consumed, parsed.costState)
+        return (entries, fromOffset + parsed.consumed, parsed.costState, data.count >= maxLogReadBytes)
     }
 
     private static let usageNeedle = Data("\"usage\"".utf8)
@@ -580,41 +604,41 @@ enum LocalUsageReader {
     }
 
     static func parsePiFile(_ url: URL, fmt: DateFormatter) -> [Entry]? {
-        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
         var out: [Entry] = []
-        for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
-            guard line.contains("\"usage\"") else { continue }
-            autoreleasepool {
-                guard let data = String(line).data(using: .utf8),
-                      let envelope = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                      let id = envelope["id"] as? String, !id.isEmpty,
-                      let type = envelope["type"] as? String else { return }
+        do {
+            try forEachLine(in: url, containing: "\"usage\"") { line in
+                autoreleasepool {
+                    guard let data = String(line).data(using: .utf8),
+                          let envelope = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                          let id = envelope["id"] as? String, !id.isEmpty,
+                          let type = envelope["type"] as? String else { return }
 
-                let usage: [String: Any]?
-                let date: Date?
-                // OMP/Pi forks write the model at envelope level; vanilla Pi nests it in the message.
-                var model = "pi"
-                switch type {
-                case "message":
-                    guard let message = envelope["message"] as? [String: Any],
-                          message["stopReason"] as? String != "aborted",
-                          message["stopReason"] as? String != "error",
-                          let messageUsage = message["usage"] as? [String: Any] else { return }
-                    usage = messageUsage
-                    date = piMessageDate(message, envelope: envelope)
-                    model = (envelope["model"] as? String)
-                        ?? (message["model"] as? String) ?? "pi"
-                case "compaction", "branch_summary":
-                    usage = envelope["usage"] as? [String: Any]
-                    date = piEnvelopeDate(envelope)
-                default:
-                    return
+                    let usage: [String: Any]?
+                    let date: Date?
+                    // OMP/Pi forks write the model at envelope level; vanilla Pi nests it in the message.
+                    var model = "pi"
+                    switch type {
+                    case "message":
+                        guard let message = envelope["message"] as? [String: Any],
+                              message["stopReason"] as? String != "aborted",
+                              message["stopReason"] as? String != "error",
+                              let messageUsage = message["usage"] as? [String: Any] else { return }
+                        usage = messageUsage
+                        date = piMessageDate(message, envelope: envelope)
+                        model = (envelope["model"] as? String)
+                            ?? (message["model"] as? String) ?? "pi"
+                    case "compaction", "branch_summary":
+                        usage = envelope["usage"] as? [String: Any]
+                        date = piEnvelopeDate(envelope)
+                    default:
+                        return
+                    }
+                    guard let usage, let date,
+                          let entry = piEntry(id: id, date: date, usage: usage, model: model, fmt: fmt) else { return }
+                    out.append(entry)
                 }
-                guard let usage, let date,
-                      let entry = piEntry(id: id, date: date, usage: usage, model: model, fmt: fmt) else { return }
-                out.append(entry)
             }
-        }
+        } catch { return nil }
         return dedupKeepMax(out)
     }
 
@@ -660,8 +684,9 @@ enum LocalUsageReader {
     }
 
     private static func piMessageDate(_ message: [String: Any], envelope: [String: Any]) -> Date? {
-        if let milliseconds = doubleOrNil(message["timestamp"]), milliseconds > 0 {
-            return Date(timeIntervalSince1970: milliseconds / 1_000)
+        if let milliseconds = doubleOrNil(message["timestamp"]), milliseconds > 0,
+           let date = plausibleDate(epochSeconds: milliseconds / 1_000) {
+            return date
         }
         return piEnvelopeDate(envelope)
     }
@@ -855,7 +880,7 @@ enum LocalUsageReader {
     /// 대형 JSONL 을 파일 크기와 무관한 메모리로 순회한다. 완성된 한 줄만
     /// 소유하므로 피크는 파일 전체가 아니라 가장 긴 라인 + 청크 크기에 비례한다.
     private static func forEachCodexLine(in url: URL, body: (Data) -> Void) throws {
-        let handle = try FileHandle(forReadingFrom: url)
+        let handle = try openLogHandle(url)
         defer { try? handle.close() }
 
         let chunkSize = 1024 * 1024
@@ -890,6 +915,29 @@ enum LocalUsageReader {
         if !buffer.isEmpty { body(buffer) }
     }
 
+    /// `forEachCodexLine` 위의 문자열 래퍼. 줄을 만들기 전에 **바이트로** `needle` 포함 여부를 거르고
+    /// (usage 가 없는 대부분의 줄은 String 으로 만들지 않는다), UTF-8 이 아닌 줄은 건너뛴다.
+    /// 읽기 오류는 던진다 — 호출자는 nil(= 캐시하지 않고 다음 새로고침에 재시도)로 접는다.
+    /// Pi·omp·omo·Kimi 가 `String(contentsOf:)` 로 파일 전체를 올리던 자리를 대체한다.
+    private static func forEachLine(in url: URL, containing needle: String, body: (String) -> Void) throws {
+        let needleBytes = Data(needle.utf8)
+        var invalidEncoding = false
+        try forEachCodexLine(in: url) { data in
+            // A line that is not UTF-8 makes the file unreadable (as `String(contentsOf:)` did): the caller returns nil,
+            // so the failure is not cached as "no usage" and the next refresh retries.
+            if !isValidUTF8(data) { invalidEncoding = true; return }
+            guard data.range(of: needleBytes) != nil, let line = String(data: data, encoding: .utf8) else { return }
+            body(line)
+        }
+        if invalidEncoding { throw CocoaError(.fileReadInapplicableStringEncoding) }
+    }
+
+    /// ASCII lines (most of them) are valid without building a `String`; only lines with other bytes are decoded.
+    private static func isValidUTF8(_ data: Data) -> Bool {
+        if !data.contains(where: { $0 >= 0x80 }) { return true }
+        return String(data: data, encoding: .utf8) != nil
+    }
+
     private static let codexSessionMetaMarker = Data("session_meta".utf8)
     private static let codexModelMarker = Data("\"model\"".utf8)
     private static let codexTokenCountMarker = Data("token_count".utf8)
@@ -919,6 +967,7 @@ enum LocalUsageReader {
         ) else { return [] }
         var out: [CodexRolloutFile] = []
         for case let url as URL in en where url.pathExtension == "jsonl" {
+            guard isPlainLogFile(url) else { continue }
             guard let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey]),
                   let mtime = values.contentModificationDate else { continue }
             out.append(CodexRolloutFile(url: url, mtime: mtime, size: values.fileSize ?? 0))
@@ -1074,7 +1123,7 @@ enum LocalUsageReader {
         at url: URL,
         byteLimit: Int = codexProbeByteLimit
     ) throws -> String? {
-        let handle = try FileHandle(forReadingFrom: url)
+        let handle = try openLogHandle(url)
         defer { try? handle.close() }
 
         var buffer = Data()
@@ -1655,10 +1704,10 @@ enum LocalUsageReader {
     /// `_meta` 는 복사 시 sessionId 만 교체되고 그대로 보존돼 원래 턴 시각을 지킨다.
     private static func grokDate(envelope: [String: Any], meta: [String: Any]?) -> Date? {
         let ms = doubleOrNil(meta?["agentTimestampMs"]) ?? 0
-        if ms > 0 { return Date(timeIntervalSince1970: ms / 1000) }
+        if ms > 0, let date = plausibleDate(epochSeconds: ms / 1000) { return date }
         let raw = doubleOrNil(envelope["timestamp"]) ?? 0
         // 봉투는 초 단위지만, 밀리초로 오는 변형도 흡수한다(다른 로컬 리더와 같은 임계).
-        if raw > 0 { return Date(timeIntervalSince1970: raw >= 100_000_000_000 ? raw / 1_000 : raw) }
+        if raw > 0, let date = plausibleDate(epochSeconds: raw >= 100_000_000_000 ? raw / 1_000 : raw) { return date }
         if let ts = envelope["timestamp"] as? String { return ISO8601Parser.date(from: ts) }
         return nil
     }
@@ -1700,16 +1749,15 @@ enum LocalUsageReader {
     /// own files, so the recursive scan intentionally includes them (Grok's fold-in exclusion
     /// would double-count here).
     static func parseOmpFile(_ url: URL, fmt: DateFormatter) -> [Entry]? {
-        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
         let file = url.lastPathComponent
         var out: [Entry] = []
-        for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
-            // user/toolResult/custom lines carry no usage → filter by string before JSON parsing.
-            guard line.contains("\"usage\"") else { continue }
-            autoreleasepool {   // drain JSONSerialization's autoreleased objects per line
-                if let e = parseOmpLine(String(line), file: file, fmt: fmt) { out.append(e) }
+        do {
+            try forEachLine(in: url, containing: "\"usage\"") { line in
+                autoreleasepool {   // drain JSONSerialization's autoreleased objects per line
+                    if let e = parseOmpLine(String(line), file: file, fmt: fmt) { out.append(e) }
+                }
             }
-        }
+        } catch { return nil }
         return dedupKeepMax(out)
     }
 
@@ -1824,15 +1872,15 @@ enum LocalUsageReader {
     /// not a subscription invoice, so a recorded amount stays an estimate. Aborted and error
     /// assistant lines are skipped, matching Pi. Entry ids are unique only inside one file.
     static func parseOmoFile(_ url: URL, fmt: DateFormatter) -> [Entry]? {
-        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
         let file = omoEntryFileKey(url)
         var out: [Entry] = []
-        for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
-            guard line.contains("\"usage\"") else { continue }
-            autoreleasepool {
-                if let e = parseOmoLine(String(line), file: file, fmt: fmt) { out.append(e) }
+        do {
+            try forEachLine(in: url, containing: "\"usage\"") { line in
+                autoreleasepool {
+                    if let e = parseOmoLine(String(line), file: file, fmt: fmt) { out.append(e) }
+                }
             }
-        }
+        } catch { return nil }
         return dedupKeepMax(out)
     }
 
@@ -1958,15 +2006,14 @@ enum LocalUsageReader {
     /// outside one (e.g. compaction). Both are per-request deltas — upstream's own `byModel` total
     /// sums them — so both count. Unknown future scopes are skipped rather than guessed.
     static func parseKimiWireFile(_ url: URL, fmt: DateFormatter) -> [Entry]? {
-        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
         var out: [Entry] = []
-        for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
-            // Most lines are messages and request traces → filter by string before JSON parsing.
-            guard line.contains("\"usage.record\"") else { continue }
-            autoreleasepool {
-                if let e = parseKimiLine(String(line), fmt: fmt) { out.append(e) }
+        do {
+            try forEachLine(in: url, containing: "\"usage.record\"") { line in
+                autoreleasepool {
+                    if let e = parseKimiLine(String(line), fmt: fmt) { out.append(e) }
+                }
             }
-        }
+        } catch { return nil }
         return out
     }
 
@@ -1986,7 +2033,8 @@ enum LocalUsageReader {
               let record = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               (record["type"] as? String) == "usage.record",
               let usage = record["usage"] as? [String: Any],
-              let millis = doubleOrNil(record["time"]), millis.isFinite, millis > 0 else { return nil }
+              let millis = doubleOrNil(record["time"]), millis > 0,
+              let date = plausibleDate(epochSeconds: millis / 1000) else { return nil }
         let scope = record["usageScope"] as? String
         guard scope == nil || scope == "turn" || scope == "session" else { return nil }
         let input = intOrNil(usage["inputOther"]) ?? 0
@@ -1994,7 +2042,6 @@ enum LocalUsageReader {
         let cacheRead = intOrNil(usage["inputCacheRead"]) ?? 0
         let cacheWrite = intOrNil(usage["inputCacheCreation"]) ?? 0
         let model = (record["model"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "kimi-code"
-        let date = Date(timeIntervalSince1970: millis / 1000)
         // Records carry no id. `/fork` makes an independent copy of a session, so a path-based id
         // would count the copied history twice; the record's own content identifies it instead.
         let id = "kimi|\(Int64(millis))|\(model)|\(scope ?? "-")|\(input)|\(output)|\(cacheRead)|\(cacheWrite)"
@@ -2125,10 +2172,17 @@ enum LocalUsageReader {
         let tpm = Double(b.total) / minutes
         let iso = ISO8601DateFormatter()
         return BlockUsage(
-            id: "block-\(Int(first.date.timeIntervalSince1970))",
+            id: "block-\(blockStartSeconds(first.date))",
             startTime: iso.string(from: first.date),
             endTime: iso.string(from: first.date.addingTimeInterval(blockWindow)),
             isActive: true, totalTokens: b.total, costUSD: b.cost, tokensPerMinute: tpm, costCoverage: b.costCoverage)
+    }
+
+    /// 블록 id 용 초. `Int(Double)` 는 범위 밖에서 트랩하므로, 어떤 출처의 날짜가 들어와도 닿지 않게 한다.
+    private static func blockStartSeconds(_ date: Date) -> Int {
+        let seconds = date.timeIntervalSince1970
+        guard seconds.isFinite, abs(seconds) < 9e18 else { return 0 }
+        return Int(seconds)
     }
 
     // MARK: 유틸
@@ -2198,10 +2252,29 @@ enum LocalUsageReader {
         return cal.dateComponents([.day], from: d1, to: d2).day
     }
 
-    /// 파싱 상한 — 실사용(수십억)의 10만 배라 정상 사용량을 자르지 않는다.
+    /// 파싱 상한 — 실사용 **단일 요청**(수십만~수백만)의 1만 배 이상이라 정상 요청을 자르지 않는다(세션 합계를 한 항목에 담는 소스는 아래 별도 상한).
     /// `Int.max` 로 잡지 않는 이유: 클램프 자체는 되지만 `output + thoughts` 처럼 **파싱 직후 더하는**
     /// 지점에서 다시 오버플로 트랩이 난다. 이 값끼리 여러 번 더해도 Int64 안에 머무는 상한이어야 한다.
-    static let maxParsedTokenValue = 1_000_000_000_000_000
+    /// 예전 1e15 는 항목 2,306개만 모여도 합계가 Int64 를 넘었다 — 합산 지점(`Bucket`·스토어 합)은
+    /// 이제 포화 덧셈이라 트랩하진 않지만, 한 항목이 합계를 지배하지 않도록 상한도 낮춘다.
+    static let maxParsedTokenValue = 10_000_000_000
+
+    /// 한 요청이 아니라 **세션 전체 합계**를 한 항목에 담는 소스(Hermes `sessions` 행)의 상한. 정상적인 긴 세션은
+    /// 캐시 읽기만으로 수백억 토큰이 될 수 있어 요청 단위 상한(1e10)으로 자르면 사용량이 줄어든다. 이 값 4개를
+    /// 항목 100만 개까지 더해도 Int64 안이다.
+    static let maxParsedSessionTotalValue = 1_000_000_000_000
+
+    /// 숫자 에포크 시각의 타당 범위(초) — Antigravity 프로토 타임스탬프와 같은 창(2001-09 ~ 2100-01).
+    /// 로그의 숫자 시각은 앱 밖에서 오고 `Double` 로는 1e300 도 유한하다. 그런 값으로 만든 `Date` 는
+    /// 이후 `Int(date.timeIntervalSince1970)`·`Int64(millis)` 에서 트랩하고, 파일이 디스크에 남아
+    /// 새로고침·재기동마다 다시 죽는다. 창 밖의 값은 "시각 없음" 으로 다룬다.
+    static let plausibleEpochSeconds: ClosedRange<Double> = 1_000_000_000...4_102_444_800
+
+    /// 초 단위 에포크 → `Date`. 창 밖이거나 유한하지 않으면 nil.
+    static func plausibleDate(epochSeconds seconds: Double) -> Date? {
+        guard seconds.isFinite, plausibleEpochSeconds.contains(seconds) else { return nil }
+        return Date(timeIntervalSince1970: seconds)
+    }
 
     /// 숫자를 안전한 Int 로. 값이 없거나 숫자가 아니면 0.
     ///

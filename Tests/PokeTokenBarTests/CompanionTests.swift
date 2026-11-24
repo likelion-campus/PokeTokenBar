@@ -140,6 +140,23 @@ private actor SuspendedLineProvider: PokeProviding {
     }
 }
 
+/// The first line request suspends until `resume()`; later ones return at once.
+private actor FirstRequestSuspendedProvider: PokeProviding {
+    private let value: EvoLine
+    private var continuation: CheckedContinuation<EvoLine, Never>?
+    private var calls = 0
+    init(value: EvoLine) { self.value = value }
+
+    func line(baseSpeciesID: Int) async throws -> EvoLine {
+        calls += 1
+        if calls > 1 { return value }
+        return await withCheckedContinuation { continuation = $0 }
+    }
+    func baseSpeciesIndex() async throws -> [BaseSpecies] { [BaseSpecies(id: value.baseID, captureRate: 255)] }
+    func isSuspended() -> Bool { continuation != nil }
+    func resume() { let pending = continuation; continuation = nil; pending?.resume(returning: value) }
+}
+
 private actor SuspendedFailingIndexProvider: PokeProviding {
     private var continuation: CheckedContinuation<[BaseSpecies], Error>?
     private var failNextRequest = false
@@ -1439,6 +1456,36 @@ final class CompanionStoreTests: XCTestCase {
         let persisted = try JSONDecoder().decode(CompanionState.self, from: Data(contentsOf: url))
         XCTAssertEqual(persisted.active?.usedAtStage, 42)
         XCTAssertEqual(persisted.active?.nature, changedNature)
+    }
+
+    /// A hatch started on the placeholder state (the save was locked at launch) must not land on the real pet adopted
+    /// once the file is readable, and the real pet's line must load without waiting for the stale hatch.
+    func testAdoptedSaveIsNotOverwrittenByAPlaceholderEraHatch() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-adopt-race-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let saved = #"{"active":{"baseID":1,"pathIDs":[1],"stageIndex":0,"usedAtStage":42,"rarity":"common","totalForms":1,"nature":"adamant"},"installBaselineSet":true}"#
+        try Data(saved.utf8).write(to: url)
+        let faults = FileFaults()
+        faults.unreadable = true
+
+        let provider = FirstRequestSuspendedProvider(value: linear3)
+        let s = CompanionStore(provider: provider, clock: { fixedNow }, fileURL: url, rng: SeededRNG(seed: 7),
+                               fileAccess: faults.access)
+        XCTAssertTrue(s.statePlaceholder)
+        let staleHatch = Task { @MainActor in await s.hatch(baseID: 1) }
+        let suspended = await waitUntilAsync { await provider.isSuspended() }
+        XCTAssertTrue(suspended, "premise: the placeholder-era hatch is waiting on its line fetch")
+
+        faults.unreadable = false
+        s.update(todayTokensByProvider: ["test": 0], todayDate: "d1", monthTotal: 0,
+                 burnTier: .idle, limitWarning: false, hasUsageData: true)
+        XCTAssertFalse(s.persistenceBlocked)
+        let loaded = await waitUntil { s.currentLine != nil }
+        XCTAssertTrue(loaded, "the adopted pet's line loads while the stale hatch is still suspended")
+
+        await provider.resume()
+        await staleHatch.value
+        XCTAssertEqual(s.state.active?.usedAtStage, 42, "the stale hatch must not replace the adopted pet")
     }
 
     func testLocalizedName() async {
