@@ -10,6 +10,10 @@ struct TeamDialPlanner {
     static let refusalCooldown: TimeInterval = 300
 
     private struct Entry {
+        /// When the name was last announced (a counter), to tell a name that went quiet from one still answering.
+        var order = 0
+        /// Whether a dial to this name ever got through the handshake: a teammate we have met, as opposed to a name we only heard.
+        var connected = false
         var found = true
         var activePeer: TeamPeerID?
         var coveredBy: TeamPeerID?
@@ -17,12 +21,34 @@ struct TeamDialPlanner {
     }
 
     private var entries: [String: Entry] = [:]
+    private var orderCounter = 0
     /// Which endpoint name each dialed connection belongs to. Kept after the connection ends so that
     /// `cover` works in either order.
     private var nameForPeer: [TeamPeerID: String] = [:]
 
-    mutating func discovered(_ name: String) {
-        if entries[name] == nil { entries[name] = Entry() } else { entries[name]?.found = true }
+    /// Returns the name forgotten to make room, if any. Anyone on the network can advertise names without end, so at
+    /// `maxDiscoveredNames` a name nothing is using (no dial, no cover) goes: first the ones that never connected (a rogue
+    /// service's names, not a teammate's), the one announced longest ago among them first; when every name is in use the
+    /// new one is not kept.
+    @discardableResult
+    mutating func discovered(_ name: String) -> String? {
+        guard entries[name] == nil else {
+            orderCounter += 1
+            entries[name]?.found = true
+            entries[name]?.order = orderCounter
+            return nil
+        }
+        var evicted: String?
+        if entries.count >= TeamTransportRules.maxDiscoveredNames {
+            guard let oldest = entries.filter({ $0.value.activePeer == nil && $0.value.coveredBy == nil })
+                .min(by: { ($0.value.connected ? 1 : 0, $0.value.order) < ($1.value.connected ? 1 : 0, $1.value.order) })?.key else { return name }
+            entries[oldest] = nil
+            nameForPeer = nameForPeer.filter { $0.value != oldest }
+            evicted = oldest
+        }
+        orderCounter += 1
+        entries[name] = Entry(order: orderCounter)
+        return evicted
     }
 
     /// Forgets the name unless a running dial, a cover or a cooldown still needs it, so the names a rogue service
@@ -49,6 +75,7 @@ struct TeamDialPlanner {
         for name in entries.keys where entries[name]?.coveredBy == peer { entries[name]?.coveredBy = nil }
         guard let name = nameForPeer[peer], entries[name]?.activePeer == peer else { return }
         entries[name]?.activePeer = nil
+        if !refused, !handshakeFailed { entries[name]?.connected = true }
         if refused {
             entries[name]?.retryAfter = now.addingTimeInterval(Self.refusalCooldown)
         } else if handshakeFailed {

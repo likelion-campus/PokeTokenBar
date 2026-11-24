@@ -259,6 +259,9 @@ import Observation
     /// The member whose menu is open and who they were drawn as then; a choice is dropped if that changed.
     private var menuLook: (id: String, shownAs: String?)?
     private var memberLoadTokens: [String: Int] = [:]
+    /// The running sprite load of each teammate. A newer one replaces it and a teammate who left ends it, so a peer that
+    /// keeps changing its character cannot leave requests piling up.
+    private var memberLoadTasks: [String: Task<Void, Never>] = [:]
     private var nextLoadToken = 0
     /// 장면에 들어간 팀원 그림의 종 번호를 순서대로 남긴다(테스트용 읽기 전용).
     private var appliedMemberLoads: [(id: String, speciesID: Int?)] = []
@@ -2440,6 +2443,7 @@ import Observation
         for id in memberSubjects.keys where !ids.contains(id) && id != PlazaDitto.sceneKey {
             memberSubjects[id] = nil
             memberLoadTokens[id] = nil
+            memberLoadTasks.removeValue(forKey: id)?.cancel()
         }
         for m in list {
             let subject = looks[m.memberID]?.subject ?? CompanionStore.RepresentativeSubject(
@@ -2461,7 +2465,8 @@ import Observation
         nextLoadToken += 1
         let token = nextLoadToken
         memberLoadTokens[id] = token
-        Task { [weak self, sleep = spriteRetrySleep] in
+        memberLoadTasks[id]?.cancel()
+        memberLoadTasks[id] = Task { [weak self, sleep = spriteRetrySleep] in
             guard await self?.loadMemberFrames(id, subject: subject, token: token, attempt: attempt) == true else { return }
             await sleep(Self.spriteRetryDelay)
             guard !Task.isCancelled, let self, self.memberLoadTokens[id] == token, self.memberSubjects[id] == subject else { return }
@@ -2622,6 +2627,8 @@ import Observation
         memberSubjects = [:]
         shownMimics = [:]
         memberLoadTokens = [:]
+        for task in memberLoadTasks.values { task.cancel() }
+        memberLoadTasks = [:]
         appliedMemberLoads = []
         if let scene {
             scene.releaseAllKeys()

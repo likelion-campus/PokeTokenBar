@@ -146,6 +146,9 @@ enum SaveTransfer {
         s.usedSinceInstall = clampToken(s.usedSinceInstall)
         s.spentTokens = clampToken(s.spentTokens)
         s.eggUsage = clampToken(s.eggUsage)
+        // 개수는 `+=` 로 늘어난다(구매·플라자 줍기·사탕 지급). Int.max 로 들어온 개수는 다음 덧셈에서 트랩이고,
+        // 사탕 지급은 `candyGrantTier` 를 저장하기 전에 죽어 재기동마다 같은 지급이 다시 난다. 항목은 남긴다.
+        s.inventory = s.inventory.mapValues(clampToken)
         s.claimedTodayTokensByProvider = s.claimedTodayTokensByProvider?.reduce(into: [:]) { result, entry in
             result[entry.key] = clampToken(entry.value)
         }

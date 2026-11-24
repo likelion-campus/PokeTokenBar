@@ -78,8 +78,8 @@ enum LocalAsideUsageReader {
             var status = sqlite3_step(statement)
             while status == SQLITE_ROW {
                 if let text = sqlite3_column_text(statement, 1),
-                   let usage = try? JSONSerialization.jsonObject(with: Data(String(cString: text).utf8)) as? [String: Any] {
-                    let date = Date(timeIntervalSince1970: sqlite3_column_double(statement, 2))
+                   let usage = try? JSONSerialization.jsonObject(with: Data(String(cString: text).utf8)) as? [String: Any],
+                   let date = LocalUsageReader.plausibleDate(epochSeconds: sqlite3_column_double(statement, 2)) {
                     // The schema has no per-turn model: `sessions.model` is the session's *current*
                     // setting. Never price historical turns using that current model; only
                     // a source-recorded cost is usable for these aggregates.

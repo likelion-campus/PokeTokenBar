@@ -58,6 +58,15 @@ enum SaveSnapshotManager {
         return f.date(from: raw)
     }
 
+    /// Whether the file claims to be a `SaveEnvelope` (has a top-level `format`). Such a file that
+    /// `SaveTransfer.decode` rejects (newer schema, over the size cap, bad date) must not fall back to the
+    /// legacy raw-state decode: `CompanionState` decodes leniently, so an envelope read as a raw state
+    /// "succeeds" as an empty save, and recovery would install it.
+    private static func isEnvelope(_ data: Data) -> Bool {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+        return object["format"] != nil
+    }
+
     /// Lists all available snapshots in chronological order (newest first).
     static func listSnapshots(for stateFileURL: URL) -> [SaveSnapshot] {
         let dir = snapshotsDirectory(for: stateFileURL)
@@ -81,7 +90,7 @@ enum SaveSnapshotManager {
                     currentIsShiny: st.active?.displaysShiny ?? false,
                     currentForm: st.active.flatMap { PokemonForm.resolved(speciesID: $0.currentID, form: $0.form) }
                 ))
-            } else if let st = try? JSONDecoder().decode(CompanionState.self, from: data) {
+            } else if !isEnvelope(data), let st = try? JSONDecoder().decode(CompanionState.self, from: data) {
                 let date = parseStamp(file) ?? (try? url.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? Date()
                 results.append(SaveSnapshot(
                     id: file,
@@ -108,7 +117,7 @@ enum SaveSnapshotManager {
         if let envelope = try? SaveTransfer.decode(data) {
             return envelope
         }
-        if let st = try? JSONDecoder().decode(CompanionState.self, from: data) {
+        if !isEnvelope(data), let st = try? JSONDecoder().decode(CompanionState.self, from: data) {
             let date = parseStamp(url.lastPathComponent)
                 ?? (try? url.resourceValues(forKeys: [.creationDateKey]).creationDate)
                 ?? Date()
@@ -179,8 +188,25 @@ enum SaveSnapshotManager {
     }
 
     /// Loads the latest valid snapshot as CompanionState, if available.
-    static func loadLatestValidSnapshot(for stateFileURL: URL) -> CompanionState? {
-        guard let latest = latestSnapshot(for: stateFileURL) else { return nil }
-        return loadState(from: latest.fileURL)
+    ///
+    /// Candidates are tried newest to oldest and an unreadable one is skipped, not fatal. A snapshot dated after
+    /// `now` was written under a clock that ran ahead, so its date says nothing about how recent it is: it is tried
+    /// after the snapshots dated up to `now`, unless it holds more progress (`lifetimeTokens`) than the newest of
+    /// those, in which case the snapshot with the latest progress wins in both directions.
+    static func loadLatestValidSnapshot(for stateFileURL: URL, now: Date = Date()) -> CompanionState? {
+        let all = listSnapshots(for: stateFileURL)
+        let past = all.filter { $0.date <= now }
+        let future = all.filter { $0.date > now }
+        var ordered = past + future
+        if let newestPast = past.first,
+           let furthest = future.max(by: { $0.lifetimeTokens < $1.lifetimeTokens }),
+           furthest.lifetimeTokens > newestPast.lifetimeTokens {
+            ordered.removeAll { $0.id == furthest.id }
+            ordered.insert(furthest, at: 0)
+        }
+        for candidate in ordered {
+            if let state = loadState(from: candidate.fileURL) { return state }
+        }
+        return nil
     }
 }

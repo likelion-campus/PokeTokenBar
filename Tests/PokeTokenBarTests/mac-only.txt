@@ -36,6 +36,8 @@ GrokUsageTests.swift
 IndividualPickerRenderingTests.swift
 # KeychainAutoPathTests: needs KeychainReader (Security)
 KeychainAutoPathTests.swift
+# KeychainToolReadTests: needs KeychainToolReader (Security)
+KeychainToolReadTests.swift
 LanguageSurfaceRegressionTests.swift
 # LimitPaceTests+Mac: needs LimitProgressBar (UI)
 LimitPaceTests+Mac.swift

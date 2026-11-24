@@ -302,10 +302,10 @@ enum CursorUsageAPI {
 
     static func epochDate(_ value: Double) -> Date? {
         if value > 1_000_000_000_000 {
-            return Date(timeIntervalSince1970: value / 1000)
+            return LocalUsageReader.plausibleDate(epochSeconds: value / 1000)
         }
         if value >= 1_000_000_000 {
-            return Date(timeIntervalSince1970: value)
+            return LocalUsageReader.plausibleDate(epochSeconds: value)
         }
         return nil
     }

@@ -68,7 +68,7 @@ enum PlazaFortuneArt {
     private static let side: CGFloat = 34         // 쪽지 양옆에 쿠키 조각이 놓일 자리
     private static let shadowOffset: CGFloat = 4
     private static let lineGap: CGFloat = 2
-    /// 쪽지 한 줄의 최대 너비. 모든 문구가 한 줄에 들어간다.
+    /// 쪽지 한 줄의 최대 너비. 운세의 모든 줄과 행운의 행동이 이 안에 들어간다.
     static let maxTextWidth: CGFloat = 250
     private static let textSize = PlazaTextSize.body
     private static let ink = PlazaColor(srgbRed: 48 / 255, green: 38 / 255, blue: 57 / 255, alpha: 1)
@@ -81,6 +81,9 @@ enum PlazaFortuneArt {
         graphics.text.line(text, font: .plaza(textSize)).width
     }
 
+    /// 운세가 쪽지에서 차지하는 줄. 문구 안의 줄바꿈으로 나눈다(한 줄 또는 두 줄).
+    static func rows(_ line: String) -> [String] { line.split(separator: "\n").map(String.init) }
+
     /// 머리 위에 뜨는 그림 한 장. `text` 는 다 펴진 쪽지(`open`)에만 쓰지만 크기를 정하므로 늘 받는다. `scale` 은 포인트당 기기 픽셀 수.
     static func image(_ stage: Stage, line: String, action: String, scale: CGFloat, withCookie: Bool = true,
                       graphics: any PlazaGraphics = PlatformPlaza.graphics) -> PlazaImage? {
@@ -88,9 +91,10 @@ enum PlazaFortuneArt {
         let scale = max(scale, 1)
         let font = graphics.text.metrics(.plaza(textSize))
         let lineHeight = (font.ascender - font.descender + font.leading).rounded(.up)
-        let textWidth = min(max(textWidth(line, graphics: graphics), textWidth(action, graphics: graphics)).rounded(.up), maxTextWidth)
+        let rows = Self.rows(line)
+        let textWidth = min((rows + [action]).map { Self.textWidth($0, graphics: graphics) }.max()!.rounded(.up), maxTextWidth)
         let fullWidth = textWidth + 2 * (dot + bandInset + band + pad)
-        let slipHeight = 2 * lineHeight + lineGap + 2 * (dot + pad)
+        let slipHeight = CGFloat(rows.count + 1) * lineHeight + CGFloat(rows.count) * lineGap + 2 * (dot + pad)
         let cookieSize = CGSize(width: CGFloat(cookie.width) * px, height: CGFloat(cookie.height) * px)
         let height = slipHeight + shadowOffset
 
@@ -131,8 +135,10 @@ enum PlazaFortuneArt {
             canvas.setShouldSmoothFonts(false)
             let textX = slip.minX + dot + bandInset + band + pad
             canvas.setFillColor(ink)
-            canvas.draw(graphics.text.paragraph(line, font: .plaza(textSize), alignment: .center),
-                        in: CGRect(x: textX, y: slip.minY + dot + pad + lineHeight + lineGap, width: textWidth, height: lineHeight))
+            for (i, row) in rows.enumerated() {   // 위에서부터, 행운의 행동 위에 쌓는다
+                canvas.draw(graphics.text.paragraph(row, font: .plaza(textSize), alignment: .center),
+                            in: CGRect(x: textX, y: slip.minY + dot + pad + CGFloat(rows.count - i) * (lineHeight + lineGap), width: textWidth, height: lineHeight))
+            }
             canvas.setFillColor(red)
             canvas.draw(graphics.text.paragraph(action, font: .plaza(textSize), alignment: .center),
                         in: CGRect(x: textX, y: slip.minY + dot + pad, width: textWidth, height: lineHeight))

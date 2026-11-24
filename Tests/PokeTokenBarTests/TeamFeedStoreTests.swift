@@ -240,11 +240,14 @@ final class TeamFeedStoreTests: XCTestCase {
         let before = store.saveCount
         let events = (0..<100).map { eventWith(id: "e\($0)", at: now.addingTimeInterval(Double(-$0))) }
         XCTAssertEqual(store.insert(events).count, 100)
+        store.flush()   // a teammate's frame is written after a delay: one write for the frame
         XCTAssertEqual(store.saveCount, before + 1)
         XCTAssertEqual(store.insert(events).count, 0, "duplicates are not new and cost no save")
+        store.flush()
         XCTAssertEqual(store.saveCount, before + 1)
         let reactions = (0..<100).map { reaction("r\($0)", event: "e0", author: "a\($0)") }
         XCTAssertEqual(store.insert(reactions).count, 100)
+        store.flush()
         XCTAssertEqual(store.saveCount, before + 2)
         XCTAssertEqual(makeStore().reactionIDs.count, 100)
     }

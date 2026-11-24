@@ -33,7 +33,7 @@ enum PlazaFortune {
         return d
     }
 
-    /// 쪽지에 쓰는 두 줄. 범위 밖이면 nil.
+    /// 쪽지에 쓰는 운세(한 줄 또는 두 줄)와 행운의 행동. 범위 밖이면 nil.
     static func text(_ d: PlazaFortuneDraw) -> (line: String, action: String)? {
         guard let d = accepted(d) else { return nil }
         return (lines[d.line], L(.ko).plazaFortuneAction(actions[d.action]))
@@ -45,7 +45,8 @@ enum PlazaFortune {
     static let splitStepDuration: TimeInterval = 0.09
     static let readDuration: TimeInterval = 6
 
-    /// 한 줄 운세. 좋은 말만 쓴다. 쪽지 한 줄(`PlazaFortuneArt.maxTextWidth`)에 들어가야 한다(테스트가 확인한다).
+    /// 오늘의 운세. 좋은 말만 쓴다. 한 줄이거나 줄바꿈으로 나눈 두 줄이고, 각 줄이 쪽지 한 줄(`PlazaFortuneArt.maxTextWidth`)에
+    /// 들어가야 한다(테스트가 확인한다).
     /// 번호가 곧 팀원에게 보내는 값이라, 새 문구는 끝에만 더한다.
     static let lines: [String] = L(.ko).plazaFortuneLines
 

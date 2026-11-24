@@ -656,7 +656,7 @@ struct SettingsView: View {
     }
 
     /// Each additional Claude folder can have its own key. Without one, its limits come from its
-    /// Keychain token, which automatic polls never read: they stop whenever that token expires.
+    /// Keychain token, which a Mac's automatic poll reads only through `/usr/bin/security` (no Keychain API): where that cannot read it, limits stop whenever that token expires.
     @ViewBuilder
     private func accountSessionKeyRows(_ store: UsageStore) -> some View {
         ForEach(store.additionalClaudeConfigRoots, id: \.self) { rootPath in
@@ -1092,7 +1092,7 @@ struct SettingsView: View {
 
         let envelope: SaveEnvelope
         do {
-            envelope = try SaveTransfer.decode(try Data(contentsOf: url))
+            envelope = try SaveImportTool.readSave(at: url)
         } catch {
             AppLog.write("save import read failed: \(error)")
             presentAlert(title: l.importSaveLabel, message: l.importErrorMessage(error), style: .warning)

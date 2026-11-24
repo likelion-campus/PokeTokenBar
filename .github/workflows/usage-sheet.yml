@@ -4,11 +4,13 @@ on:
   pull_request:
     paths:
       - "tools/usage-sheet/**"
+      - "Sources/PokeTokenBar/Core/Local*UsageProvider.swift"
       - ".github/workflows/usage-sheet.yml"
   push:
     branches: [main]
     paths:
       - "tools/usage-sheet/**"
+      - "Sources/PokeTokenBar/Core/Local*UsageProvider.swift"
       - ".github/workflows/usage-sheet.yml"
 
 permissions:

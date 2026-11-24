@@ -216,6 +216,20 @@ final class UsageStore {
         }
     }
 
+    /// 저장된 갱신 주기의 허용 범위. UI 는 프리셋(0·60·120·300·900)만 주지만 값은 defaults/레지스트리에서
+    /// 그대로 읽히므로 `defaults write … refreshInterval 0.01` 이 10ms 마다 전체 스캔(로그 파싱·SQLite·한도 조회)을
+    /// 돌린다. 테스트가 짧은 주기를 쓰도록 하한만 바꿀 수 있다.
+    static var minimumRefreshInterval: TimeInterval = 30
+    static let maximumRefreshInterval: TimeInterval = 3600
+    static let defaultRefreshInterval: TimeInterval = 120
+
+    /// 0 은 수동 갱신이라 그대로 둔다. 없거나 유한하지 않거나 음수면 기본값, 나머지는 범위 안으로.
+    static func clampedRefreshInterval(_ stored: TimeInterval?) -> TimeInterval {
+        guard let stored, stored.isFinite, stored >= 0 else { return defaultRefreshInterval }
+        if stored == 0 { return 0 }
+        return min(max(stored, minimumRefreshInterval), maximumRefreshInterval)
+    }
+
     static let intervalPresets: [(label: String, value: TimeInterval)] = [
         ("수동", 0), ("1분", 60), ("2분", 120), ("5분", 300), ("15분", 900),
     ]
@@ -321,7 +335,7 @@ final class UsageStore {
     var todayTotalTokens: Int {
         // 날짜 가드: 스냅샷의 일자가 현재 로컬 날짜와 다르면 (자정 직후 등) 합계에서 제외
         let todayKey = LocalUsageReader.todayKey()
-        return snapshots.reduce(0) { $0 + ($1.today?.date == todayKey ? $1.todayTotalTokens : 0) }
+        return snapshots.map { $0.today?.date == todayKey ? $0.todayTotalTokens : 0 }.saturatingSum()
     }
 
     /// 오늘 사용량을 프로바이더 고유 ID별로 제공한다.
@@ -520,9 +534,9 @@ final class UsageStore {
         return snapshots.first
     }
 
-    var weekTotalTokens: Int { snapshots.reduce(0) { $0 + ($1.weekTotal?.totalTokens ?? 0) } }
+    var weekTotalTokens: Int { snapshots.map { $0.weekTotal?.totalTokens ?? 0 }.saturatingSum() }
     var weekCostTotal: Double { weekUsageCost.amount }
-    var monthTotalTokens: Int { snapshots.reduce(0) { $0 + ($1.monthTotal?.totalTokens ?? 0) } }
+    var monthTotalTokens: Int { snapshots.map { $0.monthTotal?.totalTokens ?? 0 }.saturatingSum() }
     var monthCostTotal: Double { monthUsageCost.amount }
 
     /// This month's day-by-day totals summed across providers, in date order.
@@ -543,11 +557,11 @@ final class UsageStore {
                 var merged = byDay[day.date] ?? DailyUsage(
                     date: day.date, inputTokens: 0, outputTokens: 0,
                     cacheCreationTokens: 0, cacheReadTokens: 0, totalTokens: 0, totalCost: 0, costCoverage: .empty)
-                merged.inputTokens += day.inputTokens
-                merged.outputTokens += day.outputTokens
-                merged.cacheCreationTokens += day.cacheCreationTokens
-                merged.cacheReadTokens += day.cacheReadTokens
-                merged.totalTokens += day.totalTokens
+                merged.inputTokens = merged.inputTokens.saturatingAdding(day.inputTokens)
+                merged.outputTokens = merged.outputTokens.saturatingAdding(day.outputTokens)
+                merged.cacheCreationTokens = merged.cacheCreationTokens.saturatingAdding(day.cacheCreationTokens)
+                merged.cacheReadTokens = merged.cacheReadTokens.saturatingAdding(day.cacheReadTokens)
+                merged.totalTokens = merged.totalTokens.saturatingAdding(day.totalTokens)
                 if countsCost {
                     merged.totalCost += day.totalCost
                     merged.costCoverage.merge(day.costCoverage)
@@ -590,11 +604,11 @@ final class UsageStore {
                 var merged = byDay[day.date] ?? DailyUsage(
                     date: day.date, inputTokens: 0, outputTokens: 0,
                     cacheCreationTokens: 0, cacheReadTokens: 0, totalTokens: 0, totalCost: 0, costCoverage: .empty)
-                merged.inputTokens += day.inputTokens
-                merged.outputTokens += day.outputTokens
-                merged.cacheCreationTokens += day.cacheCreationTokens
-                merged.cacheReadTokens += day.cacheReadTokens
-                merged.totalTokens += day.totalTokens
+                merged.inputTokens = merged.inputTokens.saturatingAdding(day.inputTokens)
+                merged.outputTokens = merged.outputTokens.saturatingAdding(day.outputTokens)
+                merged.cacheCreationTokens = merged.cacheCreationTokens.saturatingAdding(day.cacheCreationTokens)
+                merged.cacheReadTokens = merged.cacheReadTokens.saturatingAdding(day.cacheReadTokens)
+                merged.totalTokens = merged.totalTokens.saturatingAdding(day.totalTokens)
                 if countsCost {
                     merged.totalCost += day.totalCost
                     merged.costCoverage.merge(day.costCoverage)
@@ -952,7 +966,7 @@ final class UsageStore {
         self.defaults = defaults
         let d = defaults
         disabledProviderIDs = Set(d.stringArray(forKey: Self.disabledProvidersKey) ?? [])
-        refreshInterval = d.object(forKey: "refreshInterval") as? TimeInterval ?? 120
+        refreshInterval = Self.clampedRefreshInterval(d.object(forKey: "refreshInterval") as? TimeInterval)
         let storedCrit = d.object(forKey: "critThreshold") as? Double ?? 95
         critThreshold = storedCrit
         warnThreshold = min(d.object(forKey: "warnThreshold") as? Double ?? 80, storedCrit - Self.thresholdGap)
@@ -1468,7 +1482,7 @@ final class UsageStore {
         await task.value
     }
 
-    /// Same Keychain contract as the primary path: automatic polls never read the Keychain, a manual
+    /// Same Keychain contract as the primary path: automatic polls never read the Keychain through the Keychain API (on a Mac they read it only through `/usr/bin/security`), a manual
     /// refresh may prompt once per item, and a declined prompt stops the remaining ones (#280).
     /// With a session key (chosen to avoid prompts), only the folders listed in Settings may prompt.
     /// A 429 pauses the automatic polls of that folder only (`additionalBackoff`).

@@ -8,6 +8,10 @@ final class TeamFeedStore {
     static let retentionDays = 7
     static let maxEvents = 300
     static let maxReactions = 3000
+    /// What arrives from teammates is written this long after the first change: a flood of frames costs one write, and a
+    /// frame an honest peer sends is on disk within a moment (what is lost on a crash comes back from the next sync).
+    /// My own news and reactions are written at once, and `flush` writes whatever waits (quit).
+    static let saveDelay: TimeInterval = 2
 
     /// `seq` is a local arrival counter: it orders unread without recording when anything arrived.
     private struct StoredEvent: Codable {
@@ -38,6 +42,11 @@ final class TeamFeedStore {
     @ObservationIgnored private let myMemberID: String
     @ObservationIgnored private let clock: () -> Date
     @ObservationIgnored private let calendar: Calendar
+    @ObservationIgnored private let saveDelay: TimeInterval
+    /// `day` strings are Gregorian whatever calendar this Mac uses; one calendar for all the parsing.
+    @ObservationIgnored private let gregorian: Calendar
+    @ObservationIgnored private var saveOwed = false
+    @ObservationIgnored private var saveTask: Task<Void, Never>?
 
     private var stored: [StoredEvent] = []
     /// Counts every change to the events or reactions (not reading them): a view that shows them checks this instead of comparing the lists.
@@ -52,11 +61,16 @@ final class TeamFeedStore {
     init(fileURL: URL = AppStatePaths.directory().appendingPathComponent("team-feed.json"),
          myMemberID: String,
          clock: @escaping () -> Date = Date.init,
-         calendar: Calendar = .current) {
+         calendar: Calendar = .current,
+         saveDelay: TimeInterval = TeamFeedStore.saveDelay) {
         self.fileURL = fileURL
         self.myMemberID = myMemberID
         self.clock = clock
         self.calendar = calendar
+        self.saveDelay = saveDelay
+        var gregorian = Calendar(identifier: .gregorian)
+        gregorian.timeZone = calendar.timeZone
+        self.gregorian = gregorian
         load()
         prune()
     }
@@ -92,14 +106,19 @@ final class TeamFeedStore {
     /// Counts whole-file writes, so tests can pin one save per frame.
     @ObservationIgnored private(set) var saveCount = 0
 
+    /// My own news: written at once.
     @discardableResult
-    func insert(_ e: TeamEvent) -> Bool { !insert([e]).isEmpty }
+    func insert(_ e: TeamEvent) -> Bool { !insert([e], saveNow: true).isEmpty }
 
     @discardableResult
-    func insert(_ r: TeamReaction) -> Bool { !insert([r]).isEmpty }
+    func insert(_ r: TeamReaction) -> Bool { !insert([r], saveNow: true).isEmpty }
 
-    /// Admits a whole frame with one prune and one save. Returns the events that are new and still kept.
-    func insert(_ events: [TeamEvent]) -> [TeamEvent] {
+    /// Admits a whole frame with one prune and one (delayed) save. Returns the events that are new and still kept.
+    func insert(_ events: [TeamEvent]) -> [TeamEvent] { insert(events, saveNow: false) }
+
+    func insert(_ reactions: [TeamReaction]) -> [TeamReaction] { insert(reactions, saveNow: false) }
+
+    private func insert(_ events: [TeamEvent], saveNow: Bool) -> [TeamEvent] {
         var added: [TeamEvent] = []
         var known = eventIDs
         for e in events where admits(e) && known.insert(e.id).inserted {
@@ -107,16 +126,15 @@ final class TeamFeedStore {
             added.append(e)
         }
         guard !added.isEmpty else { return [] }
-        sortEvents()
-        prune()
+        prune()   // sorts
         revision += 1
-        save()
+        persist(now: saveNow)
         // An event pruned right away (beyond the cap) is not "new".
         let kept = Set(stored.map(\.event.id))
         return added.filter { kept.contains($0.id) }
     }
 
-    func insert(_ reactions: [TeamReaction]) -> [TeamReaction] {
+    private func insert(_ reactions: [TeamReaction], saveNow: Bool) -> [TeamReaction] {
         var added: [TeamReaction] = []
         var known = reactionIDs
         var given = Set(allReactions.map { ReactionSlot($0.reaction) })
@@ -132,7 +150,7 @@ final class TeamFeedStore {
             allReactions.removeFirst(allReactions.count - Self.maxReactions)
         }
         revision += 1
-        save()
+        persist(now: saveNow)
         let kept = Set(allReactions.map(\.reaction.id))
         return added.filter { kept.contains($0.id) }
     }
@@ -166,7 +184,7 @@ final class TeamFeedStore {
         let present = Set(stored.map(\.event.id))
         // A reaction can arrive before its event during sync: only drop stale orphans.
         allReactions.removeAll { !present.contains($0.reaction.eventID) && $0.reaction.createdAt < cutoff }
-        if (stored.count, allReactions.count) != before { revision += 1; save() }
+        if (stored.count, allReactions.count) != before { revision += 1; persist(now: false) }
     }
 
     private func takeSeq() -> Int {
@@ -230,8 +248,6 @@ final class TeamFeedStore {
     private func dayStart(_ day: String) -> Date? {
         let parts = day.split(separator: "-").compactMap { Int($0) }
         guard parts.count == 3 else { return nil }
-        var gregorian = Calendar(identifier: .gregorian)
-        gregorian.timeZone = calendar.timeZone
         return gregorian.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2]))
     }
 
@@ -239,11 +255,14 @@ final class TeamFeedStore {
         e.occurredAt ?? dayStart(e.day) ?? .distantPast
     }
 
+    /// Each row's key is worked out once, not once per comparison (a day string costs a date parse).
     private func sortEvents() {
-        stored.sort {
-            let a = sortKey($0.event), b = sortKey($1.event)
-            return a == b ? $0.event.id < $1.event.id : a > b
+        let keyed: [(row: StoredEvent, key: Date)] = stored.map { (row: $0, key: sortKey($0.event)) }
+        let sorted = keyed.sorted { (a: (row: StoredEvent, key: Date), b: (row: StoredEvent, key: Date)) -> Bool in
+            if a.key == b.key { return a.row.event.id < b.row.event.id }
+            return a.key > b.key
         }
+        stored = sorted.map { $0.row }
     }
 
     // MARK: - Persistence
@@ -281,7 +300,28 @@ final class TeamFeedStore {
         }
     }
 
+    /// Writes now, or leaves it for `saveDelay` from the first change, whichever the caller asked for.
+    private func persist(now: Bool) {
+        if now || saveDelay <= 0 { save(); return }
+        saveOwed = true
+        guard saveTask == nil else { return }
+        let delay = saveDelay
+        saveTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            self?.flush()
+        }
+    }
+
+    /// Writes what is waiting for its delay, if anything. The app calls this when it quits.
+    func flush() {
+        saveTask?.cancel()
+        saveTask = nil
+        if saveOwed { save() }
+    }
+
     private func save() {
+        saveOwed = false
         saveCount += 1
         let contents = FileContents(events: stored, reactions: allReactions, lastReadSeq: lastReadSeq, nextSeq: nextSeq)
         guard let data = try? Self.makeEncoder().encode(contents) else { return }

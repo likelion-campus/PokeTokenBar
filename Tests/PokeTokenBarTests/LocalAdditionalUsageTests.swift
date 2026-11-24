@@ -272,10 +272,28 @@ final class LocalAdditionalUsageTests: XCTestCase {
             modifiedSince: try date("2026-01-01T00:00:00Z"), roots: [database])
 
         let entry = try XCTUnwrap(entries.first)
-        let cap = LocalUsageReader.maxParsedTokenValue
+        let cap = LocalUsageReader.maxParsedSessionTotalValue
         XCTAssertEqual(entry.input, cap)
         // Each column is clamped, then output and reasoning are still added. The add must not trap.
         XCTAssertEqual(entry.output, cap * 2)
+    }
+
+    /// A Hermes row is a whole session, not one request: a long cache-heavy session legitimately passes the
+    /// per-request ceiling (1e10) and must not be cut to it.
+    func testHermesLegitimateLargeSessionTotalIsNotClamped() throws {
+        let database = temporaryDirectory.appendingPathComponent("state.db")
+        try execute(database, sql: """
+        CREATE TABLE sessions (
+            id TEXT PRIMARY KEY, model TEXT, billing_provider TEXT, started_at REAL NOT NULL,
+            message_count INTEGER, input_tokens INTEGER, output_tokens INTEGER,
+            cache_read_tokens INTEGER, cache_write_tokens INTEGER, reasoning_tokens INTEGER,
+            estimated_cost_usd REAL, actual_cost_usd REAL
+        );
+        INSERT INTO sessions VALUES ('long', 'gpt-5', 'openai', 1767312000, 900, 1000, 2000, 30000000000, 0, 0, NULL, NULL);
+        """)
+        let entries = LocalAdditionalUsageReader.hermesEntries(
+            modifiedSince: try date("2026-01-01T00:00:00Z"), roots: [database])
+        XCTAssertEqual(entries.first?.cacheRead, 30_000_000_000)
     }
 
     func testPrintRealOpenCodeAggregate() throws {

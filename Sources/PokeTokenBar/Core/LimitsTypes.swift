@@ -57,6 +57,13 @@ enum OAuthCredentialData {
         }
     }
 
+    /// 토큰은 어떤 출력(print·보간·XCTest 실패 메시지)에도 나오지 않는다 — 시험이 실제 로그인을 읽어 실패하면
+    /// 그 메시지가 토큰을 그대로 찍던 일이 있었다.
+    static func redactedDescription(_ c: Credential) -> String {
+        "Credential(accessToken: <redacted \(c.accessToken.count) chars>, expiresAt: \(String(describing: c.expiresAt)), "
+            + "subscriptionType: \(String(describing: c.subscriptionType)))"
+    }
+
     /// JSON 은 멀쩡한데 `claudeAiOauth` 만 없는 상태인지. Claude Code 2.1.x 의 자격증명 항목이
     /// MCP 서버 OAuth(`mcpOAuth`) 상태만 담고 계정 토큰은 안 담는 경우가 있어, 이때는 파싱 실패를
     /// "형식 오류"가 아니라 "재로그인 필요"로 안내해야 한다.
@@ -104,4 +111,9 @@ enum OAuthCredentialData {
         let seconds = value > 10_000_000_000 ? value / 1000 : value
         return Date(timeIntervalSince1970: seconds)
     }
+}
+
+extension OAuthCredentialData.Credential: CustomStringConvertible, CustomDebugStringConvertible {
+    var description: String { OAuthCredentialData.redactedDescription(self) }
+    var debugDescription: String { OAuthCredentialData.redactedDescription(self) }
 }

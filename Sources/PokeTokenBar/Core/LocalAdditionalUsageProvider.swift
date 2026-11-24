@@ -597,10 +597,10 @@ enum LocalAdditionalUsageReader {
                 id: "hermes|\(id)",
                 date: date,
                 model: model,
-                input: columnInt(statement, 5),
-                output: columnInt(statement, 6) + columnInt(statement, 9),
-                cacheWrite: columnInt(statement, 8),
-                cacheRead: columnInt(statement, 7),
+                input: columnInt(statement, 5, ceiling: LocalUsageReader.maxParsedSessionTotalValue),
+                output: columnInt(statement, 6, ceiling: LocalUsageReader.maxParsedSessionTotalValue) + columnInt(statement, 9, ceiling: LocalUsageReader.maxParsedSessionTotalValue),
+                cacheWrite: columnInt(statement, 8, ceiling: LocalUsageReader.maxParsedSessionTotalValue),
+                cacheRead: columnInt(statement, 7, ceiling: LocalUsageReader.maxParsedSessionTotalValue),
                 cost: actualCost ?? estimatedCost)
             entry?.costIsEstimate = actualCost == nil
             entry?.costUnavailable = true // Session totals cannot reconstruct per-request pricing.
@@ -1449,7 +1449,7 @@ enum LocalAdditionalUsageReader {
             includingPropertiesForKeys: [.isRegularFileKey],
             options: [.skipsHiddenFiles, .skipsPackageDescendants]) else { return [] }
         var out: [URL] = []
-        for case let url as URL in enumerator where kiroIsJSONLSessionFile(url) {
+        for case let url as URL in enumerator where kiroIsJSONLSessionFile(url) && LocalUsageReader.isPlainLogFile(url) {
             out.append(url)
         }
         return out
@@ -1791,7 +1791,7 @@ enum LocalAdditionalUsageReader {
     private static func dateValue(_ value: Any?) -> Date? {
         guard let raw = doubleValue(value), raw.isFinite, raw > 0 else { return nil }
         let seconds = raw >= 100_000_000_000 ? raw / 1_000 : raw
-        return Date(timeIntervalSince1970: seconds)
+        return LocalUsageReader.plausibleDate(epochSeconds: seconds)
     }
 
     private static func query<T>(
@@ -1860,10 +1860,10 @@ enum LocalAdditionalUsageReader {
         return String(cString: bytes)
     }
 
-    private static func columnInt(_ statement: OpaquePointer, _ index: Int32) -> Int {
+    private static func columnInt(_ statement: OpaquePointer, _ index: Int32,
+                                  ceiling: Int = LocalUsageReader.maxParsedTokenValue) -> Int {
         let raw = sqlite3_column_int64(statement, index)
         if raw <= 0 { return 0 }
-        let cap = Int64(LocalUsageReader.maxParsedTokenValue)
-        return Int(min(raw, cap))
+        return Int(min(raw, Int64(ceiling)))
     }
 }
