@@ -57,7 +57,7 @@ Move your companion out of the menu bar and onto the desktop, at any size from 4
 <td width="45%" align="center"><img src="assets/screenshot-pet-interactions.png" width="300" alt="Separate native pet samples for prayer, petting, sulking, and agent waiting"><br><small>Native UI components · sample states</small></td>
 <td width="55%" valign="middle">
 <h3>A companion with a little personality</h3>
-Move the pointer over your floating pet to pet it, click an egg to pray, and watch for small reactions, sulking, and occasional event bubbles. These interactions are cosmetic: praying does not change what hatches. In the team build two prayers count per day and the tenth prayer hatches the egg at once, and the tokens the egg had gathered are dropped. Agent activity can add working, waiting, and done reactions after <a href="#agent-activity">manual setup</a>.
+Move the pointer over your floating pet to pet it, click an egg to pray, and watch for small reactions, sulking, and occasional event bubbles. These interactions are cosmetic: praying does not change what hatches. In the team build the tenth prayer hatches the egg at once, and the tokens the egg had gathered are dropped. Prayers are unlimited, but only one egg a day can hatch by prayer; a second one waits for the next day. Agent activity can add working, waiting, and done reactions after <a href="#agent-activity">manual setup</a>.
 </td>
 </tr>
 <tr>

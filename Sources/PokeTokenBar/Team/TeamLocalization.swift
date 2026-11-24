@@ -472,13 +472,16 @@ extension L {
     var plazaShortcutZoom: String { "확대·축소" }
     var plazaShortcutDanceFirework: String { "춤 · 불꽃" }
     var plazaShortcutPray: String { "기도(알)" }
+    /// 오늘의 기도 부화를 이미 썼을 때 알의 안내 줄 앞에 붙는 말. 기도 자체는 그대로 된다.
+    var plazaPrayerHatchUsedHint: String { "오늘은 기도로 이미 부화시켰어요 · 내일 다시 기도로 부화할 수 있어요" }
     /// 기도한 직후 잠깐 보이는 횟수.
-    func plazaPrayedHint(prayers: Int) -> String { "기도 \(prayers)번" }
-    /// 오늘 셀 기도를 다 했을 때. 알일 때의 안내 줄이 이것으로 바뀐다.
-    func plazaPrayDoneHint(prayers: Int) -> String { "오늘 기도는 다 했어요 (하루 \(PokemonBalance.prayersPerDay)번) · 기도 \(prayers)번" }
+    func plazaPrayedHint(prayers: Int, hatchUsed: Bool = false) -> String {
+        hatchUsed ? plazaPrayerHatchUsedHint + " · 기도 \(prayers)번" : "기도 \(prayers)번"
+    }
     /// 알일 때 위쪽 안내 줄. 아직 기도한 적이 없으면 방법만 보인다.
-    func plazaPrayHint(prayers: Int) -> String {
-        prayers > 0 ? "A를 눌러 기도하기 · 기도 \(prayers)번" : "A를 눌러 기도하기"
+    func plazaPrayHint(prayers: Int, hatchUsed: Bool = false) -> String {
+        let how = hatchUsed ? "A를 눌러 기도하기 · " + plazaPrayerHatchUsedHint : "A를 눌러 기도하기"
+        return prayers > 0 ? how + " · 기도 \(prayers)번" : how
     }
     /// 광장에서 주운 아이템. 조사까지 붙인 목적어 꼴이다.
     func plazaItemObject(_ kind: ItemKind) -> String {

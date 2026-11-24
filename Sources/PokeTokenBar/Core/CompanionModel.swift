@@ -111,8 +111,9 @@ enum PokemonBalance {
     static let eggHatchThreshold = 5_000_000
     /// 알에 기도를 이만큼 하면 토큰을 다 모으지 않아도 부화한다(2026-11-23 사용자 결정). 알이 모은 토큰은 이월하지 않고 버린다.
     static let prayersToHatch = 10
-    /// Prayers counted per local day (2026-11-23, the user's value): praying alone takes five days to hatch an egg.
-    static let prayersPerDay = 2
+    /// Eggs that may hatch by prayer per local day (2026-11-24, the owner's rule): praying itself is unlimited, but only the
+    /// first egg whose ten prayers hatch it counts each day. Stored as the day of the last prayer hatch, so the value is 1.
+    static let prayerHatchesPerDay = 1
     static let repeatGrowthMultiplier = 2
 
     static func graduationTotal(_ rarity: Rarity) -> Int {
@@ -461,19 +462,8 @@ enum PokemonOdds {
 /// Purely cosmetic: no roll (species, rarity, shiny, nature, form, profile) ever reads it.
 struct PrayerRecord: Codable, Sendable, Equatable {
     var count: Int
-    /// The local day (`DayBoundary.dayKey`) of the latest counted prayer and how many were counted on it: the daily cap.
-    /// Nil on a save from before the cap and on a hatched individual, which keeps only `count`.
-    var day: String?
-    var today: Int?
-
-    init(count: Int, day: String? = nil, today: Int? = nil) {
-        self.count = count
-        self.day = day
-        self.today = today
-    }
-
-    /// Prayers already counted on `day`. Another date, earlier or later, starts from zero.
-    func counted(on day: String) -> Int { self.day == day ? max(0, today ?? 0) : 0 }
+    // A save from v2.5.640 also has `day`/`today` (its daily prayer cap). They are not read any more: the keys are ignored
+    // on load, and `count` continues as the total.
 }
 
 /// 현재 키우는 포켓몬.
@@ -686,6 +676,9 @@ struct CompanionState: Codable, Sendable {
     /// Prayers said over the current egg (nil until the first one). Egg-scoped like `eggUsage`:
     /// reset by `resetEggPrayers` whenever a new egg starts and copied onto the hatched individual.
     var eggPrayers: PrayerRecord?
+    /// The local day (`DayBoundary.dayKey`) an egg last hatched by prayer: that day's `prayerHatchesPerDay` is used. Nil until then.
+    /// An older build ignores the key. Any other date, earlier or later, counts as a new day (like the plaza trees).
+    var lastPrayerHatchDay: String?
     /// 오늘 사용량 적립 기준값 — 프로바이더별로 독립 관리한다.
     ///
     /// `nil`은 aggregate `claimedTodayTokens`만 가지고 있던 구버전 세이브가 아직 첫 유효
@@ -737,6 +730,7 @@ struct CompanionState: Codable, Sendable {
         pendingForm        = PokemonForm.resolved(baseID: pendingHatchID ?? 0,
             form: PokemonForm.decoded(from: decoder, keys: "pendingForm", "pendingUnownForm"))
         eggPrayers         = c.lenientOptional(PrayerRecord.self, forKey: .eggPrayers)
+        lastPrayerHatchDay = c.lenientOptional(String.self, forKey: .lastPrayerHatchDay)
         if c.contains(.claimedTodayTokensByProvider) {
             claimedTodayTokensByProvider = c.lenient([String: Int].self,
                                                       forKey: .claimedTodayTokensByProvider,

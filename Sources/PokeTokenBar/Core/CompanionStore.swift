@@ -282,9 +282,14 @@ final class CompanionStore {
     var eggStarted: Bool { state.eggUsage > 0 }
     var eggProgress: Double { min(1, max(0, Double(state.eggUsage) / Double(eggHatchThreshold))) }
     var eggTokensToHatch: Int { max(0, eggHatchThreshold - state.eggUsage) }
-    /// 부화할 때가 됐다: 토큰을 다 모았거나 기도를 `prayersToHatch` 번 했다.
+    /// 부화할 때가 됐다: 토큰을 다 모았거나, 기도를 `prayersToHatch` 번 했고 오늘 기도 부화를 아직 안 썼다.
     private var isEggReady: Bool {
-        state.eggUsage >= eggHatchThreshold || (state.eggPrayers?.count ?? 0) >= PokemonBalance.prayersToHatch
+        state.eggUsage >= eggHatchThreshold
+            || ((state.eggPrayers?.count ?? 0) >= PokemonBalance.prayersToHatch && !prayerHatchUsedToday)
+    }
+    /// Today's (`prayerHatchesPerDay`) hatch by prayer is used. Any other date key than the saved one is a new day.
+    private var prayerHatchUsedToday: Bool {
+        state.lastPrayerHatchDay == DayBoundary.dayKey(clock(), calendar: .current)
     }
     /// 알이 부화 준비(100%)가 되었으나 PokéAPI 요청/후보 선택 실패로 다음 갱신을 기다리는 상태.
     private(set) var isHatchRetryDelayed = false
@@ -1458,30 +1463,19 @@ final class CompanionStore {
     /// Pray over the egg. It only counts and never changes a roll — the species is
     /// usually already in `pendingHatchID` (prefetched at purchase) long before anyone prays.
     /// The `prayersToHatch`th prayer hatches the egg at once, whatever tokens it has gathered.
-    /// Only `prayersPerDay` prayers count per local day; a prayer past that changes nothing and returns false.
-    @discardableResult
-    func pray() -> Bool {
-        guard canPray else { return false }
-        let day = DayBoundary.dayKey(clock(), calendar: .current)
+    /// Praying is never refused. Only the hatch by prayer is limited (`isEggReady`, `prayerHatchesPerDay`).
+    func pray() {
+        guard state.active == nil else { return }
         var record = state.eggPrayers ?? PrayerRecord(count: 0)
-        record.today = record.counted(on: day) + 1
-        record.day = day
         record.count += 1
         state.eggPrayers = record
         save()
         if isEggReady, !isHatching { Task { await hatchIfNeeded() } }
-        return true
     }
 
-    /// Prayers still counted today over the current egg; 0 with a hatched Pokémon.
-    var prayersLeftToday: Int {
-        guard state.active == nil else { return 0 }
-        let counted = state.eggPrayers?.counted(on: DayBoundary.dayKey(clock(), calendar: .current)) ?? 0
-        return max(0, PokemonBalance.prayersPerDay - counted)
-    }
-    var canPray: Bool { prayersLeftToday > 0 }
-    /// The egg has had every prayer that counts today (the hover text and the plaza hint say so).
-    var isPrayerDoneToday: Bool { state.active == nil && !canPray }
+    /// The current egg has its ten prayers' hatch waiting because today's hatch by prayer is used (the hover text and the
+    /// plaza hint say so). False with a hatched Pokémon.
+    var isPrayerHatchUsedToday: Bool { state.active == nil && prayerHatchUsedToday }
 
     // 보증 없는 기본 알 래퍼 — 기존 호출부/테스트 호환.
     var canBuyFreshEgg: Bool { canBuyEgg(nil) }
@@ -1840,9 +1834,13 @@ final class CompanionStore {
         isHatchRetryDelayed = false
         // 부화 임계 초과분은 부화체 성장에 이월(낭비 없음).
         let overflow = max(0, state.eggUsage - eggHatchThreshold)
+        // 토큰이 모자란 채 기도 횟수로 깨는 부화만 오늘의 기도 부화를 쓴다. 토큰으로 깨면 쓰지 않는다.
+        if state.eggUsage < eggHatchThreshold, (state.eggPrayers?.count ?? 0) >= PokemonBalance.prayersToHatch {
+            state.lastPrayerHatchDay = DayBoundary.dayKey(clock(), calendar: .current)
+        }
         state.eggUsage = 0
         state.eggTier = nil   // 보증은 이 부화로 소비된다(다음 알은 다시 무보증)
-        let prayers = state.eggPrayers.map { PrayerRecord(count: $0.count) }   // 부화체에 횟수만 옮기고 알 쪽은 비운다
+        let prayers = state.eggPrayers   // 부화체에 옮기고 알 쪽은 비운다
         state.resetEggPrayers()
         // 개체 롤 — shiny(1/64, 부적 1/48)·성격(25종)은 부화 순간 확정, 진화해도 유지.
         // 알림 문구는 이 판정과 같은 분모를 보여준다.

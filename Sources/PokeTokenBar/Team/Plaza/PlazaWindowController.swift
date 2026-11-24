@@ -30,8 +30,8 @@ import Observation
     private let pray: () -> Void
     /// 지금 알에 쌓인 기도 횟수. 위쪽 안내 줄에 쓴다.
     private let prayerCount: () -> Int
-    /// 오늘 셀 기도가 남았는가(`CompanionStore.canPray`). 다 했으면 기도 키는 안내만 바꾼다.
-    private let canPray: () -> Bool
+    /// 오늘의 기도 부화를 이미 썼는가(`CompanionStore.isPrayerHatchUsedToday`). 기도는 막지 않고 안내 줄만 바뀐다.
+    private let prayerHatchUsedToday: () -> Bool
     /// 누군가 주운 것으로 아는 아이템 칸: 내가 주운 것, 팀원이 알려 온 것, 팀원 presence가 전해 준 것. 저장하고, 가장 최근
     /// 것을 내 presence로 다시 전한다. 그래서 주운 사람이 떠난 뒤 광장을 연 팀원도 그때 있던 누군가에게서 전해 듣는다.
     private var takenItemSlots: Set<Int> = []
@@ -292,7 +292,7 @@ import Observation
          grantItem: @escaping (ItemKind) -> Void = { _ in },
          pray: @escaping () -> Void = {},
          prayerCount: @escaping () -> Int = { 0 },
-         canPray: @escaping () -> Bool = { true },
+         prayerHatchUsedToday: @escaping () -> Bool = { false },
          session: TeamSession? = nil,
          feed: TeamFeedStore? = nil,
          clock: @escaping () -> Date = Date.init,
@@ -344,7 +344,7 @@ import Observation
         self.grantItem = grantItem
         self.pray = pray
         self.prayerCount = prayerCount
-        self.canPray = canPray
+        self.prayerHatchUsedToday = prayerHatchUsedToday
         self.shell.events = self
         // 다시 켜도 주운 것으로 아는 아이템을 기억하고 팀원에게 전한다.
         takenItemSlots = keptSlots(Set(preferences.takenItemSlots))
@@ -518,10 +518,8 @@ import Observation
     }
 
     /// 내가 알일 때만 기도한다. 누를 때마다 한 번씩 세고 내 화면에 바로 보이며, 팀원에게 보내는 것만 연타를 제한한다.
-    /// 오늘 셀 기도를 다 했으면 세지도, 보이지도, 보내지도 않고 안내만 그 사실을 말한다.
     private func handlePrayKey() {
         guard let scene, subject().speciesID == nil else { return }
-        guard canPray() else { refreshHint(); return }
         pray()
         scene.playPray(memberID: nil)
         let now = clock()
@@ -1763,7 +1761,7 @@ import Observation
             text = hint   // 미니게임 중에는 누가 폭탄을 들었는지가 다른 안내보다 먼저다
         } else if let until = prayedHintUntil, clock() < until, subject().speciesID == nil, overlayModel.content == .none, !chatInput.isOpen {
             // 알일 때만: 열 번째 기도로 부화하면 횟수가 0으로 돌아가므로 "기도 0번"을 보이지 않는다.
-            text = L(.ko).plazaPrayedHint(prayers: prayerCount())
+            text = L(.ko).plazaPrayedHint(prayers: prayerCount(), hatchUsed: prayerHatchUsedToday())
         } else if let focus, overlayModel.content == .none, !chatInput.isOpen {
             text = L(.ko).plazaFocusHint(remaining: L(.ko).plazaFocusRemaining(seconds: focus.endsAt.timeIntervalSince(clock())))
         } else if let id = scene?.followingMember, overlayModel.content == .none, !chatInput.isOpen {
@@ -1790,7 +1788,7 @@ import Observation
         }
         // 알일 때의 기도 안내도 다른 안내가 없을 때만 채운다.
         if text == nil, !isPhotoMode, subject().speciesID == nil, overlayModel.content == .none, !chatInput.isOpen {
-            text = canPray() ? L(.ko).plazaPrayHint(prayers: prayerCount()) : L(.ko).plazaPrayDoneHint(prayers: prayerCount())
+            text = L(.ko).plazaPrayHint(prayers: prayerCount(), hatchUsed: prayerHatchUsedToday())
         }
         if overlayModel.hint != text { overlayModel.hint = text }
         // 미니게임 명단은 다른 안내와 상관없이 판이 도는 동안 늘 보인다(사진 모드에서는 안내 줄과 함께 숨는다).
