@@ -319,7 +319,7 @@ START_OUT=$(python3 scripts/team_release.py start --sha "$LOCAL_HEAD" --version 
 case "$START_RC" in
   0) ;;
   3) fail "이 커밋의 가장 최근 Windows 릴리스 실행이 성공하지 못했습니다(위 URL). 실패를 먼저 읽으세요. $(retry_advice)" ;;
-  1) fail "Windows 실행을 찾거나 시작하지 못했습니다(gh 호출 실패, 또는 시작한 실행이 60초 안에 보이지 않음, 위 출력). 다시 실행하면 이미 시작된 실행을 재사용합니다." ;;
+  1) fail "Windows 실행을 찾거나 시작하지 못했습니다(gh 호출 실패, 또는 시작한 실행이 60초 안에 보이지 않음, 위 출력). 다시 실행하면 이미 시작된 실행을 재사용합니다(60초 안에 안 보인 경우). 위 출력이 \"moved\" 라면 main 이 앞서 갔으니 다시 시작하지 말고 pull 해서 새 끝 커밋을 릴리스하세요." ;;
   2) fail "team_release.py start 가 인자를 거부했습니다(이 스크립트의 결함)." ;;
   *) fail "team_release.py start 가 예상하지 못한 코드 $START_RC 로 끝났습니다(위 출력)." ;;
 esac

@@ -92,8 +92,8 @@ MIN_EXECUTED = 3845  # the executed-test floor; windows.yml's result job reads i
 ZIP_NAME = "PokeTokenBar.zip"
 WINDOWS_INSTALLER = re.compile(r"^PokeTokenBar-Setup-.+-win-x64\.exe$")
 
-RUN_LIST_FIELDS = "databaseId,displayTitle,status,conclusion,event,createdAt,attempt"
-RUN_VIEW_FIELDS = "status,conclusion,event,workflowName,displayTitle,attempt"
+RUN_LIST_FIELDS = "databaseId,displayTitle,status,conclusion,event,createdAt,attempt,headBranch,headSha"
+RUN_VIEW_FIELDS = "status,conclusion,event,workflowName,displayTitle,attempt,headBranch,headSha"
 RELEASES = API + "releases?per_page=100"
 LATEST = API + "releases/latest"
 
@@ -252,19 +252,57 @@ def dispatch_runs(ctx, workflow_file):
     return sorted(runs, key=lambda run: (run.get("createdAt") or "", run.get("databaseId") or 0), reverse=True)
 
 
-def release_runs(ctx, workflow_file, title):
-    """This release's runs of one workflow, newest first."""
-    return [run for run in dispatch_runs(ctx, workflow_file) if run.get("displayTitle") == title]
+def origin_problem(run, ref, sha):
+    """Why `run` did not come from commit `sha` on branch `ref` (the release commit), or None. The title and inputs of a
+    dispatched run are only what its dispatcher typed: a branch can carry its own copy of the workflow (without the release
+    pin) that writes any manifest. Only the run's own head branch and commit say which workflow file ran."""
+    wrong = []
+    if run.get("headBranch") != ref:
+        wrong.append("branch %s, expected %s" % (json.dumps(run.get("headBranch")), ref))
+    if run.get("headSha") != sha:
+        wrong.append("commit %s, expected %s" % (json.dumps(run.get("headSha")), sha))
+    return ", ".join(wrong) or None
 
 
-def wait_for_new_run(ctx, workflow_file, known_ids, title):
-    """The id of a run that was not in `known_ids` (and carries `title`, unless None), or None after 60 s."""
+def release_runs(ctx, workflow_file, title, ref, sha, seen=None):
+    """This release's runs of one workflow that ran the release commit on `ref`, newest first. A run with this title from
+    another branch or commit is never used: it is named on stderr and left out. `seen` collects the id of every run with
+    this title, used or not, so a run left out here is not taken for the one a later dispatch starts."""
+    runs = []
+    for run in dispatch_runs(ctx, workflow_file):
+        if run.get("displayTitle") != title:
+            continue
+        if seen is not None:
+            seen.add(run.get("databaseId"))
+        wrong = origin_problem(run, ref, sha)
+        if wrong:
+            ctx.say("%s: ignoring run %s, it ran %s (%s)" % (workflow_file, run.get("databaseId"), wrong,
+                                                              run_url(run.get("databaseId"))))
+        else:
+            runs.append(run)
+    return runs
+
+
+def wait_for_new_run(ctx, workflow_file, known_ids, title, origin=None):
+    """The id of a run that was not in `known_ids` (and carries `title`, unless None; and, with `origin` = (ref, sha), ran
+    that commit on that branch), or None after 60 s."""
     waited = 0
     while waited < APPEAR_SECONDS:
         ctx.clock.sleep(APPEAR_STEP)
         waited += APPEAR_STEP
         for run in dispatch_runs(ctx, workflow_file):
             if run.get("databaseId") not in known_ids and (title is None or run.get("displayTitle") == title):
+                if origin and run.get("headBranch") == origin[0] and run.get("headSha") != origin[1]:
+                    # Our own dispatch: a dispatch builds the branch's tip, and the tip is no longer the release commit.
+                    raise Stop(EXIT_ERROR, "%s: %s moved to %s after the release commit %s, so the run just dispatched "
+                               "(%s) builds %s's tip, not the release commit. Do not start again: pull, and release the new "
+                               "tip. %s" % (workflow_file, origin[0], run.get("headSha"), origin[1], run.get("databaseId"),
+                                            origin[0], run_url(run.get("databaseId"))))
+                if origin and origin_problem(run, *origin):
+                    ctx.say("%s: ignoring run %s, it ran %s" % (workflow_file, run.get("databaseId"),
+                                                                origin_problem(run, *origin)))
+                    known_ids.add(run["databaseId"])
+                    continue
                 return run["databaseId"]
     return None
 
@@ -278,8 +316,8 @@ def cmd_start(args, ctx):
     replace = set(args.new or [])
     chosen, known, to_dispatch, failed = {}, {}, [], []
     for wf in WORKFLOWS:
-        runs = release_runs(ctx, wf.file, title)
-        known[wf.file] = {run.get("databaseId") for run in runs}
+        known[wf.file] = set()
+        runs = release_runs(ctx, wf.file, title, args.ref, args.sha, seen=known[wf.file])
         newest = runs[0] if runs else None
         if newest is None:
             to_dispatch.append(wf)
@@ -308,7 +346,7 @@ def cmd_start(args, ctx):
         result = ctx.gh.run(*dispatch)
         if result.code != 0:
             raise CallFailed(ctx.gh.argv(*dispatch), result)
-        run_id = wait_for_new_run(ctx, wf.file, known[wf.file], title)
+        run_id = wait_for_new_run(ctx, wf.file, known[wf.file], title, (args.ref, args.sha))
         if run_id is None:
             raise Stop(EXIT_ERROR, "dispatched %s on %s, but no run titled '%s' appeared within %d s. Run start "
                        "again: it reuses the run once it shows. %s/actions/workflows/%s" % (
@@ -347,10 +385,13 @@ def read_runs_file(ctx, args):
         if not _is_int(runs.get(wf.file)):
             raise Stop(EXIT_COLLECT, "%s has no run id for %s. Run start first." % (path, wf.file))
         ids[wf.file] = runs[wf.file]
-    return ids
+    ref = data.get("ref")
+    if not isinstance(ref, str) or not ref:
+        raise Stop(EXIT_COLLECT, "%s has no ref (the branch the runs were dispatched on). Run start first." % path)
+    return ids, ref
 
 
-def wait_for_success(ctx, ids, title, timeout_min, allow_rerun):
+def wait_for_success(ctx, ids, title, timeout_min, allow_rerun, ref, sha):
     """Both runs' attempts once both concluded success."""
     start = ctx.clock.now()
     deadline = start + timeout_min * 60
@@ -383,6 +424,12 @@ def wait_for_success(ctx, ids, title, timeout_min, allow_rerun):
             if wrong:
                 raise Stop(EXIT_COLLECT, "run %s is not a %s release run for '%s' (%s)" % (
                     run_id, wf.name, title, ", ".join(wrong)))
+            foreign = origin_problem(run, ref, sha)
+            if foreign:
+                raise Stop(EXIT_COLLECT, "%s run %s did not run the release commit on %s: it ran %s. Its manifest and "
+                           "installer cannot be trusted, because that workflow file is not the one on the release "
+                           "commit. Run start again with --new %s. %s" % (
+                               wf.file, run_id, ref, foreign, wf.file, run_url(run_id)))
             attempt = run.get("attempt")
             if attempts.get(wf.file) != attempt:
                 ctx.say("collect: %s run %s attempt %s" % (wf.file, run_id, attempt))
@@ -476,8 +523,8 @@ def check_release_manifest(ctx, manifest, args, app_run_id, app_attempt, local, 
     _expect(problems, where + " cleanBuild (the shipped installer is built from scratch, never from a seed)", manifest.get("cleanBuild"), True)
     _expect(problems, where + " runId", manifest.get("runId"), app_run_id)
     _expect(problems, where + " runAttempt (the run's attempt)", manifest.get("runAttempt"), app_attempt)
-    if not re.fullmatch(r"[0-9a-f]{40}", str(manifest.get("workflowSha"))):
-        problems.append(where + " workflowSha is %s, expected a commit SHA" % json.dumps(manifest.get("workflowSha")))
+    # The run's head commit is the release commit (checked in wait_for_success), and GITHUB_SHA of a dispatched run is its head commit.
+    _expect(problems, where + " workflowSha (the commit the run's workflow file came from)", manifest.get("workflowSha"), args.sha)
     pins_path = Path(__file__).resolve().parent / "windows" / "build-pins.json"
     try:
         crypto_pin = json.loads(pins_path.read_text()).get("swiftCrypto")
@@ -545,7 +592,7 @@ def check_artifacts(ctx, args, ids, attempts, out):
 
 
 def cmd_collect(args, ctx):
-    ids = read_runs_file(ctx, args)
+    ids, ref = read_runs_file(ctx, args)
     title = release_title(args.version, args.sha)
     out = Path(args.out)
     if ctx.dry_run:
@@ -558,7 +605,7 @@ def cmd_collect(args, ctx):
             ctx.plan(ctx.gh.argv("run", "download", str(ids[wf.file]), "--name", wf.artifact,
                                  "--dir", str(out / wf.artifact)), "a read; not run in a dry run")
         return 0
-    attempts = wait_for_success(ctx, ids, title, args.timeout_min, args.allow_rerun)
+    attempts = wait_for_success(ctx, ids, title, args.timeout_min, args.allow_rerun, ref, args.sha)
     for wf in WORKFLOWS:
         dest = out / wf.artifact
         if dest.exists():
