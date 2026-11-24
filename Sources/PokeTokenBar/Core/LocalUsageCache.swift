@@ -388,7 +388,8 @@ actor LocalUsageCache {
     private func collect(root: URL, since: Date, cache: inout [String: Blob],
                          allowJSON: Bool = false, include: ((URL) -> Bool)? = nil,
                          incremental: ((URL, Int) -> (entries: [LocalUsageReader.Entry], newOffset: Int,
-                                                      costState: LocalUsageReader.ClaudeCostState?)?)? = nil,
+                                                      costState: LocalUsageReader.ClaudeCostState?,
+                                                      reachedCap: Bool)?)? = nil,
                          annotate: ((URL, [LocalUsageReader.Entry]) -> [LocalUsageReader.Entry])? = nil,
                          parse: (URL) -> [LocalUsageReader.Entry]?) -> [LocalUsageReader.Entry] {
         let fm = FileManager.default
@@ -421,7 +422,10 @@ actor LocalUsageCache {
                         ? LocalUsageReader.dedupKeepMax((prior?.entries ?? []) + tail.entries)
                         : tail.entries
                     let costState = tail.costState ?? (from > 0 ? prior?.claudeCostState : nil)
-                    let blob = Blob(mtime: mtime, size: size, entries: entries, offset: tail.newOffset,
+                    // A read that stopped at the cap has not seen the rest of the file: remember the size it
+                    // reached so the next refresh sees "grew" and resumes from the offset, not a cache hit.
+                    let blob = Blob(mtime: mtime, size: tail.reachedCap ? min(size, tail.newOffset) : size,
+                                    entries: entries, offset: tail.newOffset,
                                     claudeCostState: costState)
                     cache[key] = blob
                     dirty = true

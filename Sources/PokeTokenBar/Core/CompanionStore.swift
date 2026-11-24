@@ -102,6 +102,11 @@ final class CompanionStore {
         }
         defaults.set(growthDifficulty, forKey: "growthDifficulty")
         defaults.set(shopDifficulty, forKey: "shopDifficulty")
+        settleLoadedState()
+    }
+
+    /// 디스크에서 읽은 상태를 쓸 수 있게 다듬는 단계(init 과, 늦게 읽힌 세이브를 받아들일 때 공통).
+    private func settleLoadedState() {
         migratePokemonProfilesIfNeeded()
         seedDexCompletionsIfNeeded()
         refreshRepresentativeSubject()
@@ -885,6 +890,7 @@ final class CompanionStore {
     func update(todayTokensByProvider: [String: Int], todayDate: String, monthTotal: Int,
                 burnTier: BurnTier, limitWarning: Bool, hasUsageData: Bool,
                 timeSinceLastUsage: TimeInterval? = nil) {
+        adoptUnreadableSaveIfReadable()
         let todayTokens = todayTokensByProvider.values.saturatingSum()
         // `hasUsageData`는 표시용 snapshot 존재 여부이고, 이 map은 오늘 날짜가 확인된
         // provider 데이터만 담는다. stale snapshot이나 today == nil carrier만 있는 refresh는
@@ -2139,6 +2145,9 @@ final class CompanionStore {
 
     @discardableResult
     func createManualSnapshot(now: Date? = nil) throws -> SaveSnapshot {
+        // 못 읽은 세이브 대신 들고 있는 빈 자리표시 상태를 스냅샷으로 남기면, 보존 한도(10)가 진짜 스냅샷을 밀어내고
+        // 빈 상태가 "가장 최신" 복구 후보가 된다. 스냅샷에서 복구한 진짜 상태는 막히지 않는다.
+        guard !statePlaceholder else { throw SaveTransferError.backupFailed }
         let timestamp = now ?? clock()
         let snapshot = try SaveSnapshotManager.createSnapshot(
             state: state,
@@ -2339,6 +2348,8 @@ final class CompanionStore {
         guard let data = Self.readExisting(fileURL) else {
             if FileManager.default.fileExists(atPath: fileURL.path) {
                 blockPersistence("companion state exists but cannot be read")
+                statePlaceholder = true
+                unreadableSavePending = true
             }
             return
         }
@@ -2362,6 +2373,7 @@ final class CompanionStore {
             } else {
                 state = CompanionState()
                 AppLog.write("no snapshot available, starting fresh")
+                if persistenceBlocked { statePlaceholder = true }
             }
             return
         }
@@ -2388,10 +2400,39 @@ final class CompanionStore {
         AppLog.write("\(why): left alone, no saves this session")
     }
 
+    /// 지금 상태가 못 읽은 세이브를 대신한 빈 자리표시인가(스냅샷을 쓰면 안 된다).
+    private(set) var statePlaceholder = false
+    /// 존재하지만 못 읽은 세이브를 새로고침마다 한 번씩 다시 읽어 본다.
+    private var unreadableSavePending = false
+
+    /// 그 사이 읽을 수 있게 된 세이브(스캐너가 손을 뗐다)를 받아들이고 저장을 되살린다. 메인에서 도는 새로고침 경로라
+    /// 재시도 대기 없이 한 번만 읽는다.
+    private func adoptUnreadableSaveIfReadable() {
+        guard unreadableSavePending else { return }
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            unreadableSavePending = false   // 사라졌다: 신규 설치와 같다
+            persistenceBlocked = false
+            statePlaceholder = false
+            AppLog.write("companion state is gone: saves back on")
+            return
+        }
+        guard let data = try? Data(contentsOf: fileURL) else { return }
+        unreadableSavePending = false
+        guard let s = try? JSONDecoder().decode(CompanionState.self, from: data) else {
+            AppLog.write("companion state became readable but does not decode: left alone, no saves this session")
+            return
+        }
+        state = SaveTransfer.sanitized(s)
+        persistenceBlocked = false
+        statePlaceholder = false
+        settleLoadedState()
+        AppLog.write("companion state became readable: adopted, saves back on")
+    }
+
     private func save() {
-        guard !persistenceBlocked else { return }
         refreshRepresentativeSubject()
         checkDexCompletions()   // 보유 성장분이 영속되는 매 지점에서 세대 완성 알림을 한 번만 띄운다
+        guard !persistenceBlocked else { return }   // 메모리 쪽 효과(아이콘·알림)는 막지 않고 디스크 쓰기만 막는다
         guard let data = try? JSONEncoder().encode(state) else { return }
         try? PlatformCompat.atomicWrite(data, to: fileURL)   // 부분 쓰기 손상 방지(펫 상태)
     }

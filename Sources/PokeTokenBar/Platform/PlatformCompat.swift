@@ -72,7 +72,7 @@ enum PlatformCompat {
         #if os(Windows)
         return try FileHandle(forReadingFrom: url)
         #else
-        let fd = open(url.path, O_RDONLY | O_NOFOLLOW)
+        let fd = open(url.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
         guard fd >= 0 else { throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno)) }
         return FileHandle(fileDescriptor: fd, closeOnDealloc: true)
         #endif

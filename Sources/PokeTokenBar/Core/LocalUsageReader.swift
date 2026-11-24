@@ -370,10 +370,12 @@ enum LocalUsageReader {
         try PlatformCompat.openForReadingWithoutFollowingLinks(url)
     }
 
-    /// 파일 하나에서 한 번에 읽는 최대 바이트. 정상 로그(활성 세션이 수백 MB)보다 훨씬 크고,
-    /// 끝나지 않는 파일이 메모리를 끝없이 채우는 것만 막는다. 초과분은 읽지 않는다
-    /// (증분 리더는 오프셋이 거기까지만 전진한다).
-    static let maxLogReadBytes = 2 * 1024 * 1024 * 1024
+    /// Claude 증분 리더가 한 번에 메모리로 읽는 최대 바이트. 정상 로그(활성 세션이 수백 MB)보다 훨씬 크다.
+    /// 넘으면 거기까지만 읽고 `reachedCap` 으로 알려, 캐시가 도달한 오프셋을 저장해 다음 새로고침이 이어 읽는다
+    /// (잘린 채로 "다 읽음" 으로 굳히지 않는다). 테스트가 작은 값으로 바꾼다.
+    /// 청크 스트림 리더(Codex·Pi·omp·omo·Kimi)는 메모리가 이미 청크 크기로 묶여 있어 상한이 없다 —
+    /// 끝나지 않는 파일은 `isPlainLogFile` + `O_NOFOLLOW` 가 막는다.
+    nonisolated(unsafe) static var maxLogReadBytes = 2 * 1024 * 1024 * 1024
 
     /// `root` 하위(재귀)의 `.jsonl` 파일 중 `modifiedSince` 이후 수정된 것.
     static func jsonlFiles(in root: URL, modifiedSince: Date, allowJSON: Bool = false) -> [URL] {
@@ -495,7 +497,7 @@ enum LocalUsageReader {
     /// of the whole file. `newOffset` stops at the last complete line so a half-written record
     /// is retried next time. Nil means the file could not be read.
     static func parseClaudeFile(_ url: URL, fromOffset: Int, fmt: DateFormatter)
-        -> (entries: [Entry], newOffset: Int, costState: ClaudeCostState?)?
+        -> (entries: [Entry], newOffset: Int, costState: ClaudeCostState?, reachedCap: Bool)?
     {
         guard let handle = try? openLogHandle(url) else { return nil }
         defer { try? handle.close() }
@@ -508,7 +510,7 @@ enum LocalUsageReader {
             entry.sessionID = session
             return entry
         }
-        return (entries, fromOffset + parsed.consumed, parsed.costState)
+        return (entries, fromOffset + parsed.consumed, parsed.costState, data.count >= maxLogReadBytes)
     }
 
     private static let usageNeedle = Data("\"usage\"".utf8)
@@ -884,15 +886,13 @@ enum LocalUsageReader {
         let chunkSize = 1024 * 1024
         var buffer = Data()
         buffer.reserveCapacity(chunkSize)
-        var totalRead = 0
 
-        while totalRead < maxLogReadBytes {
+        while true {
             let readChunk = try autoreleasepool { () throws -> Bool in
                 guard let chunk = try handle.read(upToCount: chunkSize), !chunk.isEmpty else {
                     return false
                 }
 
-                totalRead += chunk.count
                 buffer.append(chunk)
                 var lineStart = buffer.startIndex
                 while lineStart < buffer.endIndex,
@@ -2241,12 +2241,17 @@ enum LocalUsageReader {
         return cal.dateComponents([.day], from: d1, to: d2).day
     }
 
-    /// 파싱 상한 — 실사용 단일 요청(수십만~수백만)의 1만 배 이상이라 정상 사용량을 자르지 않는다.
+    /// 파싱 상한 — 실사용 **단일 요청**(수십만~수백만)의 1만 배 이상이라 정상 요청을 자르지 않는다(세션 합계를 한 항목에 담는 소스는 아래 별도 상한).
     /// `Int.max` 로 잡지 않는 이유: 클램프 자체는 되지만 `output + thoughts` 처럼 **파싱 직후 더하는**
     /// 지점에서 다시 오버플로 트랩이 난다. 이 값끼리 여러 번 더해도 Int64 안에 머무는 상한이어야 한다.
     /// 예전 1e15 는 항목 2,306개만 모여도 합계가 Int64 를 넘었다 — 합산 지점(`Bucket`·스토어 합)은
     /// 이제 포화 덧셈이라 트랩하진 않지만, 한 항목이 합계를 지배하지 않도록 상한도 낮춘다.
     static let maxParsedTokenValue = 10_000_000_000
+
+    /// 한 요청이 아니라 **세션 전체 합계**를 한 항목에 담는 소스(Hermes `sessions` 행)의 상한. 정상적인 긴 세션은
+    /// 캐시 읽기만으로 수백억 토큰이 될 수 있어 요청 단위 상한(1e10)으로 자르면 사용량이 줄어든다. 이 값 4개를
+    /// 항목 100만 개까지 더해도 Int64 안이다.
+    static let maxParsedSessionTotalValue = 1_000_000_000_000
 
     /// 숫자 에포크 시각의 타당 범위(초) — Antigravity 프로토 타임스탬프와 같은 창(2001-09 ~ 2100-01).
     /// 로그의 숫자 시각은 앱 밖에서 오고 `Double` 로는 1e300 도 유한하다. 그런 값으로 만든 `Date` 는

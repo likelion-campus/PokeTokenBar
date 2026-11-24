@@ -190,11 +190,20 @@ enum SaveSnapshotManager {
     /// Loads the latest valid snapshot as CompanionState, if available.
     ///
     /// Candidates are tried newest to oldest and an unreadable one is skipped, not fatal. A snapshot dated after
-    /// `now` was written under a clock that ran ahead, so it is tried after every snapshot dated up to `now`:
-    /// otherwise it would be "the newest" until real time caught up and recovery would skip the latest real one.
+    /// `now` was written under a clock that ran ahead, so its date says nothing about how recent it is: it is tried
+    /// after the snapshots dated up to `now`, unless it holds more progress (`lifetimeTokens`) than the newest of
+    /// those, in which case the snapshot with the latest progress wins in both directions.
     static func loadLatestValidSnapshot(for stateFileURL: URL, now: Date = Date()) -> CompanionState? {
         let all = listSnapshots(for: stateFileURL)
-        let ordered = all.filter { $0.date <= now } + all.filter { $0.date > now }
+        let past = all.filter { $0.date <= now }
+        let future = all.filter { $0.date > now }
+        var ordered = past + future
+        if let newestPast = past.first,
+           let furthest = future.max(by: { $0.lifetimeTokens < $1.lifetimeTokens }),
+           furthest.lifetimeTokens > newestPast.lifetimeTokens {
+            ordered.removeAll { $0.id == furthest.id }
+            ordered.insert(furthest, at: 0)
+        }
         for candidate in ordered {
             if let state = loadState(from: candidate.fileURL) { return state }
         }

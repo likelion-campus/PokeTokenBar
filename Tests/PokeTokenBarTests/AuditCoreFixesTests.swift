@@ -26,6 +26,17 @@ final class AuditCoreFixesTests: XCTestCase {
         return dir
     }
 
+    /// Symlink creation needs a privilege on Windows; skip there when it is missing.
+    private func makeLink(_ link: URL, to target: URL) throws {
+        do { try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target) } catch {
+            throw XCTSkip("no symbolic link privilege: \(error)")
+        }
+    }
+
+    private func claudeLine(id: String, output: Int = 7) -> String {
+        #"{"type":"assistant","requestId":"r-\#(id)","timestamp":"2026-07-02T01:00:00.000Z","message":{"id":"m-\#(id)","model":"claude-opus-4-8","usage":{"input_tokens":10,"output_tokens":\#(output),"cache_creation_input_tokens":5,"cache_read_input_tokens":100}}}"#
+    }
+
     private func sampleState(tokens: Int) -> CompanionState {
         var s = CompanionState()
         s.installBaselineSet = true
@@ -114,16 +125,62 @@ final class AuditCoreFixesTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
     }
 
-    func testCorruptSaveThatCannotBeMovedAsideBlocksPersistence() async throws {
+    func testCorruptSaveThatCannotBeMovedAsideIsLeftAloneAsAPlaceholder() async throws {
         let dir = tempDir("corrupt-move")
         let url = dir.appendingPathComponent("companion-state.json")
-        try Data("{ not json".utf8).write(to: url)
+        let garbage = Data("{ not json".utf8)
+        try garbage.write(to: url)
         // A read-only directory: the original can be read but not renamed to `.corrupt`.
         try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: dir.path)
         try XCTSkipIf(FileManager.default.isWritableFile(atPath: dir.path), "permissions are not enforced here (root)")
 
         let store = CompanionStore(provider: AuditOfflineProvider(), clock: { self.baseNow }, fileURL: url)
         XCTAssertTrue(store.persistenceBlocked)
+        XCTAssertTrue(store.statePlaceholder, "nothing was recovered, so the state is the empty placeholder")
+        XCTAssertEqual(try Data(contentsOf: url), garbage, "the original must be untouched")
+        XCTAssertThrowsError(try store.createManualSnapshot(), "a snapshot of the placeholder would push out real ones")
+    }
+
+    func testCorruptSaveRecoveredFromASnapshotKeepsSnapshotting() async throws {
+        let dir = tempDir("corrupt-move-recovered")
+        let url = dir.appendingPathComponent("companion-state.json")
+        try SaveSnapshotManager.createSnapshot(state: sampleState(tokens: 4_321), for: url, date: baseNow.addingTimeInterval(-3600))
+        let garbage = Data("{ not json".utf8)
+        try garbage.write(to: url)
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: dir.path)
+        try XCTSkipIf(FileManager.default.isWritableFile(atPath: dir.path), "permissions are not enforced here (root)")
+
+        let store = CompanionStore(provider: AuditOfflineProvider(), clock: { self.baseNow }, fileURL: url)
+        XCTAssertTrue(store.persistenceBlocked)
+        XCTAssertFalse(store.statePlaceholder, "the state came from a real snapshot")
+        XCTAssertEqual(store.state.usedSinceInstall, 4_321)
+        XCTAssertEqual(try Data(contentsOf: url), garbage)
+        XCTAssertNoThrow(try store.createManualSnapshot())   // `.snapshots` is its own writable folder
+    }
+
+    func testUnreadableSaveIsAdoptedOnceItBecomesReadable() async throws {
+        let dir = tempDir("adopt")
+        let url = dir.appendingPathComponent("companion-state.json")
+        try JSONEncoder().encode(sampleState(tokens: 12_345)).write(to: url)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: url.path)
+        try XCTSkipIf(FileManager.default.isReadableFile(atPath: url.path), "permissions are not enforced here (root)")
+
+        let store = CompanionStore(provider: AuditOfflineProvider(), clock: { self.baseNow }, fileURL: url)
+        XCTAssertTrue(store.statePlaceholder)
+        XCTAssertThrowsError(try store.createManualSnapshot())
+        func refresh() {
+            store.update(todayTokensByProvider: [:], todayDate: "2026-01-01", monthTotal: 0,
+                         burnTier: .idle, limitWarning: false, hasUsageData: false)
+        }
+        refresh()   // still unreadable: nothing changes
+        XCTAssertTrue(store.persistenceBlocked)
+        XCTAssertEqual(store.state.usedSinceInstall, 0)
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: url.path)
+        refresh()
+        XCTAssertFalse(store.persistenceBlocked)
+        XCTAssertFalse(store.statePlaceholder)
+        XCTAssertEqual(store.state.usedSinceInstall, 12_345, "the real save is adopted, not replaced")
     }
 
     // MARK: 5. inventory counts
@@ -144,8 +201,13 @@ final class AuditCoreFixesTests: XCTestCase {
         try SaveSnapshotManager.createSnapshot(state: sampleState(tokens: 777), for: stateURL, date: baseNow.addingTimeInterval(-3600))
         let dir = SaveSnapshotManager.snapshotsDirectory(for: stateURL)
         // Newer file claiming to be an envelope (has `format`) that `SaveTransfer.decode` rejects.
+        // The real trigger: the right format id with a newer `schema` (a downgrade, or an older Windows build).
         let bad = dir.appendingPathComponent(SaveSnapshotManager.snapshotFileName(date: baseNow))
-        try Data(#"{"format":"ptb-save-from-the-future","schemaVersion":99}"#.utf8).write(to: bad)
+        let valid = try SaveTransfer.encode(state: sampleState(tokens: 9_999), appVersion: "9.9.9", deviceName: "x", now: baseNow)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: valid) as? [String: Any])
+        object["schema"] = SaveEnvelope.schemaVersion + 1
+        try JSONSerialization.data(withJSONObject: object).write(to: bad)
+        XCTAssertThrowsError(try SaveTransfer.decode(try Data(contentsOf: bad)), "premise: decode rejects it")
         // Older raw legacy state (no `format`) is still recognised.
         let legacy = dir.appendingPathComponent(SaveSnapshotManager.snapshotFileName(date: baseNow.addingTimeInterval(-7200)))
         try JSONEncoder().encode(sampleState(tokens: 555)).write(to: legacy)
@@ -157,11 +219,17 @@ final class AuditCoreFixesTests: XCTestCase {
 
     // MARK: 7. a snapshot dated in the future
 
-    func testRecoveryDoesNotPreferAFutureDatedSnapshot() async throws {
+    func testRecoveryPicksTheSnapshotWithTheLatestProgressAcrossAFutureDate() throws {
         let stateURL = tempDir("future-recover").appendingPathComponent("companion-state.json")
         try SaveSnapshotManager.createSnapshot(state: sampleState(tokens: 100), for: stateURL, date: baseNow.addingTimeInterval(-3600))
-        try SaveSnapshotManager.createSnapshot(state: sampleState(tokens: 200), for: stateURL, date: baseNow.addingTimeInterval(86_400 * 30))
+        let future = baseNow.addingTimeInterval(86_400 * 30)
+        // A future-dated snapshot with LESS progress does not beat the newest real one...
+        let low = try SaveSnapshotManager.createSnapshot(state: sampleState(tokens: 50), for: stateURL, date: future)
         XCTAssertEqual(SaveSnapshotManager.loadLatestValidSnapshot(for: stateURL, now: baseNow)?.usedSinceInstall, 100)
+        // ...and one with MORE progress does (written while the clock ran ahead, the latest play).
+        try FileManager.default.removeItem(at: low.fileURL)
+        try SaveSnapshotManager.createSnapshot(state: sampleState(tokens: 200), for: stateURL, date: future)
+        XCTAssertEqual(SaveSnapshotManager.loadLatestValidSnapshot(for: stateURL, now: baseNow)?.usedSinceInstall, 200)
         // Only a future one left: still better than nothing.
         for s in SaveSnapshotManager.listSnapshots(for: stateURL) where s.date <= baseNow {
             try FileManager.default.removeItem(at: s.fileURL)
@@ -185,10 +253,48 @@ final class AuditCoreFixesTests: XCTestCase {
         let dir = tempDir("symlink")
         let regular = dir.appendingPathComponent("real.jsonl")
         try Data("{}\n".utf8).write(to: regular)
-        let link = dir.appendingPathComponent("y.jsonl")
-        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: URL(fileURLWithPath: "/dev/zero"))
+        try makeLink(dir.appendingPathComponent("y.jsonl"), to: URL(fileURLWithPath: "/dev/zero"))
         let files = LocalUsageReader.jsonlFiles(in: dir, modifiedSince: .distantPast).map(\.lastPathComponent)
         XCTAssertEqual(files, ["real.jsonl"])
+    }
+
+    /// Production reads through `LocalUsageCache.collect` and `codexRolloutFiles`, not `jsonlFiles`: link to a
+    /// regular file that holds real usage lines (outside the root) and expect none of it counted.
+    func testCacheCollectAndCodexEnumerationDoNotFollowLinkedFiles() async throws {
+        let outside = tempDir("outside")
+        let target = outside.appendingPathComponent("usage.jsonl")
+        try (claudeLine(id: "a") + "\n").write(to: target, atomically: true, encoding: .utf8)
+        let root = tempDir("linkroot")
+        let cacheFile = tempDir("linkcache").appendingPathComponent("cache.json")
+        try makeLink(root.appendingPathComponent("linked.jsonl"), to: target)
+        try makeLink(root.appendingPathComponent("rollout-x.jsonl"), to: target)
+
+        let cache = LocalUsageCache(claudeRoot: root, fileURL: cacheFile)
+        XCTAssertTrue(cache.claudeEntries(modifiedSince: .distantPast).isEmpty)
+        XCTAssertTrue(LocalUsageReader.codexRolloutFiles(in: root).isEmpty)
+
+        // The same line in a regular file is counted (the guard is not just "return nothing").
+        try (claudeLine(id: "b") + "\n").write(to: root.appendingPathComponent("plain.jsonl"), atomically: true, encoding: .utf8)
+        XCTAssertEqual(LocalUsageCache(claudeRoot: root, fileURL: cacheFile).claudeEntries(modifiedSince: .distantPast).count, 1)
+    }
+
+    /// A Claude file larger than the read cap is still fully counted: each refresh resumes where the last stopped.
+    func testClaudeFileLargerThanTheReadCapIsFullyCountedAcrossRefreshes() async throws {
+        let root = tempDir("cap")
+        let lines = (0..<40).map { claudeLine(id: "n\($0)") }
+        try (lines.joined(separator: "\n") + "\n").write(to: root.appendingPathComponent("s.jsonl"), atomically: true, encoding: .utf8)
+        let saved = LocalUsageReader.maxLogReadBytes
+        LocalUsageReader.maxLogReadBytes = 1_000   // a few lines per read
+        defer { LocalUsageReader.maxLogReadBytes = saved }
+
+        let cache = LocalUsageCache(claudeRoot: root, fileURL: tempDir("capcache").appendingPathComponent("c.json"))
+        var counts: [Int] = []
+        for _ in 0..<60 {
+            counts.append(cache.claudeEntries(modifiedSince: .distantPast).count)
+            if counts.last == 40 { break }
+        }
+        XCTAssertEqual(counts.last, 40, "every line is counted eventually: \(counts)")
+        XCTAssertGreaterThan(counts.count, 1, "premise: the cap really split the read")
     }
 
     func testOpenLogHandleRefusesASymlinkEvenToARegularFile() async throws {
@@ -197,7 +303,7 @@ final class AuditCoreFixesTests: XCTestCase {
         let target = dir.appendingPathComponent("target.jsonl")
         try Data("{}\n".utf8).write(to: target)
         let link = dir.appendingPathComponent("link.jsonl")
-        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+        try makeLink(link, to: target)
         XCTAssertNoThrow(try LocalUsageReader.openLogHandle(target).close())
         XCTAssertThrowsError(try LocalUsageReader.openLogHandle(link))
         XCTAssertNil(LocalUsageReader.parseClaudeFile(link, fromOffset: 0, fmt: LocalUsageReader.localDayFormatter()))
@@ -215,6 +321,53 @@ final class AuditCoreFixesTests: XCTestCase {
         try (a + "\n" + big + "\n" + b).write(to: file, atomically: true, encoding: .utf8)   // no trailing newline
         let entries = try XCTUnwrap(LocalUsageReader.parseKimiWireFile(file, fmt: LocalUsageReader.localDayFormatter()))
         XCTAssertEqual(entries.map(\.input).sorted(), [1, 2])
+    }
+
+    func testStreamedReadersParseCRLFFilesLikeLFFiles() throws {
+        let pi = """
+        {"type":"session","version":3,"id":"s1","timestamp":"2026-07-03T01:00:00.000Z","cwd":"/x"}
+        {"type":"message","id":"cc01","parentId":null,"timestamp":"2026-07-03T01:00:10.000Z","message":{"role":"assistant","content":[],"model":"m","usage":{"input":100,"output":10,"cacheRead":600,"cacheWrite":40,"totalTokens":750,"cost":{"total":0.005}}}}
+        {"type":"message","id":"cc02","parentId":"cc01","timestamp":"2026-07-03T01:00:20.000Z","message":{"role":"assistant","content":[],"model":"m","usage":{"input":5,"output":7,"cacheRead":0,"cacheWrite":3,"totalTokens":15,"cost":{"total":0}}}}
+        """
+        let kimi = """
+        {"type":"usage.record","time":1700000000000,"usage":{"inputOther":1,"output":1},"usageScope":"turn"}
+        {"type":"usage.record","time":1700000001000,"usage":{"inputOther":2,"output":2},"usageScope":"turn"}
+        """
+        let fmt = LocalUsageReader.localDayFormatter()
+        func shape(_ entries: [LocalUsageReader.Entry]?) throws -> [String] {
+            try XCTUnwrap(entries).map { "\($0.input)/\($0.output)/\($0.cacheWrite)/\($0.cacheRead)" }.sorted()
+        }
+        let dir = tempDir("crlf")
+        let parsers: [(String, String, (URL) -> [LocalUsageReader.Entry]?)] = [
+            ("pi", pi, { LocalUsageReader.parsePiFile($0, fmt: fmt) }),
+            ("omp", pi, { LocalUsageReader.parseOmpFile($0, fmt: fmt) }),
+            ("omo", pi, { LocalUsageReader.parseOmoFile($0, fmt: fmt) }),
+            ("kimi", kimi, { LocalUsageReader.parseKimiWireFile($0, fmt: fmt) }),
+        ]
+        for (name, text, parse) in parsers {
+            let lf = dir.appendingPathComponent("\(name)-lf.jsonl"), crlf = dir.appendingPathComponent("\(name)-crlf.jsonl")
+            try text.write(to: lf, atomically: true, encoding: .utf8)
+            try text.replacingOccurrences(of: "\n", with: "\r\n").write(to: crlf, atomically: true, encoding: .utf8)
+            let expected = try shape(parse(lf))
+            XCTAssertEqual(expected.count, 2, name)
+            XCTAssertEqual(try shape(parse(crlf)), expected, "\(name): CRLF must parse like LF")
+        }
+    }
+
+    func testStoreLevelSumsSaturateAcrossManyHugeValues() {
+        func day(_ n: Int) -> DailyUsage {
+            DailyUsage(date: "2026-07-\(String(format: "%02d", n))", inputTokens: Int.max, outputTokens: Int.max,
+                       cacheCreationTokens: Int.max, cacheReadTokens: Int.max, totalTokens: Int.max,
+                       totalCost: 0, costCoverage: .empty)
+        }
+        XCTAssertEqual(PeriodUsage(period: "m", daily: (1...5).map(day)).totalTokens, Int.max)
+        // Thousands of entries at the per-entry ceiling add up exactly (no premature clamp) in a bucket.
+        var bucket = LocalUsageReader.Bucket()
+        let cap = LocalUsageReader.maxParsedTokenValue
+        let entry = LocalUsageReader.Entry(id: "x", date: baseNow, localDay: "d", model: "m",
+                                           input: cap, output: cap, cacheWrite: cap, cacheRead: cap)
+        for _ in 0..<3_000 { bucket.add(entry) }
+        XCTAssertEqual(bucket.total, 3_000 * 4 * cap)
     }
 
     // MARK: 10. refresh interval
