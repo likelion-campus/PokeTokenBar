@@ -466,24 +466,26 @@ function writeReport(ss, p, nowMs, tz, budget, dev) {
     refuseNew(labelPlan.added, labelPlan.existingCount, MAX_TEAMLABELS_TOTAL, Infinity, Infinity) ||
     refuseNew(teamAdded, 0, Infinity, MAX_MEMBER_TEAM_ROWS_PER_HOUR - dev.teams, poolLeft(budget.teams, MAX_NEW_TEAM_ROWS_PER_HOUR)));
 
-  // Nothing is refused from here on: write.
+  // Nothing is refused from here on: write. The data tabs go first and the device row (with the member's
+  // hourly counters) and the in-memory budget last, so a write that throws leaves nothing charged for
+  // rows that never landed: the retry is judged on what is really in the sheet.
   var limAdded = limitsOk ? limPlan.added : 0;
   var teamWritten = teamsOk ? teamAdded : 0;
-  dev.raw += rawPlan.added;
-  dev.limits += limAdded;
-  dev.teams += teamWritten;
-  if (dev.firstThisHour) {
-    budget.raw += rawPlan.added;
-    budget.limits += limAdded;
-    budget.teams += teamWritten;
-  }
-  writeDevice(ss.getSheetByName(TAB_DEVICES), dev, member, nowMs, hour, budget);
   applyPlan(rawPlan);
   if (limitsOk) applyPlan(limPlan);
   applyPlan(peoplePlan);
   if (teamsOk) {
     applyPlan(deptPlan);
     applyPlan(labelPlan);
+  }
+  dev.raw += rawPlan.added;
+  dev.limits += limAdded;
+  dev.teams += teamWritten;
+  writeDevice(ss.getSheetByName(TAB_DEVICES), dev, member, nowMs, hour, budget);
+  if (dev.firstThisHour) {
+    budget.raw += rawPlan.added;
+    budget.limits += limAdded;
+    budget.teams += teamWritten;
   }
   return { ok: true, accepted: { days: rawItems.length, limits: limitsOk ? p.limits.length : 0 },
     dropped: p.dropped + (limitsOk ? 0 : p.limits.length) };

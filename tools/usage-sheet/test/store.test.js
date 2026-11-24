@@ -800,6 +800,46 @@ test("a member first seen this hour loses only the team rows when the shared tea
   assert.equal(dataRows(ss, "팀이름").length, 0);
 });
 
+// Round 2, item A: a write that throws charges nothing.
+function throwOnWrite(sheet, nth) {
+  const orig = sheet.getRange.bind(sheet);
+  let count = 0;
+  sheet.getRange = (...a) => {
+    const g = orig(...a);
+    const sv = g.setValues.bind(g);
+    g.setValues = (v) => { if (++count === nth) throw new Error("quota"); return sv(v); };
+    return g;
+  };
+  return () => { sheet.getRange = orig; };
+}
+
+test("a first report whose raw write throws charges neither the member nor the pool, and the retry is accepted", () => {
+  const { S, ss } = fresh();
+  S.ensureSheets(ss);
+  const undo = throwOnWrite(ss.getSheetByName("원본"), 1);
+  assert.throws(() => report(S, daysFrom(S, 0, 0, 21, 16)), /quota/);
+  undo();
+  assert.equal(dataRows(ss, "원본").length, 0);
+  assert.equal(dataRows(ss, "기기").length, 0, "the member is not registered");
+  const stored = S.fakes.props.doc.intake_hour;
+  assert.equal(stored === undefined || JSON.parse(stored).raw === 0, true, "the pool is not charged");
+  assert.deepEqual(report(S, daysFrom(S, 0, 0, 21, 16), NOW + 1000), { ok: true, accepted: { days: 336, limits: 0 }, dropped: 0 });
+  assert.equal(dataRows(ss, "원본").length, 336);
+  assert.equal(JSON.parse(S.fakes.props.doc.intake_hour).raw, 336);
+});
+
+test("a write that throws after the raw rows landed leaves the counters uncharged: the retry is not rate_limited", () => {
+  const { S, ss } = fresh();
+  registerEarlier(S, 0, 3);
+  const undo = throwOnWrite(ss.getSheetByName("사람"), 1);
+  assert.throws(() => report(S, daysFrom(S, 0, 0, 21, 16)), /quota/);
+  undo();
+  assert.equal(dataRows(ss, "원본").length, 336, "the raw rows did land");
+  assert.deepEqual(dataRows(ss, "기기")[0].slice(5), [0, 0, 0], "the member's counters did not move");
+  assert.equal(report(S, daysFrom(S, 0, 0, 21, 16), NOW + 1000).ok, true);
+  assert.equal(dataRows(ss, "원본").length, 336);
+});
+
 // Item 7: the budget property.
 test("the budget property is written only when it changed, and a failed write does not fail the report", () => {
   const { S, ss } = fresh();

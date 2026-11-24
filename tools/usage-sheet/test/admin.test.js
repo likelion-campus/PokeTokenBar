@@ -458,12 +458,17 @@ test("the bulk purge removes the members first seen after a time, after confirmi
   const b = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "fixtures", "valid-basic.json"), "utf8")).body;
   b.member.id = OTHER; b.member.nickname = "가짜";
   assert.equal(plain(S.handleReport(ss, JSON.stringify(b), later, TZ)).ok, true);
-  assert.deepEqual(plain(S.membersFirstSeenAfter(ss, NOW + 3600000)), [OTHER]);
+  assert.deepEqual(plain(S.membersFirstSeenAfter(ss, NOW + 3600000)).map((m) => m.id), [OTHER]);
   S.fakes.ui.next = { button: "OK", text: new Date(NOW + 3600000).toISOString() };
   S.fakes.ui.nextAlertButton = "CANCEL";
   S.purgeRecentMembersPrompt();
   assert.equal(body(ss, "기기").length, 2, "cancel deletes nothing");
-  assert.match(S.fakes.ui.alerts.at(-1), /1명/);
+  const sure = S.fakes.ui.alerts.at(-1);
+  assert.match(sure, /1명/);
+  assert.match(sure, new RegExp(new Date(later).toISOString().replace(/\./g, "\\.") + " ~ " + new Date(later).toISOString().replace(/\./g, "\\.")));
+  assert.match(sure, new RegExp(OTHER.slice(0, 8)));
+  assert.equal(sure.includes(OTHER), false, "only the prefix is shown");
+  assert.match(sure, /영영 사라집니다/);
   S.fakes.ui.nextAlertButton = "OK";
   S.purgeRecentMembersPrompt();
   assert.deepEqual(body(ss, "기기").map((r) => r[0]), [MEMBER]);
@@ -473,4 +478,79 @@ test("the bulk purge removes the members first seen after a time, after confirmi
   S.purgeRecentMembersPrompt();
   assert.match(S.fakes.ui.alerts.at(-1), /읽을 수 없어/);
   assert.equal(body(ss, "기기").length, 1);
+});
+
+// Round 2, item C: a run near the 6-minute limit stops with whole rows and asks to be run again.
+test("a bulk purge past its time budget stops cleanly, refreshes nothing, and the next run finishes it", () => {
+  const { S, ss } = fresh();
+  reportFor(S, MEMBER, "t_keep", "남김");
+  const raw = ss.getSheetByName("원본");
+  const row = (id) => [id, "n", "2026-11-16", "claude_code", "t_x1", 1, 1, 1, 1, 4, "2.5.0", "mac", "x"];
+  const later = NOW + 5 * 3600000;
+  const fakes = [OTHER, "22222222-2222-4333-8444-555555555555"];
+  for (const id of fakes) {
+    const b = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "fixtures", "valid-basic.json"), "utf8")).body;
+    b.member.id = id; b.member.nickname = "가짜";
+    assert.equal(plain(S.handleReport(ss, JSON.stringify(b), later, TZ)).ok, true);
+  }
+  raw._rows.splice(6, 0, row(MEMBER));   // a kept row in the middle splits the fake rows into two runs
+  S.PURGE_TIME_BUDGET_MS = -1;           // out of time from the first run on
+  S.fakes.ui.next = { button: "OK", text: new Date(NOW + 3600000).toISOString() };
+  S.purgeRecentMembersPrompt();
+  assert.match(S.fakes.ui.alerts.at(-1), /일부만 지웠습니다/);
+  assert.equal(S.fakes.lockStats.docAcquired, 0, "no refresh after a partial run");
+  assert.equal(body(ss, "기기").length, 3, "기기 is untouched, so the next run finds the same members");
+  assert.equal(body(ss, "원본").every((r) => r.length === 13 && r[0] !== ""), true, "only whole rows");
+  assert.equal(body(ss, "원본").some((r) => fakes.includes(r[0])), true, "some fake rows are still there");
+  S.PURGE_TIME_BUDGET_MS = 240000;
+  S.fakes.ui.next = { button: "OK", text: new Date(NOW + 3600000).toISOString() };
+  S.purgeRecentMembersPrompt();
+  assert.equal(body(ss, "기기").length, 1);
+  assert.equal(body(ss, "원본").some((r) => fakes.includes(r[0])), false);
+  assert.equal(S.fakes.lockStats.docAcquired >= 1, true, "the finished run refreshes");
+});
+
+test("the single-id purge also stops at its time budget without refreshing", () => {
+  const { S, ss } = fresh();
+  S.ensureSheets(ss);
+  const raw = ss.getSheetByName("원본");
+  const row = (id) => [id, "n", "2026-11-16", "claude_code", "t_x1", 1, 1, 1, 1, 4, "2.5.0", "mac", "x"];
+  [OTHER, MEMBER, OTHER].forEach((id) => raw._rows.push(row(id)));
+  S.PURGE_TIME_BUDGET_MS = -1;
+  S.fakes.ui.next = { button: "OK", text: OTHER };
+  S.purgeMemberPrompt();
+  assert.match(S.fakes.ui.alerts.at(-1), /일부만 지웠습니다/);
+  assert.equal(S.fakes.lockStats.docAcquired, 0);
+  assert.equal(body(ss, "원본").filter((r) => r[0] === OTHER).length, 1);
+});
+
+// Round 2, item B: dropped team rows are backfilled by the hourly refresh.
+test("refreshAll adds a 부서 row for a team that 원본 and 한도 carry but 부서 lacks, and leaves owner rows alone", () => {
+  const { S, ss } = fresh();
+  S.setup();
+  const raw = ss.getSheetByName("원본");
+  const row = (team) => [MEMBER, "n", "2026-11-16", "claude_code", team, 1, 1, 1, 1, 4, "2.5.0", "mac", "x"];
+  raw._rows.push(row("t_only_old"), row("t_named"));
+  const lim = ss.getSheetByName("한도");
+  lim._rows.push(["e_acc", "claude", "2026-11-19T09:00:00.000Z", MEMBER, "t_limit_only", "Max", "", 5, 5, "2026-11-16T00:00:00.000Z"]);
+  const dept = ss.getSheetByName("부서");
+  dept._rows.push(["t_named", "개발팀", "", "2026-11-01"]);
+  S.refreshAll();
+  const rows = body(ss, "부서");
+  assert.deepEqual(rows.map((r) => r[0]).sort(), ["t_limit_only", "t_named", "t_only_old"]);
+  assert.equal(rows.find((r) => r[0] === "t_named")[1], "개발팀");
+  S.refreshAll();
+  assert.equal(body(ss, "부서").length, 3, "a second refresh adds nothing");
+});
+
+test("the backfill stops at MAX_DEPTS_TOTAL", () => {
+  const { S, ss } = fresh();
+  S.setup();
+  const dept = ss.getSheetByName("부서");
+  for (let i = 0; i < S.MAX_DEPTS_TOTAL - 1; i++) dept._rows.push(["t_f" + i, "", "", "2026-11-01"]);
+  dept._maxRows = S.MAX_DEPTS_TOTAL + 10;
+  const raw = ss.getSheetByName("원본");
+  ["t_a1", "t_a2", "t_a3"].forEach((t) => raw._rows.push([MEMBER, "n", "2026-11-16", "claude_code", t, 1, 1, 1, 1, 4, "2.5.0", "mac", "x"]));
+  S.refreshAll();
+  assert.equal(body(ss, "부서").length, S.MAX_DEPTS_TOTAL);
 });
