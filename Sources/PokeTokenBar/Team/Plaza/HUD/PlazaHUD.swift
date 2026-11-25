@@ -98,6 +98,15 @@ import Foundation
         return frames
     }
 
+    /// The frames of the visible, not hidden panels among `ids` in a window of `viewport` points: what a panel that must keep clear of its neighbours reads.
+    func frames(of ids: [PlazaPanelID], viewport: CGSize, scale: CGFloat) -> [PlazaPanelID: CGRect] {
+        var frames: [PlazaPanelID: CGRect] = [:]
+        for panel in panels where ids.contains(panel.id) && panel.isVisible && !hiddenPanels.contains(panel.id) {
+            frames[panel.id] = frame(of: panel, viewport: viewport, scale: scale)
+        }
+        return frames
+    }
+
     /// Whether panel `id` is drawn now (visible, not hidden by the window).
     func isShown(_ id: PlazaPanelID) -> Bool { shown[id] != nil && !hiddenPanels.contains(id) }
 

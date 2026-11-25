@@ -92,8 +92,8 @@ import XCTest
     // MARK: z list
 
     func testZListIsTheMacsSubviewOrder() async {
-        XCTAssertEqual(WinPlazaPanels.zOrder, [.roster, .board, .card, .photoFrame, .menu, .gameTitle, .gameCard, .pills, .chatLog, .minimap, .clock, .shortcuts,
-                                               .backgroundToggle, .nameColorPicker, .berryTable])
+        XCTAssertEqual(WinPlazaPanels.zOrder, [.roster, .drawBoard, .board, .card, .photoFrame, .menu, .gameTitle, .gameCard, .pills, .chatLog, .minimap, .clock,
+                                               .shortcuts, .backgroundToggle, .nameColorPicker, .berryTable])
         // the controller's own HUD list (what the Mac window's stack follows) is the same order
         let c = controller(feed: true)
         XCTAssertEqual(c.hud.panels.map(\.id), WinPlazaPanels.zOrder)

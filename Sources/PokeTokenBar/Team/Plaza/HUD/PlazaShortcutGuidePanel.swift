@@ -24,11 +24,11 @@ import Observation
     init(model: PlazaShortcutGuideModel, toggle: PlazaBackgroundTogglePanel) {
         self.model = model
         self.toggle = toggle
-        observer = PlazaChangeObserver(track: { _ = model.isFolded; _ = model.season }, changed: { [weak self] in self?.modelChanged() })
+        observer = PlazaChangeObserver(track: { _ = model.showsFolded; _ = model.season }, changed: { [weak self] in self?.modelChanged() })
     }
 
     private var rendered: String?
-    private var state: String { "\(model.isFolded) \(model.season)" }
+    private var state: String { "\(model.showsFolded) \(model.season)" }
     private func modelChanged() { if rendered != state { onChange?() } }
 
     var isVisible: Bool { true }
@@ -51,7 +51,7 @@ import Observation
     private var cache: (key: String, layout: Layout)?
 
     func layout(scale: CGFloat, text: any PlazaTextEngine) -> Layout {
-        let folded = model.isFolded, season = model.season
+        let folded = model.showsFolded, season = model.season
         let key = "\(folded) \(season) \(scale) \(String(describing: type(of: text)))"
         if let cache, cache.key == key { return cache.layout }
         let font = PlazaControlStyle.pill.font

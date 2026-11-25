@@ -108,4 +108,23 @@ import XCTest
         }
         print("COST berry table: render after a flip \(String(format: "%.3f", flipMean)) ms, render on an animation beat \(String(format: "%.3f", ms(spent) / 200)) ms (mean of 200 each, 8 seats, 960x640 at 2x)")
     }
+
+    /// The drawing quiz panel while a stroke is under way: one render after each canvas change at the default window on a 2x screen. The
+    /// panel caps its change reports at 30 a second; this is what each of them costs.
+    func testDrawBoardRenderCost() async throws {
+        let model = PlazaDrawModel()
+        model.board = PlazaDrawBoard(head: "그림 퀴즈 3/6 · 그리는 사람 민수", time: "⏱ 52", cover: nil, foot: .tools(word: "사과"), canDraw: true)
+        let panel = PlazaDrawPanel(model: model, neighbours: { _, _ in [:] })
+        let g = PlatformPlaza.graphics, viewport = CGSize(width: 960, height: 640)
+        _ = panel.render(scale: 2, viewport: viewport, graphics: g)   // warm: the plate is drawn once
+        let clock = ContinuousClock()
+        func ms(_ d: Duration) -> Double { Double(d.components.attoseconds) / 1e15 + Double(d.components.seconds) * 1000 }
+        let t0 = clock.now
+        for i in 0..<200 {
+            model.canvas.stroke(points: [i % 96, (i * 7) % 64], color: 1 + i % 8, width: 3)
+            _ = panel.render(scale: 2, viewport: viewport, graphics: g)
+        }
+        let mean = ms(clock.now - t0) / 200
+        print("COST draw board: render after a canvas change \(String(format: "%.3f", mean)) ms (mean of 200, 960x640 at 2x)")
+    }
 }

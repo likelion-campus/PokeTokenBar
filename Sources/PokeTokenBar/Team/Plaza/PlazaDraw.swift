@@ -31,6 +31,10 @@ struct PlazaDrawState: Codable, Hashable, Sendable {
 /// The rules of the drawing quiz that every Mac computes the same way from the shared state. Pure functions on values.
 enum PlazaDraw {
     static let maxPlayers = 8, maxTurns = 8
+    /// The canvas's nine colours, by canvas value: the paper, then the eight pens (black, red, orange, yellow, green, blue, purple, brown).
+    static let palette: [PlazaRGBA] = [0xF6F1E3, 0x2B2233, 0xD2453B, 0xE8862E, 0xF2C14E, 0x3F9D4B, 0x3B7BD1, 0x7D4FC2, 0x8A5A36].map {
+        PlazaRGBA(r: UInt8($0 >> 16), g: UInt8(($0 >> 8) & 0xFF), b: UInt8($0 & 0xFF), a: 255)
+    }
     static let wordSeconds: TimeInterval = 20, drawSeconds: TimeInterval = 60, revealSeconds: TimeInterval = 6
     static let refereeSlack: TimeInterval = 10
     static let guessPoints = 10, drawerPoints = 5

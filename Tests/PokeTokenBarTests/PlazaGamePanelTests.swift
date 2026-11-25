@@ -88,4 +88,38 @@ final class PlazaGamePanelTests: XCTestCase {
         r.game.title = .init(text: "민수 탈락!", tone: .out)
         XCTAssertGreaterThan(try XCTUnwrap(r.hud.layout(viewport: viewport, scale: 2)[.gameTitle]).width, frame.width)
     }
+
+    func testTheRankingCardListsEveryoneAndMarksATie() async throws {
+        let name: (String) -> String = { $0.uppercased() }
+        let tie = PlazaGameView.rankingCard([("a", 35), ("b", 35), ("c", 20), ("d", 0)], name: name)
+        XCTAssertEqual(tie.title, "그림 퀴즈 결과")
+        XCTAssertEqual(tie.lines, ["공동 1등 A 35점", "공동 1등 B 35점", "3등 C 20점", "4등 D 0점"])
+        XCTAssertTrue(tie.buttons.isEmpty)
+        let single = PlazaGameView.rankingCard([("a", 35), ("b", 20)], name: name)
+        XCTAssertEqual(single.lines, ["1등 A 35점", "2등 B 20점"])
+        // The biggest game: eight lines under the title still sit inside the smallest window.
+        let eight = PlazaGameView.rankingCard((0..<8).map { ("p\($0)", 80 - 10 * $0) }, name: name)
+        let r = rig()
+        r.game.card = eight
+        _ = r.card.render(scale: 2, viewport: viewport, graphics: PlatformPlaza.graphics)
+        let placed = try XCTUnwrap(r.card.placed)
+        XCTAssertEqual(placed.lines.map(\.text), [eight.title] + eight.lines)
+        let frame = try XCTUnwrap(r.hud.layout(viewport: CGSize(width: 600, height: 372), scale: 2)[.gameCard])
+        XCTAssertLessThanOrEqual(frame.maxY, 372)
+    }
+
+    /// The drawing quiz's invitation, the longest it gets (rules, the count, the full-house line), has to fit the smallest window.
+    func testTheDrawInvitationFitsTheSmallestWindow() async throws {
+        let l = L(.ko)
+        let r = rig()
+        r.game.card = PlazaGameView.Card(title: l.plazaGameCardTitle(host: "민수", game: l.plazaGameName(.draw)),
+                                         lines: l.plazaGameRules(.draw) + [l.plazaDrawRecruiting(players: 8, seconds: 30), l.plazaDrawFull],
+                                         buttons: [.init(label: l.plazaGameButtonJoin, action: "join", isEnabled: false), .init(label: l.plazaGameButtonDecline, action: "decline")])
+        _ = r.card.render(scale: 2, viewport: viewport, graphics: PlatformPlaza.graphics)
+        let placed = try XCTUnwrap(r.card.placed)
+        let narrow = CGSize(width: 600, height: 372)
+        let frame = try XCTUnwrap(r.hud.layout(viewport: narrow, scale: 2)[.gameCard])
+        XCTAssertLessThanOrEqual(placed.size.width, narrow.width - 2 * PlazaRosterMetrics.margin, "card \(placed.size.width) pt wide")
+        XCTAssertLessThanOrEqual(frame.maxY, narrow.height)
+    }
 }

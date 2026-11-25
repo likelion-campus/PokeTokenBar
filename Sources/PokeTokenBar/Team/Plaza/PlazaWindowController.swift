@@ -135,7 +135,7 @@ import Observation
     private let minimap = PlazaMinimapModel()
     /// The panels drawn through the canvas over the scene, bottom first: the countdown/banner/hint pills (above the
     /// overlay) and the clock on the minimap. `setRendering` switches their rendering with the scene's.
-    private(set) lazy var hud = PlazaHUD(panels: [rosterPanel] + [boardPanel].compactMap { $0 } + [cardPanel, photoFramePanel, menuPanel, gameTitlePanel, gameCardPanel, pillsPanel, chatLogPanel, minimapPanel, clockPanel, shortcutsPanel, togglePanel, pickerPanel, berryPanel])
+    private(set) lazy var hud: PlazaHUD = PlazaHUD(panels: [rosterPanel, drawPanel] + [boardPanel].compactMap { $0 } + [cardPanel, photoFramePanel, menuPanel, gameTitlePanel, gameCardPanel, pillsPanel, chatLogPanel, minimapPanel, clockPanel, shortcutsPanel, togglePanel, pickerPanel, berryPanel])
     /// The pictures the roster and the card show (the platform's loaders; a test hands in its own).
     private let iconSource: any PlazaIconSource
     private lazy var rosterPanel = PlazaRosterPanel(model: rosterModel, icons: iconSource)
@@ -154,6 +154,13 @@ import Observation
     private lazy var gameTitlePanel = PlazaGameTitlePanel(game: gameModel)
     private let berryModel = PlazaBerryModel()
     private lazy var berryPanel = PlazaBerryTablePanel(model: berryModel, icons: iconSource)
+    /// The drawing quiz board's model (the game sets `board`; tests read the panel through `hud`).
+    let drawModel = PlazaDrawModel()
+    /// The log and the guide are held small while the board does not fit with them as they are; see `makeRoomForDrawBoard`.
+    private var isDrawRoomMade = false
+    private var drawBoardObserver: PlazaChangeObserver?
+    private lazy var drawPanel = PlazaDrawPanel(model: drawModel, neighbours: { [unowned self] viewport, scale in
+        hud.frames(of: PlazaDrawPanel.neighbours, viewport: viewport, scale: scale) })
     private lazy var minimapPanel = PlazaMinimapPanel(model: minimap, background: backgroundModel, worldSize: map.pixelSize,
                                                       mapImage: { [unowned self] in minimapImage(for: .summer) })
     private lazy var clockPanel = PlazaClockPanel(worldSize: map.pixelSize)
@@ -367,10 +374,17 @@ import Observation
         restoreFocus()
         _ = hud   // the pills follow the overlay model from now on
         hud.onAction = { [weak self] id, hit in self?.panelClicked(id, hit) }
+        drawPanel.onNeedsRoom = { [weak self] in self?.makeRoomForDrawBoard() }
+        drawPanel.onStroke = { [weak self] points, color, width in self?.drewStroke(points, color: color, width: width) }
+        drawPanel.onStrokeEnd = { [weak self] in self?.endedStroke() }
+        drawPanel.onClear = { [weak self] in self?.clearedCanvas() }
+        drawBoardObserver = PlazaChangeObserver(track: { [drawModel] in _ = drawModel.board },
+                                                changed: { [weak self] in if self?.drawModel.board == nil { self?.giveBackDrawRoom() } })
         minimapPanel.update(date: clock())   // the map is lit for the right minute from its first drawing
         self.chatInput.onSubmit = { [weak self] in self?.submitChat($0) ?? true }
         self.chatInput.onClose = { [weak self] in
             guard let self else { return }
+            self.quiz.note = nil
             self.shell.setChatLogAboveInput(false)
             refreshHint()
             self.shell.focusScene()
@@ -551,6 +565,7 @@ import Observation
     private func openChat() {
         guard let scene else { return }
         scene.clearInput()
+        if !chatInput.isOpen, isWordEntryOn { chatInput.purpose = .quizWord }   // my turn to name the word: the same key opens the word field
         chatInput.open()
         refreshHint()
         shell.setChatLogAboveInput(true)
@@ -575,6 +590,7 @@ import Observation
         case (.roster, "next"): turnRosterPage(by: 1)
         case (.board, "react"):   // the other board clicks ("board": the plate, my own reaction) are taken and do nothing
             if let r = boardPanel?.reaction(forHit: hit) { session?.react(to: r.eventID, kind: r.kind) }
+        case (.drawBoard, _): drawPanel.clicked(hit)
         case (.gameCard, _): gameAction(hit.action)   // the plate's own clicks ("card") are taken and do nothing
         case (.chatLog, "toggle"): toggleChatLog()   // the log's own clicks ("log") are taken and do nothing
         case (.shortcuts, "toggle"): toggleShortcuts()
@@ -632,7 +648,25 @@ import Observation
 
     /// 사진 모드는 단추까지 숨기고, 나가면 단추의 모드가 가리키는 상태로 돌아간다. 열린 이름 색 팔레트는 사진 모드처럼 그대로 둔다.
     private func applyHiddenPanels() {
+        if overlayModel.isPhotoMode { giveBackDrawRoom() }   // the board is hidden: the log and the guide are as the user left them
         shell.setHiddenPanels(overlayModel.isPhotoMode ? PlazaPanelID.hiddenInPhotoMode : backgroundModel.isUIHidden ? PlazaPanelID.hiddenWithUI : [])
+    }
+
+    /// The drawing quiz's board is on screen and does not fit with the chat log and the shortcuts guide as they are (a small window): the log shows
+    /// three lines and the guide is folded, for as long as the board shows. Nothing is saved: the preferences and the log's own fold are untouched,
+    /// and `giveBackDrawRoom` puts both back as they were. Once made, the room stays made (nothing flips back on a later resize).
+    private func makeRoomForDrawBoard() {
+        guard !isDrawRoomMade, drawModel.board != nil, !overlayModel.isPhotoMode else { return }
+        isDrawRoomMade = true
+        chatLog.isReduced = true
+        shortcutModel.isForcedFolded = true
+    }
+
+    private func giveBackDrawRoom() {
+        guard isDrawRoomMade else { return }
+        isDrawRoomMade = false
+        chatLog.isReduced = false
+        shortcutModel.isForcedFolded = false
     }
 
     /// 단축키 안내를 접거나 펼치고 기억한다.
@@ -644,6 +678,10 @@ import Observation
 
     /// 테스트용 읽기 전용 값.
     var areShortcutsFolded: Bool { shortcutModel.isFolded }
+    /// What the guide shows now (folded by the saved choice or held folded for the drawing quiz's board).
+    var showsShortcutsFolded: Bool { shortcutModel.showsFolded }
+    /// How many lines the chat log shows now.
+    var chatLogVisibleCount: Int { chatLog.visible.count }
 
     private func applyBackground() {
         let hidden = preferences.isBackgroundHidden
@@ -659,7 +697,12 @@ import Observation
 
     /// 내 말풍선은 바로 띄운다. 보낼 글이 없으면 true(입력창을 닫는다), 너무 빠르면 false(글을 남겨 둔다).
     private func submitChat(_ raw: String) -> Bool {
+        if chatInput.purpose == .quizWord { return submitWord(raw) }
         guard let scene, let text = TeamChat.prepared(raw) else { return true }
+        if game.blocksOwnLine(text) {   // the drawer may not give the word away
+            showBanner(L(.ko).plazaDrawOwnWordBlocked)
+            return false
+        }
         let now = clock()
         let loud = chatInput.isLoud
         if let last = lastChatAt, now.timeIntervalSince(last) < Self.emoteInterval { return false }
@@ -923,6 +966,7 @@ import Observation
     /// 사진 모드를 열고 닫을 때: 틀을 그리고 HUD를 숨기거나 되살린다.
     private func photoModeChanged(_ on: Bool) {
         overlayModel.isPhotoMode = on
+        if on { drawPanel.cancelStroke() }
         applyHiddenPanels()
         refreshHint()
         refreshCountdown()
@@ -1151,6 +1195,8 @@ import Observation
     /// 가운데 큰 글씨로 차례로 보여 줄 것(탈락, 승리)과 보이는 동안.
     private var gameFlashes: [(title: PlazaGameView.Title, from: Date, until: Date)] = []
     private var gameLoop: Task<Void, Never>?
+    /// What the drawing quiz keeps on this side of the wire (its section is at the end of this file).
+    private var quiz = DrawQuiz()
     static let gameOutFlash: TimeInterval = 2, gameWinFlash: TimeInterval = 4
     /// 테스트용 읽기 전용 값.
     var gameState: PlazaGameState? { game.state }
@@ -1209,6 +1255,13 @@ import Observation
             gameFlashes.append((title, from, from.addingTimeInterval(seconds)))
         }
         if !same { gameFlashes = [] }
+        if iPlay, same, let last = s.draw?.last, last != old?.draw?.last {   // the drawing quiz's turn ended
+            if let solver = last.solver {
+                flash(.init(text: solver == me ? l.plazaDrawRight : l.plazaDrawRightBy(nickname: name(solver)), tone: .win), for: Self.gameWinFlash)
+            } else {
+                flash(.init(text: l.plazaDrawTimeUp, tone: .out), for: Self.gameOutFlash)
+            }
+        }
         if s.startsAt != nil, !(same && old?.startsAt != nil), s.endedAt == nil {
             if iPlay {
                 if scene.isDiving { scene.setDiving(false); session?.updateDiving(false) }   // 잠수한 채로는 시작하지 않는다
@@ -1269,7 +1322,7 @@ import Observation
                 + (game.joined == s.id && s.host != me ? 1 : 0)
         }
         let view = PlazaGameView.make(engine: game, now: now, joinedCount: joined, canPlay: subject().speciesID != nil,
-                                      flash: gameFlashes.first(where: { $0.from <= now })?.title,
+                                      flash: gameFlashes.first(where: { $0.from <= now })?.title, drawNote: quiz.note,
                                       name: { [members, nickname] in $0 == me ? nickname() : members[$0]?.nickname })
         let hintChanged = view.hint != gameView.hint || view.status != gameView.status
         let marksChanged = view.holder != gameView.holder || view.alive != gameView.alive || view.out != gameView.out
@@ -1283,6 +1336,7 @@ import Observation
             view.mark(of: id).map { (id, $0) }
         }), mine: view.mark(of: me))
         if hintChanged { refreshHint() }
+        drawStep(view: view, now: now)
     }
 
     /// M: 내가 연 판이 모집 중이면 바로 시작, 아니면 미니게임 메뉴. Y: 참가. N: 안 함(내가 연 판이면 취소).
@@ -1299,6 +1353,8 @@ import Observation
     /// 초대 카드의 단추와 Y·N·M 키가 하는 일. 모집 중이 아니면 아무 일도 없다. 알은 걸을 수 없어 참가하지 못한다.
     func gameAction(_ action: String) {
         guard game.phase(now: clock()) == .recruiting else { return }
+        // A full drawing quiz shows the join button disabled; the Y key honours that too.
+        if action == "join", gameView.card?.buttons.first(where: { $0.action == "join" })?.isEnabled == false { return }
         let present = gamePresent
         let canPlay = subject().speciesID != nil
         stepGame { game, now in
@@ -1350,6 +1406,7 @@ import Observation
         gameView = PlazaGameView()
         gameModel.card = nil
         gameModel.title = nil
+        leaveDrawQuiz()
     }
 
     /// 모닥불 메뉴에서 고른 시간으로 앉거나, 마지막 줄이면 불을 켜거나 끈다. 키로 고르든 눌러 고르든 여기로 온다.
@@ -1775,6 +1832,7 @@ import Observation
     private func openOverlay(_ content: PlazaOverlayContent) -> Int {
         overlayGeneration += 1
         overlayModel.content = content
+        drawPanel.cancelStroke()   // a stroke under way ends where the overlay opened
         scene?.isOverlayOpen = true
         refreshHint()
         return overlayGeneration
@@ -1801,7 +1859,7 @@ import Observation
         var text: String?
         if isPhotoMode {
             text = nil
-        } else if let hint = gameView.hint, overlayModel.content == .none, !chatInput.isOpen {
+        } else if let hint = gameView.hint, overlayModel.content == .none, !chatInput.isOpen || chatInput.purpose == .quizWord {
             text = hint   // 미니게임 중에는 누가 폭탄을 들었는지가 다른 안내보다 먼저다
         } else if let until = prayedHintUntil, clock() < until, subject().speciesID == nil, overlayModel.content == .none, !chatInput.isOpen {
             // 알일 때만: 열 번째 기도로 부화하면 횟수가 0으로 돌아가므로 "기도 0번"을 보이지 않는다.
@@ -1859,9 +1917,6 @@ import Observation
         if overDecoy, shownDitto?.isDecoy == true { scene?.showEmote(memberID: PlazaDitto.sceneKey, kind: kind) }
     }
 
-    /// 런타임이 부른다. 그림 퀴즈 화면이 붙기 전까지는 받아서 버린다.
-    func showDraw(from sender: String, _ draw: TeamDraw) {}
-
     /// 런타임이 부른다. 창이 닫혀 있으면(장면이 없으면) 아무것도 안 한다.
     func showChat(memberID: String, text: String, isLoud: Bool = false) {
         guard let scene, let member = members[memberID] else { return }
@@ -1869,6 +1924,7 @@ import Observation
         // The log keeps the real name and colour, even while the member is drawn as someone else.
         chatLog.append(time: clock(), name: member.nickname, text: text,
                        color: PlazaNameColor.color(forMemberID: memberID, chosen: member.nameColor), isLoud: isLoud)
+        guessedByChat(memberID: memberID, text: text)
     }
 
     /// 목록에서 고른 팀원에게 걸어간다. 누른 뒤에도 키는 장면이 받는다.
@@ -2862,3 +2918,231 @@ import Observation
 extension PlazaWindowController: PlazaWindowEvents {}
 
 extension PlazaWindowController: PlazaPresenting {}
+
+// MARK: - 그림 퀴즈
+
+/// What the plaza keeps for the drawing quiz on its side of the wire: the canvas's turn, the strokes held back for the next message, the
+/// counters of both directions, who was here at the last step, and the turn whose word field already opened.
+fileprivate struct DrawQuiz {
+    struct Key: Equatable { let game: String, turn: Int }
+    var canvasKey: Key?
+    /// The last message of this turn that I applied (as a guesser) and the last I sent (as the drawer); 0 before any.
+    var receivedSeq = 0, sentSeq = 0
+    /// The points of the stroke under way not yet sent. The first may be the last point already sent (`fresh` counts the ones not sent).
+    var held: [Int] = []
+    var fresh = 0
+    var heldColor = 1, heldWidth = 3
+    var lastFlush: Date?
+    var changedSinceSnapshot = false
+    var lastSnapshot: Date?
+    var knownMembers: Set<String> = []
+    var knownInPlaza: Set<String> = []
+    var wordTurn: Key?
+    /// Why the word was refused; shown as the hint while the word field is open.
+    var note: String?
+}
+
+extension PlazaWindowController {
+    /// Strokes are sent when this long has passed since the last message, at 64 points, and when the stroke ends.
+    static let drawFlushInterval: TimeInterval = 0.08
+    /// A snapshot goes out this often while the picture changed.
+    static let drawSnapshotInterval: TimeInterval = 10
+
+    /// Test readers: what the board shows and the canvas I draw on.
+    var drawBoard: PlazaDrawBoard? { drawModel.board }
+    var drawCanvas: PlazaDrawCanvas { drawModel.canvas }
+
+    private var drawPhaseNow: PlazaDrawPhase? { game.drawPhase(now: clock()) }
+
+    /// It is my turn and the word is being asked for.
+    fileprivate var isWordEntryOn: Bool {
+        if game.isDrawer, case .entry? = drawPhaseNow { return true }
+        return false
+    }
+
+    private var isDrawing: Bool {
+        if game.isDrawer, case .drawing? = drawPhaseNow { return true }
+        return false
+    }
+
+    // MARK: each step
+
+    /// What the quiz does on every game step (after the view is made): the board, the canvas's turn, the word field, what is owed to teammates.
+    fileprivate func drawStep(view: PlazaGameView, now: Date) {
+        if drawModel.board != view.board { drawModel.board = view.board }
+        if let s = game.state, let d = s.draw, game.isPlayer, view.board != nil {
+            let key = DrawQuiz.Key(game: s.id, turn: d.turn)
+            if let k = quiz.canvasKey, k.game == key.game {
+                if key.turn > k.turn { resetDrawCanvas(to: key, now: now) }
+            } else {
+                resetDrawCanvas(to: key, now: now)
+            }
+        } else if quiz.canvasKey != nil, view.board == nil {
+            resetDrawCanvas(to: nil, now: now)
+        }
+        // The word field: opened once per turn (it waits for a chat line being typed), closed unsent when the entry is over.
+        let entry = isWordEntryOn
+        if chatInput.isOpen, chatInput.purpose == .quizWord, !entry { chatInput.close() }
+        // It waits like it does for a chat line: an overlay or photo mode has the keyboard.
+        if entry, !chatInput.isOpen, overlayModel.content == .none, !isPhotoMode, let s = game.state, let d = s.draw,
+           quiz.wordTurn != DrawQuiz.Key(game: s.id, turn: d.turn) {
+            quiz.wordTurn = DrawQuiz.Key(game: s.id, turn: d.turn)
+            openChat()
+        }
+        let here = Set(members.keys), inPlaza = gamePresent
+        let newcomer = !here.subtracting(quiz.knownMembers).isEmpty || !inPlaza.subtracting(quiz.knownInPlaza).isEmpty
+        quiz.knownMembers = here
+        quiz.knownInPlaza = inPlaza
+        guard isDrawing else { return }
+        sendHeldStroke(now: now, all: false)
+        let periodic = now.timeIntervalSince(quiz.lastSnapshot ?? now) >= Self.drawSnapshotInterval
+        if newcomer || (periodic && quiz.changedSinceSnapshot) {
+            sendSnapshot(now: now)
+        } else if periodic {
+            quiz.lastSnapshot = now   // nothing changed in this interval: the next one counts from here
+        }
+    }
+
+    /// A new turn (or no quiz at all): a blank canvas, the tools as a turn starts (black, thick), nothing held, both counters at 0.
+    private func resetDrawCanvas(to key: DrawQuiz.Key?, now: Date) {
+        if drawModel.canvas != PlazaDrawCanvas() { drawModel.canvas = PlazaDrawCanvas() }
+        if drawModel.color != 1 { drawModel.color = 1 }
+        if drawModel.width != 3 { drawModel.width = 3 }
+        quiz.canvasKey = key
+        quiz.receivedSeq = 0
+        quiz.sentSeq = 0
+        quiz.held = []
+        quiz.fresh = 0
+        quiz.lastFlush = nil
+        quiz.changedSinceSnapshot = false
+        quiz.lastSnapshot = now
+        quiz.note = nil
+    }
+
+    /// The plaza closes or I leave the game: no board, no field, nothing held.
+    fileprivate func leaveDrawQuiz() {
+        if chatInput.isOpen, chatInput.purpose == .quizWord { chatInput.close() }
+        drawModel.board = nil
+        resetDrawCanvas(to: nil, now: clock())
+        quiz = DrawQuiz()
+    }
+
+    // MARK: the word
+
+    /// The word field's line. true closes the field. A word that breaks the rules keeps it open and says why in the hint.
+    fileprivate func submitWord(_ raw: String) -> Bool {
+        var accepted = false
+        stepGame { game, now in accepted = game.setWord(raw, now: now) }
+        quiz.note = accepted ? nil : L(.ko).plazaDrawWordInvalid
+        if !accepted { advanceGame() }
+        return accepted
+    }
+
+    // MARK: guesses
+
+    /// A teammate's line reached the plaza. Only the drawer's Mac judges it; it knows who is playing.
+    fileprivate func guessedByChat(memberID sender: String, text: String) {
+        guard game.myWord != nil, let id = game.state?.id else { return }
+        let playing = Set(members.values.filter { $0.inPlaza && $0.gameJoin == id }.map(\.memberID))
+        stepGame { game, now in _ = game.guess(text, from: sender, now: now, playing: playing) }
+    }
+
+    // MARK: strokes out
+
+    /// A segment of my stroke ([x, y] for a dot, [x0, y0, x1, y1] for a step): held until a message is due.
+    fileprivate func drewStroke(_ points: [Int], color: Int, width: Int) {
+        guard isDrawing else { return }
+        let now = clock()
+        quiz.changedSinceSnapshot = true
+        quiz.heldColor = color
+        quiz.heldWidth = width
+        if points.count == 2 || quiz.held.isEmpty {   // a new stroke: what was held goes out first
+            sendHeldStroke(now: now, all: true)
+            quiz.held = points
+            quiz.fresh = points.count / 2
+            quiz.lastFlush = now
+        } else {
+            quiz.held += points.dropFirst(2)   // the segment starts at the point already held
+            quiz.fresh += points.count / 2 - 1
+        }
+        sendHeldStroke(now: now, all: false)
+    }
+
+    fileprivate func endedStroke() { sendHeldStroke(now: clock(), all: true) }
+
+    fileprivate func clearedCanvas() {
+        guard isDrawing else { return }
+        sendHeldStroke(now: clock(), all: true)
+        quiz.changedSinceSnapshot = true
+        send(.clear)
+    }
+
+    /// Sends what is held in messages of at most 64 points. `all`: whatever is held (the stroke ended); else only when 64 points are held or
+    /// the interval has passed. The next message starts at the point this one ended on.
+    private func sendHeldStroke(now: Date, all: Bool) {
+        while quiz.fresh > 0 {
+            let count = quiz.held.count / 2
+            let full = count >= TeamDraw.maxPoints
+            let due = all || full || now.timeIntervalSince(quiz.lastFlush ?? .distantPast) >= Self.drawFlushInterval
+            guard due else { return }
+            let n = min(count, TeamDraw.maxPoints)
+            send(.stroke, points: Array(quiz.held.prefix(2 * n)))
+            quiz.held = Array(quiz.held.suffix(from: 2 * (n - 1)))
+            quiz.fresh = quiz.held.count / 2 - 1
+            quiz.lastFlush = now
+        }
+        if all {
+            quiz.held = []
+            quiz.fresh = 0
+        }
+    }
+
+    private func sendSnapshot(now: Date) {
+        sendHeldStroke(now: now, all: true)
+        quiz.changedSinceSnapshot = false
+        quiz.lastSnapshot = now
+        send(.snapshot, cells: drawModel.canvas.packed().base64EncodedString())
+    }
+
+    private func send(_ op: TeamDraw.Op, points: [Int]? = nil, cells: String? = nil) {
+        guard let s = game.state, let d = s.draw else { return }
+        if op != .snapshot { quiz.sentSeq += 1 }
+        let stroke = op == .stroke
+        session?.sendDraw(TeamDraw(game: s.id, turn: d.turn, seq: quiz.sentSeq, op: op, color: stroke ? quiz.heldColor : nil,
+                                   width: stroke ? quiz.heldWidth : nil, points: points, cells: cells))
+    }
+
+    // MARK: strokes in
+
+    /// The runtime hands in a drawing message. It counts only while I play this game and only from the turn's drawer, judged by the drawer's own
+    /// presence (read from the session, which applies a presence the moment it arrives: this plaza's copy of the members follows a moment later
+    /// and would throw away the first strokes of a turn).
+    func showDraw(from sender: String, _ d: TeamDraw) {
+        guard scene != nil, game.isPlayer, sender != memberID(), let mine = game.state, mine.id == d.game,
+              mine.kind == PlazaGameKind.draw.rawValue, mine.players.contains(sender),
+              let who = (session?.members ?? members)[sender], who.inPlaza, who.gameJoin == mine.id,
+              let theirs = who.game, theirs.id == mine.id, theirs.endedAt == nil,
+              let draw = theirs.draw, draw.order.indices.contains(draw.turn), draw.order[draw.turn] == sender,
+              draw.drawAt != nil, draw.turn == d.turn else { return }
+        let key = DrawQuiz.Key(game: d.game, turn: d.turn)
+        if let k = quiz.canvasKey, k.game == key.game {
+            if d.turn < k.turn { return }
+            if d.turn > k.turn { resetDrawCanvas(to: key, now: clock()) }
+        } else {
+            resetDrawCanvas(to: key, now: clock())
+        }
+        switch d.op {
+        case .stroke:
+            guard d.seq > quiz.receivedSeq, let points = d.points, let color = d.color, let width = d.width,
+                  drawModel.canvas.stroke(points: points, color: color, width: width) else { return }
+        case .clear:
+            guard d.seq > quiz.receivedSeq else { return }
+            drawModel.canvas.clear()
+        case .snapshot:
+            guard d.seq >= quiz.receivedSeq, let cells = d.cells, cells.utf8.count <= TeamDraw.maxCellsBase64,
+                  let data = Data(base64Encoded: cells), let canvas = PlazaDrawCanvas(packed: data) else { return }
+            drawModel.canvas = canvas
+        }
+        quiz.receivedSeq = d.seq
+    }
+}

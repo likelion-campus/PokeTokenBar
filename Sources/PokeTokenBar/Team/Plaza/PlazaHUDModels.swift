@@ -23,5 +23,8 @@ final class PlazaNameColorModel {
 @MainActor @Observable
 final class PlazaShortcutGuideModel {
     var isFolded = false
+    /// Folded for now by something else (the drawing quiz's board needs the room); the saved choice in `isFolded` is untouched.
+    var isForcedFolded = false
+    var showsFolded: Bool { isFolded || isForcedFolded }
     var season = PlazaSeason.winter
 }
