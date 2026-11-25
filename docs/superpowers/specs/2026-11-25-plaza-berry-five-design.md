@@ -5,6 +5,7 @@
   - 할리갈리 방식으로 간다("할리갈리 게임을 해보는건 어떨까?").
   - 설계자가 제안한 진행(자동 뒤집기, 점수 경쟁)이 좋다고 했다("진행방향은 마음에드나").
   - 화면은 탑뷰 탁자 구도로 정했다("이 구도로 디자인 문서 써줘"). 목업은 `2026-11-25-plaza-berry-five-mock.html` 이다.
+  - 2026-11-25 사용자가 이 문서(15절의 설계자 판단 포함)를 승인했다("승인"). 구현 계획은 `docs/superpowers/plans/2026-11-25-plaza-berry-five.md`.
 - 저장소: `likelion-campus/PokeTokenBar`, 기준 `main` 189a18ce
 - 관련 문서와 코드:
   - `docs/superpowers/specs/2026-11-25-plaza-draw-quiz-design.md`: 같은 날 설계한 두 번째 미니게임 "그림 퀴즈". 이 문서는 그 문서의
