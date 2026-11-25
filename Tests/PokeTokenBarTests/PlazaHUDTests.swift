@@ -237,9 +237,11 @@ final class CanvasKeepingGraphics: PlazaGraphics, @unchecked Sendable {
         var onChange: (() -> Void)?
         var isVisible = true
         private(set) var phases: [PlazaScrollerPhase] = []
+        private(set) var scrolls = 0
         func size(in viewport: CGSize, scale: CGFloat, text: any PlazaTextEngine) -> CGSize { CGSize(width: 40, height: 20) }
         func render(scale: CGFloat, viewport: CGSize, graphics: any PlazaGraphics) -> PlazaPanelDrawing { PlazaPanelDrawing() }
-        func hit(_ point: CGPoint) -> PlazaPanelHit? { nil }
+        func hit(_ point: CGPoint) -> PlazaPanelHit? { PlazaPanelHit(action: "scroller", index: nil) }
+        func scroll(dx: CGFloat, dy: CGFloat, at point: CGPoint) -> Bool { scrolls += 1; return true }
         func scrollerContains(_ point: CGPoint) -> Bool { true }
         func scrollerMouse(_ phase: PlazaScrollerPhase, at point: CGPoint) { phases.append(phase) }
     }
@@ -295,6 +297,59 @@ final class CanvasKeepingGraphics: PlazaGraphics, @unchecked Sendable {
         XCTAssertTrue(s.phases == [.down])
         _ = hud2.handleMouse(moved(120, 15), in: .nameColorPicker)
         XCTAssertTrue(s.phases == [.down], "no drag reaches a suppressed panel")
+    }
+
+    /// While the plaza is not rendering `update` leaves `shown` alone, so the suppressed checks in the readers are what keep a panel quiet.
+    func testSuppressionHoldsWhileNotRendering() async {
+        let b = ScrollerButton()
+        let hud = PlazaHUD(panels: [b], graphics: stub)
+        let host = RecordingPanelHost()
+        hud.host = host
+        hud.setViewport(window, scale: 2)
+        XCTAssertEqual(hud.hit(at: CGPoint(x: 110, y: 15))?.id, .nameColorPicker)
+        hud.isRendering = false
+        hud.suppressed = [.nameColorPicker]
+        XCTAssertNotEqual(hud.hit(at: CGPoint(x: 110, y: 15))?.id, .nameColorPicker)
+        XCTAssertFalse(hud.isShown(.nameColorPicker))
+        let scroll = PlazaMouseEvent(kind: .scroll(dx: 0, dy: 5), location: CGPoint(x: 110, y: 15))
+        XCTAssertFalse(hud.handleMouse(scroll, in: .nameColorPicker))
+        XCTAssertEqual(b.scrolls, 0)
+    }
+
+    /// The set's own didSet ends a press and a hover (not rendering, `update` does not).
+    func testSuppressingEndsAPressAndAHoverEvenWhileNotRendering() async {
+        let b = ButtonPanel(.nameColorPicker, tracksMouse: true)
+        let hud = PlazaHUD(panels: [b], graphics: stub)
+        var actions: [PlazaPanelID] = []
+        hud.onAction = { id, _ in actions.append(id) }
+        let host = RecordingPanelHost()
+        hud.host = host
+        hud.setViewport(window, scale: 2)
+        hud.isRendering = false
+        XCTAssertTrue(hud.handleMouse(down(15, 15), in: .nameColorPicker))
+        hud.suppressed = [.nameColorPicker]
+        XCTAssertEqual(b.interaction, PlazaPanelInteraction(), "press and hover gone")
+        XCTAssertFalse(hud.handleMouse(up(15, 15), in: .nameColorPicker), "no press left to release")
+        XCTAssertEqual(actions, [])
+        hud.suppressed = []
+        XCTAssertTrue(hud.handleMouse(moved(15, 15), in: .nameColorPicker))
+        XCTAssertEqual(b.interaction.hovered, ButtonPanel.toggle)
+        hud.suppressed = [.nameColorPicker]
+        XCTAssertEqual(b.interaction, PlazaPanelInteraction(), "hover gone")
+    }
+
+    /// A scroller press captured before the panel is set aside does not come back with it: the move after letting go is not a drag.
+    func testASuppressedScrollerCaptureDoesNotSurviveLettingGo() async {
+        let s = ScrollerButton()
+        let hud = PlazaHUD(panels: [s], graphics: stub)
+        let host = RecordingPanelHost()
+        hud.host = host
+        hud.setViewport(window, scale: 2)
+        XCTAssertTrue(hud.handleMouse(down(110, 15), in: .nameColorPicker))
+        hud.suppressed = [.nameColorPicker]
+        hud.suppressed = []
+        _ = hud.handleMouse(moved(120, 15), in: .nameColorPicker)
+        XCTAssertTrue(s.phases == [.down], "no drag")
     }
 
     /// Photo mode and suppression are separate: letting one go leaves the other as it was.
