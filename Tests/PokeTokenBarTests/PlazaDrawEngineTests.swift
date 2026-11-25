@@ -490,6 +490,15 @@ final class PlazaDrawEngineTests: XCTestCase {
         XCTAssertNotNil(room["d"].state, "it hears nobody, so it knows nothing about who plays")
     }
 
+    func testTheHostIsAlwaysAmongThePlayersEvenWhenItsIdSortsLast() {
+        var room = Room(["a", "b", "c", "d", "e", "f", "g", "h", "z"])
+        start(&room, host: "z")
+        let players = room["z"].state?.players ?? []
+        XCTAssertEqual(players.count, PlazaDraw.maxPlayers)
+        XCTAssertTrue(players.contains("z"), "the host is in its own game")
+        XCTAssertEqual(players, ["a", "b", "c", "d", "e", "f", "g", "z"], "the first others in id order fill the rest")
+    }
+
     // MARK: - One machine's partial view (review I2)
 
     func testAPlayerThatHearsOnlyANonPlayerWritesNothingAndStepsOut() {

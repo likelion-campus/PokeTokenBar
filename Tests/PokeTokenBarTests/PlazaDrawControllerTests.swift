@@ -88,7 +88,7 @@ final class PlazaDrawControllerTests: XCTestCase {
             let id = engine.state?.id
             engine.tick(now: now, present: Set(members.filter(\.inPlaza).map(\.memberID)),
                         joins: Set(members.filter { $0.inPlaza && id != nil && $0.gameJoin == id }.map(\.memberID)),
-                        connected: !members.isEmpty)
+                        connected: !members.isEmpty, heard: Set(session.members.keys))
             session.updateGame(engine.state, join: engine.joined)
         }
 
@@ -119,6 +119,8 @@ final class PlazaDrawControllerTests: XCTestCase {
         let c: PlazaWindowController, me: Node, others: [Node], input: PlazaTypingChatInput
         /// My side's name for the link to each teammate.
         let peers: [String: TeamPeerID]
+        /// My links to the teammates.
+        var links: [FakeConnection] = []
         var b: Node { others[0] }
         var d: Node { others[1] }
         var scene: PlazaScene { c.scene! }
@@ -151,14 +153,19 @@ final class PlazaDrawControllerTests: XCTestCase {
         let c = controller(me, input: input)
         c.prepareScene()
         var peers: [String: TeamPeerID] = [:]
-        for o in others { peers[o.id] = hub.connect(me.transport, to: o.transport).peerID(on: me.transport) }
+        var links: [FakeConnection] = []
+        for o in others {
+            let link = hub.connect(me.transport, to: o.transport)
+            links.append(link)
+            peers[o.id] = link.peerID(on: me.transport)
+        }
         if mesh { for i in others.indices { for j in others.indices where j > i { hub.connect(others[i].transport, to: others[j].transport) } } }
         await settle()
         for (i, o) in others.enumerated() {
             o.session.updatePlazaPosition(inPlaza: true, tile: TilePoint(x: 11 + i, y: 6), facing: .left, isWalking: false, isFlushed: false)
         }
         await settle()
-        return World(c: c, me: me, others: others, input: input, peers: peers)
+        return World(c: c, me: me, others: others, input: input, peers: peers, links: links)
     }
 
     /// Everyone hears everyone until nothing more happens.
@@ -314,6 +321,9 @@ final class PlazaDrawControllerTests: XCTestCase {
         await beginEntry(w)
         XCTAssertNotNil(w.c.gameState?.draw?.entryAt, "test precondition: my entry began")
         XCTAssertTrue(w.input.isOpen)
+        XCTAssertEqual(w.c.drawBoard?.cover, L(.ko).plazaDrawMyEntryAfterChat(seconds: Int(PlazaDraw.wordSeconds)),
+                       "the board does not invite the word into the chat field")
+        XCTAssertEqual(w.c.drawBoard?.cover?.contains("Esc"), true)
         XCTAssertEqual(w.input.purpose, .chat, "the chat line is not turned into the word")
         XCTAssertEqual(w.input.text, "안녕", "and not thrown away")
         XCTAssertTrue(w.input.submit())
@@ -322,6 +332,7 @@ final class PlazaDrawControllerTests: XCTestCase {
         XCTAssertTrue(w.input.isOpen, "the word field opens once the line is out")
         XCTAssertEqual(w.input.purpose, .quizWord)
         XCTAssertEqual(w.input.text, "")
+        XCTAssertEqual(w.c.drawBoard?.cover, L(.ko).plazaDrawMyEntry(seconds: Int(PlazaDraw.wordSeconds)), "now it is the word field")
     }
 
     func testTheWordFieldClosesAtTheDeadlineWithoutSending() async {
@@ -585,9 +596,13 @@ final class PlazaDrawControllerTests: XCTestCase {
         w.d.tell()
         now += PlazaDraw.drawSeconds + 1
         await sync(w)
+        XCTAssertNil(w.c.gameState?.endedAt, "the lack of players has to last 3 s first")
+        now += PlazaBomb.absenceGrace + 1
+        await sync(w)
         XCTAssertNotNil(w.c.gameState?.endedAt)
         XCTAssertEqual(w.c.gameCard?.title, L(.ko).plazaDrawRankingTitle)
-        XCTAssertEqual(w.c.gameCard?.lines.count, 2)
+        XCTAssertEqual(w.c.gameCard?.lines.count, 3, "the last result, then the two players")
+        XCTAssertEqual(w.c.gameCard?.lines.first, L(.ko).plazaDrawResultTimeout(word: word), "the last turn timed out: its word is shown")
         XCTAssertNil(w.c.drawBoard)
     }
 
@@ -702,6 +717,7 @@ final class PlazaDrawControllerTests: XCTestCase {
         await beginEntry(w)
         XCTAssertNotNil(w.c.gameState?.draw?.entryAt, "test precondition: my entry began")
         XCTAssertFalse(w.input.isOpen, "the menu has the keyboard")
+        XCTAssertEqual(w.c.drawBoard?.cover, L(.ko).plazaDrawMyEntryAfterWindow(seconds: Int(PlazaDraw.wordSeconds)))
         w.c.chooseGame(index: 0)   // closes the menu
         XCTAssertEqual(w.c.overlayContent, .none)
         await sync(w)
@@ -813,6 +829,8 @@ final class PlazaDrawControllerTests: XCTestCase {
         }
         now += PlazaDraw.wordSeconds + 1
         await sync(w)
+        now += PlazaBomb.absenceGrace + 1
+        await sync(w)
         XCTAssertNotNil(w.c.gameState?.endedAt)
         XCTAssertNil(w.c.drawBoard)
         XCTAssertFalse(w.input.isOpen)
@@ -848,5 +866,120 @@ final class PlazaDrawControllerTests: XCTestCase {
         XCTAssertNil(w.c.drawBoard)
         XCTAssertEqual(w.c.drawCanvas, PlazaDrawCanvas())
         XCTAssertNil(w.c.gameJoined)
+    }
+
+    // MARK: - Final review fixes
+
+    /// The first drawer's turn runs out unanswered, turn after turn, until the game ends. `leaving` is a teammate whose plaza is closed.
+    private func runToTheEnd(_ w: World, stepping nodes: [Node]) async {
+        for _ in 0..<80 where w.c.gameState?.endedAt == nil {
+            now += 5
+            for n in nodes { n.step(now) }
+            await sync(w)
+        }
+    }
+
+    private func closePlaza(_ n: Node) {
+        n.step(now)
+        n.engine.leave(now: now, present: [])
+        n.session.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false, isFlushed: false)
+        n.tell()
+    }
+
+    func testAClosedPlazasFrozenQuizDoesNotBringTheFinishedGameBackOrBlockTheMenu() async {
+        let w = await world()
+        await lock(w, first: w.me.id)
+        await beginEntry(w)
+        closePlaza(w.d)   // its last copy is a running quiz, and it is never stepped again
+        XCTAssertNotNil(w.d.engine.state?.draw)
+        await runToTheEnd(w, stepping: [w.b])
+        XCTAssertNotNil(w.c.gameState?.endedAt, "test precondition: the game ended without d")
+        for _ in 0..<(Int(PlazaGame.endedKeep) / 5 + 4) {
+            now += 5
+            w.b.step(now)
+            await sync(w)
+        }
+        for _ in 0..<12 {
+            now += 5
+            w.b.step(now)
+            await sync(w)
+            XCTAssertNil(w.c.gameState)
+            XCTAssertNil(w.c.drawBoard)
+            XCTAssertNil(w.c.gameCard)
+        }
+        press(w.c, mKey)
+        guard case .gameMenu(let menu) = w.c.overlayContent else { return XCTFail("the menu opens") }
+        XCTAssertNil(menu.blocked, "the menu is not told a game is running")
+    }
+
+    func testAMachineThatOnlyHearsAClosedPlazasQuizNeverAdoptsIt() async {
+        let w = await world()
+        await lock(w, first: w.b.id, meJoins: false)
+        closePlaza(w.b)
+        closePlaza(w.d)
+        // A machine with no memory of the game joins the team now and hears only the two frozen copies.
+        let late = node("차")
+        let lateInput = PlazaTypingChatInput()
+        let c2 = controller(late, input: lateInput)
+        c2.prepareScene()
+        hub.connect(late.transport, to: w.b.transport)
+        hub.connect(late.transport, to: w.d.transport)
+        await settle()
+        w.b.tell()
+        w.d.tell()
+        await settle()
+        XCTAssertEqual(late.session.members.values.filter { $0.game?.draw != nil }.count, 2, "test precondition: it holds both running copies")
+        for _ in 0..<4 {
+            c2.advanceGame()
+            await settle()
+        }
+        XCTAssertNil(c2.gameState)
+    }
+
+    func testBeingIsolatedMidQuizShowsTheLostConnectionBannerAndTakesTheBoardAway() async {
+        let w = await world()
+        await lock(w, first: w.b.id)
+        await beginEntry(w)
+        XCTAssertNotNil(w.c.drawBoard)
+        for link in w.links { hub.disconnect(link) }
+        await settle()
+        XCTAssertTrue(w.me.session.members.isEmpty, "test precondition: I hear nobody")
+        now += 1
+        w.c.advanceGame()
+        XCTAssertNotNil(w.c.drawBoard, "not yet")
+        now += PlazaGame.isolationLimit
+        w.c.advanceGame()
+        XCTAssertEqual(w.c.banner, L(.ko).plazaGameLostConnectionBanner)
+        XCTAssertNil(w.c.drawBoard)
+        XCTAssertNil(w.c.gameJoined)
+    }
+
+    func testASkippedTurnDoesNotFlashTimeUp() async {
+        let w = await world()
+        await lock(w, first: w.b.id)
+        await beginEntry(w)
+        w.b.engine.leave(now: now, present: Set(w.all))   // the drawer leaves before it names a word
+        w.b.tell()
+        now += PlazaBomb.absenceGrace + 1
+        await sync(w)
+        now += PlazaBomb.absenceGrace + 1
+        await sync(w)
+        XCTAssertEqual(w.c.gameState?.draw?.last?.drawer, w.b.id, "test precondition: its turn was skipped")
+        XCTAssertNil(w.c.gameState?.draw?.last?.word)
+        XCTAssertNotEqual(w.c.gameTitle?.text, L(.ko).plazaDrawTimeUp)
+        XCTAssertEqual(w.c.drawBoard?.foot, .lines([L(.ko).plazaDrawResultUnknown, L(.ko).plazaDrawResultNoPoints]))
+    }
+
+    func testPlayersWhoLeftTheQuizAreNotRinged() async {
+        let w = await world()
+        await lock(w, first: w.b.id)
+        await beginEntry(w)
+        XCTAssertEqual(Set(w.scene.gameMarks.keys), ["", w.b.id, w.d.id])
+        w.d.engine.leave(now: now, present: Set(w.all))
+        w.d.tell()
+        await sync(w)
+        XCTAssertNil(w.c.gameState?.endedAt, "two are left")
+        XCTAssertEqual(Set(w.scene.gameMarks.keys), ["", w.b.id], "d left: no ring under d")
+        XCTAssertEqual(Set(w.c.minimapDots.filter { $0.game == .alive }.map(\.id)), [w.me.id, w.b.id])
     }
 }

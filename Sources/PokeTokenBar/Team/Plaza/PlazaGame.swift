@@ -101,7 +101,7 @@ enum PlazaGame {
             guard s.players.isEmpty, s.bomb == nil, s.draw == nil else { return nil }
         }
         if s.kind == PlazaGameKind.draw.rawValue {
-            guard s.players.count <= PlazaDraw.maxPlayers else { return nil }
+            guard s.players.count <= PlazaDraw.maxPlayers, s.bomb == nil else { return nil }
             if let d = s.draw {
                 guard let kept = PlazaDraw.accepted(d, players: s.players) else { return nil }
                 s.draw = kept
@@ -427,7 +427,14 @@ struct PlazaGameEngine {
             let players = (joins.intersection(present).union(joined == s.id ? [me] : [])).sorted()
             let timeUp = t >= s.opensAt + PlazaGame.recruitSeconds
             if players.count >= PlazaGame.minPlayers, timeUp || startRequested {
-                s.players = Array(players.prefix(s.kind == PlazaGameKind.draw.rawValue ? PlazaDraw.maxPlayers : PlazaGame.maxPlayers))
+                if s.kind == PlazaGameKind.draw.rawValue {
+                    // The host is always among the players: it plays the first turn it can, and its own game never starts without it.
+                    let cap = PlazaDraw.maxPlayers
+                    s.players = players.count > cap && players.contains(me)
+                        ? ([me] + players.filter { $0 != me }.prefix(cap - 1)).sorted() : Array(players.prefix(cap))
+                } else {
+                    s.players = Array(players.prefix(PlazaGame.maxPlayers))
+                }
                 s.seed = makeSeed()
                 s.startsAt = t + PlazaGame.countdownSeconds
                 if s.kind == PlazaGameKind.bomb.rawValue {
