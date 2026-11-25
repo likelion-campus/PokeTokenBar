@@ -211,6 +211,15 @@ enum PlazaBomb {
     }
 }
 
+/// Where a drawing quiz is, as this Mac sees it. Times are counted from when this Mac learned of the phase.
+enum PlazaDrawPhase: Equatable, Sendable {
+    case countdown(left: TimeInterval)
+    case reveal(left: TimeInterval)
+    case entry(left: TimeInterval)
+    case drawing(left: TimeInterval)
+    case over
+}
+
 /// One Mac's part in the team's minigame: what it knows, what it answered, and the moves only it may make. Pure
 /// values; the plaza feeds it the clock and who is there, publishes `state` and `joined`, and draws from `state`.
 struct PlazaGameEngine {
@@ -224,6 +233,20 @@ struct PlazaGameEngine {
     private var startRequested = false
     private var holderAbsentSince: Double?
     private var isolatedSince: Double?
+    /// When this Mac first saw each part of the drawing quiz (its own clock): no stamp from another clock decides a deadline.
+    fileprivate struct DrawClock {
+        var game: String
+        var lockSeen: Double?
+        var turn: Int?
+        var turnSeen: Double?
+        var entrySeen: Double?
+        var drawSeen: Double?
+        var drawerAbsentSince: Double?
+    }
+    fileprivate struct DrawSecret { var game: String; var turn: Int; var word: String }
+    fileprivate var drawClock: DrawClock?
+    /// The word I chose as the drawer. Never part of `state` before the turn ends.
+    fileprivate var secret: DrawSecret?
     /// The game I dropped out of because this Mac lost every teammate (the plaza says so instead of naming a loser).
     private(set) var lostConnection: String?
     /// Hosts whose game was cancelled before it started, and when: their next invitation waits `reopenDelay`.
@@ -269,6 +292,7 @@ struct PlazaGameEngine {
         if declined != state?.id { declined = nil }
         if lostConnection != state?.id { lostConnection = nil }
         if state?.startsAt != nil || state == nil { startRequested = false }
+        observeDraw(now: now)
         let t = now.timeIntervalSince1970
         if let s = state, s.startsAt == nil, let ended = s.endedAt { cancelled[s.host] = max(cancelled[s.host] ?? ended, ended) }
         cancelled = cancelled.filter { t < $0.value + PlazaGame.reopenDelay }
@@ -326,6 +350,10 @@ struct PlazaGameEngine {
             state = s
             settle(now: now)
         case .countdown, .playing:
+            if s.kind == PlazaGameKind.draw.rawValue {
+                joined = nil   // out for good: the others skip my turns, and reopening the plaza does not bring me back
+                return
+            }
             guard PlazaBomb.alive(s).contains(me) else { return }
             putOut(me, now: now, present: present.subtracting([me]))
         default: break
@@ -359,6 +387,10 @@ struct PlazaGameEngine {
         guard var s = state else { return before != nil }
         let t = now.timeIntervalSince1970
         let phase = PlazaGame.phase(s, now: now)
+        if s.kind == PlazaGameKind.draw.rawValue, s.startsAt != nil {
+            tickDraw(now: now, present: present, joins: joins, connected: connected)
+            return state != before
+        }
         if phase == .countdown || phase == .playing, PlazaBomb.alive(s).contains(me) {
             // Listed without my yes (a late N, a restart, a list someone made up): I step out, quietly.
             if joined != s.id {
@@ -383,12 +415,15 @@ struct PlazaGameEngine {
             let players = (joins.intersection(present).union(joined == s.id ? [me] : [])).sorted()
             let timeUp = t >= s.opensAt + PlazaGame.recruitSeconds
             if players.count >= PlazaGame.minPlayers, timeUp || startRequested {
-                s.players = Array(players.prefix(PlazaGame.maxPlayers))
+                s.players = Array(players.prefix(s.kind == PlazaGameKind.draw.rawValue ? PlazaDraw.maxPlayers : PlazaGame.maxPlayers))
                 s.seed = makeSeed()
                 s.startsAt = t + PlazaGame.countdownSeconds
                 if s.kind == PlazaGameKind.bomb.rawValue {
                     s.bomb = PlazaBombState(round: 1, roundStartsAt: t + PlazaGame.countdownSeconds,
                                             holder: PlazaBomb.firstHolder(seed: s.seed, round: 1, alive: s.players))
+                } else if s.kind == PlazaGameKind.draw.rawValue {
+                    s.draw = PlazaDrawState(order: PlazaDraw.order(players: s.players, seed: s.seed), turn: 0, step: 0,
+                                            scores: Dictionary(uniqueKeysWithValues: s.players.map { ($0, 0) }))
                 }
                 state = s
             } else if timeUp {
@@ -452,5 +487,142 @@ struct PlazaGameEngine {
             s.bomb = b
         }
         state = s
+    }
+}
+
+// MARK: - 그림 퀴즈
+
+/// The drawing quiz's engine. Every deadline runs on this Mac's own clock from the moment it learned of the phase, so Macs
+/// whose clocks differ by a minute still agree on the turns. Only the drawer writes during a turn; the referee (the
+/// smallest id playing besides the drawer) writes only when the drawer cannot.
+extension PlazaGameEngine {
+    private var isDrawGame: Bool { state?.kind == PlazaGameKind.draw.rawValue && state?.startsAt != nil }
+
+    /// Who draws now. nil when no turn is running.
+    var drawer: String? {
+        guard isDrawGame, let s = state, s.endedAt == nil, let d = s.draw, d.order.indices.contains(d.turn) else { return nil }
+        return d.order[d.turn]
+    }
+
+    /// I draw now, and I said yes to this game.
+    var isDrawer: Bool { drawer == me && joined == state?.id }
+
+    /// My word, on my machine only, while my turn runs.
+    var myWord: String? {
+        guard isDrawer, let secret, secret.game == state?.id, secret.turn == state?.draw?.turn else { return nil }
+        return secret.word
+    }
+
+    func drawPhase(now: Date) -> PlazaDrawPhase? {
+        guard isDrawGame, let s = state, let d = s.draw, let c = drawClock, c.game == s.id, PlazaGame.phase(s, now: now) != nil else { return nil }
+        if s.endedAt != nil { return .over }
+        let t = now.timeIntervalSince1970
+        func left(_ since: Double?, _ length: TimeInterval) -> TimeInterval { max(0, length - (t - (since ?? t))) }
+        if d.drawAt != nil { return .drawing(left: left(c.drawSeen, PlazaDraw.drawSeconds)) }
+        if d.entryAt != nil { return .entry(left: left(c.entrySeen, PlazaDraw.wordSeconds)) }
+        let intro = introLeft(d, c, t)
+        if intro > 0 { return d.last == nil ? .countdown(left: intro) : .reveal(left: intro) }
+        return .entry(left: PlazaDraw.wordSeconds)
+    }
+
+    /// What is left of the countdown (first turn) or of the last result's showing (later turns).
+    private func introLeft(_ d: PlazaDrawState, _ c: DrawClock, _ t: Double) -> TimeInterval {
+        d.last == nil ? PlazaGame.countdownSeconds - (t - (c.lockSeen ?? t)) : PlazaDraw.revealSeconds - (t - (c.turnSeen ?? t))
+    }
+
+    /// Remembers when this Mac first saw the lock, the turn, the entry and the drawing; forgets a word whose turn is over.
+    fileprivate mutating func observeDraw(now: Date) {
+        guard isDrawGame, let s = state, let d = s.draw else {
+            drawClock = nil
+            secret = nil
+            return
+        }
+        let t = now.timeIntervalSince1970
+        var c = drawClock?.game == s.id ? drawClock! : DrawClock(game: s.id)
+        if c.lockSeen == nil { c.lockSeen = t }
+        if c.turn != d.turn {
+            c.turn = d.turn
+            c.turnSeen = t
+            c.drawerAbsentSince = nil
+        }
+        c.entrySeen = d.entryAt == nil ? nil : (c.entrySeen ?? t)
+        c.drawSeen = d.drawAt == nil ? nil : (c.drawSeen ?? t)
+        drawClock = c
+        if let w = secret, w.game != s.id || w.turn != d.turn || s.endedAt != nil { secret = nil }
+    }
+
+    /// The drawer's word. False (keep the field open) when it breaks the word rules or it is not my entry phase.
+    mutating func setWord(_ raw: String, now: Date) -> Bool {
+        guard isDrawer, let s = state, let word = PlazaDraw.word(raw),
+              let next = PlazaDraw.wordSet(s, by: me, at: now.timeIntervalSince1970), let d = s.draw else { return false }
+        state = next
+        secret = DrawSecret(game: s.id, turn: d.turn, word: word)
+        observeDraw(now: now)
+        return true
+    }
+
+    /// A chat line that arrived. Only the drawer's machine acts; true when the line ended the turn.
+    mutating func guess(_ line: String, from sender: String, now: Date, playing: Set<String>) -> Bool {
+        guard let word = myWord, let s = state, s.endedAt == nil, s.draw?.drawAt != nil, sender != me,
+              playing.contains(sender), s.players.contains(sender), PlazaDraw.matches(line, word: word) else { return false }
+        state = PlazaDraw.ended(s, word: word, solver: sender, playing: playing.intersection(s.players).union([me]),
+                                at: now.timeIntervalSince1970)
+        observeDraw(now: now)
+        return true
+    }
+
+    /// I am drawing and the line holds my word: it must not be sent.
+    func blocksOwnLine(_ line: String) -> Bool {
+        myWord.map { PlazaDraw.contains(line, word: $0) } ?? false
+    }
+
+    fileprivate mutating func tickDraw(now: Date, present: Set<String>, joins: Set<String>, connected: Bool) {
+        // A state without its `draw` (an old app's relay) is passed on and never played or refereed.
+        guard let s = state, s.endedAt == nil, let d = s.draw, d.order.indices.contains(d.turn), s.players.contains(me),
+              joined == s.id, let c = drawClock else { return }
+        let t = now.timeIntervalSince1970
+        // Cut off from everyone I cannot tell who is still here: I write nothing, and after a while I step out myself.
+        guard connected else {
+            drawClock?.drawerAbsentSince = nil
+            let since = isolatedSince ?? t
+            isolatedSince = since
+            if t - since >= PlazaGame.isolationLimit {
+                lostConnection = s.id
+                joined = nil
+            }
+            return
+        }
+        isolatedSince = nil
+        let playing = joins.intersection(s.players).union([me])
+        let who = d.order[d.turn]
+        if who == me {
+            if d.entryAt == nil, d.drawAt == nil {
+                if introLeft(d, c, t) <= 0, let next = PlazaDraw.opened(s, by: me, at: t) { state = next }
+            } else if d.drawAt == nil {
+                if t - (c.entrySeen ?? t) >= PlazaDraw.wordSeconds {
+                    state = PlazaDraw.ended(s, word: nil, solver: nil, playing: playing, at: t)
+                }
+            } else if let word = myWord {
+                let elapsed = t - (c.drawSeen ?? t)
+                if elapsed >= PlazaDraw.drawSeconds {
+                    state = PlazaDraw.ended(s, word: word, solver: nil, playing: playing, at: t)
+                } else {
+                    let hints = PlazaDraw.hints(elapsed: elapsed, word: word)
+                    if let next = PlazaDraw.hinted(s, by: me, letters: hints.letters, initials: hints.initials) { state = next }
+                }
+            }
+        } else if playing.subtracting([who]).min() == me {
+            if present.contains(who), playing.contains(who) {
+                drawClock?.drawerAbsentSince = nil
+            } else if drawClock?.drawerAbsentSince == nil {
+                drawClock?.drawerAbsentSince = t
+            }
+            let absent = drawClock?.drawerAbsentSince.map { t - $0 >= PlazaBomb.absenceGrace } ?? false
+            let turnTooLong = t - (c.turnSeen ?? t) >= PlazaDraw.revealSeconds + PlazaDraw.wordSeconds + PlazaDraw.drawSeconds + PlazaDraw.refereeSlack
+            if absent || turnTooLong { state = PlazaDraw.ended(s, word: nil, solver: nil, playing: playing, at: t) }
+        } else {
+            drawClock?.drawerAbsentSince = nil
+        }
+        observeDraw(now: now)
     }
 }
