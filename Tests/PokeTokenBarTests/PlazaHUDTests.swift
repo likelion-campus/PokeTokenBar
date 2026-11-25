@@ -229,6 +229,95 @@ final class CanvasKeepingGraphics: PlazaGraphics, @unchecked Sendable {
         XCTAssertEqual(hud.renderCounts, [.pills: 1], "hiding is not a render")
     }
 
+    /// A button panel whose whole area is a scroller track, recording what reaches `scrollerMouse`.
+    @MainActor private final class ScrollerButton: PlazaPanel {
+        let id = PlazaPanelID.nameColorPicker
+        let anchor = PlazaPanelAnchor.topLeading
+        let offset = CGPoint(x: 100, y: 10)
+        var onChange: (() -> Void)?
+        var isVisible = true
+        private(set) var phases: [PlazaScrollerPhase] = []
+        func size(in viewport: CGSize, scale: CGFloat, text: any PlazaTextEngine) -> CGSize { CGSize(width: 40, height: 20) }
+        func render(scale: CGFloat, viewport: CGSize, graphics: any PlazaGraphics) -> PlazaPanelDrawing { PlazaPanelDrawing() }
+        func hit(_ point: CGPoint) -> PlazaPanelHit? { nil }
+        func scrollerContains(_ point: CGPoint) -> Bool { true }
+        func scrollerMouse(_ phase: PlazaScrollerPhase, at point: CGPoint) { phases.append(phase) }
+    }
+
+    /// A suppressed panel is hidden through the host, takes nothing and renders nothing; letting it go renders it once.
+    func testASuppressedPanelIsHiddenTakesNoClickAndDoesNotRender() async {
+        let a = ButtonPanel(.backgroundToggle), b = ButtonPanel(.nameColorPicker)   // b is on top of a, same spot
+        let hud = PlazaHUD(panels: [a, b], graphics: stub)
+        let host = RecordingPanelHost()
+        hud.host = host
+        hud.setViewport(window, scale: 2)
+        XCTAssertEqual(hud.hit(at: CGPoint(x: 15, y: 15))?.id, .nameColorPicker)
+        _ = host.take()
+        hud.suppressed = [.nameColorPicker]
+        XCTAssertEqual(host.take(), [.hide(.nameColorPicker)])
+        XCTAssertFalse(hud.isShown(.nameColorPicker))
+        XCTAssertEqual(hud.hit(at: CGPoint(x: 15, y: 15))?.id, .backgroundToggle, "the panel below")
+        XCTAssertEqual(hud.layout(viewport: window, scale: 2).keys.sorted { "\($0)" < "\($1)" }, [.backgroundToggle])
+        XCTAssertFalse(hud.handleMouse(down(15, 15), in: .nameColorPicker), "b alone takes nothing")
+        let renders = hud.renderCounts[.nameColorPicker]
+        b.onChange?()
+        await settle()
+        XCTAssertEqual(hud.renderCounts[.nameColorPicker], renders, "a change under suppression renders nothing")
+        XCTAssertEqual(host.take(), [])
+        hud.suppressed = []
+        XCTAssertEqual(hud.renderCounts[.nameColorPicker], (renders ?? 0) + 1, "rendered once when let go")
+        XCTAssertEqual(host.take().filter { if case .show(.nameColorPicker, _, _) = $0 { return true } else { return false } }.count, 1)
+        XCTAssertTrue(hud.isShown(.nameColorPicker))
+    }
+
+    /// Setting a panel aside ends the press, and the scroller drag, it had.
+    func testSuppressingDuringAPressOrAScrollerDragEndsIt() async {
+        let b = ButtonPanel(.nameColorPicker)
+        let hud = PlazaHUD(panels: [b], graphics: stub)
+        var actions: [PlazaPanelID] = []
+        hud.onAction = { id, _ in actions.append(id) }
+        let host = RecordingPanelHost()
+        hud.host = host
+        hud.setViewport(window, scale: 2)
+        XCTAssertTrue(hud.handleMouse(down(15, 15), in: .nameColorPicker))
+        hud.suppressed = [.nameColorPicker]
+        XCTAssertEqual(b.interaction, PlazaPanelInteraction(), "the press and hover are gone")
+        _ = hud.handleMouse(up(15, 15), in: .nameColorPicker)
+        XCTAssertEqual(actions, [], "no click")
+
+        let s = ScrollerButton()
+        let hud2 = PlazaHUD(panels: [s], graphics: stub)
+        let host2 = RecordingPanelHost()
+        hud2.host = host2
+        hud2.setViewport(window, scale: 2)
+        XCTAssertTrue(hud2.handleMouse(down(110, 15), in: .nameColorPicker))
+        hud2.suppressed = [.nameColorPicker]
+        XCTAssertTrue(s.phases == [.down])
+        _ = hud2.handleMouse(moved(120, 15), in: .nameColorPicker)
+        XCTAssertTrue(s.phases == [.down], "no drag reaches a suppressed panel")
+    }
+
+    /// Photo mode and suppression are separate: letting one go leaves the other as it was.
+    func testSuppressionAndPhotoModeHidingAreIndependent() async {
+        let b = ButtonPanel(.nameColorPicker), c = ButtonPanel(.backgroundToggle, at: CGPoint(x: 200, y: 10))
+        let hud = PlazaHUD(panels: [b, c], graphics: stub)
+        let host = RecordingPanelHost()
+        hud.host = host
+        hud.setViewport(window, scale: 2)
+        hud.hiddenPanels = [.backgroundToggle]
+        hud.suppressed = [.nameColorPicker]
+        XCTAssertFalse(hud.isShown(.backgroundToggle))
+        XCTAssertFalse(hud.isShown(.nameColorPicker))
+        hud.suppressed = []
+        XCTAssertTrue(hud.isShown(.nameColorPicker))
+        XCTAssertFalse(hud.isShown(.backgroundToggle), "photo mode still hides c")
+        XCTAssertNil(hud.hit(at: CGPoint(x: 205, y: 15)))
+        hud.suppressed = [.nameColorPicker]
+        hud.hiddenPanels = []
+        XCTAssertTrue(hud.isShown(.backgroundToggle))
+        XCTAssertFalse(hud.isShown(.nameColorPicker), "suppression still sets b aside")
+    }
+
     /// Reports in one turn of the main actor render once; while hidden, none render, and showing renders once.
     func testReportsInOneTurnRenderOnce() async {
         let clock = PlazaClockPanel(worldSize: PlazaMapData.map.pixelSize)

@@ -30,6 +30,20 @@ import Foundation
         }
     }
 
+    /// Panels another panel covers for now (the berry table): treated exactly as not visible. They are hidden through the host, take no
+    /// click, hover, scroll or press, and do not render; their changes are remembered and they render once when let go. Setting it ends
+    /// a press, a hover and a scroller capture on them. Independent of `hiddenPanels` (photo mode).
+    var suppressed: Set<PlazaPanelID> = [] {
+        didSet {
+            guard suppressed != oldValue else { return }
+            if pressed.map({ suppressed.contains($0.id) }) == true { pressed = nil }
+            if hovered.map({ suppressed.contains($0.id) }) == true { hovered = nil }
+            if let c = scrollerCapture, suppressed.contains(c) { scrollerCapture = nil }
+            updateInteraction()
+            flush()
+        }
+    }
+
     /// false while the plaza is hidden: nothing renders. Turning it back on renders the panels that changed meanwhile.
     var isRendering = true {
         didSet { if isRendering, !oldValue { flush() } }
@@ -94,25 +108,25 @@ import Foundation
     /// Where each visible panel goes in a window of `viewport` points (origin top-left), on whole device pixels.
     func layout(viewport: CGSize, scale: CGFloat) -> [PlazaPanelID: CGRect] {
         var frames: [PlazaPanelID: CGRect] = [:]
-        for panel in panels where panel.isVisible { frames[panel.id] = frame(of: panel, viewport: viewport, scale: scale) }
+        for panel in panels where panel.isVisible && !suppressed.contains(panel.id) { frames[panel.id] = frame(of: panel, viewport: viewport, scale: scale) }
         return frames
     }
 
     /// The frames of the visible, not hidden panels among `ids` in a window of `viewport` points: what a panel that must keep clear of its neighbours reads.
     func frames(of ids: [PlazaPanelID], viewport: CGSize, scale: CGFloat) -> [PlazaPanelID: CGRect] {
         var frames: [PlazaPanelID: CGRect] = [:]
-        for panel in panels where ids.contains(panel.id) && panel.isVisible && !hiddenPanels.contains(panel.id) {
+        for panel in panels where ids.contains(panel.id) && panel.isVisible && !hiddenPanels.contains(panel.id) && !suppressed.contains(panel.id) {
             frames[panel.id] = frame(of: panel, viewport: viewport, scale: scale)
         }
         return frames
     }
 
     /// Whether panel `id` is drawn now (visible, not hidden by the window).
-    func isShown(_ id: PlazaPanelID) -> Bool { shown[id] != nil && !hiddenPanels.contains(id) }
+    func isShown(_ id: PlazaPanelID) -> Bool { shown[id] != nil && !hiddenPanels.contains(id) && !suppressed.contains(id) }
 
     /// What a click at `point` (window points, origin top-left) on the shown panel `id` picks.
     func hit(at point: CGPoint, in id: PlazaPanelID) -> PlazaPanelHit? {
-        guard !hiddenPanels.contains(id), let frame = shown[id]?.frame, frame.contains(point),
+        guard !hiddenPanels.contains(id), !suppressed.contains(id), let frame = shown[id]?.frame, frame.contains(point),
               let panel = panels.first(where: { $0.id == id }), panel.isVisible else { return nil }
         return panel.hit(CGPoint(x: point.x - frame.minX, y: point.y - frame.minY))
     }
@@ -132,7 +146,7 @@ import Foundation
     /// (`PlazaPanel.scroll`): taken while that panel scrolls that way, else passed on.
     func handleMouse(_ e: PlazaMouseEvent, in id: PlazaPanelID) -> Bool {
         // The legacy scroller is a control: a press on its track is captured, the drags go to the panel wherever the pointer is, the release ends it.
-        if let panel = panels.first(where: { $0.id == id }), let frame = shown[id]?.frame, !hiddenPanels.contains(id), panel.isVisible {
+        if let panel = panels.first(where: { $0.id == id }), let frame = shown[id]?.frame, !hiddenPanels.contains(id), !suppressed.contains(id), panel.isVisible {
             let local = CGPoint(x: e.location.x - frame.minX, y: e.location.y - frame.minY)
             switch e.kind {
             case .down where frame.contains(e.location) && panel.scrollerContains(local):
@@ -171,14 +185,14 @@ import Foundation
             updateInteraction()
             return false
         case .scroll(let dx, let dy):
-            guard hit != nil, let frame = shown[id]?.frame, let panel = panels.first(where: { $0.id == id }), panel.isVisible else { return false }
+            guard hit != nil, !suppressed.contains(id), let frame = shown[id]?.frame, let panel = panels.first(where: { $0.id == id }), panel.isVisible else { return false }
             return panel.scroll(dx: dx, dy: dy, at: CGPoint(x: e.location.x - frame.minX, y: e.location.y - frame.minY))
         }
     }
 
     /// VoiceOver focused item `index` of panel `id`: the panel scrolls it into view.
     func scrollIntoView(_ index: Int, in id: PlazaPanelID) {
-        guard !hiddenPanels.contains(id), let panel = panels.first(where: { $0.id == id }), panel.isVisible else { return }
+        guard !hiddenPanels.contains(id), !suppressed.contains(id), let panel = panels.first(where: { $0.id == id }), panel.isVisible else { return }
         if panel.scrollAccessibilityItemIntoView(index) { setNeedsRender(id) }
     }
 
@@ -219,8 +233,8 @@ import Foundation
         guard isRendering, let host, viewport.width > 0, viewport.height > 0 else { return }
         let id = panel.id
         guard !hiddenPanels.contains(id) else { return }   // changes are remembered (`dirty`); they render when it shows again
-        guard panel.isVisible else {
-            dirty.remove(id)
+        guard panel.isVisible, !suppressed.contains(id) else {
+            if panel.isVisible { dirty.insert(id) } else { dirty.remove(id) }   // a suppressed panel's changes are remembered
             if shown.removeValue(forKey: id) != nil { host.hide(id) }
             if pressed?.id == id { pressed = nil }
             if hovered?.id == id { hovered = nil }

@@ -220,6 +220,18 @@ import XCTest
         XCTAssertEqual(rig.panels.drawList.count, 15)
     }
 
+    func testASuppressedPanelLeavesTheDrawList() async {
+        let rig = standardRig()
+        let before = rig.panels.drawList
+        XCTAssertEqual(before.count, 5)
+        rig.panels.hud.suppressed = [.pills]
+        XCTAssertEqual(rig.panels.drawList.count, 4)
+        XCTAssertNil(rig.panels.host(at: CGPoint(x: 400, y: 20)), "the pills' spot")
+        XCTAssertNotEqual(rig.panels.host(at: CGPoint(x: 400, y: 300)), .pills)
+        rig.hud.suppressed = []
+        XCTAssertEqual(rig.panels.drawList, before)
+    }
+
     func testPressDimsAndReleaseOutsideCancels() async {
         let rig = standardRig()
         let toggle = rig.fakes[.backgroundToggle]!
