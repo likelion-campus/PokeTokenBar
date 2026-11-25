@@ -853,4 +853,18 @@ extension WindowsSeamScanTests {
         XCTAssertEqual(try scan { $0[Self.shellFile] = $0[Self.shellFile]!.replacingOccurrences(of: "progress: window)", with: "progress: window, launch: { _, _, _ in true })") }.count, 1)
         XCTAssertEqual(try scan { $0["Platform/PlatformCompat.swift"] = $0["Platform/PlatformCompat.swift"]!.replacingOccurrences(of: "maxBytes: Int, deadline: TimeInterval,", with: "maxBytes: Int = 1 << 25, deadline: TimeInterval,") }.count, 1)
     }
+
+    /// `WindowsTeamProbe.kind` switches over `TeamMessage` in a file the Mac never compiles, so a new message kind broke only the
+    /// Windows build. Every kind `TeamWire` knows must have its `case` there.
+    func testTheWindowsProbeNamesEveryMessageKind() throws {
+        let root = SharedSources.sourcesRoot
+        let wire = try String(contentsOf: root.appendingPathComponent("Team/TeamWire.swift"), encoding: .utf8)
+        let list = try XCTUnwrap(wire.range(of: #"knownKinds: Set<String> = \[[^\]]*\]"#, options: .regularExpression))
+        let kinds = String(wire[list]).components(separatedBy: "\"").enumerated().filter { $0.offset % 2 == 1 }.map(\.element)
+        XCTAssertTrue(kinds.contains("draw") && kinds.count >= 10, "the scan failed to read knownKinds: \(kinds)")
+        let probe = try String(contentsOf: root.appendingPathComponent("Platform/Windows/Team/WindowsTeamProbe.swift"), encoding: .utf8)
+        for kind in kinds {
+            XCTAssertTrue(probe.contains("case .\(kind):"), "WindowsTeamProbe.kind has no `case .\(kind)`")
+        }
+    }
 }
