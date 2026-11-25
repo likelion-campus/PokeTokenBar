@@ -45,9 +45,12 @@ enum PlazaFortune {
     static let splitStepDuration: TimeInterval = 0.09
     static let readDuration: TimeInterval = 6
 
-    /// 오늘의 운세. 좋은 말만 쓴다. 한 줄이거나 줄바꿈으로 나눈 두 줄이고, 각 줄이 쪽지 한 줄(`PlazaFortuneArt.maxTextWidth`)에
-    /// 들어가야 한다(테스트가 확인한다).
-    /// 번호가 곧 팀원에게 보내는 값이라, 새 문구는 끝에만 더한다.
+    /// 오늘의 운세. 진짜 포춘쿠키 쪽지에 있을 법한 말만 쓴다: 좋은 일의 예고, 읽는 사람에 대한 좋은 말, 격언과 속담, 마음·용기·사람·운에
+    /// 대한 권유. 누구에게나 어느 날에나 맞아야 한다. 잡무가 잘 된다는 예고, 생활 요령, 개발·업무 용어, 광장과 앱 이야기는 쓰지 않는다
+    /// (`PlazaFortuneTests.testNoLineIsAboutAChoreAToolOrTheApp` 이 낱말을 막는다). 수를 채우려고 약한 문구를 넣지 않는다.
+    /// 한 줄이거나 줄바꿈으로 나눈 두 줄이고, 각 줄이 쪽지 한 줄(`PlazaFortuneArt.maxTextWidth`)에 들어가야 한다(테스트가 확인한다).
+    /// 번호가 곧 팀원에게 보내는 값이라, 새 문구는 끝에만 더한다. 2.5.642 다음 버전에서 300줄을 한 번 통째로 다시 썼다: 2.5.642 이하의 팀원은
+    /// 같은 번호에서 그 버전의 문구를 본다.
     static let lines: [String] = L(.ko).plazaFortuneLines
 
     /// 행운의 행동. 모두 광장에서 바로 할 수 있는 일이다. 새 행동도 끝에만 더한다.

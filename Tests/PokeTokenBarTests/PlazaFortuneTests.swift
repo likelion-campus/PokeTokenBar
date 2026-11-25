@@ -50,6 +50,21 @@ final class PlazaFortuneTests: XCTestCase {
         }
     }
 
+    /// The bar for a fortune (see `PlazaFortune.lines`): a line is never about a chore, a work tool or the app itself. The list was once
+    /// grown from 80 to 200 with such lines ("메일 답장이 금방 끝날 거예요"). A word here is matched at the start of a word of the line.
+    /// A slip may speak of itself (쿠키, 쪽지), as a real one does.
+    func testNoLineIsAboutAChoreAToolOrTheApp() async {
+        let banned = ["메일", "회의", "퇴근", "출근", "점심", "마감", "메모", "알림", "책상", "저장", "목록", "커밋", "빌드", "배포", "코드", "버그",
+                      "테스트", "리뷰", "리팩터링", "토큰", "프롬프트", "캐시", "로그", "변수", "주석", "문서", "에이전트", "단축키", "검색",
+                      "광장", "가판대", "온천", "모닥불", "연못", "풀숲", "쉼터", "소식판", "포켓몬", "도감", "팀원"]
+        for line in PlazaFortune.lines {
+            for word in line.split(whereSeparator: { $0 == " " || $0 == "\n" }) {
+                XCTAssertNil(banned.first { word.hasPrefix($0) }, line)
+            }
+        }
+        XCTAssertFalse(PlazaFortune.lines.contains { $0.contains { $0.isASCII && $0.isLetter } }, "no Latin word (PR, CI) on a slip")
+    }
+
     // MARK: - The wire
 
     func testAFortuneEmoteCarriesItsSlipAndAnUnreadableOneBecomesNil() async throws {
@@ -196,16 +211,16 @@ final class PlazaFortuneTests: XCTestCase {
 
     /// Teammates send the line and action as numbers, so the order of both lists is a wire contract: new entries go at the end only.
     /// When you append, raise the counts and keep the earlier hashes as they are and add one for the new count.
-    /// 2.5.639 shipped the first 80 lines; a teammate on it does not see a slip whose line is 80 or later.
+    /// 2.5.639 knows the numbers 0..<80 and 2.5.640 0..<200: a teammate on one of them does not see a slip with a later number.
+    /// The release after 2.5.642 rewrote all 300 texts once (the old ones were padded with chores and tips), so a teammate on 2.5.642
+    /// or older reads its own text for the same number. From here on a number keeps its text again.
     func testTheFirstLinesAndActionsKeepTheirNumbers() async {
         func hash(_ list: ArraySlice<String>) -> UInt64 {
             list.joined(separator: "\n").utf8.reduce(0xcbf2_9ce4_8422_2325) { ($0 ^ UInt64($1)) &* 0x0000_0100_0000_01b3 }
         }
         XCTAssertGreaterThanOrEqual(L(.ko).plazaFortuneLines.count, 300)
         XCTAssertGreaterThanOrEqual(L(.ko).plazaFortuneActions.count, 12)
-        XCTAssertEqual(hash(L(.ko).plazaFortuneLines.prefix(80)), 14_248_402_198_470_895_138, "the lines 2.5.639 shipped")
-        XCTAssertEqual(hash(L(.ko).plazaFortuneLines.prefix(200)), 8717304623835104262, "the lines 2.5.640 shipped")
-        XCTAssertEqual(hash(L(.ko).plazaFortuneLines.prefix(300)), 9_238_123_669_317_192_331)
+        XCTAssertEqual(hash(L(.ko).plazaFortuneLines.prefix(300)), 17_887_613_744_311_900_604, "the 300 rewritten lines")
         XCTAssertEqual(hash(L(.ko).plazaFortuneActions.prefix(12)), 4_205_960_783_727_730_735)
     }
 
