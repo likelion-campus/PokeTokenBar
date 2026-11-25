@@ -89,6 +89,30 @@ final class PlazaGamePanelTests: XCTestCase {
         XCTAssertGreaterThan(try XCTUnwrap(r.hud.layout(viewport: viewport, scale: 2)[.gameTitle]).width, frame.width)
     }
 
+    /// The ranking card opens with the last turn's result, as the board's foot would have shown it.
+    func testTheRankingCardStartsWithTheLastTurnsResult() async {
+        let now = Date(timeIntervalSince1970: 1_800_000_100)
+        func card(last: PlazaDrawState.Result) -> PlazaGameView.Card? {
+            var s = PlazaGameState(id: "a@1", kind: "draw", host: "a", opensAt: 1_800_000_000)
+            s.startsAt = 1_800_000_030
+            s.players = ["a", "b"]
+            s.endedAt = 1_800_000_090
+            s.draw = PlazaDrawState(order: ["a", "b"], turn: 2, step: 9, scores: ["a": 5, "b": 10], last: last)
+            var engine = PlazaGameEngine(me: "a")
+            engine.learn(s, now: now)
+            return PlazaGameView.make(engine: engine, now: now, joinedCount: 2, canPlay: true, flash: nil, name: { $0.uppercased() }).card
+        }
+        let l = L(.ko)
+        let solved = card(last: .init(turn: 1, drawer: "b", word: "사과", solver: "a"))
+        XCTAssertEqual(solved?.lines.first, l.plazaDrawResultSolved(word: "사과", solver: "A"))
+        XCTAssertEqual(solved?.lines.count, 3, "the result, then both players")
+        let timedOut = card(last: .init(turn: 1, drawer: "b", word: "사과", solver: nil))
+        XCTAssertEqual(timedOut?.lines.first, l.plazaDrawResultTimeout(word: "사과"))
+        XCTAssertEqual(Array(timedOut?.lines.dropFirst() ?? []), ["1등 B 10점", "2등 A 5점"])
+        let skipped = card(last: .init(turn: 1, drawer: "b", word: nil, solver: nil))
+        XCTAssertEqual(skipped?.lines.first, l.plazaDrawResultUnknown)
+    }
+
     func testTheRankingCardListsEveryoneAndMarksATie() async throws {
         let name: (String) -> String = { $0.uppercased() }
         let tie = PlazaGameView.rankingCard([("a", 35), ("b", 35), ("c", 20), ("d", 0)], name: name)

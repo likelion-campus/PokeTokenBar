@@ -528,7 +528,7 @@ extension L {
     func plazaGameRules(_ kind: PlazaGameKind) -> [String] {
         switch kind {
         case .bomb: ["폭탄은 몸통박치기(C)로 넘길 수 있어요", "터질 때 들고 있으면 탈락!", "마지막 한 명이 이겨요 · 한 판 1~3분"]
-        case .draw: ["돌아가며 한 명씩 제시어를 정해 그림으로 그려요", "나머지는 한마디(Enter)로 맞혀요 · 맞히면 +10점, 그린 사람 +5점", "그림에 글자·숫자로 정답을 쓰면 반칙! · 한 판 5~12분"]
+        case .draw: ["돌아가며 한 명씩 제시어를 정해 그림으로 그려요", "나머지는 한마디(Enter)로 맞혀요 · 맞히면 +10점, 그린 사람 +5점", "그림에 글자·숫자로 정답을 쓰면 반칙! · 한 판 2~12분"]
         case .berry: ["같은 열매가 딱 5개면 스페이스로 종을 쳐요", "가장 빨리 치면 +1, 잘못 치면 −1이고 1초 쉬어요", "먼저 5점이면 우승 · 한 판 1~2분"]
         }
     }
@@ -576,6 +576,8 @@ extension L {
     }
     func plazaDrawTime(seconds: Int) -> String { "⏱ \(seconds)" }
     func plazaDrawMyEntry(seconds: Int) -> String { "내 차례! 아래에 제시어를 쓰고 Enter · \(seconds)초" }
+    func plazaDrawMyEntryAfterChat(seconds: Int) -> String { "내 차례! 채팅 칸을 닫으면(Esc) 제시어 칸이 열려요 · \(seconds)초" }
+    func plazaDrawMyEntryAfterWindow(seconds: Int) -> String { "내 차례! 열린 창을 닫으면 제시어 칸이 열려요 · \(seconds)초" }
     func plazaDrawOtherEntry(nickname: String, seconds: Int) -> String { "\(nickname)님이 제시어를 정하고 있어요 · \(seconds)초" }
     var plazaDrawMyDrawing: String { "글자 없이 그림으로만 그리세요" }
     var plazaDrawOtherDrawing: String { "Enter로 정답을 말해요" }
@@ -636,6 +638,7 @@ extension L {
     }
     func plazaGameLeftBanner(nickname: String) -> String { "\(nickname)님이 판에서 나갔어요" }
     var plazaGameLostConnectionBanner: String { "팀원과 연결이 끊겨 판에서 빠졌어요" }
+    var plazaGameLostPlayersBanner: String { "다른 참가자와 연결이 끊겨 판에서 빠졌어요" }
     func teamGameInviteNotice(nickname: String, game: String) -> String { "💣 \(nickname)님이 \(game) 판을 열었어요. 광장에서 Y를 눌러 참가하세요" }
     var plazaPhotoGuide: String { "📷 사진 모드 · 방향키 이동 · Shift 빠르게 · −/+ 확대 · Space 찍기 · G 단체 사진 · Esc 나가기" }
     var plazaPhotoCopied: String { "사진을 클립보드에 담았어요 · ⌘V로 붙여 넣기" }

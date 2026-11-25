@@ -42,7 +42,8 @@ struct PlazaDrawBoard: Equatable {
     /// A stroke the user just drew on this machine, already applied to `model.canvas`: canvas points, colour, width.
     var onStroke: ((_ points: [Int], _ color: Int, _ width: Int) -> Void)?
     var onClear: (() -> Void)?
-    /// A stroke ended (the button came up, the pen left the canvas, the board stopped taking strokes, or `cancelStroke`): what was held back can go out.
+    /// A stroke ended (the button came up, the board stopped taking strokes, or `cancelStroke`): what was held back can go out.
+    /// The pen leaving the canvas does not call it (the held points go at the next flush or when the stroke ends).
     var onStrokeEnd: (() -> Void)?
     /// The panel was laid out with a cell under 2 points: it asks for room (called once per such layout, on the main actor's next turn).
     var onNeedsRoom: (() -> Void)?

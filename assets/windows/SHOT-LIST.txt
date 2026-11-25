@@ -34,3 +34,4 @@ settings-team-create-ko.png | ui-settings | settings-ko-100-team-nocode.png
 plaza-shortcuts-menu.png | windows-app | plaza-panels-member-menu.png
 plaza-blossom-throw.png | windows-app | plaza-blossom-throw.png
 plaza-ui-hidden.png | windows-app | plaza-ui-hidden.png
+plaza-draw-quiz.png | windows-app | plaza-draw-quiz.png

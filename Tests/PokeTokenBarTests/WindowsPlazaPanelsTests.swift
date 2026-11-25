@@ -204,7 +204,7 @@ import XCTest
             list.append(Fake(id, offset: CGPoint(x: CGFloat(i) * 60, y: 10), size: CGSize(width: 50, height: 50), hit: CGRect(x: 0, y: 0, width: 50, height: 50)))
         }
         let rig = Rig(list, viewport: CGSize(width: 900, height: 200))
-        XCTAssertEqual(rig.panels.drawList.count, 15)
+        XCTAssertEqual(rig.panels.drawList.count, 16)
         rig.panels.setHidden(PlazaPanelID.hiddenInPhotoMode)
         let shown = Set(WinPlazaPanels.zOrder).subtracting(WinPlazaPanels.hiddenInPhotoMode)
         XCTAssertEqual(shown, [.board, .card, .photoFrame, .menu, .gameTitle, .gameCard, .pills, .berryTable])
@@ -217,7 +217,7 @@ import XCTest
             }
         }
         rig.panels.setHidden([])
-        XCTAssertEqual(rig.panels.drawList.count, 15)
+        XCTAssertEqual(rig.panels.drawList.count, 16)
     }
 
     func testASuppressedPanelLeavesTheDrawList() async {
