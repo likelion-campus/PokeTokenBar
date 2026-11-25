@@ -148,7 +148,7 @@ enum PlazaControlStyle {
     /// The fallback where there are no SF Symbols (`PlatformPlaza.symbolImage` is nil: Windows until stage 6, which supplies its own
     /// glyph): `eye` / `eye.slash` as chrome: an almond outline, an iris ring and a pupil, and for the slash a diagonal with a
     /// gap in the pill's colour, in the ink boxes the SF Symbols measured (x 9.25–25.25; y 6.4–16.4, slash 6.9–17.5).
-    static func drawEye(on canvas: any PlazaCanvas, space: PlazaPanelSpace, origin o: CGPoint, slash: Bool, style: PlazaPanelStyle.Pill) {
+    private static func drawEye(on canvas: any PlazaCanvas, space: PlazaPanelSpace, origin o: CGPoint, slash: Bool, style: PlazaPanelStyle.Pill) {
         let cx: CGFloat = 17.25, cy: CGFloat = slash ? 11.9 : 11.375
         let a: CGFloat = 7.6, h: CGFloat = 4.5
         var top: [CGPoint] = [], bottom: [CGPoint] = []
