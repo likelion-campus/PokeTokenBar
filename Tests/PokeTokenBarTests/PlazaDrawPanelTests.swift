@@ -10,19 +10,46 @@ final class PlazaDrawPanelTests: XCTestCase {
         PlazaDrawBoard(head: "그림 퀴즈 3/6 · 그리는 사람 민수", time: "⏱ 52", cover: cover, foot: foot, canDraw: canDraw)
     }
 
-    @MainActor private struct Rig {
+    @MainActor final class HUDBox { weak var hud: PlazaHUD? }
+
+    /// The panel in a HUD, with a real host. `full`: the other panels as the app has them (roster, pills, chat log, minimap, clock, guide, toggle,
+    /// picker) in the stack's order, so the panel finds its neighbours' real frames; else only the pills.
+    @MainActor struct Rig {
         let model = PlazaDrawModel()
         let overlay = PlazaOverlayModel()
-        let pills: PlazaPillsPanel
+        let log = PlazaChatLog()
+        let guide = PlazaShortcutGuideModel()
         let panel: PlazaDrawPanel
         let hud: PlazaHUD
         let host = RecordingPanelHost()
         let strokes = Box<[[Int]]>([])
 
-        init(viewport: CGSize, scale: CGFloat, layout: PlazaDrawLayout = .center, board: PlazaDrawBoard?) {
-            pills = PlazaPillsPanel(model: overlay)
-            panel = PlazaDrawPanel(model: model, pills: pills)
-            hud = PlazaHUD(panels: [panel, pills])
+        init(viewport: CGSize, scale: CGFloat, layout: PlazaDrawLayout = .top, board: PlazaDrawBoard?, full: Bool = false, chatLines: Int = 6, guideFolded: Bool = false,
+             hint: String? = nil, canvas: PlazaDrawCanvas = PlazaDrawCanvas()) {
+            let box = HUDBox()
+            panel = PlazaDrawPanel(model: model, neighbours: { v, s in box.hud?.frames(of: PlazaDrawPanel.neighbours, viewport: v, scale: s) ?? [:] })
+            let pills = PlazaPillsPanel(model: overlay)
+            var panels: [any PlazaPanel] = [panel, pills]
+            if full {
+                let bg = PlazaBackgroundModel()
+                let toggle = PlazaBackgroundTogglePanel(model: bg)
+                guide.isFolded = guideFolded
+                let names = ["지은", "도윤", "민수"], texts = ["집인가?", "ㅋㅋㅋ 지붕이 귀엽다", "사과!", "나무도 있네", "태양 같은데", "정답은 오두막!"]
+                for i in 0..<chatLines { log.append(time: Date(), name: names[i % 3], text: texts[i % 6], color: PlazaColor(hex: 0xFF8A80)) }
+                let clock = PlazaClockPanel(worldSize: PlazaMapData.map.pixelSize)
+                clock.update("낮 14:20")
+                let map = PlazaImage(bitmap: PlazaBitmap(width: 48, height: 32, fill: PlazaRGBA(r: 110, g: 186, b: 84, a: 255)))
+                let roster = PlazaRosterModel()
+                roster.entries = [PlazaRosterEntry(id: "me", nickname: "나", speciesID: 25, speciesName: "피카츄", gender: nil, isShiny: false, presence: .online, isMe: true)]
+                panels = [PlazaRosterPanel(model: roster, icons: PlazaStubIconSource()), panel, pills, PlazaChatLogPanel(log: log),
+                          PlazaMinimapPanel(model: PlazaMinimapModel(), background: bg, worldSize: PlazaMapData.map.pixelSize, mapImage: { map }), clock,
+                          PlazaShortcutGuidePanel(model: guide, toggle: toggle), toggle,
+                          PlazaNameColorPickerPanel(model: PlazaNameColorModel(), toggle: toggle, background: bg)]
+            }
+            hud = PlazaHUD(panels: panels)
+            box.hud = hud
+            overlay.hint = hint
+            model.canvas = canvas
             model.layout = layout
             model.board = board
             let strokes = strokes
@@ -125,7 +152,7 @@ final class PlazaDrawPanelTests: XCTestCase {
     }
 
     func testALongHeadIsCutShortOfTheTime() async throws {
-        let r = Rig(viewport: narrow, scale: 1, layout: .side, board: PlazaDrawBoard(head: String(repeating: "그림 퀴즈 ", count: 12), time: "⏱ 52", cover: nil, foot: .lines(["a"]), canDraw: false))
+        let r = Rig(viewport: narrow, scale: 1, layout: .right, board: PlazaDrawBoard(head: String(repeating: "그림 퀴즈 ", count: 12), time: "⏱ 52", cover: nil, foot: .lines(["a"]), canDraw: false))
         let items = try XCTUnwrap(r.host.drawings[.drawBoard]).accessibility
         let head = try XCTUnwrap(items.first), time = try XCTUnwrap(items.dropFirst().first)
         XCTAssertLessThanOrEqual(head.frame.maxX, time.frame.minX)
@@ -292,20 +319,52 @@ final class PlazaDrawPanelTests: XCTestCase {
 
     func testTheLayoutsKeepTheirPlace() async throws {
         for viewport in [narrow, wide] {
-            let center = Rig(viewport: viewport, scale: 1, layout: .center, board: board()).frame
-            XCTAssertEqual(center.midX, viewport.width / 2, accuracy: 1)
-            XCTAssertEqual(center.midY, viewport.height / 2, accuracy: 1)
-            XCTAssertTrue(CGRect(origin: .zero, size: viewport).contains(center))
             let withPills = Rig(viewport: viewport, scale: 1, layout: .top, board: board())
             withPills.overlay.hint = "안내"
             let pillsFrame = try XCTUnwrap(withPills.hud.layout(viewport: viewport, scale: 1)[.pills])
             let top = try XCTUnwrap(withPills.hud.layout(viewport: viewport, scale: 1)[.drawBoard])
             XCTAssertGreaterThanOrEqual(top.minY, pillsFrame.maxY, "under the pills")
-            XCTAssertEqual(top.midX, viewport.width / 2, accuracy: 1)
-            let side = Rig(viewport: viewport, scale: 1, layout: .side, board: board()).frame
-            XCTAssertEqual(side.maxX, viewport.width - PlazaRosterMetrics.margin, accuracy: 1, "against the trailing edge")
-            XCTAssertGreaterThanOrEqual(side.minY, 0)
-            XCTAssertLessThanOrEqual(side.maxY, viewport.height)
+            XCTAssertEqual(top.midX, viewport.width / 2, accuracy: 1, "centred")
+            let right = Rig(viewport: viewport, scale: 1, layout: .right, board: board()).frame
+            XCTAssertEqual(right.maxX, viewport.width - PlazaRosterMetrics.margin, accuracy: 1, "against the right margin")
+        }
+    }
+
+    /// The panel keeps clear of the panels above it, by their real frames: the chat log (6 lines) is never covered; `right` covers the minimap
+    /// and the clock on purpose (it is drawn above them); `top` keeps clear of those and of the guide, with the HUD in the state it needs at
+    /// the smallest window (chat log of 3 lines, guide folded).
+    func testNoLayoutIsCoveredByThePanelsAboveIt() async throws {
+        for viewport in [narrow, wide] {
+            for scale in [CGFloat(1), 1.25, 1.5, 2] {
+                for layout in PlazaDrawLayout.allCases {
+                    let small = viewport == narrow && layout == .top
+                    let r = Rig(viewport: viewport, scale: scale, layout: layout, board: board(), full: true, chatLines: small ? 3 : 6, guideFolded: small, hint: "안내")
+                    let tag = "\(layout) \(viewport) @\(scale)"
+                    let frames = r.hud.layout(viewport: viewport, scale: scale)
+                    let mine = try XCTUnwrap(frames[.drawBoard], tag)
+                    let placed = r.panel.layout(in: viewport, scale: scale, text: PlatformPlaza.graphics.text)
+                    XCTAssertGreaterThanOrEqual(placed.cell, 2, tag)
+                    // Known limit, measured: centred under the pills, `top` has no room at 600x372 at 1x and 1.25x even with the 3-line log and the
+                    // folded guide (the minimap and the clock take the right of the middle, the log the bottom): it keeps the smallest cell and says so.
+                    if layout == .top && viewport == narrow && scale < 1.5 {
+                        XCTAssertFalse(placed.fits, "\(tag): if this fits now, drop the exception")
+                        continue
+                    }
+                    XCTAssertTrue(placed.fits, "\(tag): the smallest cell fits")
+                    let chat = try XCTUnwrap(frames[.chatLog], tag)
+                    XCTAssertTrue(CGRect(origin: .zero, size: viewport).contains(mine), "\(tag): inside the window \(mine)")
+                    XCTAssertFalse(mine.intersects(chat), "\(tag): the chat log is clear \(mine) \(chat)")
+                    if layout == .top {
+                        for id in [PlazaPanelID.minimap, .clock, .shortcuts, .backgroundToggle, .nameColorPicker, .pills] {
+                            XCTAssertFalse(mine.intersects(try XCTUnwrap(frames[id], "\(tag) \(id)")), "\(tag): \(id) is clear")
+                        }
+                    }
+                    // every tool and the canvas are inside the panel (so inside the window), and no tool is under 14 points tall
+                    let items = try XCTUnwrap(r.host.drawings[.drawBoard], tag).accessibility
+                    for item in items where item.role == .button { XCTAssertGreaterThanOrEqual(item.frame.height, 14, tag) }
+                    for item in items { XCTAssertTrue(CGRect(origin: .zero, size: mine.size).insetBy(dx: -0.001, dy: -0.001).contains(item.frame), "\(tag): \(item.label) inside the panel") }
+                }
+            }
         }
     }
 }

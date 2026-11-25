@@ -60,7 +60,7 @@ import XCTest
     func testDrawBoardRenderCost() async throws {
         let model = PlazaDrawModel()
         model.board = PlazaDrawBoard(head: "그림 퀴즈 3/6 · 그리는 사람 민수", time: "⏱ 52", cover: nil, foot: .tools(word: "사과"), canDraw: true)
-        let panel = PlazaDrawPanel(model: model, pills: PlazaPillsPanel(model: PlazaOverlayModel()))
+        let panel = PlazaDrawPanel(model: model, neighbours: { _, _ in [:] })
         let g = PlatformPlaza.graphics, viewport = CGSize(width: 960, height: 640)
         _ = panel.render(scale: 2, viewport: viewport, graphics: g)   // warm: the plate is drawn once
         let clock = ContinuousClock()

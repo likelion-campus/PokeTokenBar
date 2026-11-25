@@ -135,7 +135,7 @@ import Observation
     private let minimap = PlazaMinimapModel()
     /// The panels drawn through the canvas over the scene, bottom first: the countdown/banner/hint pills (above the
     /// overlay) and the clock on the minimap. `setRendering` switches their rendering with the scene's.
-    private(set) lazy var hud = PlazaHUD(panels: [rosterPanel, drawPanel] + [boardPanel].compactMap { $0 } + [cardPanel, photoFramePanel, menuPanel, gameTitlePanel, gameCardPanel, pillsPanel, chatLogPanel, minimapPanel, clockPanel, shortcutsPanel, togglePanel, pickerPanel])
+    private(set) lazy var hud: PlazaHUD = PlazaHUD(panels: [rosterPanel, drawPanel] + [boardPanel].compactMap { $0 } + [cardPanel, photoFramePanel, menuPanel, gameTitlePanel, gameCardPanel, pillsPanel, chatLogPanel, minimapPanel, clockPanel, shortcutsPanel, togglePanel, pickerPanel])
     /// The pictures the roster and the card show (the platform's loaders; a test hands in its own).
     private let iconSource: any PlazaIconSource
     private lazy var rosterPanel = PlazaRosterPanel(model: rosterModel, icons: iconSource)
@@ -153,7 +153,8 @@ import Observation
     private lazy var gameCardPanel = PlazaGameCardPanel(game: gameModel, overlay: overlayModel, pills: pillsPanel)
     private lazy var gameTitlePanel = PlazaGameTitlePanel(game: gameModel)
     private let drawModel = PlazaDrawModel()
-    private lazy var drawPanel = PlazaDrawPanel(model: drawModel, pills: pillsPanel)
+    private lazy var drawPanel = PlazaDrawPanel(model: drawModel, neighbours: { [unowned self] viewport, scale in
+        hud.frames(of: PlazaDrawPanel.neighbours, viewport: viewport, scale: scale) })
     private lazy var minimapPanel = PlazaMinimapPanel(model: minimap, background: backgroundModel, worldSize: map.pixelSize,
                                                       mapImage: { [unowned self] in minimapImage(for: .summer) })
     private lazy var clockPanel = PlazaClockPanel(worldSize: map.pixelSize)

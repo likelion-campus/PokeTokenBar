@@ -20,8 +20,14 @@ struct PlazaDrawBoard: Equatable {
     var canDraw: Bool
 }
 
-/// Where the panel sits. The user picks one from the layout sheet; the others are removed then.
-enum PlazaDrawLayout: String, CaseIterable, Sendable { case center, top, side }
+/// Where the panel sits. The user picks one from the layout sheet; the other is removed then.
+enum PlazaDrawLayout: String, CaseIterable, Sendable {
+    /// In the column right of the chat log, under the pills, down to the bottom margin. It covers the minimap and the clock (so it is drawn
+    /// above them) and may cover the roster.
+    case right
+    /// Centred under the pills, down to the chat log's top; clear of the minimap, the clock and the shortcuts guide.
+    case top
+}
 
 @MainActor @Observable final class PlazaDrawModel {
     /// nil hides the panel.
@@ -31,13 +37,14 @@ enum PlazaDrawLayout: String, CaseIterable, Sendable { case center, top, side }
     var color = 1
     /// 1 or 3; the eraser draws 5 wide.
     var width = 3
-    var layout: PlazaDrawLayout = .center
+    var layout: PlazaDrawLayout = .top
 }
 
 /// The drawing quiz's panel: a head line (turn, drawer, time), the canvas, and under it the drawer's tools or a guesser's lines. The canvas
 /// is one image layer the hosts enlarge with nearest sampling; its cell is a whole number of device pixels, so the picture is never uneven
 /// at 125 % or 150 %. A press on the canvas is captured like a scroller's track (`scrollerContains` / `scrollerMouse`) and each point of the
-/// drag becomes a cell. A change of the canvas renders at most 30 times a second and once more after the last change.
+/// drag becomes a cell. A change of the canvas renders at most 30 times a second and once more after the last change. The panel keeps clear
+/// of the chat log (always) and of the other panels above it (per layout) by their real frames, which `neighbours` reports.
 @MainActor final class PlazaDrawPanel: PlazaPanel {
     let id = PlazaPanelID.drawBoard
     var onChange: (() -> Void)?
@@ -45,20 +52,22 @@ enum PlazaDrawLayout: String, CaseIterable, Sendable { case center, top, side }
     var onStroke: ((_ points: [Int], _ color: Int, _ width: Int) -> Void)?
     var onClear: (() -> Void)?
     private let model: PlazaDrawModel
-    private let pills: PlazaPillsPanel
+    /// The frames (window points) of the panels in `Self.neighbours` that are shown, for a window size and backing scale.
+    private let neighbourFrames: (CGSize, CGFloat) -> [PlazaPanelID: CGRect]
     private var observer: PlazaChangeObserver?
 
-    static let padding = PlazaMenuPanel.padding, rowGap: CGFloat = 6, toolGap: CGFloat = 4, swatch: CGFloat = 20, swatchGap: CGFloat = 6
-    static let buttonPadding = CGSize(width: 10, height: 4), buttonGap: CGFloat = 6, minCell = 2
-    /// What a window of the side layout leaves under the panel for the clock and the minimap (their frames are the controller's).
-    static let sideBottomReserve: CGFloat = 190
+    /// The panels whose frames the layouts read.
+    static let neighbours: [PlazaPanelID] = [.pills, .gameCard, .chatLog, .minimap, .clock, .shortcuts, .backgroundToggle, .nameColorPicker]
+    static let padding: CGFloat = 4, rowGap: CGFloat = 3, gap: CGFloat = 8, clear: CGFloat = 4, swatch: CGFloat = 18, swatchGap: CGFloat = 3
+    static let buttonPadding = CGSize(width: 6, height: 2), buttonGap: CGFloat = 3, minCell = 2
+    private static let cellDivisor = PlazaDrawCanvas.width
     static let minInterval = Duration.milliseconds(33)
     private static let gold = PlazaColor(hex: 0xF2C14E)
     private static let ink = PlazaColor(hex: 0x2B2233)
 
-    init(model: PlazaDrawModel, pills: PlazaPillsPanel) {
+    init(model: PlazaDrawModel, neighbours: @escaping (CGSize, CGFloat) -> [PlazaPanelID: CGRect]) {
         self.model = model
-        self.pills = pills
+        neighbourFrames = neighbours
         observer = PlazaChangeObserver(track: { _ = model.board; _ = model.canvas; _ = model.color; _ = model.width; _ = model.layout },
                                        changed: { [weak self] in self?.modelChanged() })
     }
@@ -100,29 +109,10 @@ enum PlazaDrawLayout: String, CaseIterable, Sendable { case center, top, side }
 
     // MARK: place
 
-    var anchor: PlazaPanelAnchor {
-        switch model.layout {
-        case .center: .center
-        case .top: .topCenter
-        case .side: .topTrailing
-        }
-    }
+    let anchor = PlazaPanelAnchor.topLeading
+    let offset = CGPoint.zero
 
-    var offset: CGPoint { .zero }
-
-    func offset(in viewport: CGSize, scale: CGFloat, text: any PlazaTextEngine) -> CGPoint {
-        let margin = PlazaRosterMetrics.margin
-        let pillsHeight = pills.stack(in: viewport, scale: scale, text: text).size.height
-        let top = margin + (pillsHeight > 0 ? pillsHeight + PlazaPanelStyle.pillSpacing : 0)
-        switch model.layout {
-        case .center: return .zero
-        case .top: return CGPoint(x: 0, y: top)
-        case .side:
-            // Bottom edge a reserve above the window's, but never higher than under the pills.
-            let height = layout(in: viewport, scale: scale, text: text).size.height
-            return CGPoint(x: margin, y: PlazaPanelStyle.pixel(max(top, viewport.height - Self.sideBottomReserve - height), scale: scale))
-        }
-    }
+    func offset(in viewport: CGSize, scale: CGFloat, text: any PlazaTextEngine) -> CGPoint { layout(in: viewport, scale: scale, text: text).origin }
 
     var isVisible: Bool { model.board != nil }
 
@@ -140,7 +130,11 @@ enum PlazaDrawLayout: String, CaseIterable, Sendable { case center, top, side }
         let scale: CGFloat
         /// The canvas cell, in device pixels.
         let cell: Int
+        /// The panel's top-left corner in the window, in points.
+        let origin: CGPoint
         let size: CGSize
+        /// False when even the smallest cell does not fit its room: the panel sits at the layout's corner and covers what it must.
+        let fits: Bool
         let head: (line: PlazaTextLine, frame: CGRect)
         let time: (line: PlazaTextLine, frame: CGRect)
         let canvas: CGRect
@@ -151,21 +145,22 @@ enum PlazaDrawLayout: String, CaseIterable, Sendable { case center, top, side }
         let lines: [(line: PlazaTextLine, text: String, frame: CGRect)]
     }
 
-    private struct Key: Equatable { let viewport: CGSize, scale: CGFloat, board: PlazaDrawBoard?, color: Int, width: Int, layout: PlazaDrawLayout, engine: String, pillsHeight: CGFloat }
+    private struct Key: Equatable { let viewport: CGSize, scale: CGFloat, board: PlazaDrawBoard?, color: Int, width: Int, layout: PlazaDrawLayout, engine: String, around: [PlazaPanelID: CGRect] }
     private var laidOut: (key: Key, placed: Placed)?
     /// The layout of the last `size` or `render`: what `hit` and `cell(at:)` read.
     private var placed: Placed? { laidOut?.placed }
 
     func layout(in viewport: CGSize, scale: CGFloat, text: any PlazaTextEngine) -> Placed {
+        let around = neighbourFrames(viewport, scale)
         let key = Key(viewport: viewport, scale: scale, board: model.board, color: model.color, width: model.width, layout: model.layout,
-                      engine: String(describing: type(of: text)), pillsHeight: model.layout == .center ? 0 : pills.stack(in: viewport, scale: scale, text: text).size.height)
+                      engine: String(describing: type(of: text)), around: around)
         if let laidOut, laidOut.key == key { return laidOut.placed }
-        let made = build(viewport: viewport, scale: scale, text: text, pillsHeight: key.pillsHeight)
+        let made = build(viewport: viewport, scale: scale, text: text, around: around)
         laidOut = (key, made)
         return made
     }
 
-    private func build(viewport: CGSize, scale: CGFloat, text: any PlazaTextEngine, pillsHeight: CGFloat) -> Placed {
+    private func build(viewport: CGSize, scale: CGFloat, text: any PlazaTextEngine, around: [PlazaPanelID: CGRect]) -> Placed {
         let l = L(.ko)
         let font = PlazaFont.plaza(.body)
         let metrics = text.metrics(font)
@@ -179,11 +174,9 @@ enum PlazaDrawLayout: String, CaseIterable, Sendable { case center, top, side }
         let time = text.line(board.time, font: font)
         let buttonH = lineH + 2 * Self.buttonPadding.height
 
-        // What the foot needs, and (for the tools) the least width it takes.
         var word: (PlazaTextLine, String)?
         var toolButtons: [(hit: PlazaPanelHit, label: String, line: PlazaTextLine, selected: Bool)] = []
-        var toolsWidth: CGFloat = 0
-        var swatchesWidth: CGFloat = 0
+        let swatchesWidth = CGFloat(PlazaDraw.palette.count - 1) * Self.swatch + CGFloat(PlazaDraw.palette.count - 2) * Self.swatchGap
         if case .tools(let w) = board.foot {
             let shown = "\(l.plazaDrawWord) \(w)"
             word = (text.line(shown, font: font), shown)
@@ -194,56 +187,82 @@ enum PlazaDrawLayout: String, CaseIterable, Sendable { case center, top, side }
                 (PlazaPanelHit(action: "erase", index: nil), l.plazaDrawToolEraser, text.line(l.plazaDrawToolEraser, font: font), !pen),
                 (PlazaPanelHit(action: "clear", index: nil), l.plazaDrawToolClear, text.line(l.plazaDrawToolClear, font: font), false),
             ]
-            let buttonsWidth = toolButtons.map { PlazaPanelStyle.pixelUp($0.line.width, scale: scale) + 2 * Self.buttonPadding.width }.reduce(0, +)
-                + CGFloat(toolButtons.count - 1) * Self.buttonGap
-            swatchesWidth = CGFloat(PlazaDraw.palette.count - 1) * Self.swatch + CGFloat(PlazaDraw.palette.count - 2) * Self.swatchGap
-            toolsWidth = max(buttonsWidth, swatchesWidth, width(word!.0))
+        }
+        let buttonWidths = toolButtons.map { PlazaPanelStyle.pixelUp($0.line.width, scale: scale) + 2 * Self.buttonPadding.width }
+        let buttonsRow = buttonWidths.reduce(0, +) + CGFloat(max(0, buttonWidths.count - 1)) * Self.buttonGap
+        let wordWidth = word.map { width($0.0) } ?? 0
+        /// The least width the tools take: the swatches, or two buttons side by side (the buttons wrap into two rows).
+        /// The tools' least width: all the buttons in one row (`wide`), or two buttons side by side with the buttons in two rows.
+        func toolsMin(_ wide: Bool) -> CGFloat {
+            word == nil ? 0 : max(swatchesWidth, wide ? max(buttonsRow, wordWidth) : (buttonWidths.max() ?? 0) * 2 + Self.buttonGap)
         }
 
-        func footLines(_ innerWidth: CGFloat) -> [(PlazaTextLine, String)] {
+        func footLines(_ inner: CGFloat) -> [(PlazaTextLine, String)] {
             guard case .lines(let strings) = board.foot else { return [] }
-            return strings.flatMap { s in text.wrappedLines(s, font: font, width: innerWidth).map { ($0, s) } }
+            return strings.flatMap { s in text.wrappedLines(s, font: font, width: inner).map { ($0, s) } }
         }
-        func footHeight(_ innerWidth: CGFloat) -> CGFloat {
-            if word != nil { return lineH + 2 * Self.toolGap + Self.swatch + buttonH }
-            let n = footLines(innerWidth).count
-            return n == 0 ? 0 : CGFloat(n) * lineH + CGFloat(n - 1) * 3
+        /// The tools' rows at `inner` points wide: the word and the swatches share a row when they fit, the buttons are one row when they fit
+        /// and else two rows of two equal buttons.
+        func footHeight(_ inner: CGFloat) -> CGFloat {
+            if word != nil {
+                let sharedRow = wordWidth + Self.gap + swatchesWidth <= inner
+                let first = sharedRow ? max(lineH, Self.swatch) : lineH + gap + Self.swatch
+                let buttons = buttonsRow <= inner ? buttonH : 2 * buttonH + Self.buttonGap
+                return first + gap + buttons
+            }
+            let n = footLines(inner).count
+            return n == 0 ? 0 : CGFloat(n) * lineH + CGFloat(n - 1) * 2
         }
         func canvasSize(_ n: Int) -> CGSize { CGSize(width: CGFloat(PlazaDrawCanvas.width * n) / scale, height: CGFloat(PlazaDrawCanvas.height * n) / scale) }
-        func innerWidth(_ n: Int) -> CGFloat { max(canvasSize(n).width, toolsWidth) }
-        func panelSize(_ n: Int) -> CGSize {
-            let inner = innerWidth(n), foot = footHeight(inner)
+        func innerWidth(_ n: Int, _ wide: Bool) -> CGFloat { max(canvasSize(n).width, toolsMin(wide)) }
+        func panelSize(_ n: Int, _ wide: Bool) -> CGSize {
+            let inner = innerWidth(n, wide), foot = footHeight(inner)
             return CGSize(width: PlazaPanelStyle.pixelUp(2 * pad + inner, scale: scale),
                           height: PlazaPanelStyle.pixelUp(2 * pad + lineH + gap + canvasSize(n).height + (foot > 0 ? gap + foot : 0), scale: scale))
         }
 
-        // The largest cell, in whole device pixels, that fits the layout's room.
-        let top = margin + (pillsHeight > 0 ? pillsHeight + PlazaPanelStyle.pillSpacing : 0)
-        let room: CGSize
-        switch model.layout {
-        case .center: room = CGSize(width: viewport.width - 2 * margin, height: viewport.height - 2 * margin)
-        case .top: room = CGSize(width: viewport.width - 2 * margin, height: viewport.height - top - margin)
-        case .side: room = CGSize(width: (viewport.width - 2 * margin) / 2, height: viewport.height - top - Self.sideBottomReserve)
-        }
-        var n = Self.minCell
-        var candidate = max(Self.minCell, Int((room.width * scale).rounded(.down)) / PlazaDrawCanvas.width)
-        while candidate > Self.minCell {
-            let s = panelSize(candidate)
-            if s.width <= room.width, s.height <= room.height { n = candidate; break }
-            candidate -= 1
+        // The window's room for each layout, by the neighbours' real frames. The chat log is never covered.
+        let chat = around[.chatLog]
+        let topLimit: CGFloat = max(margin, ([PlazaPanelID.pills, .gameCard].compactMap { around[$0]?.maxY }.max()).map { $0 + Self.clear } ?? margin)
+        func origin(for size: CGSize) -> (CGPoint, fits: Bool) {
+            switch model.layout {
+            case .right:
+                let x = viewport.width - margin - size.width, y = topLimit
+                let fits = x >= (chat.map { $0.maxX + Self.gap } ?? margin) && y + size.height <= viewport.height - margin
+                return (CGPoint(x: x, y: y), fits)
+            case .top:
+                let x = PlazaPanelStyle.pixel((viewport.width - size.width) / 2, scale: scale)
+                var top = topLimit, bottom = viewport.height - margin
+                let span = (x - Self.gap)...(x + size.width + Self.gap)
+                for id in [PlazaPanelID.chatLog, .minimap, .clock, .shortcuts, .backgroundToggle, .nameColorPicker] {
+                    guard let f = around[id], f.maxX >= span.lowerBound, f.minX <= span.upperBound else { continue }
+                    if f.midY < viewport.height / 2 { top = max(top, f.maxY + Self.clear) } else { bottom = min(bottom, f.minY - Self.clear) }
+                }
+                return (CGPoint(x: x, y: top), top + size.height <= bottom)
+            }
         }
 
-        let size = panelSize(n)
-        let inner = innerWidth(n), canvasW = canvasSize(n)
+        // The largest cell, in whole device pixels, whose panel fits its room (the smallest cell when none does).
+        var n = Self.minCell, wide = false, fits = false
+        var candidate = max(Self.minCell, Int((viewport.width * scale).rounded(.down)) / PlazaDrawPanel.cellDivisor)
+        search: while candidate >= Self.minCell {
+            for form in [true, false] where origin(for: panelSize(candidate, form)).fits { (n, wide, fits) = (candidate, form, true); break search }
+            candidate -= 1
+        }
+        let size = panelSize(n, wide)
+        let raw = origin(for: size).0
+        let at = CGPoint(x: PlazaPanelStyle.pixel(raw.x, scale: scale), y: PlazaPanelStyle.pixel(raw.y, scale: scale))
+        let inner = innerWidth(n, wide), canvasW = canvasSize(n)
         // A narrow canvas cuts the head short of the time.
-        let headRoom = inner - width(time) - 2 * gap
+        let headRoom = inner - width(time) - Self.gap
         if width(head) > headRoom { head = text.truncated(head, width: max(0, headRoom), ellipsis: text.line("…", font: font)) ?? head }
         var y = pad
         let headFrame = CGRect(x: pad, y: y, width: width(head), height: lineH)
         let timeFrame = CGRect(x: pad + inner - width(time), y: y, width: width(time), height: lineH)
         y += lineH + gap
-        let canvasY = PlazaPanelStyle.pixel(y, scale: scale)
-        let canvas = CGRect(x: centered(canvasW.width, in: inner), y: canvasY, width: canvasW.width, height: canvasW.height)
+        // On whole device pixels in the window, so the cells are even.
+        let canvasY = PlazaPanelStyle.pixel(at.y + y, scale: scale) - at.y
+        let canvas = CGRect(x: PlazaPanelStyle.pixel(at.x + centered(canvasW.width, in: inner), scale: scale) - at.x, y: canvasY, width: canvasW.width, height: canvasW.height)
         y = canvas.maxY + gap
 
         var cover: [(PlazaTextLine, String, CGRect)] = []
@@ -263,30 +282,43 @@ enum PlazaDrawLayout: String, CaseIterable, Sendable { case center, top, side }
         var buttons: [Button] = []
         var lines: [(PlazaTextLine, String, CGRect)] = []
         if let word {
-            let w = width(word.0)
-            wordPlaced = (word.0, word.1, CGRect(x: centered(w, in: inner), y: y, width: w, height: lineH))
-            y += lineH + Self.toolGap
-            var x = centered(swatchesWidth, in: inner)
+            let shared = wordWidth + Self.gap + swatchesWidth <= inner
+            let swatchX = shared ? pad + inner - swatchesWidth : centered(swatchesWidth, in: inner)
+            let rowH = max(lineH, Self.swatch)
+            if shared {
+                wordPlaced = (word.0, word.1, CGRect(x: pad, y: y + (rowH - lineH) / 2, width: wordWidth, height: lineH))
+            } else {
+                wordPlaced = (word.0, word.1, CGRect(x: centered(wordWidth, in: inner), y: y, width: wordWidth, height: lineH))
+                y += lineH + gap
+            }
+            var x = swatchX
             for i in 1..<PlazaDraw.palette.count {
-                swatches.append((i, CGRect(x: x, y: y, width: Self.swatch, height: Self.swatch)))
+                swatches.append((i, CGRect(x: x, y: y + (rowH - Self.swatch) / 2, width: Self.swatch, height: Self.swatch)))
                 x += Self.swatch + Self.swatchGap
             }
-            y += Self.swatch + Self.toolGap
-            let widths = toolButtons.map { PlazaPanelStyle.pixelUp($0.line.width, scale: scale) + 2 * Self.buttonPadding.width }
-            x = centered(widths.reduce(0, +) + CGFloat(widths.count - 1) * Self.buttonGap, in: inner)
-            for (b, w) in zip(toolButtons, widths) {
-                buttons.append(Button(hit: b.hit, label: b.label, line: b.line, frame: CGRect(x: x, y: y, width: w, height: buttonH), selected: b.selected))
-                x += w + Self.buttonGap
+            y += (shared ? rowH : Self.swatch) + gap
+            if buttonsRow <= inner {
+                var bx = centered(buttonsRow, in: inner)
+                for (b, w) in zip(toolButtons, buttonWidths) {
+                    buttons.append(Button(hit: b.hit, label: b.label, line: b.line, frame: CGRect(x: bx, y: y, width: w, height: buttonH), selected: b.selected))
+                    bx += w + Self.buttonGap
+                }
+            } else {
+                let cell = (inner - Self.buttonGap) / 2
+                for (i, b) in toolButtons.enumerated() {
+                    let bx = pad + CGFloat(i % 2) * (cell + Self.buttonGap), by = y + CGFloat(i / 2) * (buttonH + Self.buttonGap)
+                    buttons.append(Button(hit: b.hit, label: b.label, line: b.line, frame: CGRect(x: bx, y: by, width: cell, height: buttonH), selected: b.selected))
+                }
             }
         } else {
             for (line, s) in footLines(inner) {
                 let w = width(line)
                 lines.append((line, s, CGRect(x: centered(w, in: inner), y: y, width: w, height: lineH)))
-                y += lineH + 3
+                y += lineH + 2
             }
         }
-        return Placed(scale: scale, cell: n, size: size, head: (head, headFrame), time: (time, timeFrame), canvas: canvas, cover: cover, word: wordPlaced,
-                      swatches: swatches, buttons: buttons, lines: lines)
+        return Placed(scale: scale, cell: n, origin: at, size: size, fits: fits, head: (head, headFrame), time: (time, timeFrame), canvas: canvas, cover: cover,
+                      word: wordPlaced, swatches: swatches, buttons: buttons, lines: lines)
     }
 
     func size(in viewport: CGSize, scale: CGFloat, text: any PlazaTextEngine) -> CGSize {
@@ -308,20 +340,22 @@ enum PlazaDrawLayout: String, CaseIterable, Sendable { case center, top, side }
         let l = L(.ko)
 
         // The plate and everything on it but the canvas changes with the board and the tools only, not with every stroke.
-        let key = "\(p.size) \(scale) \(String(describing: type(of: text))) \(board) \(model.color) \(model.width) \(model.layout) \(p.canvas)"
+        let key = "\(p.size) \(scale) \(String(describing: type(of: text))) \(board) \(model.color) \(model.width) \(p.canvas) \(p.buttons.map(\.frame))"
         if plate.key != key {
             plate = (key, space.image(scale: scale, graphics: graphics) { canvas in
-                PlazaMenuBackground.draw(on: canvas, rect: space.canvas(CGRect(origin: .zero, size: p.size)))
+                let all = space.canvas(CGRect(origin: .zero, size: p.size))
+                canvas.setFillColor(PlazaColor(hex: 0x1D4F55, alpha: 0.96))
+                canvas.fillRoundedRect(all, radius: 8)
+                canvas.setStrokeColor(PlazaColor(hex: 0x5FB7BD))
+                canvas.strokeRoundedRect(all.insetBy(dx: 1, dy: 1), radius: 7, lineWidth: 2)
                 func draw(_ line: PlazaTextLine, in frame: CGRect, _ color: PlazaColor) {
                     canvas.setFillColor(color)
                     canvas.draw(line, at: space.canvas(CGPoint(x: frame.minX, y: frame.minY + m.ascender)))
                 }
-                canvas.setFillColor(PlazaColor(srgbRed: 0, green: 0, blue: 0, alpha: 0.45))
-                canvas.draw(p.head.line, at: space.canvas(CGPoint(x: p.head.frame.minX + 1, y: p.head.frame.minY + m.ascender + 1)))
                 draw(p.head.line, in: p.head.frame, Self.gold)
                 draw(p.time.line, in: p.time.frame, .white)
-                canvas.setFillColor(PlazaColor(hex: 0x1D4F55))
-                canvas.fill(space.canvas(p.canvas.insetBy(dx: -3, dy: -3)))
+                canvas.setFillColor(PlazaColor(hex: 0x0B2326))
+                canvas.fill(space.canvas(p.canvas.insetBy(dx: -2, dy: -2)))
                 if let w = p.word { draw(w.line, in: w.frame, .white) }
                 for l in p.lines { draw(l.line, in: l.frame, .white) }
                 canvas.saveState()
@@ -331,20 +365,20 @@ enum PlazaDrawLayout: String, CaseIterable, Sendable { case center, top, side }
                     let r = space.canvas(s.frame)
                     if model.color == s.index {
                         canvas.setFillColor(.white)
-                        canvas.fill(r.insetBy(dx: -3, dy: -3))
+                        canvas.fill(r.insetBy(dx: -2, dy: -2))
                     }
-                    canvas.setFillColor(PlazaColor(hex: 0x1D4F55))
+                    canvas.setFillColor(PlazaColor(hex: 0x0B2326))
                     canvas.fill(r.insetBy(dx: -1, dy: -1))
-                    canvas.setFillColor(PlazaColor(srgbRed: CGFloat(c.r) / 255, green: CGFloat(c.g) / 255, blue: CGFloat(c.b) / 255, alpha: 1))
+                    canvas.setFillColor(PlazaColor(srgbRed: Double(c.r) / 255, green: Double(c.g) / 255, blue: Double(c.b) / 255, alpha: 1))
                     canvas.fill(r)
                 }
                 for b in p.buttons {
                     let r = space.canvas(b.frame)
-                    canvas.setFillColor(b.selected ? PlazaColor(hex: 0x2D7F87) : PlazaColor(hex: 0x1D4F55))
-                    canvas.fillRoundedRect(r, radius: 6)
+                    canvas.setFillColor(b.selected ? PlazaColor(hex: 0x2D7F87) : PlazaColor(hex: 0x14393D))
+                    canvas.fillRoundedRect(r, radius: 5)
                     canvas.setStrokeColor(b.selected ? Self.gold : PlazaColor(hex: 0x5FB7BD))
-                    canvas.strokeRoundedRect(r, radius: 6, lineWidth: b.selected ? 2 : 1)
-                    draw(b.line, in: CGRect(x: b.frame.minX + Self.buttonPadding.width, y: b.frame.minY + Self.buttonPadding.height,
+                    canvas.strokeRoundedRect(r, radius: 5, lineWidth: b.selected ? 2 : 1)
+                    draw(b.line, in: CGRect(x: b.frame.minX + (b.frame.width - b.line.width) / 2, y: b.frame.minY + Self.buttonPadding.height,
                                             width: b.line.width, height: b.frame.height), .white)
                 }
                 canvas.restoreState()
@@ -358,7 +392,7 @@ enum PlazaDrawLayout: String, CaseIterable, Sendable { case center, top, side }
             layers.append(.image(PlazaImage(bitmap: model.canvas.bitmap(palette: PlazaDraw.palette)), frame: p.canvas))
         } else {
             let paper = PlazaDraw.palette[0]
-            layers.append(.color(PlazaColor(srgbRed: CGFloat(paper.r) / 255, green: CGFloat(paper.g) / 255, blue: CGFloat(paper.b) / 255, alpha: 1), frame: p.canvas))
+            layers.append(.color(PlazaColor(srgbRed: Double(paper.r) / 255, green: Double(paper.g) / 255, blue: Double(paper.b) / 255, alpha: 1), frame: p.canvas))
             for c in p.cover {
                 if let image = PlazaPanelSpace(content: c.frame.size, room: 0).image(scale: scale, graphics: graphics, { canvas in
                     canvas.setFillColor(Self.ink)
@@ -381,7 +415,7 @@ enum PlazaDrawLayout: String, CaseIterable, Sendable { case center, top, side }
 
     func hit(_ point: CGPoint) -> PlazaPanelHit? {
         guard let p = placed, CGRect(origin: .zero, size: p.size).contains(point) else { return nil }
-        if let s = p.swatches.first(where: { $0.frame.insetBy(dx: -Self.swatchGap / 2, dy: -Self.toolGap).contains(point) }) {
+        if let s = p.swatches.first(where: { $0.frame.insetBy(dx: -Self.swatchGap / 2, dy: -Self.rowGap / 2).contains(point) }) {
             return PlazaPanelHit(action: "color", index: s.index)
         }
         if let b = p.buttons.first(where: { $0.frame.contains(point) }) { return b.hit }
