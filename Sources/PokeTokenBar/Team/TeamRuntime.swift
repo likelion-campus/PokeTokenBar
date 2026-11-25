@@ -137,6 +137,7 @@ final class TeamRuntime {
                 notifier?.emoteToMe(from: member, kind: emote.kind)
             }
         }
+        session.onDraw = { [weak self] id, d in self?.plaza?.showDraw(from: id, d) }
         session.onChat = { [weak self] memberID, text, isLoud in
             guard let self else { return }
             plaza?.showChat(memberID: memberID, text: text, isLoud: isLoud)   // a line leaves the sender's dance going

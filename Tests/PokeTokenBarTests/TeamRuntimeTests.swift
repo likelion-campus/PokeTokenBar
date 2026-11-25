@@ -53,6 +53,40 @@ private func settleUntil(_ condition: () -> Bool, file: StaticString, line: UInt
     XCTAssertTrue(condition(), "condition not reached", file: file, line: line)
 }
 
+/// Records what the runtime hands the plaza; every other requirement does nothing.
+@MainActor
+private final class RecordingPlaza: PlazaPresenting {
+    var onFocusEnd: ((PlazaFocusEnd) -> Void)?
+    var isFocusing: Bool { false }
+    var draws: [(sender: String, draw: TeamDraw)] = []
+    func showDraw(from sender: String, _ draw: TeamDraw) { draws.append((sender, draw)) }
+    func stopDance(memberID: String) {}
+    func showTackle(from sender: String, on target: String?, tiles: Int) {}
+    func showMimicTackle(from sender: String, on target: String?) {}
+    func showMimicFound(from sender: String, finder: String?) {}
+    func showSnowball(from sender: String, on target: String?, tiles: Int, direction: PlazaDirection?) {}
+    func showJump(memberID: String, iceBreak b: PlazaIceBreak?) {}
+    func showGroupPhoto(from memberID: String) {}
+    func showPickup(from memberID: String, slot: Int) {}
+    func showFirework(memberID: String, style: String?) {}
+    func showDance(memberID: String, style: String?, since: Date?) {}
+    func showDecoyFound(from sender: String, copied: String?) {}
+    func showDecoyTackle(from sender: String, on target: String?) {}
+    func showPull(from sender: String, on target: String?) {}
+    func showDrag(from sender: String, on target: String?, tiles: Int) {}
+    func showTreeShake(from sender: String, level: Int, drop: ItemKind?) {}
+    func showFortune(memberID: String, draw: PlazaFortuneDraw) {}
+    func showDecoyJump(from sender: String) {}
+    func showPray(memberID: String) {}
+    func showEmote(memberID: String, kind: TeamEmoteKind, alsoOver other: String?, overDecoy: Bool) {}
+    func showChat(memberID: String, text: String, isLoud: Bool) {}
+    func showBigEvent(_ e: TeamEvent) {}
+    func applySchedule() {}
+    func endFocusSilently() {}
+    func closeIfOpen() {}
+    func endFocusIfDue() {}
+}
+
 @MainActor
 final class TeamRuntimeTests: XCTestCase {
     /// The fake transports hold their hub unowned, so it must outlive the test body.
@@ -939,6 +973,17 @@ final class TeamRuntimeTests: XCTestCase {
         await settle { plaza.banner != nil }
         XCTAssertEqual(plaza.banner, "나님이 가의 메타몽을 찾았어요!")
     }
+
+    func testAReceivedDrawReachesThePlaza() async {
+        let (a, b) = connectedPair()
+        let plaza = RecordingPlaza()
+        b.runtime.plaza = plaza
+        let draw = TeamDraw(game: "g", turn: 1, seq: 0, op: .clear)
+        a.runtime.session.sendDraw(draw)
+        await settle { !plaza.draws.isEmpty }
+        XCTAssertEqual(plaza.draws.map(\.sender), [a.settings.memberID])
+        XCTAssertEqual(plaza.draws.map(\.draw), [draw])
+    }
 }
 
 @MainActor private final class RuntimeFoundLog { var items: [TeamEmote] = [] }
@@ -1191,4 +1236,5 @@ final class TeamRuntimeNotificationTests: XCTestCase {
         node.settings.isEnabled = true
         await settle { poster.authorizationRequests == 1 }
     }
+
 }

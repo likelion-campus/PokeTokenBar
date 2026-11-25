@@ -317,6 +317,18 @@ final class TeamHostilePeerTests: XCTestCase {
         XCTAssertEqual(eventReplies(peer), TeamSession.inventoryReplyBurst + 1, "it comes back with time")
     }
 
+    func testDrawsOverTheRateAreDropped() async {
+        var got = 0
+        session.onDraw = { _, _ in got += 1 }
+        let peer = join("A")
+        let draw = TeamDraw(game: "g", turn: 1, seq: 0, op: .clear)
+        for _ in 0..<100 { say(.draw(draw), from: peer) }
+        XCTAssertEqual(got, TeamSession.drawPerSecond)
+        clock = clock.addingTimeInterval(1)
+        for _ in 0..<100 { say(.draw(draw), from: peer) }
+        XCTAssertEqual(got, TeamSession.drawPerSecond * 2)
+    }
+
     func testProfileFloodIsAnsweredOnlyAFewTimes() async {
         let peer = join("A")
         let before = profilesServed
