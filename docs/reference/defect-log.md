@@ -3642,3 +3642,14 @@ Found before release by three independent read-only reviews (correctness, policy
 - **영구 캡처:** `PlazaFortune.lines` 주석에 기준을 적었다. `PlazaFortuneTests.testNoLineIsAboutAChoreAToolOrTheApp` 이 업무·개발·광장 낱말과 로마자를 막는다(예전 목록에서 88군데 실패하는 것을 확인). 낱말 목록은 같은 부류가 돌아오는 것만 막고 문구의 질은 재지 못한다.
 - **호환:** 번호는 그대로 전해지므로 2.5.642 이하의 팀원은 같은 번호에서 그 버전의 문구를 본다. 번호 해시 고정(`testTheFirstLinesAndActionsKeepTheirNumbers`)은 새 300줄 하나로 바꿨다.
 - **규칙:** (1) 글 목록은 개수를 목표로 늘리지 않는다: 기준을 먼저 적고, 통과한 것만 넣는다. (2) 사람이 읽는 글(운세, 대사, 안내문)은 쓴 사람이 아닌 독립 검토를 한 번 거친다. (3) 글의 기준은 실제 예(여기서는 진짜 포춘쿠키 쪽지)에서 가져온다.
+
+## 폭탄 돌리기: C로 쳐도 폭탄이 넘어가지 않았다: 맞은 쪽이 늦은 화면으로 "닿았는지"를 다시 쟀다 (2026-11-25 사용자 리포트, fix/bomb-pass-and-holder-speed)
+- **증상:** 폭탄을 든 사람이 달아나는 참가자를 따라가 C로 쳤는데(자기 화면에는 충격 그림이 뜬다) 폭탄이 그대로 남는 일이 잦았다.
+- **직접 원인:** 폭탄을 넘겨받는 것은 맞은 쪽 Mac이 정하고(`showTackle`), 조건이 "내 화면에서 친 사람의 몸이 내 몸에 닿아 있다"였다. 그런데 두 화면은 늘 조금 어긋난다: 걸음은 출발할 때 도착 칸을 알리므로 방금 출발한 한 칸은 아직 상대에게 가지 않았고(달리기 한 칸 0.075초에 지연이 수십 ms면 걸음의 상당 부분), 상대 그림은 받은 칸을 한 칸씩 뒤따라 걷는다(`PlazaRemoteMotion`, 밀리면 세 칸까지). 친 쪽은 자기 화면의 내 그림에 닿아서 쳤고, 내 화면에서는 그 사람이 한두 칸 뒤에 있다.
+- **왜 못 걸렀나:** `testTheHoldersTackleHandsMeTheBomb` 는 둘이 나란히 서 있는 채로 `showTackle` 을 불렀다: 화면이 어긋나는 경우(둘 다 움직이는 중)를 한 번도 밟지 않았다. 문서(TEAM.md)에도 "넘겨받는 것은 맞은 사람의 화면이 정합니다"라고만 적었고, 그 화면이 늦다는 점은 따지지 않았다.
+- **고침:** 폭탄은 친 사람이 내 몸에 닿았거나 닿기까지 두 칸(`PlazaBomb.passSlack`: 화면마다 한 칸) 안이면 넘어온다(`PlazaBomb.reaches`, `tackleReachesMe`). 친 사람의 자리는 그려진 칸과 마지막으로 받은 칸을 둘 다 본다. 밀리는 것은 전처럼 내 화면에서 닿았을 때뿐이다. 새 전송 필드는 없다.
+- **같이 바꾼 것:** 폭탄을 든 사람은 모든 걸음이 1.5배 빠르다(전에는 뭍에서 달릴 때만 1.2배): 걷기, 달리기, 헤엄(연못·온천), 물에서 나오기. 뛰어드는 걸음(0.36초, 점프 그림과 같은 길이)은 그대로다. 가장 짧은 칸이 0.05초가 되어 `PlazaScene.maxFrameDelta` 를 그 값으로 맞췄다(0.06 → 0.05). `PlazaWalker.isRunning` 은 걸음 길이가 아니라 Shift로 정한다(폭탄을 든 사람의 걷는 칸 0.1초가 달리기로 알려지지 않게).
+- **확인하지 못한 다른 후보:** 받는 쪽은 자기 시계로 라운드가 시작됐는지(`t >= roundStartsAt`)와 되돌려주기 금지 2초를 잰다. 두 PC의 시계가 몇 초 어긋나 있으면 라운드 처음 그만큼 넘겨받지 못한다. 팀 PC의 시계 차이를 재 보지 않았고 이 PR은 고치지 않는다.
+- **부류 스윕:** 받은 몸통박치기로 밀리는지(`showTackle`), 던진 것에 맞는지(`showSnowball`), 끌려가는지(`showDrag`)도 받는 쪽이 자기 화면의 자리로 다시 잰다: 같은 어긋남이 있어 움직이는 중에는 빗나갈 수 있다. 셋은 밀리거나 끌리는 것뿐이라 판을 바꾸지 않으므로 이 PR에서는 그대로 두었다(고치려면 같은 여유를 두면 된다).
+- **영구 캡처:** `PlazaGameControllerTests.testTheHoldersTackleHandsMeTheBombWhenMyScreenShowsThemATileOrTwoShort`(두 칸·세 칸 거리, 밀리지 않음), `testTheHoldersLastToldTileCountsWhenTheDrawingIsBehind`, `testATackleFromFurtherAwayThanTheLagAllowsDoesNotPassTheBomb`, `PlazaGameTests.testTheBombReachesTwoTilesPastTouching`, `testEveryStepOfTheHolderIsHalfAgainAsFastButThePlunge`, `PlazaWalkerTests.testAShortStepWithoutShiftIsNotARun`, `PlazaWindowTests.testASlowFrameWhileRunningReportsEveryTile`(가장 짧은 칸으로 어느 위상에서도 한 프레임에 한 칸). 고치기 전 코드에서 17군데 실패하는 것을 확인했다.
+- **규칙:** 다른 Mac이 보낸 "닿았다"를 내 화면으로 다시 잴 때는 두 화면이 어긋나는 만큼을 여유로 둔다. 판정 테스트는 둘 다 서 있는 경우만이 아니라 움직이는 중(내 화면이 늦은 경우)을 밟는다.

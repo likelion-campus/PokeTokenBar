@@ -643,4 +643,55 @@ extension PlazaGameTests {
         view.holder = "a"
         XCTAssertEqual(["a", "b", "c", "d"].map(view.mark), [.holder, .alive, .out, nil])
     }
+    // MARK: - The holder's pace and reach
+
+    /// Whoever holds the bomb is half again as fast on every step, in the pond and the hot spring too. The plunge into
+    /// water is a jump of a fixed length and stays as it is.
+    func testEveryStepOfTheHolderIsHalfAgainAsFastButThePlunge() throws {
+        let map = PlazaMapData.map
+        func tiles(_ ok: (TilePoint) -> Bool) -> [TilePoint] {
+            (0..<map.height).flatMap { y in (0..<map.width).map { TilePoint(x: $0, y: y) } }.filter(ok)
+        }
+        func pair(_ a: (TilePoint) -> Bool, _ b: (TilePoint) -> Bool) throws -> (TilePoint, TilePoint) {
+            for from in tiles(a) {
+                let to = TilePoint(x: from.x + 1, y: from.y)
+                if b(to) { return (from, to) }
+            }
+            throw XCTSkip("the map has no such pair of tiles")
+        }
+        let land = try pair(map.isWalkable, map.isWalkable)
+        let pond = try pair({ map.isWater($0) && !map.isHotSpring($0) }, { map.isWater($0) && !map.isHotSpring($0) })
+        let spring = try pair(map.isHotSpring, map.isHotSpring)
+        let ashore = try pair(map.isWater, map.isWalkable)
+        let plunge = try pair(map.isWalkable, map.isWater)
+        func holder(_ p: (TilePoint, TilePoint), running: Bool = false) -> TimeInterval {
+            PlazaBomb.stepDuration(from: p.0, to: p.1, running: running, isWater: map.isWater)
+        }
+        XCTAssertEqual(PlazaBomb.holderSpeedUp, 1.5)
+        XCTAssertEqual(holder(land, running: true), PlazaWalker.runStepDuration / 1.5, accuracy: 1e-12)
+        XCTAssertEqual(holder(land, running: true), PlazaBomb.holderRunStepDuration)
+        XCTAssertEqual(holder(land), PlazaWalker.stepDuration / 1.5, accuracy: 1e-12)
+        XCTAssertEqual(holder(pond), PlazaPond.swimStepDuration / 1.5, accuracy: 1e-12)
+        XCTAssertEqual(holder(spring), PlazaPond.swimStepDuration / 1.5, accuracy: 1e-12, "the hot spring is water too")
+        XCTAssertEqual(holder(pond, running: true), PlazaPond.swimStepDuration / 1.5, accuracy: 1e-12)
+        XCTAssertEqual(holder(ashore), PlazaWalker.stepDuration / 1.5, accuracy: 1e-12)
+        XCTAssertEqual(holder(plunge), PlazaPond.plungeStepDuration)
+    }
+
+    /// The bomb reaches two tiles past touching (one for each screen's lag), straight or around a corner.
+    func testTheBombReachesTwoTilesPastTouching() {
+        let me = PlazaBody(foot: TilePoint(x: 10, y: 6), size: 1)
+        func holder(_ dx: Int, _ dy: Int) -> PlazaBody { PlazaBody(foot: TilePoint(x: 10 + dx, y: 6 + dy), size: 1) }
+        XCTAssertEqual(holder(1, 0).gap(to: me), 1)
+        XCTAssertEqual(holder(-3, 0).gap(to: me), 3)
+        XCTAssertEqual(holder(2, 2).gap(to: me), 4)
+        XCTAssertEqual(holder(0, 0).gap(to: me), 0)
+        for (dx, dy, reaches) in [(1, 0, true), (0, -2, true), (3, 0, true), (2, 1, true), (4, 0, false), (2, 2, false), (0, 4, false)] {
+            XCTAssertEqual(PlazaBomb.reaches(holder(dx, dy), me), reaches, "(\(dx), \(dy))")
+            XCTAssertEqual(PlazaBomb.reaches(me, holder(dx, dy)), reaches, "the same from the other side")
+        }
+        XCTAssertTrue(holder(1, 0).touches(me))
+        XCTAssertFalse(holder(1, 1).touches(me), "touching is unchanged: no diagonals")
+    }
+
 }

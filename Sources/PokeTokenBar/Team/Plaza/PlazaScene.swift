@@ -35,9 +35,10 @@ struct PlazaSceneMember: Equatable, Sendable {
 /// `SpriteKitStage`, whose `SKScene` hands this scene its frames, size changes, keys and pause changes).
 @MainActor final class PlazaScene {
     /// 한 프레임에 걸을 수 있는 최대 시간. 잠자기 뒤 같은 큰 간격을 막는다.
-    /// 가장 짧은 칸(폭탄을 들고 달리기, `PlazaBomb.holderRunStepDuration` 0.0625초)보다 짧아야 한 프레임에 칸이 하나만
-    /// 바뀐다. 두 칸을 한 번에 가면 그 사이 칸을 팀원에게 보내지 못해, 팀원 화면에서는 두 칸 떨어진 칸으로 순간 이동한다.
-    static let maxFrameDelta: TimeInterval = 0.06
+    /// 가장 짧은 칸(폭탄을 들고 달리기, `PlazaBomb.holderRunStepDuration` 0.05초)보다 길지 않아야 한 프레임에 칸이 하나만
+    /// 바뀐다(한 프레임이 칸 하나와 같으면 걷던 칸을 마치고 다음 칸을 출발할 뿐, 그 칸까지 마치지는 못한다). 두 칸을 한 번에
+    /// 가면 그 사이 칸을 팀원에게 보내지 못해, 팀원 화면에서는 두 칸 떨어진 칸으로 순간 이동한다.
+    static let maxFrameDelta: TimeInterval = PlazaBomb.holderRunStepDuration
 
     static let characterScale = PlazaActor.characterScale
 
@@ -1353,12 +1354,12 @@ struct PlazaSceneMember: Equatable, Sendable {
         }
     }
 
-    /// 폭탄을 든 캐릭터는 뭍에서 조금 더 빨리 달린다. 같은 속도로는 계속 달아나는 참가자를 따라잡을 수 없다.
+    /// 폭탄을 든 캐릭터는 뭍에서도 물(연못, 온천)에서도 모든 걸음이 1.5배 빠르다(`PlazaBomb.stepDuration`). 같은 속도로는 계속
+    /// 달아나는 참가자를 따라잡을 수 없다.
     private func stepDuration(hasBomb: Bool) -> (TilePoint, TilePoint, Bool) -> TimeInterval {
         guard hasBomb else { return pondStepDuration }
         return { [unowned self] from, to, running in
-            let usual = PlazaPond.stepDuration(from: from, to: to, running: running, isWater: { isWaterNow($0) })
-            return usual == PlazaWalker.runStepDuration ? PlazaBomb.holderRunStepDuration : usual
+            PlazaBomb.stepDuration(from: from, to: to, running: running, isWater: { isWaterNow($0) })
         }
     }
 

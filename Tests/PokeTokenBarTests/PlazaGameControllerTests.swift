@@ -291,6 +291,59 @@ final class PlazaGameControllerTests: XCTestCase {
         XCTAssertEqual(w.c.hint, L(.ko).plazaGameHoldHint)
     }
 
+    /// The teammate stands at `tile` on my screen (told and drawn).
+    private func teammate(_ w: World, at tile: TilePoint) async {
+        w.b.session.updatePlazaPosition(inPlaza: true, tile: tile, facing: .left, isWalking: false, isFlushed: false)
+        for _ in 0..<200 where w.scene.memberTiles[w.b.id] != tile { await Task.yield(); t += 0.05; w.scene.update(t) }
+        XCTAssertEqual(w.scene.memberTiles[w.b.id], tile, "test precondition")
+    }
+
+    /// A holder tackles when they touch me on their screen. Mine is behind theirs by the step each of us has just begun, so
+    /// on my screen they can still be a tile or two short. The bomb passes all the same; I am only pushed when they touch
+    /// me here. (Before: my screen had to show them touching, so a hit on a running player was often dropped.)
+    func testTheHoldersTackleHandsMeTheBombWhenMyScreenShowsThemATileOrTwoShort() async {
+        for gap in [2, 3] {
+            let w = await world()
+            let starts = await hostedByTeammate(w, holder: w.b.id)
+            now = starts.addingTimeInterval(2)
+            await sync(w)
+            await teammate(w, at: TilePoint(x: mine.x + gap, y: mine.y))
+            w.c.showTackle(from: w.b.id, on: w.me.id, tiles: 1)
+            await settle()
+            XCTAssertEqual(w.c.gameState?.bomb?.holder, w.me.id, "\(gap) tiles away on my screen")
+            for _ in 0..<20 { t += 0.05; w.scene.update(t) }
+            XCTAssertEqual(w.scene.walker.tile, mine, "not touching here: no push")
+        }
+    }
+
+    /// Further than that is no hit: a tackle only counts near me.
+    func testATackleFromFurtherAwayThanTheLagAllowsDoesNotPassTheBomb() async {
+        let w = await world()
+        let starts = await hostedByTeammate(w, holder: w.b.id)
+        now = starts.addingTimeInterval(2)
+        await sync(w)
+        await teammate(w, at: TilePoint(x: mine.x + 4, y: mine.y))
+        w.c.showTackle(from: w.b.id, on: w.me.id, tiles: 1)
+        await settle()
+        XCTAssertEqual(w.c.gameState?.bomb?.holder, w.b.id)
+        XCTAssertEqual(w.c.gameState?.bomb?.pass, 0)
+    }
+
+    /// The tile the holder last told me counts, not only where my screen has drawn them so far: the drawing walks behind.
+    func testTheHoldersLastToldTileCountsWhenTheDrawingIsBehind() async {
+        let w = await world()
+        let starts = await hostedByTeammate(w, holder: w.b.id)
+        now = starts.addingTimeInterval(2)
+        await sync(w)
+        await teammate(w, at: TilePoint(x: mine.x + 4, y: mine.y))
+        w.b.session.updatePlazaPosition(inPlaza: true, tile: TilePoint(x: mine.x + 3, y: mine.y), facing: .left, isWalking: true, isFlushed: false)
+        await settle()   // told, and no frame has drawn it yet
+        XCTAssertEqual(w.scene.memberTiles[w.b.id], TilePoint(x: mine.x + 4, y: mine.y), "test precondition: the drawing is behind")
+        w.c.showTackle(from: w.b.id, on: w.me.id, tiles: 1)
+        await settle()
+        XCTAssertEqual(w.c.gameState?.bomb?.holder, w.me.id)
+    }
+
     func testATackleFromSomeoneWithoutTheBombChangesNothing() async {
         let w = await world()
         let starts = await hostedByTeammate(w, holder: w.me.id)

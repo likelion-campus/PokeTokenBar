@@ -46,12 +46,15 @@ struct PlazaBody: Equatable, Sendable {
         return t.x >= foot.x - s.w && t.x <= foot.x + s.w && t.y >= foot.y - s.h && t.y <= foot.y
     }
 
-    /// 두 몸의 어떤 칸이 같거나 상하좌우로 붙어 있다(대각선은 닿지 않는다). 대칭이다.
-    /// 두 직사각형 사이의 맨해튼 거리가 1 이하일 때다.
-    func touches(_ o: PlazaBody) -> Bool {
+    /// 두 몸(직사각형) 사이의 맨해튼 거리. 겹치면 0, 상하좌우로 붙으면 1, 한 칸 떨어지면 2. 대칭이다.
+    func gap(to o: PlazaBody) -> Int {
         let a = PlazaBodySize.span(size), b = PlazaBodySize.span(o.size)
         let gapX = max(foot.x - a.w - (o.foot.x + b.w), o.foot.x - b.w - (foot.x + a.w), 0)
         let gapY = max(foot.y - a.h - o.foot.y, o.foot.y - b.h - foot.y, 0)
-        return gapX + gapY <= 1
+        return gapX + gapY
     }
+
+    /// 두 몸의 어떤 칸이 같거나 상하좌우로 붙어 있다(대각선은 닿지 않는다). 대칭이다.
+    /// 두 직사각형 사이의 맨해튼 거리가 1 이하일 때다.
+    func touches(_ o: PlazaBody) -> Bool { gap(to: o) <= 1 }
 }

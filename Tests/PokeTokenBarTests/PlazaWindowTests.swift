@@ -329,7 +329,7 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         XCTAssertGreaterThan(run.tiles, walk.tiles)
     }
 
-    /// Whoever holds the live minigame bomb runs a little faster (at the same speed nobody who keeps running is ever
+    /// Whoever holds the live minigame bomb runs half again as fast (at the same speed nobody who keeps running is ever
     /// caught), and that pace still counts as running for teammates.
     func testABombHolderRunsFasterAndStillCountsAsRunning() async {
         func frames(holdingBomb: Bool) -> (count: Int, ran: Bool) {
@@ -351,14 +351,28 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         XCTAssertTrue(plain.ran)
         XCTAssertTrue(holder.ran, "a holder's faster step is still a run")
         XCTAssertLessThan(holder.count, plain.count, "ten tiles: \(holder.count) frames with the bomb, \(plain.count) without")
+        XCTAssertEqual(Double(plain.count) / Double(holder.count), PlazaBomb.holderSpeedUp, accuracy: 0.1, "half again as fast")
     }
 
     /// A frame can never cover two tiles, even a slow one while running, so every tile I pass is reported and
-    /// teammates never see me jump two tiles. The frame cap stays below the running step for that.
+    /// teammates never see me jump two tiles. The frame cap is no longer than the shortest step for that: a frame as
+    /// long as a step ends the step under way and starts the next, and cannot end that one too.
     func testASlowFrameWhileRunningReportsEveryTile() async {
         XCTAssertLessThan(PlazaScene.maxFrameDelta, PlazaWalker.runStepDuration)
-        XCTAssertLessThan(PlazaScene.maxFrameDelta, PlazaBomb.holderRunStepDuration, "a bomb holder runs faster, but not past the cap")
+        XCTAssertLessThanOrEqual(PlazaScene.maxFrameDelta, PlazaBomb.holderRunStepDuration, "a bomb holder runs faster, but not past the cap")
         XCTAssertLessThan(PlazaBomb.holderRunStepDuration, PlazaWalker.runStepDuration)
+        for phase in stride(from: 0.0, through: 1.0, by: 0.01) {
+            var w = PlazaWalker(tile: TilePoint(x: 0, y: 0))
+            w.wantsToRun = true
+            w.press(.right)
+            let pace: (TilePoint, TilePoint, Bool) -> TimeInterval = { _, _, _ in PlazaBomb.holderRunStepDuration }
+            w.advance(by: PlazaBomb.holderRunStepDuration * phase, canEnter: { _ in true }, stepDuration: pace)
+            for _ in 0..<50 {
+                let before = w.tile
+                w.advance(by: PlazaScene.maxFrameDelta, canEnter: { _ in true }, stepDuration: pace)
+                XCTAssertLessThanOrEqual(w.tile.x - before.x, 1, "a holder at phase \(phase) crossed two tiles in one capped frame")
+            }
+        }
         let c = controller(defaults())
         c.prepareScene()
         guard let scene = c.scene, let key = clearRun(from: scene.walker.tile, count: 6) else { return XCTFail("setup") }

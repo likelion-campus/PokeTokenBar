@@ -1469,9 +1469,11 @@ import Observation
         let direction = touching ? PlazaTargeting.turn(from: from, to: to, facing: senderFacing) : senderFacing
         scene.playTackle(by: sender, on: isMe ? nil : target, direction: direction)
         if isDitto { return dittoFormTackled(by: sender) }
+        guard isMe else { return }
+        // 폭탄은 내 화면에서 한두 칸 모자라도 넘어온다(`tackleReachesMe`). 밀리는 것은 내 화면에서 닿았을 때뿐이다.
+        if tackleReachesMe(from: sender) { takeBomb(from: sender) }
         // 집중 중이거나 모닥불 메뉴를 연 내 Mac은 밀지 않는다(옛 버전이 보낸 몸통박치기도 같다). 충격 그림만 보인다.
-        guard isMe, touching else { return }
-        takeBomb(from: sender)
+        guard touching else { return }
         // A disguised me is found instead of pushed.
         if myMimic != nil { return revealMe(by: sender) }
         if canBePushed { shove(by: sender) { scene.pushMe(direction, tiles: tiles) } }
@@ -1488,8 +1490,18 @@ import Observation
         let touching = PlazaBody(foot: from, size: scene.body(of: sender)?.size ?? 1).touches(targetBody)
         let direction = touching ? PlazaTargeting.turn(from: from, to: to, facing: senderFacing) : senderFacing
         scene.playTackle(by: sender, on: isMe ? nil : target, direction: direction)
-        if isMe, touching { takeBomb(from: sender) }
+        if isMe, tackleReachesMe(from: sender) { takeBomb(from: sender) }
         if isMe, myMimic != nil, touching { revealMe(by: sender) }
+    }
+
+    /// 몸통박치기를 보낸 팀원이 내 몸에 닿았거나 `PlazaBomb.passSlack` 칸 안에 있다. 그 팀원은 자기 화면에서 나와 닿았을 때 쳤고, 내
+    /// 화면은 서로 막 출발한 한 칸씩만큼 늦다. 그 팀원의 자리는 그려진 칸과 마지막으로 받은 칸을 둘 다 본다(그림은 받은 칸을 뒤따라 걷는다).
+    private func tackleReachesMe(from sender: String) -> Bool {
+        guard let scene else { return false }
+        let size = scene.body(of: sender)?.size ?? 1
+        return [scene.memberTiles[sender], members[sender]?.tile].contains { tile in
+            tile.map { PlazaBomb.reaches(PlazaBody(foot: $0, size: size), scene.myBody) } == true
+        }
     }
 
     /// 런타임이 부른다. 변장한 팀원이 들켰다. 변장 중이라고 그리고 있는 팀원의 소식만 믿는다.
