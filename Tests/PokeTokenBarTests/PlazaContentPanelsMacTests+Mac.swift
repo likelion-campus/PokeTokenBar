@@ -101,38 +101,62 @@ import SwiftUI
 
     // MARK: the roster's bounce
 
+    private func bounceIconTop(_ image: CGImage, scale: CGFloat) -> Int {
+        let px = K.rgba(image), w = image.width
+        // The sample icon's dark outline row (30 scale 2: rows of 0.1 grey) inside the first slot; scan the icon's column.
+        let x = Int((960 - 14 - 232 + 10 + 6 + 20) * scale)
+        for y in Int(55 * scale)..<Int(140 * scale) {
+            let i = (y * w + x) * 4
+            if px[i] < 110 && px[i + 1] < 110 && px[i + 2] < 110 && px[i + 3] > 200 { return y }
+        }
+        return -1
+    }
+
+    /// The legacy SwiftUI icon bounces on its own free-running half-second task, so it is never sampled at a fixed time: look every
+    /// 50 ms, for up to 3 s, until both of its heights have been seen. A late timer or a stalled main thread costs time here, not
+    /// the answer. `stall` blocks the main thread once after the first look (a loaded CI runner, made on purpose).
+    private func swiftUIBounceHeights(scale: CGFloat, stall: UInt32 = 0) async throws -> [Int] {
+        let view = LegacyPlazaRosterView(model: rosterModel(2, animating: true))
+        let b = Rig.Before(view, viewport: CGSize(width: 960, height: 640), scale: scale)
+        var seen: [Int] = []
+        let deadline = ContinuousClock.now + .seconds(3)
+        var stalled = false
+        while seen.count < 2, ContinuousClock.now < deadline {
+            await Rig.settle(50)
+            let top = bounceIconTop(try b.placed(at: CGPoint(x: 960 - 14 - 232, y: 14)), scale: scale)
+            if top >= 0, !seen.contains(top) { seen.append(top) }
+            if stall > 0, !stalled { stalled = true; usleep(stall) }
+        }
+        return seen
+    }
+
     /// SwiftUI's icon rises 2 points on the second half-second; the panel's on its first beat: the same distance, in the same direction.
+    private func checkBounce(scale: CGFloat, stall: UInt32 = 0) async throws {
+        let heights = try await swiftUIBounceHeights(scale: scale, stall: stall)
+        XCTAssertEqual(heights.count, 2, "both heights of the SwiftUI bounce were seen within 3 s")
+        let swiftUIRise = (heights.max() ?? 0) - (heights.min() ?? 0)   // the higher icon has the smaller row: that one is "up"
+        let model = rosterModel(2, animating: true)
+        let beat = ManualBeat()
+        let panel = PlazaRosterPanel(model: model, clock: PlazaAnimationClock(interval: 0.5, schedule: { beat.schedule($0, $1) }))
+        let a = Rig.After(panel, viewport: CGSize(width: 960, height: 640), scale: scale)
+        await flush()
+        let pDown = bounceIconTop(try a.image(CGSize(width: 960, height: 640), scale: scale), scale: scale)
+        beat.beat()
+        await flush()
+        let pUp = bounceIconTop(try a.image(CGSize(width: 960, height: 640), scale: scale), scale: scale)
+        print("BOUNCE \(scale)x swiftui heights \(heights) panel down \(pDown) up \(pUp)")
+        XCTAssertEqual(swiftUIRise, Int(2 * scale), "SwiftUI rises 2 points")
+        XCTAssertEqual(pDown - pUp, Int(2 * scale), "so does the panel")
+    }
+
     func testTheBounceMovesTheIconAsSwiftUIDid() async throws {
-        func iconTop(_ image: CGImage, scale: CGFloat) -> Int {
-            let px = K.rgba(image), w = image.width
-            // The sample icon's dark outline row (30 scale 2: rows of 0.1 grey) inside the first slot; scan the icon's column.
-            let x = Int((960 - 14 - 232 + 10 + 6 + 20) * scale)
-            for y in Int(55 * scale)..<Int(140 * scale) {
-                let i = (y * w + x) * 4
-                if px[i] < 110 && px[i + 1] < 110 && px[i + 2] < 110 && px[i + 3] > 200 { return y }
-            }
-            return -1
-        }
-        for scale in [CGFloat(1), 2] {
-            let view = LegacyPlazaRosterView(model: rosterModel(2, animating: true))
-            let b = Rig.Before(view, viewport: CGSize(width: 960, height: 640), scale: scale)
-            await Rig.settle(250)
-            let down = iconTop(try b.placed(at: CGPoint(x: 960 - 14 - 232, y: 14)), scale: scale)
-            await Rig.settle(500)
-            let up = iconTop(try b.placed(at: CGPoint(x: 960 - 14 - 232, y: 14)), scale: scale)
-            let model = rosterModel(2, animating: true)
-            let beat = ManualBeat()
-            let panel = PlazaRosterPanel(model: model, clock: PlazaAnimationClock(interval: 0.5, schedule: { beat.schedule($0, $1) }))
-            let a = Rig.After(panel, viewport: CGSize(width: 960, height: 640), scale: scale)
-            await flush()
-            let pDown = iconTop(try a.image(CGSize(width: 960, height: 640), scale: scale), scale: scale)
-            beat.beat()
-            await flush()
-            let pUp = iconTop(try a.image(CGSize(width: 960, height: 640), scale: scale), scale: scale)
-            print("BOUNCE \(scale)x swiftui down \(down) up \(up) panel down \(pDown) up \(pUp)")
-            XCTAssertEqual(down - up, Int(2 * scale), "SwiftUI rises 2 points")
-            XCTAssertEqual(pDown - pUp, Int(2 * scale), "so does the panel")
-        }
+        for scale in [CGFloat(1), 2] { try await checkBounce(scale: scale) }
+    }
+
+    /// The trigger of the CI failures: the main thread is held for 1.2 s right after the first look. Sampling at fixed sleeps put the
+    /// second look in the wrong half-second (6 of 10 runs); looking until both heights are seen cannot.
+    func testTheBounceSurvivesAStalledMainThread() async throws {
+        try await checkBounce(scale: 2, stall: 1_200_000)
     }
 
     // MARK: clicks
@@ -201,17 +225,24 @@ import SwiftUI
     func testRosterRenderCountsAndCosts() async throws {
         let clock = ContinuousClock()
         func ms(_ d: Duration) -> Double { Double(d.components.seconds) * 1000 + Double(d.components.attoseconds) / 1e15 }
-        // Animating: the real timer, one second and a bit.
+        // Animating: the clock's beats are driven by hand. Counting a free-running timer over a fixed sleep was exact only while
+        // the machine was never late by more than a quarter of a beat.
+        var beatIntervals: [TimeInterval] = []
+        let beat = ManualBeat()
         do {
             let model = rosterModel(6, animating: true)
-            let panel = PlazaRosterPanel(model: model)
+            let panel = PlazaRosterPanel(model: model, clock: PlazaAnimationClock(interval: 0.5, schedule: { interval, fire in
+                beatIntervals.append(interval)
+                return beat.schedule(interval, fire)
+            }))
             let a = Rig.After(panel, viewport: CGSize(width: 960, height: 640), scale: 2)
             await flush()
+            XCTAssertEqual(beatIntervals, [0.5], "one clock, a beat every half second")
             let base = a.hud.renderCounts[.roster] ?? 0
-            try await Task.sleep(for: .milliseconds(2250))
+            for _ in 0..<4 { beat.beat(); await flush() }
             let renders = (a.hud.renderCounts[.roster] ?? 0) - base
-            print("COST roster animating 2.25 s: \(renders) renders = \(Double(renders) / 2.25) per second")
-            XCTAssertEqual(renders, 4, "a beat every half second")
+            print("COST roster animating, 4 beats (2 s): \(renders) renders")
+            XCTAssertEqual(renders, 4, "one render per beat")
             // One render's cost: the beat's render (text laid out already).
             let t0 = clock.now
             for _ in 0..<20 { _ = panel.render(scale: 2, viewport: CGSize(width: 960, height: 640), graphics: graphics) }
@@ -220,7 +251,9 @@ import SwiftUI
             model.isAnimating = false
             await flush()
             let stopped = a.hud.renderCounts[.roster] ?? 0
-            try await Task.sleep(for: .milliseconds(1300))
+            XCTAssertFalse(beat.isScheduled, "hidden: the clock is stopped")
+            beat.beat()
+            await flush()
             XCTAssertEqual(a.hud.renderCounts[.roster] ?? 0, stopped, "hidden: no render")
             XCTAssertFalse(panel.isAnimating)
             print("COST roster hidden 1.3 s: 0 renders, clock stopped")

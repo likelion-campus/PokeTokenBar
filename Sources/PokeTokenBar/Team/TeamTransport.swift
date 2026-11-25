@@ -68,6 +68,11 @@ final class BonjourTeamTransport: TeamTransporting {
 
     private var listenerIsReady = false
 
+    /// A read-only tap on link, listener, restart, sleep and reachability events (states, ports, error codes; never a code or key).
+    /// Nil in the app: nobody listens, nothing is formatted. The transport tests record it to explain a dial that never came up.
+    var stateTrace: (@MainActor (String) -> Void)?
+    private func trace(_ line: @autoclosure () -> String) { stateTrace?(line()) }
+
     /// Nil until the listener is ready (before that the framework reports port 0).
     var listenerPort: NWEndpoint.Port? { listenerIsReady ? listener?.port : nil }
 
@@ -219,6 +224,7 @@ final class BonjourTeamTransport: TeamTransporting {
     }
 
     func restart() {
+        trace("restart() wanted=\(wanted) running=\(running) links=\(links.count)")
         guard wanted else { return }
         if !running {
             // Suspended by `willSleep` and no `didWake` since: a network event a minute later says we are awake.
@@ -232,6 +238,7 @@ final class BonjourTeamTransport: TeamTransporting {
     }
 
     func handleWillSleep() {
+        trace("willSleep")
         suspend()
         guard wanted, !running else { return }
         sleptAt = clock()
@@ -252,6 +259,7 @@ final class BonjourTeamTransport: TeamTransporting {
     }
 
     func handleDidWake() {
+        trace("didWake wanted=\(wanted) running=\(running)")
         guard wanted, !running else { return }
         begin()
     }
@@ -276,7 +284,10 @@ final class BonjourTeamTransport: TeamTransporting {
             MainActor.assumeIsolated { self?.handleDidWake() }
         })
         reachability.onReconnected = { [weak self] in
-            Task { @MainActor in self?.restart() }
+            Task { @MainActor in
+                self?.trace("reachability: reconnected")
+                self?.restart()
+            }
         }
         reachability.start()
     }
@@ -301,6 +312,7 @@ final class BonjourTeamTransport: TeamTransporting {
         if advertise { listener.service = NWListener.Service(name: instanceName, type: Self.serviceType) }
         listener.stateUpdateHandler = { [weak self] state in
             MainActor.assumeIsolated {
+                self?.trace("listener gen=\(generation) now=\(self?.generation ?? -1) \(state) port=\(listener.port?.rawValue ?? 0)")
                 guard let self, self.generation == generation else { return }
                 switch state {
                 case .ready:
@@ -416,6 +428,7 @@ final class BonjourTeamTransport: TeamTransporting {
         links[id] = link
         connection.stateUpdateHandler = { [weak self] state in
             MainActor.assumeIsolated {
+                self?.trace("link \(initiatedByMe ? "out" : "in") \(id.prefix(4)) gen=\(generation) now=\(self?.generation ?? -1) \(state)")
                 guard let self, self.generation == generation else { return }
                 self.handle(state, of: id)
             }

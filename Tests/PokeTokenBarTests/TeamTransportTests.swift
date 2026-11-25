@@ -9,9 +9,21 @@ final class MacTransportHarness: TeamTransportHarness {
     typealias Endpoint = NWEndpoint
 
     private var transports: [BonjourTeamTransport] = []
+    private let startedAt = Date()
+    private var events: [String] = []
+
+    /// Every link, listener, restart, sleep and reachability event of every transport made here, with seconds since the harness
+    /// began: what `contractConnectedPair` prints when a pair does not come up. States, ports and error codes only.
+    var diagnosticRecord: String { events.joined(separator: "\n") }
+
+    private func record(_ line: String) {
+        events.append(String(format: "%7.3f ", Date().timeIntervalSince(startedAt)) + line)
+    }
 
     func make(linkLimit: Int) -> BonjourTeamTransport {
         let t = BonjourTeamTransport(advertise: false, linkLimit: linkLimit)
+        let n = transports.count
+        t.stateTrace = { [weak self] line in self?.record("t\(n) \(line)") }
         transports.append(t)
         return t
     }
@@ -23,7 +35,10 @@ final class MacTransportHarness: TeamTransportHarness {
     }
 
     func listenerPort(of t: BonjourTeamTransport) -> UInt16? { t.listenerPort?.rawValue }
-    func connect(_ t: BonjourTeamTransport, to e: NWEndpoint) { t.connect(to: e) }
+    func connect(_ t: BonjourTeamTransport, to e: NWEndpoint) {
+        record("t\(transports.firstIndex { $0 === t } ?? -1) connect(to:) \(e)")
+        t.connect(to: e)
+    }
     func injectDiscovered(_ t: BonjourTeamTransport, name: String, endpoint e: NWEndpoint) { t.injectDiscovered(name, endpoint: e) }
     func plannedDials(_ t: BonjourTeamTransport, now: Date) -> [String] { t.plannedDials(now: now) }
     func linkCount(_ t: BonjourTeamTransport) -> Int { t.linkCount }
@@ -31,7 +46,10 @@ final class MacTransportHarness: TeamTransportHarness {
     func sendRaw(_ t: BonjourTeamTransport, _ data: Data, to peer: TeamPeerID) { t.sendRaw(data, to: peer) }
     func willSleep(_ t: BonjourTeamTransport) { t.handleWillSleep() }
     func didWake(_ t: BonjourTeamTransport) { t.handleDidWake() }
-    func restart(_ t: BonjourTeamTransport) { t.restart() }
+    func restart(_ t: BonjourTeamTransport) {
+        record("t\(transports.firstIndex { $0 === t } ?? -1) harness restart")
+        t.restart()
+    }
     func failDiscovery(_ t: BonjourTeamTransport) { t.browserStateChanged(.failed(.posix(.ECONNABORTED))) }
 
     /// Accepts TCP and never speaks TLS, like a rogue service holding a dial open.

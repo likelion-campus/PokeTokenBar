@@ -176,9 +176,17 @@ import XCTest
         await rig.flush()
         XCTAssertTrue(panel.animationClock.isRunning, "someone online and the plaza shows")
         let base = rig.hud.renderCounts[.roster] ?? 0
-        try await Task.sleep(for: .milliseconds(2300))
+        // The timer is free-running: wait for three beats (up to 10 s) rather than counting a fixed 2.3 s, which a late timer shortens.
+        // It cannot beat faster than its 0.5 s interval, so the elapsed time bounds the count from above.
+        let started = ContinuousClock.now
+        while (rig.hud.renderCounts[.roster] ?? 0) - base < 3, ContinuousClock.now - started < .seconds(10) {
+            try await Task.sleep(for: .milliseconds(50))
+        }
         let beats = (rig.hud.renderCounts[.roster] ?? 0) - base
-        XCTAssertTrue((3...6).contains(beats), "about two renders a second, got \(beats) in 2.3 s")
+        let elapsed = (ContinuousClock.now - started).components
+        let seconds = Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18
+        XCTAssertGreaterThanOrEqual(beats, 3, "it renders on every beat while someone is online")
+        XCTAssertLessThanOrEqual(Double(beats), seconds / 0.5 + 1, "and no faster than two a second, got \(beats) in \(seconds) s")
         model.isAnimating = false   // the plaza is hidden (the controller's setRendering)
         rig.hud.isRendering = false
         await rig.flush()

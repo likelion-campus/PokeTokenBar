@@ -44,11 +44,16 @@ import XCTest
         var ticks = 0
         clock.onTick = { ticks += 1 }
         clock.setRunning(true)
-        try await Task.sleep(for: .milliseconds(380))
+        // Wait for two beats (up to 10 s) instead of counting a fixed 380 ms, which a late timer empties. The interval bounds the
+        // count from above: a timer cannot beat faster than it was asked to.
+        let started = ContinuousClock.now
+        while ticks < 2, ContinuousClock.now - started < .seconds(10) { try await Task.sleep(for: .milliseconds(10)) }
         clock.setRunning(false)
         let seen = ticks
-        XCTAssertGreaterThanOrEqual(seen, 2, "about 7 in 380 ms; a loaded machine may be late")
-        XCTAssertLessThanOrEqual(seen, 8)
+        let elapsed = (ContinuousClock.now - started).components
+        let seconds = Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18
+        XCTAssertGreaterThanOrEqual(seen, 2, "it beats while running")
+        XCTAssertLessThanOrEqual(Double(seen), seconds / 0.05 + 1, "and no faster than its interval")
         try await Task.sleep(for: .milliseconds(200))
         XCTAssertEqual(ticks, seen, "stopped: no more beats")
     }
