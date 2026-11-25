@@ -79,6 +79,12 @@ import WinSDK
     var hud: PlazaHUD { made().hud }
     private(set) var isOpen = false
     var isLoud: Bool { madeParts?.bar.isLoud ?? false }
+    /// The placeholder the field shows now (the tests read it).
+    private(set) var cueText = ""
+    /// What the line asks for (`PlazaChatInputPurpose`): the word line has its own cue, no megaphone, no emoji grid and a 12-character cut.
+    var purpose: PlazaChatInputPurpose = .chat {
+        didSet { if purpose != oldValue { refreshCue() } }
+    }
     var onSubmit: ((String) -> Bool)?
     var onClose: (() -> Void)?
     /// Ctrl+W in the field: the plaza window closes (⌘W in the Mac field, `PlazaChatTextField.commandAction`).
@@ -218,6 +224,7 @@ import WinSDK
     }
 
     func close() {
+        purpose = .chat
         guard isOpen else { return }
         isOpen = false
         bar.isEmojiOpen = false
@@ -311,9 +318,9 @@ import WinSDK
     /// The emoji grid's cells and the 😀 button (through the bar's HUD).
     private func clicked(_ hit: PlazaPanelHit) {
         switch hit.action {
-        case "emoji": bar.isEmojiOpen.toggle()
+        case "emoji": if purpose == .chat { bar.isEmojiOpen.toggle() }
         case "pick":
-            if let i = hit.index, PlazaChatEmojis.all.indices.contains(i) { insert(PlazaChatEmojis.all[i]) }
+            if purpose == .chat, let i = hit.index, PlazaChatEmojis.all.indices.contains(i) { insert(PlazaChatEmojis.all[i]) }
         default: break
         }
         _ = focus()   // the bar is not a window: the keyboard never left the field
@@ -469,9 +476,10 @@ import WinSDK
     }
 
     private func refreshCue() {
-        guard let e = editRaw else { return }
         let l = L(.ko)
-        _ = ptb_chat_edit_cue(e, WinStr.w(bar.isLoud ? l.plazaLoudPlaceholder : l.plazaChatPlaceholder))
+        cueText = purpose == .quizWord ? l.plazaDrawWordPlaceholder : bar.isLoud ? l.plazaLoudPlaceholder : l.plazaChatPlaceholder
+        guard let e = editRaw else { return }
+        _ = ptb_chat_edit_cue(e, WinStr.w(cueText))
     }
 
     /// Empty, with no composition left behind (a cancelled syllable must not come back on the next open).
@@ -611,9 +619,11 @@ import WinSDK
             submit(h)
             return 0
         case 0x09:   // Tab, Shift+Tab: the megaphone (leaving the field would close it)
-            bar.isLoud.toggle()
-            counts.loudToggles += 1
-            refreshCue()
+            if purpose == .chat {
+                bar.isLoud.toggle()
+                counts.loudToggles += 1
+                refreshCue()
+            }
             return 0
         case 0x1B:   // Esc
             close()
@@ -748,9 +758,9 @@ import WinSDK
             return
         }
         let line = String(decoding: raw, as: UTF16.self)
-        guard line.count > TeamChat.maxCharacters else { return }
+        guard line.count > purpose.maxCharacters else { return }
         let caret = selectionStart
-        let cut = String(line.prefix(TeamChat.maxCharacters))
+        let cut = String(line.prefix(purpose.maxCharacters))
         applyingLimit = true
         setText(h, cut)
         applyingLimit = false
