@@ -521,6 +521,7 @@ extension L {
         switch kind {
         case .bomb: "폭탄 돌리기"
         case .draw: "그림 퀴즈"
+        case .berry: "열매 다섯"
         }
     }
     var plazaGameUnknownName: String { "새 미니게임" }
@@ -528,6 +529,7 @@ extension L {
         switch kind {
         case .bomb: ["폭탄은 몸통박치기(C)로 넘길 수 있어요", "터질 때 들고 있으면 탈락!", "마지막 한 명이 이겨요 · 한 판 1~3분"]
         case .draw: ["돌아가며 한 명씩 제시어를 정해 그림으로 그려요", "나머지는 한마디(Enter)로 맞혀요 · 맞히면 +10점, 그린 사람 +5점", "그림에 글자·숫자로 정답을 쓰면 반칙! · 한 판 5~12분"]
+        case .berry: ["같은 열매가 딱 5개면 스페이스로 종을 쳐요", "가장 빨리 치면 +1, 잘못 치면 −1이고 1초 쉬어요", "먼저 5점이면 우승 · 한 판 1~2분"]
         }
     }
     func plazaGameMenuRow(_ kind: PlazaGameKind) -> String { "\(plazaGameName(kind)) 열기" }

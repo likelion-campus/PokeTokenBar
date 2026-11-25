@@ -749,4 +749,86 @@ extension PlazaGameTests {
     func testTheMenuDoesNotOfferTheDrawingQuizYet() {
         XCTAssertEqual(PlazaGameMenu().kinds, [.bomb])
     }
+
+    // MARK: - Berry five payload
+
+    private func berryState(players: Int = 3, _ edit: (inout PlazaBerryState) -> Void = { _ in }) -> PlazaGameState {
+        var s = PlazaGameState(id: "a@1", kind: "berry", host: "p0", opensAt: 1_800_000_000)
+        s.startsAt = 1_800_000_030
+        s.players = (0..<players).map { "p\($0)" }
+        var b = PlazaBerryState(seats: players)
+        edit(&b)
+        s.berry = b
+        return s
+    }
+
+    func testABerryStateWithMoreProgressWins() {
+        let flips = berryState { $0.flips = [0, 1, 2, 0, 1]; $0.step = 9 }
+        let cleared = berryState { $0.flips = [0, 1, 2]; $0.clears = [3]; $0.step = 2 }
+        XCTAssertEqual(PlazaGame.merged(flips, cleared), cleared, "more clears beats more flips")
+        XCTAssertEqual(PlazaGame.merged(cleared, flips), cleared)
+        let fewer = berryState { $0.flips = [0, 1]; $0.step = 9 }
+        let more = berryState { $0.flips = [0, 1, 2]; $0.step = 3 }
+        XCTAssertEqual(PlazaGame.merged(fewer, more), more, "more flips beats more steps")
+        XCTAssertEqual(PlazaGame.merged(more, fewer), more)
+        let slow = berryState { $0.flips = [0]; $0.step = 1 }
+        let fast = berryState { $0.flips = [0]; $0.step = 2 }
+        XCTAssertEqual(PlazaGame.merged(slow, fast), fast, "more steps wins")
+        XCTAssertEqual(PlazaGame.merged(fast, slow), fast)
+    }
+
+    func testTwoDealersWithTheSameStepAgreeEverywhere() {
+        let a = berryState { $0.flips = [0, 1]; $0.step = 4; $0.scores = [1, 0, 0] }
+        let b = berryState { $0.flips = [0, 1]; $0.step = 4; $0.scores = [0, 1, 0] }
+        XCTAssertNotEqual(a, b)
+        XCTAssertEqual(PlazaGame.merged(a, b), PlazaGame.merged(b, a))
+        XCTAssertNotEqual(PlazaGame.precedes(a, b), PlazaGame.precedes(b, a), "a strict order, never a tie both ways")
+    }
+
+    func testACopyWithoutTheBerryPayloadLoses() {
+        let full = berryState()
+        var stripped = full
+        stripped.berry = nil
+        XCTAssertEqual(PlazaGame.merged(stripped, full), full)
+        XCTAssertEqual(PlazaGame.merged(full, stripped), full)
+    }
+
+    func testARecruitingGameCarriesNoBerryPayload() {
+        let now = Date(timeIntervalSince1970: 1_800_000_010)
+        var s = PlazaGameState(id: "a@1", kind: "berry", host: "p0", opensAt: 1_800_000_000)
+        XCTAssertNotNil(PlazaGame.accepted(s, now: now))
+        s.berry = PlazaBerryState(seats: 2)
+        XCTAssertNil(PlazaGame.accepted(s, now: now))
+    }
+
+    func testABerryPayloadOnAnotherKindIsRefused() {
+        let now = Date(timeIntervalSince1970: 1_800_000_031)
+        var s = berryState(players: 2)
+        XCTAssertNotNil(PlazaGame.accepted(s, now: now))
+        s.kind = PlazaGameKind.bomb.rawValue
+        XCTAssertNil(PlazaGame.accepted(s, now: now))
+        s.kind = PlazaGameKind.draw.rawValue
+        XCTAssertNil(PlazaGame.accepted(s, now: now))
+    }
+
+    func testBerryFiveIsCappedAtEightPlayers() {
+        let now = Date(timeIntervalSince1970: 1_800_000_031)
+        var nine = berryState(players: 9) { _ in }
+        nine.berry = nil
+        XCTAssertNil(PlazaGame.accepted(nine, now: now), "9 refused for berry")
+        var eight = nine
+        eight.players.removeLast()
+        XCTAssertNotNil(PlazaGame.accepted(eight, now: now))
+        var bomb = nine
+        bomb.kind = PlazaGameKind.bomb.rawValue
+        bomb.players = (0..<20).map { "p\($0)" }
+        XCTAssertNotNil(PlazaGame.accepted(bomb, now: now), "the bomb game still takes 20")
+        XCTAssertEqual(PlazaGameKind.berry.maxPlayers, 8)
+        XCTAssertEqual(PlazaGameKind.draw.maxPlayers, 8)
+        XCTAssertEqual(PlazaGameKind.bomb.maxPlayers, 20)
+    }
+
+    func testTheMenuDoesNotOfferBerryFiveYet() {
+        XCTAssertFalse(PlazaGameMenu().kinds.contains(.berry))
+    }
 }

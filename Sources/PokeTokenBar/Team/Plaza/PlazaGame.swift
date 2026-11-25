@@ -3,10 +3,22 @@ import Foundation
 /// A plaza minigame. A new game adds a case here, its payload on `PlazaGameState`, and its rules beside `PlazaBomb`.
 /// The lobby (open, join, countdown, result) is shared by every game.
 enum PlazaGameKind: String, CaseIterable, Sendable {
-    case bomb, draw
+    case bomb, draw, berry
 
-    /// What the M menu lists. `.draw` joins it in the last task of the drawing-quiz plan; delete this then.
-    static var offered: [PlazaGameKind] { allCases.filter { $0 != .draw } }
+    /// What the M menu lists. `.draw` and `.berry` join it in the last task of their plans; delete this then.
+    static var offered: [PlazaGameKind] { allCases.filter { $0 != .draw && $0 != .berry } }
+
+    /// The most players a game of this kind takes.
+    var maxPlayers: Int {
+        switch self {
+        case .bomb: PlazaGame.maxPlayers
+        case .draw: PlazaDraw.maxPlayers
+        case .berry: PlazaBerry.maxPlayers
+        }
+    }
+
+    /// The cap for a kind raw value; a kind this version does not know gets the shared one.
+    static func maxPlayers(ofKind raw: String) -> Int { PlazaGameKind(rawValue: raw)?.maxPlayers ?? PlazaGame.maxPlayers }
 }
 
 /// One minigame as the team knows it: carried in every member's presence and passed on, like the campfire switch.
@@ -30,6 +42,7 @@ struct PlazaGameState: Codable, Hashable, Sendable {
     var winner: String?
     var bomb: PlazaBombState?
     var draw: PlazaDrawState?
+    var berry: PlazaBerryState?
 }
 
 /// 폭탄 돌리기. The holder passes the bomb by hitting another player; whoever holds it when the fuse runs out is out.
@@ -93,15 +106,14 @@ enum PlazaGame {
         func okTime(_ v: Double, from low: Double) -> Bool { v.isFinite && v >= low && v <= t + clockSlack }
         guard okID(s.id), okID(s.host), !s.kind.isEmpty, s.kind.utf8.count <= 32,
               s.opensAt.isFinite, s.opensAt <= t + clockSlack,
-              s.players.count <= maxPlayers, s.players.allSatisfy(okID), Set(s.players).count == s.players.count else { return nil }
+              s.players.count <= PlazaGameKind.maxPlayers(ofKind: s.kind), s.players.allSatisfy(okID), Set(s.players).count == s.players.count else { return nil }
         if let starts = s.startsAt {
             guard starts.isFinite, starts >= s.opensAt, starts <= s.opensAt + recruitSeconds + hostGrace + countdownSeconds,
                   s.players.count >= minPlayers else { return nil }
         } else {
-            guard s.players.isEmpty, s.bomb == nil, s.draw == nil else { return nil }
+            guard s.players.isEmpty, s.bomb == nil, s.draw == nil, s.berry == nil else { return nil }
         }
         if s.kind == PlazaGameKind.draw.rawValue {
-            guard s.players.count <= PlazaDraw.maxPlayers else { return nil }
             if let d = s.draw {
                 guard let kept = PlazaDraw.accepted(d, players: s.players) else { return nil }
                 s.draw = kept
@@ -109,6 +121,15 @@ enum PlazaGame {
         } else {
             // `precedes` reads the draw keys of every kind, so a stray payload could steer the merge.
             guard s.draw == nil else { return nil }
+        }
+        if s.kind == PlazaGameKind.berry.rawValue {
+            if let b = s.berry {
+                guard let kept = PlazaBerry.accepted(b, players: s.players.count) else { return nil }
+                s.berry = kept
+            }
+        } else {
+            // Same reason: `precedes` reads the berry keys of every kind.
+            guard s.berry == nil else { return nil }
         }
         if let ended = s.endedAt { guard okTime(ended, from: s.opensAt) else { return nil } }
         if let winner = s.winner { guard s.endedAt != nil, s.players.contains(winner) else { return nil } }
@@ -139,6 +160,8 @@ enum PlazaGame {
         if rank(a) != rank(b) { return rank(a) < rank(b) }
         let drawA = PlazaDraw.keys(a.draw), drawB = PlazaDraw.keys(b.draw)
         for (p, q) in zip(drawA, drawB) where p != q { return p < q }
+        let berryA = PlazaBerry.keys(a.berry), berryB = PlazaBerry.keys(b.berry)
+        for (p, q) in zip(berryA, berryB) where p != q { return p < q }
         let x = a.bomb, y = b.bomb
         let keysA: [Double] = [Double(x?.out.count ?? -1), Double(x?.pass ?? -1), x?.roundStartsAt ?? 0, a.endedAt ?? 0, a.startsAt ?? 0]
         let keysB: [Double] = [Double(y?.out.count ?? -1), Double(y?.pass ?? -1), y?.roundStartsAt ?? 0, b.endedAt ?? 0, b.startsAt ?? 0]
@@ -146,6 +169,8 @@ enum PlazaGame {
         let tieA = [x?.holder ?? "", a.winner ?? "", a.players.joined(separator: ","), String(a.seed)]
         let tieB = [y?.holder ?? "", b.winner ?? "", b.players.joined(separator: ","), String(b.seed)]
         for (p, q) in zip(tieA, tieB) where p != q { return p > q }   // the smaller ID keeps the bomb
+        let berryTieA = PlazaBerry.tie(a.berry), berryTieB = PlazaBerry.tie(b.berry)
+        if berryTieA != berryTieB { return berryTieA < berryTieB }
         return false
     }
 }
@@ -415,7 +440,7 @@ struct PlazaGameEngine {
             let players = (joins.intersection(present).union(joined == s.id ? [me] : [])).sorted()
             let timeUp = t >= s.opensAt + PlazaGame.recruitSeconds
             if players.count >= PlazaGame.minPlayers, timeUp || startRequested {
-                s.players = Array(players.prefix(s.kind == PlazaGameKind.draw.rawValue ? PlazaDraw.maxPlayers : PlazaGame.maxPlayers))
+                s.players = Array(players.prefix(PlazaGameKind.maxPlayers(ofKind: s.kind)))
                 s.seed = makeSeed()
                 s.startsAt = t + PlazaGame.countdownSeconds
                 if s.kind == PlazaGameKind.bomb.rawValue {
