@@ -6,7 +6,7 @@ enum PlazaGameKey: Equatable, Sendable { case menu, yes, no }
 
 /// M으로 여는 미니게임 메뉴. 고를 수 있는 줄은 게임마다 하나이고, 열 수 없을 때는 줄 대신 까닭 한 줄이 보인다.
 struct PlazaGameMenu: Equatable {
-    var kinds: [PlazaGameKind] = PlazaGameKind.allCases
+    var kinds: [PlazaGameKind] = PlazaGameKind.offered
     var selection = 0
     /// 지금 판을 열 수 없는 까닭. nil이면 열 수 있다.
     var blocked: String?

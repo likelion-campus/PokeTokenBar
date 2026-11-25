@@ -3,7 +3,10 @@ import Foundation
 /// A plaza minigame. A new game adds a case here, its payload on `PlazaGameState`, and its rules beside `PlazaBomb`.
 /// The lobby (open, join, countdown, result) is shared by every game.
 enum PlazaGameKind: String, CaseIterable, Sendable {
-    case bomb
+    case bomb, draw
+
+    /// What the M menu lists. `.draw` joins it in the last task of the drawing-quiz plan; delete this then.
+    static var offered: [PlazaGameKind] { allCases.filter { $0 != .draw } }
 }
 
 /// One minigame as the team knows it: carried in every member's presence and passed on, like the campfire switch.
@@ -26,6 +29,7 @@ struct PlazaGameState: Codable, Hashable, Sendable {
     /// The last one standing. nil with `endedAt`: cancelled, or nobody was left.
     var winner: String?
     var bomb: PlazaBombState?
+    var draw: PlazaDrawState?
 }
 
 /// 폭탄 돌리기. The holder passes the bomb by hitting another player; whoever holds it when the fuse runs out is out.
@@ -82,8 +86,8 @@ enum PlazaGame {
     }
 
     /// A received state, kept only when every field is within bounds and it is still alive. Anything else is nil.
-    static func accepted(_ s: PlazaGameState?, now: Date) -> PlazaGameState? {
-        guard let s else { return nil }
+    static func accepted(_ received: PlazaGameState?, now: Date) -> PlazaGameState? {
+        guard var s = received else { return nil }
         let t = now.timeIntervalSince1970
         func okID(_ id: String) -> Bool { !id.isEmpty && id.utf8.count <= TeamWire.maxFieldBytes }
         func okTime(_ v: Double, from low: Double) -> Bool { v.isFinite && v >= low && v <= t + clockSlack }
@@ -94,7 +98,14 @@ enum PlazaGame {
             guard starts.isFinite, starts >= s.opensAt, starts <= s.opensAt + recruitSeconds + hostGrace + countdownSeconds,
                   s.players.count >= minPlayers else { return nil }
         } else {
-            guard s.players.isEmpty, s.bomb == nil else { return nil }
+            guard s.players.isEmpty, s.bomb == nil, s.draw == nil else { return nil }
+        }
+        if s.kind == PlazaGameKind.draw.rawValue {
+            guard s.players.count <= PlazaDraw.maxPlayers else { return nil }
+            if let d = s.draw {
+                guard let kept = PlazaDraw.accepted(d, players: s.players) else { return nil }
+                s.draw = kept
+            }
         }
         if let ended = s.endedAt { guard okTime(ended, from: s.opensAt) else { return nil } }
         if let winner = s.winner { guard s.endedAt != nil, s.players.contains(winner) else { return nil } }
@@ -123,6 +134,8 @@ enum PlazaGame {
         if a.id != b.id { return a.opensAt != b.opensAt ? a.opensAt < b.opensAt : a.id < b.id }
         func rank(_ s: PlazaGameState) -> Int { s.endedAt != nil ? 2 : (s.startsAt != nil ? 1 : 0) }
         if rank(a) != rank(b) { return rank(a) < rank(b) }
+        let drawA = PlazaDraw.keys(a.draw), drawB = PlazaDraw.keys(b.draw)
+        for (p, q) in zip(drawA, drawB) where p != q { return p < q }
         let x = a.bomb, y = b.bomb
         let keysA: [Double] = [Double(x?.out.count ?? -1), Double(x?.pass ?? -1), x?.roundStartsAt ?? 0, a.endedAt ?? 0, a.startsAt ?? 0]
         let keysB: [Double] = [Double(y?.out.count ?? -1), Double(y?.pass ?? -1), y?.roundStartsAt ?? 0, b.endedAt ?? 0, b.startsAt ?? 0]
