@@ -5,7 +5,7 @@ import XCTest
 @MainActor final class RecordingPlazaShell: PlazaWindowShell {
     enum Call: Equatable {
         case open(title: String), bringToFront, requestClose, stopPresenting, dismantle, setTitle(String)
-        case setTransparent(Bool), setHUDHidden(Bool), focusScene, focusChatInput, setChatLogAboveInput(Bool)
+        case setTransparent(Bool), setHiddenPanels(Set<PlazaPanelID>), focusScene, focusChatInput, setChatLogAboveInput(Bool)
     }
 
     private(set) var calls: [Call] = []
@@ -49,7 +49,7 @@ import XCTest
     }
     func setTitle(_ title: String) { calls.append(.setTitle(title)) }
     func setTransparent(_ transparent: Bool) { calls.append(.setTransparent(transparent)) }
-    func setHUDHidden(_ hidden: Bool) { calls.append(.setHUDHidden(hidden)) }
+    func setHiddenPanels(_ ids: Set<PlazaPanelID>) { calls.append(.setHiddenPanels(ids)) }
     func focusScene() { calls.append(.focusScene) }
     func focusChatInput() { calls.append(.focusChatInput) }
     func setChatLogAboveInput(_ above: Bool) { calls.append(.setChatLogAboveInput(above)) }
@@ -141,10 +141,11 @@ private struct NoSpritesFetcher: PlazaSpriteFetching {
         XCTAssertFalse(c.isNameColorPickerOpen)
         o.hud.press(PlazaPanelHit(action: "next", index: nil), in: .roster)
         o.hud.press(PlazaPanelHit(action: "toggle", index: nil), in: .backgroundToggle)
-        XCTAssertTrue(c.isBackgroundHidden)
+        XCTAssertTrue(c.isUIHidden)
+        XCTAssertFalse(c.isBackgroundHidden, "the first click of the toggle hides the UI only")
         XCTAssertEqual(shell.take(), [.focusScene, .focusScene, .focusScene, .focusScene, .focusScene,
-                                      .setTransparent(true), .focusScene],
-                       "every HUD click hands the keys back to the scene; the background toggle turns the window see-through first")
+                                      .setHiddenPanels(PlazaPanelID.hiddenWithUI), .focusScene],
+                       "every HUD click hands the keys back to the scene; the toggle hides the panels first")
         c.handleClose()
     }
 
@@ -327,10 +328,10 @@ private struct NoSpritesFetcher: PlazaSpriteFetching {
         let scene = try XCTUnwrap(c.scene)
         key(scene, PlazaKeyCode.p)
         XCTAssertTrue(c.overlayIsPhotoMode)
-        XCTAssertEqual(shell.take(), [.setHUDHidden(true)])
+        XCTAssertEqual(shell.take(), [.setHiddenPanels(PlazaPanelID.hiddenInPhotoMode)])
         key(scene, PlazaKeyCode.escape)
         XCTAssertFalse(c.overlayIsPhotoMode)
-        XCTAssertEqual(shell.take(), [.setHUDHidden(false)])
+        XCTAssertEqual(shell.take(), [.setHiddenPanels([])])
         c.handleClose()
     }
 

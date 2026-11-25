@@ -9,6 +9,7 @@ final class PlazaDittoSceneTests: XCTestCase {
 
     private func scene() -> PlazaScene {
         let s = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: p(20, 22), zoom: 2, nickname: "me")
+        pinPlazaClock(s)
         s.size = CGSize(width: 800, height: 600)
         s.backingOverride = 2
         return s

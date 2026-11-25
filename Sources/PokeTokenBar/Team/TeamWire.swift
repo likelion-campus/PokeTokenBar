@@ -249,6 +249,22 @@ enum TeamMessage: Codable, Equatable, Sendable {
     case presence(TeamPresence)
     case emote(TeamEmote)
     case chat(TeamChat)
+    case draw(TeamDraw)
+}
+
+/// One message of the plaza drawing game: a stroke, a clear, or a snapshot that brings a late joiner up to date.
+struct TeamDraw: Codable, Equatable, Sendable {
+    static let maxPoints = 64                 // points in one stroke message
+    static let maxCellsBase64 = 20_000        // characters of `cells`
+    enum Op: String, Codable, Sendable { case stroke, clear, snapshot }
+    var game: String        // PlazaGameState.id
+    var turn: Int
+    var seq: Int            // grows by one per message within a turn; a snapshot carries the last seq it includes
+    var op: Op
+    var color: Int?         // stroke
+    var width: Int?         // stroke
+    var points: [Int]?      // stroke: x0, y0, x1, y1, ...
+    var cells: String?      // snapshot: base64 of PlazaDrawCanvas.packed()
 }
 
 enum TeamWire {
@@ -263,7 +279,7 @@ enum TeamWire {
 
     /// The top-level key of an encoded `TeamMessage`.
     private static let knownKinds: Set<String> = [
-        "hello", "inventory", "events", "reactions", "profileRequest", "profile", "presence", "emote", "chat",
+        "hello", "inventory", "events", "reactions", "profileRequest", "profile", "presence", "emote", "chat", "draw",
     ]
 
     /// 4-byte big-endian length + JSON. Dates use Foundation's default (exact Double seconds).
@@ -309,7 +325,7 @@ enum TeamWire {
         } catch {
             // Presence (apart from the plaza schedule it carries), emotes and chat are ephemeral, so a value a later version added (an
             // emote kind, a direction) is skipped like an unknown key instead of cooling the sender down.
-            if kind == "presence" || kind == "emote" || kind == "chat" { return nil }
+            if kind == "presence" || kind == "emote" || kind == "chat" || kind == "draw" { return nil }
             throw WireError.malformed
         }
     }

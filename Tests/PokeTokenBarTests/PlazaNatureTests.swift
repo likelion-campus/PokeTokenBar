@@ -140,6 +140,7 @@ final class PlazaNatureTests: XCTestCase {
 
     private func scene() -> PlazaScene {
         let s = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: map.spawn, zoom: 2, nickname: "나")
+        pinPlazaClock(s)
         s.backingOverride = 2
         s.size = CGSize(width: 800, height: 600)
         return s

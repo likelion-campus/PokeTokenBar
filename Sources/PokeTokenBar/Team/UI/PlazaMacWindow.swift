@@ -159,9 +159,9 @@ extension SKView: PlazaPausableView {}
         window.hasShadow = !transparent
     }
 
-    func setHUDHidden(_ hidden: Bool) {
-        for view in hudViews { view.isHidden = hidden }
-        hud?.hiddenPanels = hidden ? Set(hudViews.compactMap { ($0 as? PlazaPanelHostView)?.panelID }) : []
+    func setHiddenPanels(_ ids: Set<PlazaPanelID>) {
+        for case let view as PlazaPanelHostView in hudViews { view.isHidden = ids.contains(view.panelID) }
+        hud?.hiddenPanels = Set(hudViews.compactMap { ($0 as? PlazaPanelHostView)?.panelID }.filter(ids.contains))
     }
 
     func focusScene() {

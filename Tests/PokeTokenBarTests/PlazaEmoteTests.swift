@@ -96,6 +96,7 @@ final class PlazaEmoteTests: XCTestCase {
 
     func testEmoteKeysWorkWithHangulInput() async {
         let scene = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: map.spawn, zoom: 2, nickname: "나")
+        pinPlazaClock(scene)
         var pressed: [TeamEmoteKind] = []
         scene.onEmoteKey = { pressed.append($0) }
         // 한글 입력기에서는 characters가 "1"이 아니다. keyCode로만 판정한다.
@@ -112,6 +113,7 @@ final class PlazaEmoteTests: XCTestCase {
     /// Cmd/Ctrl/Opt or when held. J no longer jumps.
     func testZXCKeysWorkWithHangulInputOnly() async {
         let scene = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: map.spawn, zoom: 2, nickname: "나")
+        pinPlazaClock(scene)
         var pressed: [String] = []
         scene.onJumpKey = { pressed.append("jump") }
         scene.onGreetKey = { pressed.append("greet") }
@@ -132,6 +134,7 @@ final class PlazaEmoteTests: XCTestCase {
 
     func testModifiedOrRepeatedEmoteKeysDoNotFire() async {
         let scene = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: map.spawn, zoom: 2, nickname: "나")
+        pinPlazaClock(scene)
         var pressed: [TeamEmoteKind] = []
         scene.onEmoteKey = { pressed.append($0) }
         for mod: PlazaModifiers in [.command, .control, .option, [.command, .shift]] {
@@ -147,6 +150,7 @@ final class PlazaEmoteTests: XCTestCase {
     func testDecoyKindsDrawNoBubble() async {
         let map = PlazaMapData.map
         let scene = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: map.spawn, zoom: 2, nickname: "나")
+        pinPlazaClock(scene)
         for kind in [TeamEmoteKind.decoyFound, .decoyJump] {
             scene.showEmote(memberID: nil, kind: kind)
             XCTAssertNil(scene.shownEmote(memberID: nil), "\(kind)")

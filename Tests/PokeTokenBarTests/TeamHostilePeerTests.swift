@@ -91,6 +91,7 @@ final class TeamHostilePeerTests: XCTestCase {
     func testAHugeDanceStyleAndAFloodOfDancesGrowNothing() async {
         let map = PlazaMapData.map
         let scene = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: map.spawn, zoom: 2, nickname: "나")
+        pinPlazaClock(scene)
         scene.size = CGSize(width: 960, height: 640)
         scene.applyMembers([PlazaSceneMember(memberID: "A", nickname: "A", isAway: false,
                                              tile: TilePoint(x: map.spawn.x + 2, y: map.spawn.y), facing: .down, isWalking: false)])
@@ -317,6 +318,18 @@ final class TeamHostilePeerTests: XCTestCase {
         XCTAssertEqual(eventReplies(peer), TeamSession.inventoryReplyBurst + 1, "it comes back with time")
     }
 
+    func testDrawsOverTheRateAreDropped() async {
+        var got = 0
+        session.onDraw = { _, _ in got += 1 }
+        let peer = join("A")
+        let draw = TeamDraw(game: "g", turn: 1, seq: 0, op: .clear)
+        for _ in 0..<100 { say(.draw(draw), from: peer) }
+        XCTAssertEqual(got, TeamSession.drawPerSecond)
+        clock = clock.addingTimeInterval(1)
+        for _ in 0..<100 { say(.draw(draw), from: peer) }
+        XCTAssertEqual(got, TeamSession.drawPerSecond * 2)
+    }
+
     func testProfileFloodIsAnsweredOnlyAFewTimes() async {
         let peer = join("A")
         let before = profilesServed
@@ -399,6 +412,7 @@ final class TeamHostilePeerTests: XCTestCase {
     private func scene() -> PlazaScene {
         let map = PlazaMapData.map
         let scene = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: map.spawn, zoom: 2, nickname: "나")
+        pinPlazaClock(scene)
         scene.applyMembers([PlazaSceneMember(memberID: "A", nickname: "A", isAway: false, tile: map.spawn, facing: .down, isWalking: false)])
         return scene
     }
@@ -467,6 +481,7 @@ final class TeamHostilePeerTests: XCTestCase {
         for paused in [false, true] {
             let map = PlazaMapData.map
             let s = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: map.spawn, zoom: 2, nickname: "나", pondVisuals: true)
+            pinPlazaClock(s)
             s.applyMembers([PlazaSceneMember(memberID: "A", nickname: "A", isAway: false, tile: TilePoint(x: 17, y: 11), facing: .up, isWalking: false)])
             s.update(0)
             XCTAssertEqual(s.treeNodeCount, 68, "precondition: the tree layer exists, so this cannot pass vacuously")
@@ -490,6 +505,7 @@ final class TeamHostilePeerTests: XCTestCase {
         let map = PlazaMapData.map
         let s = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: map.spawn, zoom: 2, nickname: "나",
                            iceArt: PlazaIceArt.none)
+        pinPlazaClock(s)
         s.applyMembers([PlazaSceneMember(memberID: "A", nickname: "A", isAway: false, tile: map.spawn, facing: .down, isWalking: false)])
         s.isPaused = true
         let before = s.children.count

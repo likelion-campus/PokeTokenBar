@@ -8,6 +8,7 @@ import XCTest
 
     private func scene() -> PlazaScene {
         let s = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: p(20, 22), zoom: 2, nickname: "me")
+        pinPlazaClock(s)
         s.size = CGSize(width: 800, height: 600)
         s.backingOverride = 2
         return s
@@ -171,6 +172,7 @@ import XCTest
     func testAMapWithoutTheTreeHasNoLayer() async throws {
         let bare = try PlazaMap(rows: ["SN..", "...."])
         let s = PlazaScene(map: bare, mapImage: PlazaTileArt.plainGrassImage(bare), start: p(2, 1), zoom: 2, nickname: "me", pondVisuals: true)
+        pinPlazaClock(s)
         XCTAssertEqual(s.treeNodeCount, 0)
         XCTAssertFalse(s.isTreeShown)
         XCTAssertNil(s.treeZ)

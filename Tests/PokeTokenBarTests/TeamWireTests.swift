@@ -351,9 +351,23 @@ final class TeamWireTests: XCTestCase {
             .emote(TeamEmote(kind: .heart, targetMemberID: "m2")),
             .emote(TeamEmote(kind: .question, targetMemberID: nil)),
             .chat(TeamChat(text: "같이 점심?")),
+            .draw(TeamDraw(game: "g", turn: 2, seq: 7, op: .stroke, color: 3, width: 1, points: [1, 2, 3, 4])),
             .profile(TeamMemberProfile(memberID: "m1", nickname: "Ash", current: mon,
                 dex: [TeamDexSpecies(speciesID: 25, form: nil, name: "Pikachu", rarity: .rare, hasShiny: true, hasNormal: false)])),
         ]
+    }
+
+    func testADrawMessageRoundTrips() throws {
+        let draw = TeamMessage.draw(TeamDraw(game: "g", turn: 2, seq: 7, op: .stroke, color: 3, width: 1, points: [1, 2, 3, 4]))
+        var decoder = TeamWire.FrameDecoder()
+        XCTAssertEqual(try decoder.append(try TeamWire.encode(draw)), [draw])
+    }
+
+    func testAnUnreadableDrawIsSkippedAndTheLinkStays() throws {
+        let chat = TeamMessage.chat(TeamChat(text: "hi"))
+        var decoder = TeamWire.FrameDecoder()
+        let bad = frame(#"{"draw":{"_0":{"game":"g","turn":0,"seq":0,"op":"fill"}}}"#)
+        XCTAssertEqual(try decoder.append(bad + (try TeamWire.encode(chat))), [chat])
     }
 
     func testRoundTripEveryCase() throws {
@@ -715,7 +729,8 @@ final class TeamWireTests: XCTestCase {
         XCTAssertEqual(Set(allMessages.map { m -> String in
             let json = try! JSONSerialization.jsonObject(with: TeamWire.encode(m).dropFirst(4)) as! [String: Any]
             return json.keys.first!
-        }), ["hello", "inventory", "events", "reactions", "profileRequest", "presence", "emote", "profile", "chat"])
+        }), ["hello", "inventory", "events", "reactions", "profileRequest", "presence", "emote", "profile", "chat", "draw"])
+        XCTAssertEqual([TeamDraw.Op.stroke, .clear, .snapshot].map(\.rawValue), ["stroke", "clear", "snapshot"])
         XCTAssertEqual([TeamEventKind.hatch, .evolve, .graduate, .dittoReveal].map(\.rawValue), ["hatch", "evolve", "graduate", "dittoReveal"])
         XCTAssertEqual([TeamReactionKind.cute, .lol, .congrats, .comment].map(\.rawValue), ["cute", "lol", "congrats", "comment"])
         XCTAssertEqual(TeamEmoteKind.allCases.map(\.rawValue), ["heart", "lol", "party", "exclaim", "question", "tackle", "jump", "groupPhoto", "pickup", "firework", "dance", "decoyFound", "decoyJump", "decoyTackle", "pull", "snowball", "mimicTackle", "mimicFound", "pray", "drag", "treeShake", "fortune"])

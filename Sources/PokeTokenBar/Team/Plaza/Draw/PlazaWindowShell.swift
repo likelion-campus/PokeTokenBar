@@ -48,8 +48,8 @@ struct PlazaOverlayBindings {
     func setTitle(_ title: String)
     /// See-through window (background hidden): no fill, no shadow.
     func setTransparent(_ transparent: Bool)
-    /// Hides the HUD panels for photo mode (not the overlay or the chat field).
-    func setHUDHidden(_ hidden: Bool)
+    /// Hides exactly these HUD panels (photo mode, the UI toggle; never the overlay or the chat field) and shows the others.
+    func setHiddenPanels(_ ids: Set<PlazaPanelID>)
     /// Gives the keys back to the scene.
     func focusScene()
     func focusChatInput()
@@ -65,12 +65,21 @@ struct PlazaOverlayBindings {
     var diagnostics: (occlusionVisible: Bool?, isKey: Bool?) { get }
 }
 
+/// What the one-line field asks for: a chat line, or the secret word of the drawing quiz (12 characters, no megaphone,
+/// no emoji panel).
+enum PlazaChatInputPurpose: Equatable, Sendable {
+    case chat, quizWord
+    var maxCharacters: Int { self == .chat ? TeamChat.maxCharacters : 12 }
+}
+
 /// The one-line chat field (per OS: AppKit's `PlazaChatInput` on the Mac). Its own keys (Enter, Tab for the megaphone,
 /// Esc) and its emoji panel stay inside it.
 @MainActor protocol PlazaChatInputHost: AnyObject {
     var isOpen: Bool { get }
     /// The megaphone is on for this line.
     var isLoud: Bool { get }
+    /// What the field is asking for. Set it before `open()`. `close()` puts it back to `.chat`.
+    var purpose: PlazaChatInputPurpose { get set }
     func open()
     func close()
     /// The typed line. false keeps the field open with the line in it.

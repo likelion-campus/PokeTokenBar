@@ -143,6 +143,58 @@ final class PlazaChatInputTests: XCTestCase {
         w.contentView = nil
     }
 
+    func testTheWordFieldCutsAtTwelveAndHasItsOwnPlaceholder() throws {
+        let i = PlazaChatInput()
+        i.purpose = .quizWord
+        i.open()
+        let (w, editor) = try editing(i)
+        editor.insertText(String(repeating: "가", count: 15), replacementRange: editor.selectedRange())
+        i.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification))
+        XCTAssertEqual(i.field.stringValue.count, 12)
+        XCTAssertEqual(i.field.placeholderAttributedString?.string, L(.ko).plazaDrawWordPlaceholder)
+        w.contentView = nil
+    }
+
+    func testTheWordFieldHasNoMegaphone() throws {
+        let i = PlazaChatInput()
+        i.purpose = .quizWord
+        i.open()
+        let (w, editor) = try editing(i)
+        editor.doCommand(by: #selector(NSResponder.insertTab(_:)))
+        XCTAssertFalse(i.isLoud)
+        XCTAssertTrue(i.emojiButton.isHidden)
+        w.contentView = nil
+    }
+
+    func testClosingPutsThePurposeBackToChat() throws {
+        let i = PlazaChatInput()
+        i.purpose = .quizWord
+        i.open()
+        i.close()
+        XCTAssertEqual(i.purpose, .chat)
+        i.open()
+        let (w, editor) = try editing(i)
+        editor.insertText(String(repeating: "가", count: TeamChat.maxCharacters), replacementRange: editor.selectedRange())
+        i.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification))
+        XCTAssertEqual(i.field.stringValue.count, TeamChat.maxCharacters)
+        XCTAssertEqual(i.field.placeholderAttributedString?.string, L(.ko).plazaChatPlaceholder)
+        w.contentView = nil
+    }
+
+    func testEnterDuringCompositionInTheWordFieldOnlyCommits() throws {
+        let box = Box()
+        let i = PlazaChatInput()
+        i.onSubmit = { box.sent.append($0); return true }
+        i.purpose = .quizWord
+        i.open()
+        let (w, editor) = try editing(i)
+        editor.setMarkedText("가", selectedRange: NSRange(location: 1, length: 0), replacementRange: editor.selectedRange())
+        editor.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+        XCTAssertTrue(box.sent.isEmpty)
+        XCTAssertTrue(i.isOpen)
+        w.contentView = nil
+    }
+
     func testCuttingAnOverlongLineKeepsTheCaret() throws {
         let (i, _) = input()
         let (w, editor) = try editing(i)

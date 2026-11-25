@@ -520,12 +520,14 @@ extension L {
     func plazaGameName(_ kind: PlazaGameKind) -> String {
         switch kind {
         case .bomb: "폭탄 돌리기"
+        case .draw: "그림 퀴즈"
         }
     }
     var plazaGameUnknownName: String { "새 미니게임" }
     func plazaGameRules(_ kind: PlazaGameKind) -> [String] {
         switch kind {
         case .bomb: ["폭탄은 몸통박치기(C)로 넘길 수 있어요", "터질 때 들고 있으면 탈락!", "마지막 한 명이 이겨요 · 한 판 1~3분"]
+        case .draw: ["한 명이 제시어를 정해 그림으로 그려요", "나머지는 한마디(Enter)로 맞혀요 · 먼저 맞히면 +10", "글자나 숫자로 답을 쓰면 반칙! · 한 판 5~12분"]
         }
     }
     func plazaGameMenuRow(_ kind: PlazaGameKind) -> String { "\(plazaGameName(kind)) 열기" }
@@ -591,6 +593,7 @@ extension L {
     var plazaEggName: String { "알" }
     var plazaAwaySuffix: String { "zZ" }
     var plazaChatPlaceholder: String { "한마디 (Enter 전송, Tab 확성기, Esc 취소)" }
+    var plazaDrawWordPlaceholder: String { "제시어 (12자까지)" }
     var plazaLoudPlaceholder: String { "📢 확성기: 광장 밖 팀원도 알림 (Tab 끄기)" }
     var plazaLoudTooSoon: String { "확성기는 1분에 한 번만 쓸 수 있어요" }
     var plazaChatEmoji: String { "이모지" }
@@ -609,8 +612,11 @@ extension L {
     var plazaChatLogExpand: String { "펼치기 ▴" }
     var plazaChatLogCollapse: String { "접기 ▾" }
     func teamMegaphoneNotice(nickname: String, text: String) -> String { "📢 \(nickname): \(text)" }
-    var plazaBackgroundHide: String { "배경 숨기기" }
-    var plazaBackgroundShow: String { "배경 보이기" }
+    /// The background toggle's label is its current mode: it cycles shown, UI hidden, background hidden, both hidden.
+    var plazaModeShown: String { "모두 표시" }
+    var plazaModeUIHidden: String { "UI 숨기기" }
+    var plazaModeBackgroundHidden: String { "배경 숨기기" }
+    var plazaModeBothHidden: String { "UI·배경 숨기기" }
     var plazaNameColor: String { "이름 색" }
     func plazaClock(phase: PlazaDaylight.Phase, time: String) -> String {
         let name = switch phase {

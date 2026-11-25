@@ -135,11 +135,11 @@ import SwiftUI
             }
         }
         let hide = swiftUIFrames(Case(name: "hide")), show = swiftUIFrames(Case(name: "show", hidden: true))
-        XCTAssertEqual(hide.toggle.size, CGSize(width: 108, height: 26), "pinned: SwiftUI's toggle host, background shown")
-        XCTAssertEqual(show.toggle.size, CGSize(width: 108, height: 25), "pinned: eye instead of eye.slash is a point shorter")
-        XCTAssertEqual(hide.guide.minY, 46, "pinned: the guide sits 46 points under the top")
-        XCTAssertEqual(show.guide.minY, 45)
-        XCTAssertEqual(hide.picker.minX, 130)
+        XCTAssertEqual(hide.toggle.size, CGSize(width: 96, height: 25), "pinned: SwiftUI's toggle host in mode 1 (everything shown: eye, \"모두 표시\")")
+        XCTAssertEqual(show.toggle.size, CGSize(width: 108, height: 26), "pinned: mode 3 (background hidden: eye.slash, \"배경 숨기기\") is wider and a point taller")
+        XCTAssertEqual(hide.guide.minY, 45, "pinned: the guide sits 45 points under the top in mode 1")
+        XCTAssertEqual(show.guide.minY, 46)
+        XCTAssertEqual(hide.picker.minX, 118)
         XCTAssertEqual(swiftUIFrames(Case(name: "f", folded: true)).guide.size, CGSize(width: 64, height: 26))
         XCTAssertEqual(hide.guide.size, CGSize(width: 112, height: 326))
         XCTAssertEqual(hide.picker.size, CGSize(width: 75, height: 24))

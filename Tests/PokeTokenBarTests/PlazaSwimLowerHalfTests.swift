@@ -21,6 +21,7 @@ final class PlazaSwimLowerHalfTests: XCTestCase {
     func scene(start: TilePoint) -> PlazaScene {
         let s = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: start, zoom: 2,
                            nickname: "me", pondVisuals: true)
+        pinPlazaClock(s)
         s.size = CGSize(width: 800, height: 600)
         s.backingOverride = 2
         s.setCharacter(frames())

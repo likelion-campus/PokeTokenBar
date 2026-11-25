@@ -12,6 +12,7 @@ final class PlazaPondSceneTests: XCTestCase {
     private func scene(start: TilePoint, pondVisuals: Bool = true) -> PlazaScene {
         let s = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: start, zoom: 2,
                            nickname: "me", pondVisuals: pondVisuals)
+        pinPlazaClock(s)
         s.size = CGSize(width: 800, height: 600)
         s.backingOverride = 2
         s.setCharacter(frames())

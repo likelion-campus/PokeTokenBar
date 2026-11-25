@@ -276,6 +276,7 @@ import WinSDK
         case .presence: "presence"
         case .emote: "emote"
         case .chat: "chat"
+        case .draw: "draw"
         }
     }
 

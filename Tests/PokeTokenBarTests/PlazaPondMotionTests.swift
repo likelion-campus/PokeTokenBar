@@ -11,6 +11,7 @@ final class PlazaPondMotionTests: XCTestCase {
 
     private func scene(start: TilePoint) -> PlazaScene {
         let s = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: start, zoom: 2, nickname: "me")
+        pinPlazaClock(s)
         s.size = CGSize(width: 800, height: 600)
         return s
     }

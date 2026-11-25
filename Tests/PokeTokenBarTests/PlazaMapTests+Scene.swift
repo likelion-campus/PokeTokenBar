@@ -6,6 +6,7 @@ extension PlazaMapTests {
     @MainActor
     func testATeammateReportedOnThePitIsDrawnInTheShelter() async {
         let scene = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: map.spawn, zoom: 2, nickname: "나")
+        pinPlazaClock(scene)
         scene.size = CGSize(width: 800, height: 600)
         scene.applyMembers([PlazaSceneMember(memberID: "m", nickname: "m", isAway: false, tile: TilePoint(x: 23, y: 15),
                                              facing: .down, isWalking: false)])

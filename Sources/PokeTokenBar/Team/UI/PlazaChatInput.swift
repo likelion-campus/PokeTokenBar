@@ -25,6 +25,10 @@ import AppKit
     /// 지금 키가 눌린 채 반복 중인지. 테스트에서 바꿔 끼운다.
     var isKeyRepeating: () -> Bool = { NSApp.currentEvent?.isARepeat == true }
     private(set) var isOpen = false
+    /// 무엇을 받는 입력창인지. 열기 전에 정하고, 닫으면 `.chat`으로 돌아온다. 제시어는 확성기·이모지 없이 12자까지.
+    var purpose: PlazaChatInputPurpose = .chat {
+        didSet { refreshLoud(); emojiButton.isHidden = purpose != .chat }
+    }
     /// 확성기로 보낸다. Tab으로 켜고 끄며, 입력창을 열 때마다 꺼진다.
     private(set) var isLoud = false {
         didSet { refreshLoud() }
@@ -114,6 +118,7 @@ import AppKit
     }
 
     func close() {
+        purpose = .chat
         guard isOpen else { return }
         isOpen = false
         setEmojiPanel(open: false)
@@ -136,7 +141,7 @@ import AppKit
             return true
         case #selector(NSResponder.insertTab(_:)), #selector(NSResponder.insertBacktab(_:)):
             // 입력창을 벗어나면 닫히므로 Tab은 포커스를 옮기지 않고 확성기를 켜고 끈다.
-            isLoud.toggle()
+            if purpose == .chat { isLoud.toggle() }
             return true
         case #selector(NSResponder.cancelOperation(_:)):
             close()
@@ -148,7 +153,9 @@ import AppKit
 
     private func refreshLoud() {
         let l = L(.ko)
-        field.placeholderAttributedString = NSAttributedString(string: isLoud ? l.plazaLoudPlaceholder : l.plazaChatPlaceholder, attributes: [
+        let placeholder = purpose == .quizWord ? l.plazaDrawWordPlaceholder
+            : isLoud ? l.plazaLoudPlaceholder : l.plazaChatPlaceholder
+        field.placeholderAttributedString = NSAttributedString(string: placeholder, attributes: [
             .font: PlazaResources.font(.body), .foregroundColor: NSColor.white.withAlphaComponent(0.6),
         ])
         view.layer?.borderColor = isLoud ? CGColor(srgbRed: 0xF0 / 255, green: 0x8A / 255, blue: 0x24 / 255, alpha: 1)
@@ -156,6 +163,7 @@ import AppKit
     }
 
     @objc private func emojiPressed() {
+        guard purpose == .chat else { return }
         setEmojiPanel(open: !isEmojiPanelOpen)
     }
 
@@ -187,8 +195,8 @@ import AppKit
     /// 조합 중인 글자를 건드리면 한글이 깨지므로 조합이 끝난 뒤에 자른다.
     func controlTextDidChange(_ notification: Notification) {
         if (field.currentEditor() as? NSTextView)?.hasMarkedText() == true { return }
-        if field.stringValue.count > TeamChat.maxCharacters {
-            field.stringValue = String(field.stringValue.prefix(TeamChat.maxCharacters))
+        if field.stringValue.count > purpose.maxCharacters {
+            field.stringValue = String(field.stringValue.prefix(purpose.maxCharacters))
         }
     }
 

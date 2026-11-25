@@ -65,6 +65,8 @@ final class TeamSession {
     /// A profile is the whole dex, asked for when someone opens a card.
     nonisolated static let profileReplyBurst = 5
     nonisolated static let profileReplyInterval: TimeInterval = 2
+    /// Drawing messages one link may send per second (and in a burst): a stroke is a few points, a hand makes a handful a second.
+    nonisolated static let drawPerSecond = 40
     /// A link that has not said `hello` by now is not a teammate. An honest app says it the moment the link is ready, so
     /// this is only the time a bad network needs; the check runs on the tick, so the link may live one tick longer.
     static let helloDeadline: TimeInterval = silenceLimit
@@ -103,6 +105,8 @@ final class TeamSession {
                                              perSecond: 1 / TeamSession.profileReplyInterval)
         var syncedFrames = TeamTokenBucket(capacity: Double(TeamSession.syncedFrameBurst),
                                            perSecond: TeamSession.syncedFramesPerSecond)
+        var draws = TeamTokenBucket(capacity: Double(TeamSession.drawPerSecond),
+                                    perSecond: Double(TeamSession.drawPerSecond))
         var sharedValueChanges = TeamTokenBucket(capacity: Double(TeamSession.sharedValueBurst),
                                                  perSecond: 1 / TeamSession.sharedValueInterval)
         /// The shared values this link last sent, to tell a change from a repeat.
@@ -131,6 +135,7 @@ final class TeamSession {
     @ObservationIgnored var onBigEvent: ((TeamEvent) -> Void)?
     @ObservationIgnored var onReactionToMine: ((TeamReaction, TeamEvent) -> Void)?
     @ObservationIgnored var onEmote: ((_ memberID: String, TeamEmote) -> Void)?
+    @ObservationIgnored var onDraw: ((_ memberID: String, TeamDraw) -> Void)?
     @ObservationIgnored var onChat: ((_ memberID: String, _ text: String, _ isLoud: Bool) -> Void)?
 
     @ObservationIgnored private let settings: TeamSettings
@@ -416,6 +421,10 @@ final class TeamSession {
         broadcast(.chat(TeamChat(text: text, isLoud: loud ? true : nil)))
     }
 
+    func sendDraw(_ draw: TeamDraw) {
+        broadcast(.draw(draw))
+    }
+
     func requestProfile(memberID: String, timeout: Duration = .seconds(5)) async -> TeamMemberProfile? {
         guard let peer = links.first(where: { $0.value.memberID == memberID })?.key else { return nil }
         let id = UUID()
@@ -579,6 +588,9 @@ final class TeamSession {
             onEmote?(memberID, emote)
         case .chat(let chat):
             if TeamChat.prepared(chat.text) == chat.text { onChat?(memberID, chat.text, chat.isLoud ?? false) }
+        case .draw(let draw):
+            guard links[peer]?.draws.take(now: clock()) == true else { return }
+            onDraw?(memberID, draw)
         case .profileRequest:
             guard links[peer]?.profileReplies.take(now: clock()) == true else { return }
             send(.profile(profileProvider()), to: peer)
