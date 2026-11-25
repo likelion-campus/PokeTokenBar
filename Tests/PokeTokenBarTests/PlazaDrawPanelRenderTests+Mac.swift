@@ -124,7 +124,7 @@ import CoreText
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
         let map = try XCTUnwrap(PlatformPlaza.tileSheet().map { PlazaTileArt.mapImage(PlazaMapData.map, sheet: $0, tallGrass: nil) })
         try K.write(try menuImage(kinds: [.bomb], selection: 0, map: map), out.appendingPathComponent("draw-quiz-menu-before.png"))
-        try K.write(try menuImage(kinds: PlazaGameKind.offered, selection: 1, map: map), out.appendingPathComponent("draw-quiz-menu-after.png"))
+        try K.write(try menuImage(kinds: [.bomb, .draw], selection: 1, map: map), out.appendingPathComponent("draw-quiz-menu-after.png"))
 
         let now = Date(timeIntervalSince1970: 1_800_000_100)
         // 도윤 opened a quiz 12 s ago; 3 are in so far.

@@ -746,10 +746,6 @@ extension PlazaGameTests {
         XCTAssertNotNil(PlazaGame.accepted(s, now: now))
     }
 
-    func testTheMenuOffersBothGames() {
-        XCTAssertEqual(PlazaGameMenu().kinds, [.bomb, .draw])
-    }
-
     // MARK: - Berry five payload
 
     private func berryState(players: Int = 3, _ edit: (inout PlazaBerryState) -> Void = { _ in }) -> PlazaGameState {
@@ -828,7 +824,8 @@ extension PlazaGameTests {
         XCTAssertEqual(PlazaGameKind.bomb.maxPlayers, 20)
     }
 
-    func testTheMenuDoesNotOfferBerryFiveYet() {
-        XCTAssertFalse(PlazaGameMenu().kinds.contains(.berry))
+    func testTheMenuOffersEveryGame() {
+        XCTAssertEqual(PlazaGameMenu().kinds, PlazaGameKind.allCases)
+        XCTAssertEqual(PlazaGameMenu().kinds, [.bomb, .draw, .berry])
     }
 }

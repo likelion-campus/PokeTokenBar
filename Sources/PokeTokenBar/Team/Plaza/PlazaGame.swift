@@ -5,9 +5,6 @@ import Foundation
 enum PlazaGameKind: String, CaseIterable, Sendable {
     case bomb, draw, berry
 
-    /// What the M menu lists: the games the app offers to open. Not `allCases`, so a game that is in the code but not yet ready stays out of the menu.
-    static var offered: [PlazaGameKind] { [.bomb, .draw] }
-
     /// The most players a game of this kind takes.
     var maxPlayers: Int {
         switch self {

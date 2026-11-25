@@ -51,6 +51,42 @@ extension WindowsSelftest {
 
     private static func tileText(_ t: TilePoint) -> String { "(\(t.x),\(t.y))" }
 
+    /// plaza.berrySpace: real Space presses (CI only) reach the open berry five table once each; a held key adds one, not one per repeat; and the
+    /// table is the only panel drawn over the plaza (the others are suppressed).
+    @MainActor static func plazaBerrySpaceCheck(_ r: Recorder, _ c: PlazaWindowController, _ shell: WinPlazaWindow, _ hwnd: HWND) async {
+        guard onCI else {
+            r.add("plaza.berrySpace", true, "skipped: real keys are injected on CI only; the PC checklist has Space at the table")
+            return
+        }
+        guard let panels = shell.panelsForTesting, let router = shell.input else {
+            r.add("plaza.berrySpace", false, "the window has no panel host or input router")
+            return
+        }
+        router.forwardToStage = true
+        forceForeground(hwnd)
+        _ = SetFocus(hwnd)
+        let seats: [PlazaBerryBoard.Seat] = (0..<3).map { i in
+            PlazaBerryBoard.Seat(id: "berry\(i)", name: "Fixture \(i)", nameColor: PlazaColor(hex: 0xFF8A80),
+                                 mon: TeamMonSummary(speciesID: 25 + i, isShiny: false, form: nil, speciesName: nil, gender: nil), score: i,
+                                 deckLeft: 10, top: PlazaBerry.Card(berry: PlazaBerry.Berry.allCases[i], count: 1 + i), under: 1, isPlaying: true)
+        }
+        c.setBerryBoardForTesting(PlazaBerryBoard(seats: seats, center: .playing(event: nil), flip: 1, flippedSeat: 0, ring: nil, wrong: false))
+        await pumpFor(0.5)
+        let before = c.berryTableSpaces
+        await tap(PlazaKeyCode.space)
+        await pumpFor(0.2)
+        let afterTap = c.berryTableSpaces
+        await tap(PlazaKeyCode.space, hold: 0.9)
+        await pumpFor(0.2)
+        let afterHold = c.berryTableSpaces
+        let onlyTable = panels.drawList.count == 1 && panels.entries[.berryTable] != nil
+        let open = c.isBerryTableOpen
+        c.setBerryBoardForTesting(nil)
+        await pumpFor(0.3)
+        r.add("plaza.berrySpace", open && afterTap == before + 1 && afterHold == before + 2 && onlyTable,
+              "table open \(open); Space presses that reached it: \(before) -> \(afterTap) after one tap, \(afterHold) after a 0.9 s hold (expected +1 each); drawn panels \(panels.drawList.count), the table among them: \(panels.entries[.berryTable] != nil) (expected it alone)")
+    }
+
     /// plaza.keys, plaza.repeat, plaza.walk, plaza.altAlone, plaza.altGr, plaza.resignReleasesKeys, plaza.imeOff, plaza.click.
     @MainActor static func plazaInputChecks(_ r: Recorder, _ shell: WinPlazaWindow, _ hwnd: HWND, scene: PlazaScene) async {
         guard let router = shell.input else {
