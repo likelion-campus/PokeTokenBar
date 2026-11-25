@@ -46,6 +46,8 @@ struct TeamMemberState: Equatable, Sendable {
     var game: PlazaGameState?
     /// The game they said yes to, at most `TeamWire.maxFieldBytes` bytes.
     var gameJoin: String?
+    /// Their berry five bell, kept only if it passed `PlazaBerryBell.accepted` on receipt.
+    var gameBell: PlazaBerryBell?
 }
 
 /// Sits on a `TeamTransporting`: syncs news and reactions, keeps the member table, passes presence and
@@ -175,6 +177,7 @@ final class TeamSession {
     @ObservationIgnored private var campfire: PlazaCampfireSwitch?
     @ObservationIgnored private var game: PlazaGameState?
     @ObservationIgnored private var gameJoin: String?
+    @ObservationIgnored private var gameBell: PlazaBerryBell?
     /// My plaza activity as last handed over; teammates get it with every presence.
     @ObservationIgnored private(set) var activity: PlazaActivity?
     @ObservationIgnored private var activitySentAt: Date?
@@ -383,10 +386,11 @@ final class TeamSession {
     }
 
     /// The plaza minigame as I know it (nil: none) and the game I said yes to, told to teammates in my presence.
-    func updateGame(_ state: PlazaGameState?, join: String?) {
-        guard state != game || join != gameJoin else { return }
+    func updateGame(_ state: PlazaGameState?, join: String?, bell: PlazaBerryBell? = nil) {
+        guard state != game || join != gameJoin || bell != gameBell else { return }
         game = state
         gameJoin = join
+        gameBell = bell
         broadcast(.presence(makePresence()))
     }
 
@@ -536,6 +540,7 @@ final class TeamSession {
             member.isFlushed = presence.isFlushed == true
             member.game = PlazaGame.accepted(presence.game, now: clock())
             member.gameJoin = presence.gameJoin.flatMap { $0.utf8.count <= TeamWire.maxFieldBytes ? $0 : nil }
+            member.gameBell = PlazaBerryBell.accepted(presence.gameBell)
             members[memberID] = member
             // 코드가 막 바뀌어 이전 팀 링크가 아직 살아 있는 동안에는 받은 일정을 새 팀 몫으로 저장하지 않는다.
             // 팀 이름도 같다. 일정이나 이름 중 하나라도 받아들였으면 presence 는 한 번만 다시 보낸다.
@@ -668,6 +673,7 @@ final class TeamSession {
         // A game that is over (I left the plaza with its last state in hand) is not sent for ever.
         let game = PlazaGame.accepted(game, now: clock())
         let gameJoin = game == nil ? nil : gameJoin
+        let gameBell = gameBell.flatMap { $0.game == game?.id ? $0 : nil }
         return TeamPresence(nickname: TeamSettings.validNickname(settings.nickname) ?? "", character: currentCharacter,
                      inPlaza: inPlaza, tile: tile, facing: facing, isWalking: isWalking, isIdle: isIdle ? true : nil,
                      nameColor: settings.nameColor, isRunning: isRunning ? true : nil, takenItemSlot: takenItemSlot,
@@ -677,7 +683,7 @@ final class TeamSession {
                      teamName: settings.code == knownCode ? settings.teamNameStamp : nil,
                      ditto: dittoState, dittoReady: dittoReady ? true : nil, mimicOf: mimicOf, iceBreak: iceBreak, campfire: campfire,
                      activity: activity, bodySize: bodySize,
-                     isFlushed: isFlushed ? true : nil, game: game, gameJoin: gameJoin)
+                     isFlushed: isFlushed ? true : nil, game: game, gameJoin: gameJoin, gameBell: gameBell)
     }
 
     private func send(_ message: TeamMessage, to peer: TeamPeerID) {

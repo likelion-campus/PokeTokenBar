@@ -115,6 +115,22 @@ final class TeamHostilePeerTests: XCTestCase {
         XCTAssertTrue(scene.isDancing(memberID: "A"))
     }
 
+    // MARK: - Bell
+
+    func testAnAbsurdBellIsDropped() async throws {
+        let peer = join("hostile")
+        for bad in [#"{"game":"g","clears":1,"flip":1,"ms":300,"right":true,"serial":0}"#,
+                    #"{"game":"g","clears":1,"flip":1,"ms":-1,"right":true,"serial":1}"#] {
+            let json = #"{"presence":{"_0":{"nickname":"x","character":{"speciesID":25,"isShiny":false,"speciesName":"P"},"inPlaza":true,"tile":{"x":7,"y":8},"facing":"left","isWalking":true,"gameBell":\#(bad)}}}"#
+            say(try JSONDecoder().decode(TeamMessage.self, from: Data(json.utf8)), from: peer)
+            XCTAssertNil(session.members["hostile"]?.gameBell, bad)
+            XCTAssertEqual(session.members["hostile"]?.tile, TilePoint(x: 7, y: 8), bad)
+        }
+        let ok = #"{"presence":{"_0":{"nickname":"x","character":{"speciesID":25,"isShiny":false,"speciesName":"P"},"inPlaza":true,"tile":{"x":7,"y":8},"facing":"left","isWalking":true,"gameBell":{"game":"g","clears":1,"flip":1,"ms":300,"right":true,"serial":1}}}}"#
+        say(try JSONDecoder().decode(TeamMessage.self, from: Data(ok.utf8)), from: peer)
+        XCTAssertEqual(session.members["hostile"]?.gameBell?.serial, 1)
+    }
+
     // MARK: - Flush
 
     /// A modified app can send anything for the flag. Only a literal true is read, and the frame lives.

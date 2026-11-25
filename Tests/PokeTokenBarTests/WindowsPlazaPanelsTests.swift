@@ -220,6 +220,24 @@ import XCTest
         XCTAssertEqual(rig.panels.drawList.count, 16)
     }
 
+    func testASuppressedPanelLeavesTheDrawList() async {
+        // a pills fake that takes clicks, alone at the top centre (350...450 x, 5...35 y)
+        let pills = Fake(.pills, anchor: .topCenter, offset: CGPoint(x: 0, y: 5), size: CGSize(width: 100, height: 30),
+                         hit: CGRect(x: 0, y: 0, width: 100, height: 30))
+        let roster = Fake(.roster, offset: CGPoint(x: 10, y: 100), size: CGSize(width: 100, height: 100), hit: CGRect(x: 0, y: 0, width: 100, height: 100))
+        let rig = Rig([roster, pills])
+        let spot = CGPoint(x: 400, y: 20)
+        let before = rig.panels.drawList
+        XCTAssertEqual(before.count, 2)
+        XCTAssertEqual(rig.panels.host(at: spot), .pills)
+        rig.hud.suppressed = [.pills]
+        XCTAssertEqual(rig.panels.drawList.count, 1)
+        XCTAssertNil(rig.panels.host(at: spot), "the pills' spot takes nothing while suppressed")
+        rig.hud.suppressed = []
+        XCTAssertEqual(rig.panels.drawList, before)
+        XCTAssertEqual(rig.panels.host(at: spot), .pills)
+    }
+
     func testPressDimsAndReleaseOutsideCancels() async {
         let rig = standardRig()
         let toggle = rig.fakes[.backgroundToggle]!

@@ -26,6 +26,7 @@ import Observation
     private let pokemonTypes: (Int) async -> [String]?
     /// 포켓몬 아이템 그림을 이름으로 받는다(캐시에 없으면 내려받는다). 봄·여름에 던지는 것이다.
     private let throwItem: (String) async -> PlazaImage?
+    private let uptime: () -> TimeInterval
     /// 받은 아이템 그림으로 만든 공. 한 번 받으면 광장을 다시 열어도 그대로 쓴다.
     private var throwBalls: [PlazaSeason: [PlazaImage]] = [:]
     /// 광장에서 주운 아이템을 가방에 넣는다.
@@ -153,7 +154,19 @@ import Observation
     private lazy var gameCardPanel = PlazaGameCardPanel(game: gameModel, overlay: overlayModel, pills: pillsPanel)
     private lazy var gameTitlePanel = PlazaGameTitlePanel(game: gameModel)
     private let berryModel = PlazaBerryModel()
-    private lazy var berryPanel = PlazaBerryTablePanel(model: berryModel, icons: iconSource)
+    /// The game whose table I closed (it never reopens for it), when I first saw its end, and the picture loads.
+    fileprivate var berryTableClosedGame: String?
+    fileprivate var berryTableOpenFor: String?
+    /// A selftest's fixture board is on the table: the game tick leaves the table as the test set it.
+    fileprivate var berryFixtureShown = false
+    fileprivate var berryResultSeen: (game: String, at: Date)?
+    fileprivate var berryPicturesGame: String?
+    fileprivate var berryPicturesLoading: Set<String> = []
+    private lazy var berryPanel: PlazaBerryTablePanel = {
+        let panel = PlazaBerryTablePanel(model: berryModel, icons: iconSource)
+        panel.onBell = { [weak self] in self?.ringBerryBell() }   // a press on the bell rings at the press
+        return panel
+    }()
     /// The drawing quiz board's model (the game sets `board`; tests read the panel through `hud`).
     let drawModel = PlazaDrawModel()
     /// The log and the guide are held small while the board does not fit with them as they are; see `makeRoomForDrawBoard`.
@@ -310,6 +323,7 @@ import Observation
          session: TeamSession? = nil,
          feed: TeamFeedStore? = nil,
          clock: @escaping () -> Date = Date.init,
+         uptime: @escaping () -> TimeInterval = PlazaBerry.uptime,
          photoWriter: @escaping (Data) -> Bool = { PlatformPlaza.clipboard.writePNG($0) },
          greetingKind: @escaping () -> TeamEmoteKind = { PlazaWindowController.greetingKinds.randomElement() ?? .heart },
          profileTimeout: Duration = .seconds(5),
@@ -356,6 +370,7 @@ import Observation
         self.evolutionStage = evolutionStage
         self.pokemonTypes = pokemonTypes
         self.throwItem = throwItem
+        self.uptime = uptime
         self.grantItem = grantItem
         self.pray = pray
         self.prayerCount = prayerCount
@@ -591,6 +606,7 @@ import Observation
         case (.board, "react"):   // the other board clicks ("board": the plate, my own reaction) are taken and do nothing
             if let r = boardPanel?.reaction(forHit: hit) { session?.react(to: r.eventID, kind: r.kind) }
         case (.drawBoard, _): drawPanel.clicked(hit)
+        case (.berryTable, "bell"): ringBerryBell()   // VoiceOver's press; the mouse press rings at `onBell`
         case (.gameCard, _): gameAction(hit.action)   // the plate's own clicks ("card") are taken and do nothing
         case (.chatLog, "toggle"): toggleChatLog()   // the log's own clicks ("log") are taken and do nothing
         case (.shortcuts, "toggle"): toggleShortcuts()
@@ -715,7 +731,7 @@ import Observation
         scene.showChat(memberID: nil, text: text)   // 춤은 멈추지 않는다. 말풍선이 떠 있는 동안 ♪만 가려진다
         chatLog.append(time: now, name: nickname(), text: text, color: scene.nameColor, isLoud: loud)
         session?.sendChat(text, loud: loud)
-        if loud { showBanner(L(.ko).teamMegaphoneNotice(nickname: nickname(), text: text)) }
+        if loud { showMegaphoneBanner(L(.ko).teamMegaphoneNotice(nickname: nickname(), text: text)) }
         return true
     }
 
@@ -1183,6 +1199,11 @@ import Observation
             case .escape:
                 closeOverlay()
             }
+        case .berryTable:
+            // The bell is the only key of the game: Space rings, or closes the result; Esc closes only the result.
+            let over = game.berryPhase(now: clock()) == .over
+            if key == .space { berryTableSpaces += 1 }
+            if key == .space, !over { ringBerryBell() } else if over, key == .space || key == .escape { closeBerryTable() }
         }
     }
 
@@ -1237,19 +1258,26 @@ import Observation
         for m in members.values {
             // A plaza that is closed cannot follow a drawing quiz: its running copy is whatever it held at the close.
             // (The bomb's leave write travels in such a copy, so only the quiz is held back; an ended copy always counts.)
-            if !m.inPlaza, let g = m.game, g.kind == PlazaGameKind.draw.rawValue, g.startsAt != nil, g.endedAt == nil { continue }
+            // Berry five's copy is held back the same way.
+            if !m.inPlaza, let g = m.game, g.kind == PlazaGameKind.draw.rawValue || g.kind == PlazaGameKind.berry.rawValue,
+               g.startsAt != nil, g.endedAt == nil { continue }
             game.learn(m.game, from: m.memberID, now: now)
         }
         let present = gamePresent
         let id = game.state?.id
         game.tick(now: now, present: present, joins: Set(members.values.filter { $0.inPlaza && id != nil && $0.gameJoin == id }.map(\.memberID)),
-                  connected: !members.isEmpty, heard: Set(members.keys))
-        if let lost = game.lostConnection, lost != lostBefore, lost == game.state?.id, game.state?.kind == PlazaGameKind.draw.rawValue {
-            showBanner(game.lostWithTeammates ? L(.ko).plazaGameLostPlayersBanner : L(.ko).plazaGameLostConnectionBanner)   // the quiz keeps its state when I step out, so `gameChanged` does not see it
-        }
-        session?.updateGame(game.state, join: game.joined)
+                  connected: !members.isEmpty, heard: Set(members.keys),
+                  bells: Dictionary(uniqueKeysWithValues: members.values.filter(\.inPlaza).compactMap { m in m.gameBell.map { (m.memberID, $0) } }))
+        game.berrySeen(at: hud.isRendering ? uptime() : nil)
+        session?.updateGame(game.state, join: game.joined, bell: game.berryBell)
         if game.state != before { gameChanged(from: before, now: now) }
         refreshGame(now: now)
+        syncBerryTable(now: now)
+        // After the table has closed, which hides every banner. The quiz and berry five keep their state when I step out, so `gameChanged` does not see it.
+        if let lost = game.lostConnection, lost != lostBefore, lost == game.state?.id,
+           game.state?.kind == PlazaGameKind.draw.rawValue || game.state?.kind == PlazaGameKind.berry.rawValue {
+            showBanner(game.lostWithTeammates ? L(.ko).plazaGameLostPlayersBanner : L(.ko).plazaGameLostConnectionBanner)
+        }
     }
 
     /// 판이 바뀌었다: 시작, 폭탄 넘기기, 폭발, 끝을 그리고 알린다. 참가자에게는 가운데 큰 글씨로, 구경하는 사람에게는 위쪽 배너로.
@@ -1303,6 +1331,10 @@ import Observation
         if s.endedAt != nil, !(same && old?.endedAt != nil) {
             if game.lostConnection == s.id {
                 // 연결이 끊겨 내가 빠진 판: 누가 이겼는지는 이 Mac이 알 수 없다.
+            } else if s.kind == PlazaGameKind.berry.rawValue, s.startsAt != nil {
+                // A player reads the result on the table and gets the banner when it closes; a watcher gets it now.
+                if let winner = s.winner { scene.showEmote(memberID: winner == me ? nil : winner, kind: .party) }
+                if !iPlay { showBanner(berryResultBanner(s)) }
             } else if let winner = s.winner {
                 scene.showEmote(memberID: winner == me ? nil : winner, kind: .party)
                 if iPlay {
@@ -1319,6 +1351,10 @@ import Observation
             }
         } else if same, let holder = s.bomb?.holder, holder != old?.bomb?.holder, s.bomb?.round == old?.bomb?.round {
             scene.showEmote(memberID: holder == me ? nil : holder, kind: .exclaim)   // 폭탄이 넘어갔다
+        }
+        // A right bell: 🔔 over the ringer, in the chat bubble (it draws emoji on both systems).
+        if same, let v = s.berry?.last, v.right, v != old?.berry?.last, s.players.indices.contains(v.seat) {
+            scene.showChat(memberID: s.players[v.seat] == me ? nil : s.players[v.seat], text: l.plazaBerryBellMark)
         }
     }
 
@@ -1414,7 +1450,8 @@ import Observation
         gameLoop?.cancel()
         gameLoop = nil
         game.leave(now: clock(), present: gamePresent)
-        session?.updateGame(game.state, join: game.joined)
+        session?.updateGame(game.state, join: game.joined, bell: game.berryBell)
+        closeBerryTable(restoreFocus: false)
         gameFlashes = []
         gameView = PlazaGameView()
         gameModel.card = nil
@@ -1919,7 +1956,16 @@ import Observation
     /// 테스트용 읽기 전용 값.
     var overlayContent: PlazaOverlayContent { overlayModel.content }
     var chatInputForTesting: any PlazaChatInputHost { chatInput }
-    func setBerryBoardForTesting(_ board: PlazaBerryBoard?) { berryModel.board = board }
+    func setBerryBoardForTesting(_ board: PlazaBerryBoard?) {
+        berryFixtureShown = board != nil
+        guard let board else { return closeBerryTable() }
+        openBerryTable()
+        berryModel.board = board
+    }
+    var berryBoard: PlazaBerryBoard? { berryModel.board }
+    var isBerryTableOpen: Bool { overlayModel.content == .berryTable }
+    /// Space presses that reached the table.
+    private(set) var berryTableSpaces = 0
 
     /// 런타임이 부른다. 창이 닫혀 있으면(장면이 없으면) 아무것도 안 한다. 인사하기(`other`가 있다)면 받는 팀원(나일 수도
     /// 있다) 위에도 띄운다.
@@ -2330,6 +2376,12 @@ import Observation
         guard let scene, e.kind.isBig else { return }
         scene.playSparkle(memberID: e.authorID == memberID() ? nil : e.authorID)
         showBanner(L(.ko).teamEventText(e))
+    }
+
+    /// A megaphone line's banner. The berry table shows no banner (§5.1): the line stays in the chat log and is read after the game.
+    func showMegaphoneBanner(_ text: String) {
+        guard overlayModel.content != .berryTable else { return }
+        showBanner(text)
     }
 
     /// 배너를 띄우고 4초 뒤 지운다. 그 사이 새 배너가 오면 새 배너가 처음부터 4초를 받는다.
@@ -2834,6 +2886,8 @@ import Observation
         rosterModel.isAnimating = visible
         renderLoop?.isPaused = !visible
         hud.isRendering = visible   // hidden: no panel renders; shown: the panels that changed render once
+        game.berrySeen(at: visible ? uptime() : nil)   // a window shown again stamps its five at that moment
+        syncBerryTable(now: clock())
         guard let scene else { return }
         if !visible { scene.releaseAllKeys() }
         // 가려진 동안은 장면이 돌지 않아 잠수 제한 시간이 흐르지 않는다. 숨기면 잠수를 끝낸다.
@@ -3165,5 +3219,106 @@ extension PlazaWindowController {
             drawModel.canvas = canvas
         }
         quiz.receivedSeq = d.seq
+    }
+}
+
+// MARK: - 열매 다섯 탁자
+
+extension PlazaWindowController {
+    private static let berryPictureNames = PlazaBerry.Berry.allCases.map(\.itemName) + [PlazaBerry.bellItem]
+
+    /// Space or a press on the bell.
+    fileprivate func ringBerryBell() {
+        stepGame { game, now in _ = game.ringBerry(now: now, uptime: uptime()) }
+    }
+
+    /// Opens the table for a player, closes it at the end or when I am no longer one, and draws it from the engine.
+    fileprivate func syncBerryTable(now: Date) {
+        if berryFixtureShown { return }
+        guard let s = game.state, s.kind == PlazaGameKind.berry.rawValue else {
+            closeBerryTable()
+            return
+        }
+        loadBerryPictures(for: s.id)
+        let phase = game.berryPhase(now: now)
+        if !game.isPlayer || phase == nil { closeBerryTable(); return }
+        if overlayModel.content != .berryTable {
+            guard berryTableClosedGame != s.id else { return }
+            openBerryTable()
+        }
+        guard hud.isRendering else { return }   // a hidden window keeps the board it had: a jump of flips is one sudden change when it shows again
+        if phase == .over {   // the five seconds count from when the result is on screen
+            let seen = berryResultSeen?.game == s.id ? berryResultSeen!.at : now
+            berryResultSeen = (s.id, seen)
+            if now.timeIntervalSince(seen) >= PlazaBerry.resultSeconds - 1e-6 { return closeBerryTable() }
+        }
+        let me = memberID()
+        let board = PlazaBerryBoard.make(engine: game, now: now, uptime: uptime()) { [self] id in
+            if id == me {
+                let subject = subject()
+                return (nickname(), PlazaNameColor.color(forMemberID: id, chosen: nameColor()),
+                        TeamMonSummary(speciesID: subject.speciesID, isShiny: subject.isShiny, form: subject.form, speciesName: nil, gender: nil))
+            }
+            let m = members[id]
+            return (m?.nickname ?? L(.ko).plazaGroupPhotoSomeone, PlazaNameColor.color(forMemberID: id, chosen: m?.nameColor),
+                    m?.character ?? TeamMonSummary(speciesID: nil, isShiny: false, form: nil, speciesName: nil, gender: nil))
+        }
+        if berryModel.board != board { berryModel.board = board }
+    }
+
+    /// The table takes the window: a chat field in the making is closed unsent, another overlay is replaced, photo mode ends, every other
+    /// panel is hidden.
+    fileprivate func openBerryTable() {
+        if isPhotoMode { scene?.exitPhotoMode() }
+        chatInput.close()
+        menuLook = nil
+        openOverlay(.berryTable)
+        berryTableOpenFor = game.state?.id
+        hud.suppressed = Set(hud.panels.map(\.id)).subtracting([.berryTable])
+    }
+
+    /// Closes the table and remembers this game, so the table never reopens for it.
+    fileprivate func closeBerryTable(restoreFocus: Bool = true) {
+        guard overlayModel.content == .berryTable else { return }
+        berryTableClosedGame = berryTableOpenFor
+        berryModel.board = nil
+        hud.suppressed = []
+        defer {   // the result a player read on the table, now as the banner a watcher got when it ended
+            if let s = game.state, s.id == berryTableOpenFor, s.endedAt != nil, s.startsAt != nil, game.lostConnection != s.id {
+                showBanner(berryResultBanner(s))
+            }
+        }
+        if restoreFocus {
+            closeOverlay()
+        } else {
+            overlayGeneration += 1
+            overlayModel.content = .none
+            scene?.isOverlayOpen = false
+        }
+    }
+
+    /// The winner; everyone level at a top score above 0; otherwise the plain "game is over" line (a deck that ran out with no point scored).
+    fileprivate func berryResultBanner(_ s: PlazaGameState) -> String {
+        let l = L(.ko), me = memberID()
+        func name(_ id: String) -> String { (id == me ? nickname() : members[id]?.nickname) ?? l.plazaGroupPhotoSomeone }
+        if let winner = s.winner { return l.plazaGameWinBanner(nickname: name(winner), game: l.plazaGameName(.berry)) }
+        let ranking = PlazaBerry.ranking(s), best = ranking.first?.score ?? 0
+        let leaders = ranking.filter { $0.score == best }
+        guard best > 0, leaders.count > 1 else { return l.plazaGameOverBanner(game: l.plazaGameName(.berry)) }
+        return l.plazaBerryTieBanner(names: leaders.map { name($0.id) })
+    }
+
+    /// The four berries and the bell, once each per game; a failed one is tried again with the next berry game.
+    private func loadBerryPictures(for game: String) {
+        guard berryPicturesGame != game else { return }
+        berryPicturesGame = game
+        for name in Self.berryPictureNames where berryModel.items[name] == nil && berryPicturesLoading.insert(name).inserted {
+            Task { [weak self] in
+                guard let self else { return }
+                let item = await throwItem(name)
+                berryPicturesLoading.remove(name)
+                if let item { berryModel.items[name] = item }
+            }
+        }
     }
 }
