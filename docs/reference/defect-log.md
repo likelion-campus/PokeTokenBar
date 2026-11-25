@@ -3663,3 +3663,11 @@ Found before release by three independent read-only reviews (correctness, policy
 - **고침:** 제품 코드는 그대로다. `pinPlazaClock(_:)`(`PlazaPinnedClock.swift`)가 장면의 `now` 를 2026-06-15 12:00(+09:00 픽스처 시계)으로 고정하고 프로세스 시간대도 고정했다가 teardown 에서 되돌린다. 그 시각에는 칸 아이템이 아직 안 떨어졌고(03:06 UTC 에 떨어짐), 낮이고, 계절은 여름, 눈 오는 날이 아니다. 아이템·다른 계절이 필요한 테스트는 호출 뒤에 `now` 를 직접 정한다. 고정 뒤 실패한 테스트는 없었다(오늘 날짜에 기대던 테스트는 드러나지 않았다). 컨트롤러가 안에서 만드는 장면(`PlazaWindowController` 테스트)은 이 스캔이 보지 않는다.
 - **영구 캡처:** `PlazaSceneClockScanTests` — 테스트 파일에서 `PlazaScene(` 을 만드는 줄마다 뒤 14줄 안에 `pinPlazaClock(` 또는 `.now = ` 가 없으면 실패한다(텍스트 스캔이라 맞는 시각인지까지는 못 본다). 고정 전에는 31곳에서 실패했고, 한 곳의 고정을 지우면 다시 실패한다. 허용 목록은 비어 있다.
 - **규칙:** 규칙이 글에만 있으면 다음 테스트가 어긴다. 장면을 만드는 테스트는 시계를 고정하고(`pinPlazaClock`), 새로 알게 된 "벽시계에서 받는 것"은 위 스캔의 주석과 이 항목에 더한다. 시간 의존 결함은 로컬 통과로 닫지 말고 시계를 경계 너머로 주입해 같은 숫자로 실패하는지를 본다.
+
+## 윈도우 숨김 HUD 테스트가 CI 에서 실패했다: 두 브랜치가 각각 광장 패널을 하나씩 더했는데 고정된 개수가 한 칸 모자랐다 (윈도우 CI 45643416640, 2026-11-26, feat/berry-five-table)
+- **증상:** `WindowsPlazaPanelsTests.testHUDHiddenHidesTheMacsSet` 의 207·220줄이 `16` 대 `15` 로 실패했다.
+- **직접 원인:** 이 브랜치는 `.berryTable`, `origin/main` 은 `.drawBoard`(#382)를 더했고 양쪽이 같은 줄을 14에서 15로 고쳤다. 두 쪽의 수정이 똑같으면 머지가 충돌 없이 15로 합친다(3e954a0b 와 #382 커밋 둘 다 15). 맞는 값은 16이다. 다른 고정 목록(`zOrder` 등)은 충돌이 나서 손으로 고쳤지만 이 줄은 충돌로 드러나지 않았다.
+- **왜 못 걸렀나:** 파일이 `#if os(Windows)` 라 Mac 의 `swift test` 는 컴파일도 하지 않는다. 머지를 푸는 쪽은 충돌 난 부분만 다시 보고, 리뷰어는 diff 만 읽는데 이 줄은 머지 diff 에 나타나지 않는다.
+- **부류 스윕:** 양쪽이 바꾼 `Tests`·`Sources` 파일 중 윈도우 전용(`#if os(Windows)`, `Platform/Windows`)은 `WindowsPlazaPanelsTests.swift` 뿐이었고, 같은 식으로 합쳐진 줄은 이 두 줄뿐이었다. Mac 에서 도는 개수(`PlazaWindowTests+Mac` 의 17 등)는 이미 통과했다.
+- **영구 캡처:** 기계로 막는 장치는 없다(머지가 조용히 합치는 줄을 잡을 방법이 없다). 대신 `windows.yml` 이 이 브랜치에서 다시 돈다.
+- **규칙:** 광장 패널 id 나 개수가 걸린 항목을 더하는 브랜치에 main 을 머지한 뒤에는 양쪽이 더한 만큼을 합쳐 고정된 숫자·목록을 전부 다시 센다. 윈도우 전용 테스트를 건드리는 브랜치는 머지 전에 `windows.yml` 을 브랜치에서 돌린다.
