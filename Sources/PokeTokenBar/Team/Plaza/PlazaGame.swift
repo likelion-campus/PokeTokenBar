@@ -167,6 +167,7 @@ enum PlazaGame {
         let tieA = [x?.holder ?? "", a.winner ?? "", a.players.joined(separator: ","), String(a.seed)]
         let tieB = [y?.holder ?? "", b.winner ?? "", b.players.joined(separator: ","), String(b.seed)]
         for (p, q) in zip(tieA, tieB) where p != q { return p > q }   // the smaller ID keeps the bomb
+        if a.berry == b.berry { return false }   // equal payloads: no need to encode them
         let berryTieA = PlazaBerry.tie(a.berry), berryTieB = PlazaBerry.tie(b.berry)
         if berryTieA != berryTieB { return berryTieA < berryTieB }
         return false
@@ -339,6 +340,8 @@ struct PlazaGameEngine {
 
     private mutating func settle(now: Date) {
         if joined != state?.id { joined = nil }
+        // The lock left me out (a ninth yes in a quiz, a 21st in the bomb): I am not in this game, so I keep no flag for it.
+        if let s = state, s.startsAt != nil, joined == s.id, !s.players.contains(me) { joined = nil }
         if declined != state?.id { declined = nil }
         if lostConnection != state?.id { lostConnection = nil; lostWithTeammates = false }
         if state?.startsAt != nil || state == nil { startRequested = false }
@@ -840,6 +843,7 @@ extension PlazaGameEngine {
             berryLocal?.lackSince = nil
             berryLocal?.hostAbsentSince = nil
             berryLocal?.dealer = nil
+            berryLocal?.windowSeen = nil
             let since = isolatedSince ?? t
             isolatedSince = since
             if t - since >= PlazaGame.isolationLimit {
@@ -855,6 +859,8 @@ extension PlazaGameEngine {
         let hostHolds = playing.contains(s.host) || !Self.reached(c.hostAbsentSince, PlazaBomb.absenceGrace, t)
         c.dealer = hostHolds ? s.host : playing.min()
         berryLocal = c
+        // A window opened under an earlier turn as dealer must not outlive it.
+        if c.dealer != me { berryLocal?.windowSeen = nil }
         guard c.dealer == me else { return }
 
         if Self.reached(c.lackSince, PlazaBomb.absenceGrace, t) {

@@ -828,4 +828,21 @@ extension PlazaGameTests {
         XCTAssertEqual(PlazaGameMenu().kinds, PlazaGameKind.allCases)
         XCTAssertEqual(PlazaGameMenu().kinds, [.bomb, .draw, .berry])
     }
+
+    /// A joiner the lock left out (9th of a quiz, 21st of a bomb game) is not in the game and keeps no flag for it.
+    func testAJoinerTheLockLeftOutKeepsNoJoinedFlag() {
+        for (kind, ids) in [(PlazaGameKind.draw, (0..<9).map { "p\($0)" }), (.bomb, (0..<21).map { String(format: "p%02d", $0) })] {
+            var plaza = Plaza(ids)
+            XCTAssertTrue(plaza[ids[0]].open(kind, now: at(0)))
+            plaza.step(at(1))
+            for id in ids.dropFirst() { plaza[id].answer(join: true, now: at(2)) }
+            XCTAssertEqual(plaza[ids.last!].joined, plaza[ids[0]].state?.id)
+            plaza.step(at(PlazaGame.recruitSeconds))
+            let players = plaza[ids[0]].state?.players ?? []
+            XCTAssertEqual(players.count, kind.maxPlayers)
+            XCTAssertFalse(players.contains(ids.last!))
+            XCTAssertNil(plaza[ids.last!].joined, "\(kind): the cut joiner drops its flag")
+            for id in players { XCTAssertNotNil(plaza[id].joined, "\(kind): a listed player keeps it") }
+        }
+    }
 }

@@ -794,4 +794,48 @@ final class PlazaBerryEngineTests: XCTestCase {
         XCTAssertGreaterThan(room.flips, flips, "the dealer keeps flipping")
         XCTAssertNil(room["b"].state?.endedAt)
     }
+
+    func testAJoinerTheLockLeftOutDropsTheGameWhenTheEightLeave() {
+        // Nine say yes and the host "i" sorts last, so the lock leaves it out; "j" only watches and hears "i" say it is playing.
+        var room = Room(["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"])
+        room.notJoining = ["j"]
+        let lock = room.start(host: "i")
+        XCTAssertEqual(room["i"].state?.players, ["a", "b", "c", "d", "e", "f", "g", "h"])
+        room.run(to: lock + 2.9)
+        XCTAssertEqual(room.flips, 0)
+        XCTAssertNil(room["i"].joined, "the lock left the host out: it keeps no flag")
+        room.run(to: lock + 3.5)
+        XCTAssertEqual(room.flips, 1, "the smallest playing id deals once the host's grace has run out, about lock + 3 s")
+        room.run(to: lock + 8.0)
+        XCTAssertEqual(room.wrote["i"] ?? 0, 0)
+        XCTAssertEqual(room.wrote["b"] ?? 0, 0)
+        for id in ["a", "b", "c", "d", "e", "f", "g", "h"] { room.leave(id) }
+        room.run(for: PlazaDraw.abandonedAfter * 3)
+        for id in ["i", "j"] {
+            XCTAssertNil(room[id].state, "\(id) dropped the game")
+            XCTAssertNil(room[id].berryPhase(now: room.now(id)))
+        }
+        room.run(for: PlazaDraw.abandonedAfter * 3)
+        for id in ["i", "j"] { XCTAssertNil(room[id].state, "\(id): it never comes back") }
+    }
+
+    func testADealerCutOffAndBackStartsAFreshJudgingWindow() throws {
+        var room = Room(["a", "b", "c"], seed: survivingFive)
+        room.start()
+        let t = try XCTUnwrap(room.untilFive())
+        room.run(to: t + 0.5)
+        XCTAssertEqual(room.ring("b"), .right)
+        room.tick()   // a, the dealer, sees the bell: its window is open
+        room.cutOff = ["a"]
+        room.run(for: 1.5)   // a stops being the dealer in its own view while the window is still stamped
+        room.cutOff = []
+        room.tick()
+        room.run(for: 0.2)
+        XCTAssertEqual(room.ring("c", extra: -2.2), .right, "a faster reaction on a late screen")
+        room.run(for: 1.0)
+        let berry = try XCTUnwrap(room["a"].state?.berry)
+        XCTAssertEqual(berry.clears.count, 1)
+        XCTAssertEqual(berry.scores[2], 1, "the new window collected c's bell inside judgeSeconds")
+        XCTAssertEqual(berry.scores[1], 0)
+    }
 }
