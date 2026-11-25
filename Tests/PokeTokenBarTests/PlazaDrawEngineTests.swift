@@ -13,6 +13,8 @@ final class PlazaDrawEngineTests: XCTestCase {
         /// Not heard from at all: asleep or off the network. They keep ticking, reach nobody, and nobody reaches them.
         var cutOff: Set<String> = []
         var gone: Set<String> = []
+        /// Here and heard, but their app does not act (hung): they never tick.
+        var frozen: Set<String> = []
         /// Present, but not counted among those who joined (left out of every `joins`).
         var notJoining: Set<String> = []
 
@@ -44,7 +46,7 @@ final class PlazaDrawEngineTests: XCTestCase {
         mutating func exchange() {
             for _ in 0..<12 {
                 var changed = false
-                for id in engines.keys.sorted() where !gone.contains(id) {
+                for id in engines.keys.sorted() where !gone.contains(id) && !frozen.contains(id) {
                     if engines[id]!.tick(now: now(id), present: present(for: id), joins: joins(for: id), connected: !cutOff.contains(id)) { changed = true }
                 }
                 for id in engines.keys.sorted() where !gone.contains(id) && !cutOff.contains(id) {
@@ -325,6 +327,20 @@ final class PlazaDrawEngineTests: XCTestCase {
         XCTAssertEqual(results[0]?.drawer, d)
         XCTAssertEqual(results.values.filter { $0.drawer == d }.count, 1, "my second turn was skipped")
         XCTAssertEqual(room[d].state?.draw?.scores[d], 0)
+    }
+
+    func testTheRefereeWaitsOutTheWholeTurnForADrawerWhoIsStillHere() {
+        var room = Room(["a", "b", "c"])
+        start(&room)
+        let d = room.drawState!.order[0]
+        room.frozen = [d]
+        let limit = Int(PlazaDraw.revealSeconds + PlazaDraw.wordSeconds + PlazaDraw.drawSeconds + PlazaDraw.refereeSlack)
+        room.step(limit - 2)
+        XCTAssertEqual(room.drawState?.turn, 0, "the slack is still running")
+        room.step(4)
+        XCTAssertEqual(room.drawState?.turn, 1)
+        XCTAssertNil(room.drawState?.last?.word)
+        XCTAssertNil(room.drawState?.last?.solver)
     }
 
     // MARK: - Old copies, isolation, life
