@@ -55,6 +55,60 @@ import XCTest
         for _ in 0..<20 { _ = card.scroll(dx: 0, dy: -3, at: CGPoint(x: 190, y: 380)); _ = card.render(scale: 2, viewport: viewport, graphics: g) }
         print("COST card 1000-species dex: render \(String(format: "%.2f", cardRender)) ms, scroll step incl. render \(String(format: "%.2f", ms(clock.now - t0) / 20)) ms")
     }
+
+    /// What the berry five table costs at its worst size: 8 seats at the default window on a 2x screen, after a flip (the new card's picture is
+    /// drawn, the rest comes from the cache) and on the beats of a flip's animation. The beat mean above 4 ms would put the clock at 20 a second.
+    func testBerryTableRenderCost() async throws {
+        @MainActor final class Pictures: PlazaIconSource {
+            let image = PlazaImage(bitmap: PlazaBitmap(width: 96, height: 96, fill: PlazaRGBA(r: 240, g: 200, b: 60, a: 255)))
+            func cachedIcon(speciesID: Int?) -> PlazaImage? { image }
+            func icon(speciesID: Int?) async -> PlazaImage? { image }
+            func sprite(speciesID: Int?, shiny: Bool, form: PokemonForm?) async -> PlazaImage? { image }
+        }
+        let model = PlazaBerryModel()
+        for name in PlazaBerry.Berry.allCases.map(\.itemName) + [PlazaBerry.bellItem] {
+            model.items[name] = PlazaImage(bitmap: PlazaBitmap(width: 32, height: 32, fill: PlazaRGBA(r: 200, g: 60, b: 60, a: 255)))
+        }
+        let clock = PlazaAnimationClock(interval: 1.0 / 30, schedule: { _, _ in {} })
+        let panel = PlazaBerryTablePanel(model: model, icons: Pictures(), reduceMotion: { false }, clock: clock)
+        func board(flip: Int) -> PlazaBerryBoard {
+            var b = PlazaBerryTablePanelTests.board(seats: 8, flip: flip, flippedSeat: flip % 8)
+            for i in b.seats.indices { b.seats[i].top = PlazaBerry.Card(berry: PlazaBerry.Berry.allCases[(i + flip) % 4], count: 1 + (i + flip) % 5) }
+            return b
+        }
+        let g = PlatformPlaza.graphics, viewport = CGSize(width: 960, height: 640)
+        let clockNow = ContinuousClock()
+        func ms(_ d: Duration) -> Double { Double(d.components.attoseconds) / 1e15 + Double(d.components.seconds) * 1000 }
+        model.board = board(flip: 0)
+        for _ in 0..<20 { await Task.yield() }
+        _ = panel.render(scale: 2, viewport: viewport, graphics: g)   // warm: the table is drawn once
+        var spent = Duration.zero
+        for k in 1...200 {
+            model.board = board(flip: k)
+            for _ in 0..<20 { await Task.yield() }
+            let t0 = clockNow.now
+            _ = panel.render(scale: 2, viewport: viewport, graphics: g)
+            spent += clockNow.now - t0
+        }
+        let flipMean = ms(spent) / 200
+        spent = .zero
+        var beats = 0
+        var next = 1000
+        while beats < 200 {
+            if !panel.isAnimating {
+                next += 1
+                model.board = board(flip: next)
+                for _ in 0..<20 { await Task.yield() }
+            }
+            clock.driveForTesting()
+            let t0 = clockNow.now
+            _ = panel.render(scale: 2, viewport: viewport, graphics: g)
+            spent += clockNow.now - t0
+            beats += 1
+        }
+        print("COST berry table: render after a flip \(String(format: "%.3f", flipMean)) ms, render on an animation beat \(String(format: "%.3f", ms(spent) / 200)) ms (mean of 200 each, 8 seats, 960x640 at 2x)")
+    }
+
     /// The drawing quiz panel while a stroke is under way: one render after each canvas change at the default window on a 2x screen. The
     /// panel caps its change reports at 30 a second; this is what each of them costs.
     func testDrawBoardRenderCost() async throws {

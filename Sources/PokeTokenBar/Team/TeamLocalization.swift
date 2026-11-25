@@ -535,6 +535,14 @@ extension L {
     func plazaGameMenuWait(seconds: Int) -> String { "\(seconds)초 뒤에 판을 열 수 있어요" }
     var plazaGameMenuEgg: String { "알은 걸을 수 없어 판을 열 수 없어요" }
     var plazaGameMenuHowTo: String { "판을 열면 30초 동안 참가할 팀원을 모아요" }
+    // Berry five's table: the head, the rule, the bell's stand-in word, the wrong-bell marks and the VoiceOver label of a seat.
+    var plazaBerryHead: String { "열매 다섯 · 먼저 5점" }
+    var plazaBerryRule: String { "같은 열매가 딱 5개면 스페이스!" }
+    var plazaBerryBellFallback: String { "종" }
+    var plazaBerryWrongMark: String { "✕" }
+    var plazaBerryWrongRest: String { "1초 쉬기" }
+    var plazaBerryBellMark: String { "🔔" }
+    func plazaBerrySeatLabel(name: String, score: Int) -> String { "\(name) \(score)점" }
     func plazaGameCardTitle(host: String?, game: String) -> String { host.map { "\($0)님의 \(game)" } ?? "내가 연 \(game)" }
     func plazaGameRecruiting(players: Int, seconds: Int) -> String { "참가 \(players)명 · \(seconds)초 뒤 시작" }
     func plazaGameNeedsTwo(seconds: Int) -> String { "두 명부터 시작돼요 · \(seconds)초 남음" }

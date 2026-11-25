@@ -135,7 +135,7 @@ import Observation
     private let minimap = PlazaMinimapModel()
     /// The panels drawn through the canvas over the scene, bottom first: the countdown/banner/hint pills (above the
     /// overlay) and the clock on the minimap. `setRendering` switches their rendering with the scene's.
-    private(set) lazy var hud: PlazaHUD = PlazaHUD(panels: [rosterPanel, drawPanel] + [boardPanel].compactMap { $0 } + [cardPanel, photoFramePanel, menuPanel, gameTitlePanel, gameCardPanel, pillsPanel, chatLogPanel, minimapPanel, clockPanel, shortcutsPanel, togglePanel, pickerPanel])
+    private(set) lazy var hud: PlazaHUD = PlazaHUD(panels: [rosterPanel, drawPanel] + [boardPanel].compactMap { $0 } + [cardPanel, photoFramePanel, menuPanel, gameTitlePanel, gameCardPanel, pillsPanel, chatLogPanel, minimapPanel, clockPanel, shortcutsPanel, togglePanel, pickerPanel, berryPanel])
     /// The pictures the roster and the card show (the platform's loaders; a test hands in its own).
     private let iconSource: any PlazaIconSource
     private lazy var rosterPanel = PlazaRosterPanel(model: rosterModel, icons: iconSource)
@@ -152,6 +152,8 @@ import Observation
     private let gameModel = PlazaGameModel()
     private lazy var gameCardPanel = PlazaGameCardPanel(game: gameModel, overlay: overlayModel, pills: pillsPanel)
     private lazy var gameTitlePanel = PlazaGameTitlePanel(game: gameModel)
+    private let berryModel = PlazaBerryModel()
+    private lazy var berryPanel = PlazaBerryTablePanel(model: berryModel, icons: iconSource)
     /// The drawing quiz board's model (the game sets `board`; tests read the panel through `hud`).
     let drawModel = PlazaDrawModel()
     /// The log and the guide are held small while the board does not fit with them as they are; see `makeRoomForDrawBoard`.
@@ -1917,6 +1919,7 @@ import Observation
     /// 테스트용 읽기 전용 값.
     var overlayContent: PlazaOverlayContent { overlayModel.content }
     var chatInputForTesting: any PlazaChatInputHost { chatInput }
+    func setBerryBoardForTesting(_ board: PlazaBerryBoard?) { berryModel.board = board }
 
     /// 런타임이 부른다. 창이 닫혀 있으면(장면이 없으면) 아무것도 안 한다. 인사하기(`other`가 있다)면 받는 팀원(나일 수도
     /// 있다) 위에도 띄운다.

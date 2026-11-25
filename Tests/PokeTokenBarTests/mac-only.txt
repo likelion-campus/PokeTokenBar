@@ -260,3 +260,5 @@ WindowsMessageParameterScanTests.swift
 # LiveFetchForbiddenTests: scans the Windows sources with SharedSources (SharedSourcesScanTests.swift), which is Mac-only
 LiveFetchForbiddenTests.swift
 AuditStabilityMacTests.swift
+# PlazaBerryTableRenderTests+Mac: the sheet the berry five table is checked on (CoreGraphics, CoreText, AppKit fonts, the Mac sprite store)
+PlazaBerryTableRenderTests+Mac.swift

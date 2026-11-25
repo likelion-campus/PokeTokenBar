@@ -152,6 +152,39 @@ extension WindowsSelftest {
         await expect("name colour picker", present: [.nameColorPicker, .backgroundToggle], png: "plaza-panels-picker.png")
         c.toggleNameColorPicker()
         await pumpPanels(0.3)
+        // The berry five table over an 8-seat FIXTURE board: the capture shows the rotated cards; `plaza.berryCost` reports (it is not a budget)
+        // the mean render after a flip +1.
+        let berrySeats: [PlazaBerryBoard.Seat] = (0..<8).map { i in
+            PlazaBerryBoard.Seat(id: "berry\(i)", name: "Fixture \(i)", nameColor: PlazaColor(hex: 0xFF8A80),
+                                 mon: TeamMonSummary(speciesID: 25 + i, isShiny: false, form: nil, speciesName: nil, gender: nil), score: i % 4,
+                                 deckLeft: 10 + i, top: PlazaBerry.Card(berry: PlazaBerry.Berry.allCases[i % 4], count: 1 + i % 5), under: 2, isPlaying: true)
+        }
+        // Every seat's top card changes with `flip`, so each cost render draws new card pictures (the panel keeps what it drew for the same cards).
+        func berryBoard(flip: Int) -> PlazaBerryBoard {
+            var seats = berrySeats
+            for i in seats.indices {
+                seats[i].top = PlazaBerry.Card(berry: PlazaBerry.Berry.allCases[(i + flip) % 4], count: 1 + (i + flip) % 5)
+            }
+            return PlazaBerryBoard(seats: seats, center: .playing(event: nil), flip: flip, flippedSeat: flip % 8, ring: nil, wrong: false)
+        }
+        c.setBerryBoardForTesting(berryBoard(flip: 3))
+        await expect("berry table", present: [.berryTable], png: "plaza-berry-five.png")
+        if let table = hud.panels.first(where: { $0.id == .berryTable }) {
+            var spent = 0.0
+            for k in 0..<100 {
+                c.setBerryBoardForTesting(berryBoard(flip: 4 + k))
+                let t0 = Date()
+                _ = table.render(scale: hud.scale, viewport: hud.viewport, graphics: hud.graphics)
+                spent += Date().timeIntervalSince(t0)
+                // Let the observer and the HUD take this step before the next one (the render above ran before them, on cards not drawn yet).
+                for _ in 0..<20 { await Task.yield() }
+            }
+            r.add("plaza.berryCost", true, "FIXTURE 8-seat board, mean of 100 renders after a flip +1: \(pText(spent * 10)) ms (a report, not a budget)")
+        } else {
+            r.add("plaza.berryCost", false, "the controller's HUD has no berry table panel")
+        }
+        c.setBerryBoardForTesting(nil)
+        await pumpPanels(0.3)
         r.add("plaza.panels", ok, "FIXTURE data; \(lines.joined(separator: "; ")); panel bitmaps \(panels.bitmapBytes / 1024) KB in \(panels.entries.count) panels; "
               + "board panel present: \(boardPanel != nil)")
 
