@@ -157,6 +157,8 @@ import Observation
     /// The game whose table I closed (it never reopens for it), when I first saw its end, and the picture loads.
     fileprivate var berryTableClosedGame: String?
     fileprivate var berryTableOpenFor: String?
+    /// A selftest's fixture board is on the table: the game tick leaves the table as the test set it.
+    fileprivate var berryFixtureShown = false
     fileprivate var berryResultSeen: (game: String, at: Date)?
     fileprivate var berryPicturesGame: String?
     fileprivate var berryPicturesLoading: Set<String> = []
@@ -1955,6 +1957,7 @@ import Observation
     var overlayContent: PlazaOverlayContent { overlayModel.content }
     var chatInputForTesting: any PlazaChatInputHost { chatInput }
     func setBerryBoardForTesting(_ board: PlazaBerryBoard?) {
+        berryFixtureShown = board != nil
         guard let board else { return closeBerryTable() }
         openBerryTable()
         berryModel.board = board
@@ -3231,6 +3234,7 @@ extension PlazaWindowController {
 
     /// Opens the table for a player, closes it at the end or when I am no longer one, and draws it from the engine.
     fileprivate func syncBerryTable(now: Date) {
+        if berryFixtureShown { return }
         guard let s = game.state, s.kind == PlazaGameKind.berry.rawValue else {
             closeBerryTable()
             return
