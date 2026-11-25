@@ -139,8 +139,7 @@ final class TeamRuntime {
         }
         session.onChat = { [weak self] memberID, text, isLoud in
             guard let self else { return }
-            plaza?.stopDance(memberID: memberID)
-            plaza?.showChat(memberID: memberID, text: text, isLoud: isLoud)
+            plaza?.showChat(memberID: memberID, text: text, isLoud: isLoud)   // a line leaves the sender's dance going
             if isLoud, let member = session.members[memberID] { notifier?.megaphone(from: member, text: text) }
         }
         session.onBigEvent = { [weak self] event in
