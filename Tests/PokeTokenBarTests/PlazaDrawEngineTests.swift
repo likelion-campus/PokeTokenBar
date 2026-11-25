@@ -74,6 +74,7 @@ final class PlazaDrawEngineTests: XCTestCase {
                     }
                 }
                 for id in engines.keys.sorted() where !gone.contains(id) && !closed.contains(id) {
+                    for other in present(for: id) { if let j = engines[other]?.joined { engines[id]!.heardPlaying(j) } }
                     for other in engines.keys.sorted() where other != id && !gone.contains(other) && hears(id, other) && heard(for: other).contains(id) {
                         if engines[id]!.learn(engines[other]!.state, from: other, now: now(id)) { changed = true }
                     }
@@ -497,6 +498,72 @@ final class PlazaDrawEngineTests: XCTestCase {
         XCTAssertEqual(players.count, PlazaDraw.maxPlayers)
         XCTAssertTrue(players.contains("z"), "the host is in its own game")
         XCTAssertEqual(players, ["a", "b", "c", "d", "e", "f", "g", "z"], "the first others in id order fill the rest")
+    }
+
+    // MARK: - Follow-up (Ruling 18)
+
+    func testADroppedQuizComesBackWhenItsPlayersAreHeardAgain() {
+        var room = Room(["a", "b", "c", "d", "e"])
+        start(&room, notJoining: ["d", "e"])
+        _ = untilEntry(&room)
+        let id = room["d"].state!.id
+        // d hears only e, a non-player that relays the running copy: for 6 s no player of the game is in d's view.
+        room.views["d"] = .init(present: ["e"], heard: ["e"])
+        room.step(6)
+        XCTAssertNil(room["d"].state, "dropped")
+        room.step(10)
+        XCTAssertNil(room["d"].state, "e's relayed copy alone does not bring it back")
+        room.views["d"] = nil
+        room.step(2)
+        XCTAssertEqual(room["d"].state?.id, id, "the players are heard playing: it shows the quiz again")
+        XCTAssertNil(room["d"].state?.endedAt)
+        room.step(30)
+        XCTAssertEqual(room["d"].state?.id, id)
+    }
+
+    func testAnEndedCopyOfAFinishedGameIsRefusedOnceTheGameIsForgotten() {
+        var room = Room(["a", "b", "c"])
+        start(&room)
+        var results: [Int: PlazaDrawState.Result] = [:]
+        play(&room, results: &results)
+        var late = room["a"].state!
+        XCTAssertNotNil(late.endedAt)
+        room.step(Int(PlazaGame.endedKeep) - 2)
+        XCTAssertNotNil(room["a"].state, "test precondition: still shown")
+        room.step(4)
+        XCTAssertNil(room["a"].state)
+        // A sleeper wakes and writes an ended copy of its stale state: another ranking card must not appear.
+        late.endedAt = room.base
+        late.draw?.scores = ["a": 0, "b": 0, "c": 10]
+        XCTAssertFalse(room.engines["a"]!.learn(late, from: "c", now: room.now("a")))
+        XCTAssertNil(room["a"].state)
+    }
+
+    func testAPlayerThatHearsALeaverButNotTheOtherPlayerWritesNothingAndStepsOut() {
+        var room = Room(["a", "b", "c"])
+        start(&room)
+        _ = untilEntry(&room)
+        room.engines["c"]!.leave(now: room.now("c"), present: room.present(for: "c"))   // c closed the plaza, still connected
+        room.step(1)
+        let id = room["a"].state!.id
+        room.views["a"] = .init(present: ["c"], heard: ["c"])
+        let wrote = room.wrote["a"] ?? 0
+        room.step(9)
+        XCTAssertEqual(room.wrote["a"] ?? 0, wrote, "it writes nothing, not an end for lack of players")
+        XCTAssertNil(room["b"].state?.endedAt, "b's game goes on")
+        room.step(6)
+        XCTAssertEqual(room.wrote["a"] ?? 0, wrote)
+        XCTAssertEqual(room["a"].lostConnection, id)
+        XCTAssertTrue(room["a"].lostWithTeammates, "it hears a teammate: the plaza must not say the connection is gone")
+    }
+
+    func testHearingNobodyIsALostConnectionWithNoTeammates() {
+        var room = Room(["a", "b", "c"])
+        start(&room)
+        room.cutOff = ["c"]
+        room.step(12)
+        XCTAssertNotNil(room["c"].lostConnection)
+        XCTAssertFalse(room["c"].lostWithTeammates)
     }
 
     // MARK: - One machine's partial view (review I2)

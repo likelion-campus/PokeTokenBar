@@ -982,4 +982,19 @@ final class PlazaDrawControllerTests: XCTestCase {
         XCTAssertEqual(Set(w.scene.gameMarks.keys), ["", w.b.id], "d left: no ring under d")
         XCTAssertEqual(Set(w.c.minimapDots.filter { $0.game == .alive }.map(\.id)), [w.me.id, w.b.id])
     }
+
+    func testAnIsolatedPlayerWhoStillHearsTeammatesGetsTheOtherLine() async {
+        let w = await world(others: 3)
+        await lock(w, first: w.b.id, joining: [w.d])   // the third teammate does not play
+        await beginEntry(w)
+        hub.disconnect(w.links[0])   // b and d are gone from my view; I still hear the third teammate
+        hub.disconnect(w.links[1])
+        await settle()
+        now += 1
+        w.c.advanceGame()
+        now += PlazaGame.isolationLimit
+        w.c.advanceGame()
+        XCTAssertEqual(w.c.banner, L(.ko).plazaGameLostPlayersBanner)
+        XCTAssertNil(w.c.gameJoined)
+    }
 }

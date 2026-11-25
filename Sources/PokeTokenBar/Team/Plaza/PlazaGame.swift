@@ -249,11 +249,16 @@ struct PlazaGameEngine {
     fileprivate var secret: DrawSecret?
     /// The game I dropped out of because this Mac lost every teammate (the plaza says so instead of naming a loser).
     private(set) var lostConnection: String?
+    /// With `lostConnection`: I still hear teammates, only no other player of the game (the plaza words it differently).
+    private(set) var lostWithTeammates = false
     /// Hosts whose game was cancelled before it started, and when: their next invitation waits `reopenDelay`.
     private var cancelled: [String: Double] = [:]
     /// Games I saw end (or dropped as abandoned), by id, with when they opened. A running copy of one of them that a
     /// Mac still relays (its plaza was closed during the game) is stale: it never brings the game back.
     private var finished: [String: Double] = [:]
+    /// Quizzes I dropped as abandoned, by id (with when they opened). A soft memory: a frozen copy of one is refused, but the id is
+    /// forgiven the moment someone in the plaza says they are playing it (`heardPlaying`), so a partial view cannot lock me out.
+    private var abandoned: [String: Double] = [:]
     /// Since when I have seen no player of the drawing quiz playing (my clock), while I am not playing it myself.
     fileprivate var abandonedSince: Double?
     /// Since when fewer than two players of the drawing quiz are playing in my view (my clock), while I hear a player.
@@ -285,7 +290,9 @@ struct PlazaGameEngine {
     mutating func learn(_ received: PlazaGameState?, from sender: String? = nil, now: Date) -> Bool {
         let before = state
         var incoming = PlazaGame.accepted(received, now: now)
-        if let r = incoming, r.endedAt == nil, finished[r.id] != nil { incoming = nil }
+        // A finished game stays finished: a running copy never brings it back, and an ended one only counts while I still hold that game.
+        if let r = incoming, finished[r.id] != nil, r.endedAt == nil || state?.id != r.id { incoming = nil }
+        if let r = incoming, r.endedAt == nil, abandoned[r.id] != nil { incoming = nil }
         if let r = incoming, r.id != state?.id, r.startsAt == nil, r.endedAt == nil {
             if let sender, sender != r.host { incoming = nil }
             if let at = cancelled[r.host], r.opensAt < at + PlazaGame.reopenDelay { incoming = nil }
@@ -298,7 +305,7 @@ struct PlazaGameEngine {
     private mutating func settle(now: Date) {
         if joined != state?.id { joined = nil }
         if declined != state?.id { declined = nil }
-        if lostConnection != state?.id { lostConnection = nil }
+        if lostConnection != state?.id { lostConnection = nil; lostWithTeammates = false }
         if state?.startsAt != nil || state == nil { startRequested = false }
         observeDraw(now: now)
         let t = now.timeIntervalSince1970
@@ -306,7 +313,11 @@ struct PlazaGameEngine {
         cancelled = cancelled.filter { t < $0.value + PlazaGame.reopenDelay }
         if let s = state, s.endedAt != nil { finished[s.id] = s.opensAt }
         finished = finished.filter { t <= $0.value + PlazaGame.maxLife }
+        abandoned = abandoned.filter { t <= $0.value + PlazaGame.maxLife }
     }
+
+    /// A teammate in the plaza says (in their own presence) that they are playing game `id`: if I had dropped it, I take it again.
+    mutating func heardPlaying(_ id: String) { abandoned[id] = nil }
 
     /// How long until I can open a game: 0 when none is alive, the last one ended a moment ago, and my own last game
     /// was not just cancelled. nil while a game is alive.
@@ -606,7 +617,7 @@ extension PlazaGameEngine {
         let since = abandonedSince ?? t
         abandonedSince = since
         guard t - since >= PlazaDraw.abandonedAfter else { return false }
-        finished[s.id] = s.opensAt
+        abandoned[s.id] = s.opensAt
         state = nil
         abandonedSince = nil
         settle(now: now)
@@ -619,20 +630,25 @@ extension PlazaGameEngine {
               joined == s.id, let c = drawClock else { return }
         let t = now.timeIntervalSince1970
         // Cut off from everyone I cannot tell who is still here: I write nothing, and after a while I step out myself.
-        let heardAPlayer = heard.map { !$0.isDisjoint(with: Set(s.players).subtracting([me])) } ?? true
-        guard connected, heardAPlayer else {
+        let others = Set(s.players).subtracting([me])
+        let playing = joins.intersection(s.players).union([me])
+        let heardAPlayer = heard.map { !$0.isDisjoint(with: others) } ?? true
+        // With nobody else playing, the game ends only if I hear every other player (they are seen to have left); a player I do not
+        // hear may be playing on, so then I know nothing and write nothing.
+        let unheardWhileAlone = playing.count < PlazaGame.minPlayers && !(heard.map { others.isSubset(of: $0) } ?? true)
+        guard connected, heardAPlayer, !unheardWhileAlone else {
             lackSince = nil
             drawClock?.drawerAbsentSince = nil
             let since = isolatedSince ?? t
             isolatedSince = since
             if t - since >= PlazaGame.isolationLimit {
                 lostConnection = s.id
+                lostWithTeammates = connected && heard?.isEmpty != true
                 joined = nil
             }
             return
         }
         isolatedSince = nil
-        let playing = joins.intersection(s.players).union([me])
         let who = d.order[d.turn]
         // The others are heard but not playing (they left the game, or only their hello has arrived): the turn waits.
         // Once that has lasted the grace, the one left ends the game now. It is the drawer or the referee, so it may write.

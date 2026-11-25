@@ -628,6 +628,7 @@ extension L {
     }
     func plazaGameLeftBanner(nickname: String) -> String { "\(nickname)님이 판에서 나갔어요" }
     var plazaGameLostConnectionBanner: String { "팀원과 연결이 끊겨 판에서 빠졌어요" }
+    var plazaGameLostPlayersBanner: String { "다른 참가자와 연결이 끊겨 판에서 빠졌어요" }
     func teamGameInviteNotice(nickname: String, game: String) -> String { "💣 \(nickname)님이 \(game) 판을 열었어요. 광장에서 Y를 눌러 참가하세요" }
     var plazaPhotoGuide: String { "📷 사진 모드 · 방향키 이동 · Shift 빠르게 · −/+ 확대 · Space 찍기 · G 단체 사진 · Esc 나가기" }
     var plazaPhotoCopied: String { "사진을 클립보드에 담았어요 · ⌘V로 붙여 넣기" }

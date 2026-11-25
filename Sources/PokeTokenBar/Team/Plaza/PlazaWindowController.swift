@@ -1231,6 +1231,7 @@ import Observation
         let before = game.state
         move(&game, now)
         let lostBefore = game.lostConnection
+        for m in members.values where m.inPlaza { if let id = m.gameJoin { game.heardPlaying(id) } }
         for m in members.values {
             // A plaza that is closed cannot follow a drawing quiz: its running copy is whatever it held at the close.
             // (The bomb's leave write travels in such a copy, so only the quiz is held back; an ended copy always counts.)
@@ -1242,7 +1243,7 @@ import Observation
         game.tick(now: now, present: present, joins: Set(members.values.filter { $0.inPlaza && id != nil && $0.gameJoin == id }.map(\.memberID)),
                   connected: !members.isEmpty, heard: Set(members.keys))
         if let lost = game.lostConnection, lost != lostBefore, lost == game.state?.id, game.state?.kind == PlazaGameKind.draw.rawValue {
-            showBanner(L(.ko).plazaGameLostConnectionBanner)   // the quiz keeps its state when I step out, so `gameChanged` does not see it
+            showBanner(game.lostWithTeammates ? L(.ko).plazaGameLostPlayersBanner : L(.ko).plazaGameLostConnectionBanner)   // the quiz keeps its state when I step out, so `gameChanged` does not see it
         }
         session?.updateGame(game.state, join: game.joined)
         if game.state != before { gameChanged(from: before, now: now) }
