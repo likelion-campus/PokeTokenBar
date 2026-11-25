@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>열매 다섯 목업</title>
+<!-- Approved mockup for docs/superpowers/specs/2026-11-25-plaza-berry-five-design.md.
+     Open from a checkout: the plaza background and font load from this repository by relative path; berry, bell and
+     Pokémon sprites load at view time from PokeAPI's sprite repository (never committed). Table and cards are placeholders. -->
+<style>
+  body { margin: 0; padding: 24px 16px 40px; font-family: -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; background: #f5f5f7; color: #1d1d1f; }
+  h2 { margin: 0 auto 6px; max-width: 1100px; }
+  .subtitle { max-width: 1100px; margin: 0 auto 14px; color: #555; line-height: 1.5; }
+  .bf-controls, .bf-legend { max-width: 1100px; margin-left: auto; margin-right: auto; }
+  @media (prefers-color-scheme: dark) { body { background: #1c1c1e; color: #f2f2f7; } .subtitle { color: #aaa; } }
+</style>
+</head>
+<body>
+<style>
+  @font-face { font-family: Galmuri11; src: url('../../../Sources/PokeTokenBar/Resources/Plaza/Galmuri11.ttf'); }
+  .bf-controls { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 12px; }
+  .bf-controls button { font: inherit; padding: 6px 12px; border-radius: 6px; border: 1px solid rgba(127,127,127,.4); background: transparent; color: inherit; cursor: pointer; }
+  .bf-controls button.on { background: rgb(41, 88, 104); color: #fff; border-color: rgb(41, 88, 104); }
+  .table-stage { position: relative; width: 100%; max-width: 1100px; aspect-ratio: 16 / 10; margin: 0 auto; border-radius: 10px; overflow: hidden; container-type: inline-size; background: #1d2a1d; }
+  .table-stage .bg { position: absolute; inset: -20px; background: url('../../../assets/screenshot-plaza-bomb-game.png') center / cover; filter: blur(5px) brightness(0.42) saturate(0.8); }
+  .felt { position: absolute; left: 13%; top: 13%; width: 74%; height: 74%; border-radius: 50%;
+          background: radial-gradient(ellipse at 50% 45%, #2f7a55 0%, #23603f 60%, #1b4a31 100%);
+          box-shadow: 0 0 0 1.1cqw #7a5232, 0 0 0 1.4cqw #4f331d, 0 1.5cqw 3cqw rgba(0,0,0,.55); }
+  .center { position: absolute; left: 50%; top: 50%; width: 23%; transform: translate(-50%, -50%); text-align: center;
+            font-family: Galmuri11, sans-serif; color: #f8f8f0; background: rgba(41, 88, 104, .94); border-radius: 1.2cqw;
+            padding: 1.2cqw 1cqw 1.1cqw; box-shadow: 0 .6cqw 1.6cqw rgba(0,0,0,.45); }
+  .center .t { font-size: 1.9cqw; }
+  .center .bell { width: 6.5cqw; height: 6.5cqw; image-rendering: pixelated; margin: .5cqw 0 .2cqw; }
+  .center .bell.ring { animation: ring .5s ease-in-out infinite; }
+  @keyframes ring { 0%,100% { transform: rotate(0); } 25% { transform: rotate(-16deg); } 75% { transform: rotate(16deg); } }
+  .center .r { font-size: 1.25cqw; color: #dfe9ee; }
+  .center .ev { margin-top: .6cqw; font-size: 1.35cqw; color: #ffd76a; min-height: 1.6cqw; }
+  .seat { position: absolute; width: 11cqw; transform: translate(-50%, -50%); text-align: center; font-family: Galmuri11, sans-serif; color: #fff; }
+  .seat img.mon { width: 10cqw; height: 10cqw; image-rendering: pixelated; display: block; margin: 0 auto -2cqw; filter: drop-shadow(0 .3cqw .3cqw rgba(0,0,0,.5)); }
+  .seat .name { font-size: 1.35cqw; text-shadow: 0 .15cqw .2cqw #000; }
+  .seat .dots { font-size: 1.1cqw; letter-spacing: .15cqw; color: #ffd76a; text-shadow: 0 .1cqw .2cqw #000; }
+  .seat.hit .name { color: #ffd76a; }
+  .seat.hit img.mon { filter: drop-shadow(0 0 .8cqw #ffd76a); animation: hop .5s ease-out 1; }
+  .seat .bubble { position: absolute; left: 62%; top: -6%; font-size: 2cqw; }
+  @keyframes hop { 0% { transform: translateY(0); } 40% { transform: translateY(-1.2cqw); } 100% { transform: translateY(0); } }
+  .pile { position: absolute; width: 7.6cqw; height: 10.6cqw; transform-origin: 50% 50%; }
+  .card { position: absolute; inset: 0; border-radius: .8cqw; }
+  .card.face { background: #fbf8ef; border: .25cqw solid #fff; box-shadow: 0 .25cqw .6cqw rgba(0,0,0,.45), inset 0 0 0 .12cqw #d9d2bf; }
+  .card.under { background: #f1ecdd; border: .25cqw solid #fff; box-shadow: 0 .2cqw .4cqw rgba(0,0,0,.4); }
+  .card.back { background: repeating-linear-gradient(45deg, #b8473d 0 .5cqw, #9e3a31 .5cqw 1cqw); border: .35cqw solid #fff; box-shadow: 0 .25cqw .6cqw rgba(0,0,0,.45); }
+  .card.face.match { box-shadow: 0 0 0 .35cqw #ffd76a, 0 .25cqw .8cqw rgba(0,0,0,.5); }
+  .card.face.flip { animation: flip 3s ease-in-out infinite; }
+  @keyframes flip { 0%, 30% { transform: rotateY(180deg); filter: brightness(.35); } 45%, 100% { transform: rotateY(0deg); filter: none; } }
+  .berry { position: absolute; width: 50%; transform: translate(-50%, -50%); image-rendering: pixelated; }
+  .deck { position: absolute; width: 6.2cqw; height: 8.6cqw; }
+  .deck .n { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); font-family: Galmuri11, sans-serif; font-size: 1.3cqw; color: #fff; text-shadow: 0 .1cqw .2cqw #000; }
+  .bf-legend { display: flex; gap: 16px; flex-wrap: wrap; align-items: center; margin-top: 12px; font-size: .92em; }
+  .bf-legend img { width: 30px; height: 30px; image-rendering: pixelated; vertical-align: middle; }
+</style>
+
+<h2>열매 다섯 — 목업 (할리갈리 방식)</h2>
+<p class="subtitle">광장 UI를 모두 치우고, 흐린 광장 위 둥근 탁자에 참가자가 둘러앉은 탑뷰예요. 가운데 안내창, 바깥에 참가자, 탁자 안쪽 테두리에 각자 펼친 카드(앞면 더미)와 뒤집힌 덱이 놓여요. 카드는 각자 자기 쪽을 향해 놓여요. 탁자·카드 그림은 임시 표현이고, 열매·종·포켓몬은 앱이 이미 받아 쓰는 그림이에요.</p>
+
+<div class="bf-controls">
+  <button data-n="3">3명</button><button data-n="5" class="on">5명</button><button data-n="8">8명</button>
+  <span style="width:12px"></span>
+  <button data-s="play" class="on">카드 넘기는 중</button><button data-s="ring">종 친 순간</button>
+</div>
+
+<div class="table-stage" id="stage">
+  <div class="bg"></div>
+  <div class="felt"></div>
+  <div class="center">
+    <div class="t">열매 다섯 · 먼저 5점</div>
+    <img class="bell" id="bell" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/soothe-bell.png" alt="종">
+    <div class="r">같은 열매가 딱 5개면 스페이스!</div>
+    <div class="ev" id="ev"></div>
+  </div>
+</div>
+
+<div class="bf-legend">
+  <span><img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/oran-berry.png" alt=""> 오랭</span>
+  <span><img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/sitrus-berry.png" alt=""> 자뭉</span>
+  <span><img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/pecha-berry.png" alt=""> 복슝</span>
+  <span><img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/cheri-berry.png" alt=""> 버치</span>
+  <span style="opacity:.75">· 점수는 이름 아래 ● (5개 모으면 우승) · 숫자는 남은 덱</span>
+</div>
+
+<script>
+(function () {
+  const berry = { oran: 'oran-berry', sitrus: 'sitrus-berry', pecha: 'pecha-berry', cheri: 'cheri-berry' };
+  const people = [
+    { name: '나', mon: 25, card: ['cheri', 2], score: 1, deck: 11 },
+    { name: '지아', mon: 133, card: ['sitrus', 3], score: 2, deck: 9 },
+    { name: '민수', mon: 4, card: ['oran', 1], score: 1, deck: 12 },
+    { name: '하늘', mon: 1, card: ['sitrus', 2], score: 3, deck: 8 },
+    { name: '유진', mon: 7, card: ['pecha', 4], score: 0, deck: 13 },
+    { name: '도윤', mon: 39, card: ['oran', 3], score: 2, deck: 10 },
+    { name: '서준', mon: 52, card: ['cheri', 1], score: 0, deck: 12 },
+    { name: '예린', mon: 54, card: ['pecha', 2], score: 1, deck: 11 },
+  ];
+  const pips = { 1: [[50,50]], 2: [[30,28],[70,72]], 3: [[28,24],[50,50],[72,76]], 4: [[30,27],[70,27],[30,73],[70,73]], 5: [[28,24],[72,24],[50,50],[28,76],[72,76]] };
+  let n = 5, state = 'play';
+  const stage = document.getElementById('stage');
+
+  function render() {
+    stage.querySelectorAll('.seat, .pile, .deck').forEach(e => e.remove());
+    const list = people.slice(0, n).map(p => ({ ...p, card: [...p.card] }));
+    const hitter = n >= 4 ? 3 : 2;                       // 하늘 (or 민수 with three players)
+    if (n === 3) list[2].card = ['sitrus', 2];            // keep exactly five 자뭉 on the table
+    const flipper = hitter;                               // the card that just turned up
+    list.forEach((p, i) => {
+      const a = Math.PI / 2 + (2 * Math.PI * i) / n;      // 나 at the bottom, then clockwise
+      const sx = 50 + 44.5 * Math.cos(a), sy = 50 + 41.5 * Math.sin(a);
+      const cx = 50 + 29 * Math.cos(a), cy = 50 + 25 * Math.sin(a);
+      const rot = (a * 180 / Math.PI) - 90;
+      const seat = document.createElement('div');
+      seat.className = 'seat' + (state === 'ring' && i === hitter ? ' hit' : '');
+      seat.style.left = sx + '%'; seat.style.top = sy + '%';
+      const score = p.score + (state === 'ring' && i === hitter ? 1 : 0);
+      seat.innerHTML = `<img class="mon" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${p.mon}.png" alt=""><div class="name">${p.name}</div>` +
+        `<div class="dots">${'●'.repeat(score)}${'○'.repeat(5 - score)}</div>` +
+        (state === 'ring' && i === hitter ? '<div class="bubble">🔔</div>' : '');
+      stage.appendChild(seat);
+
+      const pile = document.createElement('div');
+      pile.className = 'pile';
+      pile.style.left = `calc(${cx}% - 3.8cqw)`; pile.style.top = `calc(${cy}% - 5.3cqw)`;
+      pile.style.transform = `rotate(${rot}deg)`;
+      const isMatch = state === 'ring' && p.card[0] === 'sitrus';
+      const flip = state === 'play' && i === flipper ? ' flip' : '';
+      let html = `<div class="card under" style="transform:rotate(${(i % 3 - 1) * 7}deg) translate(.3cqw,.2cqw)"></div>` +
+                 `<div class="card under" style="transform:rotate(${(i % 2 ? 4 : -5)}deg)"></div>` +
+                 `<div class="card face${isMatch ? ' match' : ''}${flip}" style="transform:rotate(${(i % 3 - 1) * 2}deg)">`;
+      pips[p.card[1]].forEach(([x, y]) => { html += `<img class="berry" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/${berry[p.card[0]]}.png" style="left:${x}%;top:${y}%" alt="">`; });
+      html += '</div>';
+      pile.innerHTML = html;
+      stage.appendChild(pile);
+
+      const deck = document.createElement('div');
+      deck.className = 'deck';
+      deck.style.left = `calc(${cx}% + ${(-Math.sin(a) * 9).toFixed(2)}cqw - 3.1cqw)`;
+      deck.style.top = `calc(${cy}% + ${(Math.cos(a) * 9).toFixed(2)}cqw - 4.3cqw)`;
+      deck.style.transform = `rotate(${rot}deg)`;
+      deck.innerHTML = `<div class="card back" style="transform:translate(.25cqw,.25cqw)"></div><div class="card back"></div><div class="n">${p.deck}</div>`;
+      stage.appendChild(deck);
+    });
+    const ev = document.getElementById('ev'), bell = document.getElementById('bell');
+    if (state === 'ring') {
+      ev.textContent = `${list[hitter].name}님이 종을 쳤어요 · 0.41초 · +1`;
+      bell.classList.add('ring');
+    } else {
+      ev.textContent = `${list[flipper].name}님 카드가 넘어가는 중…`;
+      bell.classList.remove('ring');
+    }
+  }
+  document.querySelectorAll('.bf-controls button').forEach(b => b.addEventListener('click', () => {
+    if (b.dataset.n) { n = +b.dataset.n; document.querySelectorAll('[data-n]').forEach(x => x.classList.toggle('on', x === b)); }
+    if (b.dataset.s) { state = b.dataset.s; document.querySelectorAll('[data-s]').forEach(x => x.classList.toggle('on', x === b)); }
+    render();
+  }));
+  render();
+})();
+</script>
+</body>
+</html>
