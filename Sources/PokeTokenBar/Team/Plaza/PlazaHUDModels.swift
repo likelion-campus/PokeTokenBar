@@ -7,6 +7,10 @@ import Observation
 @MainActor @Observable
 final class PlazaBackgroundModel {
     var isHidden = false
+    /// The roster, chat log, minimap, clock, guide and colour picker are hidden (`PlazaPanelID.hiddenWithUI`).
+    var isUIHidden = false
+    /// The toggle's mode as a key: what a render depends on.
+    var mode: String { "\(isUIHidden) \(isHidden)" }
 }
 
 @MainActor @Observable

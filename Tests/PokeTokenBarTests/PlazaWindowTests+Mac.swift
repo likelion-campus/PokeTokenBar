@@ -148,10 +148,10 @@ private struct NoSprites: PlazaSpriteFetching {
         XCTAssertEqual(installed().between, expected.sorted())
 
         chat.open()
-        shell.setHUDHidden(true)
+        shell.setHiddenPanels(PlazaPanelID.hiddenInPhotoMode)
         XCTAssertEqual(subs.map(\.isHidden), [false, true, false, false, false, false, false, false, false, true, true, true, true, true, true, false],
                        "photo mode hides the roster, chat log, map, clock, guide and both toggles; not the scene, the board, the card, the photo frame, the minigame panels and pills or the open field")
-        shell.setHUDHidden(false)
+        shell.setHiddenPanels([])
         XCTAssertEqual(subs.map(\.isHidden), Array(repeating: false, count: 16))
         shell.focusChatInput()
         XCTAssertFalse(w.firstResponder === view, "the field takes the keys")
@@ -180,7 +180,7 @@ private struct NoSprites: PlazaSpriteFetching {
         XCTAssertNil(w.delegate)
         XCTAssertNil(w.contentView)
         XCTAssertNil(shell.windowForTesting)
-        shell.setHUDHidden(true)
+        shell.setHiddenPanels(PlazaPanelID.hiddenInPhotoMode)
         XCTAssertFalse(subs[1].isHidden, "a dismantled window's views are let go of")
         c.handleClose()
     }
@@ -259,7 +259,9 @@ private struct NoSprites: PlazaSpriteFetching {
         try click(.shortcuts, { CGPoint(x: $0.minX + 20, y: $0.minY + 14) })
         XCTAssertEqual(state(), [true, true, false, false], "the guide's header folds the guide")
         try click(.backgroundToggle, { CGPoint(x: $0.midX, y: $0.midY) })
-        XCTAssertEqual(state(), [true, true, true, false], "the eye button hides the background")
+        XCTAssertEqual(state(), [true, true, false, false], "the eye button's first click hides the UI, not the background")
+        try click(.backgroundToggle, { CGPoint(x: $0.midX, y: $0.midY) })
+        XCTAssertEqual(state(), [true, true, true, false], "its second click shows the UI again and hides the background")
         try click(.nameColorPicker, { CGPoint(x: $0.minX + 20, y: $0.minY + 14) })
         XCTAssertEqual(state(), [true, true, true, true], "the colour button opens the palette")
         for _ in 0..<20 { await Task.yield() }   // the HUD draws the palette on the main actor's next turn
@@ -373,7 +375,7 @@ private struct NoSprites: PlazaSpriteFetching {
         shell.focusChatInput()
         shell.setTitle("x")
         shell.setTransparent(true)
-        shell.setHUDHidden(true)
+        shell.setHiddenPanels(PlazaPanelID.hiddenInPhotoMode)
         shell.setChatLogAboveInput(true)
         shell.requestClose()
         shell.stopPresenting()
@@ -431,7 +433,7 @@ private struct NoSprites: PlazaSpriteFetching {
         XCTAssertEqual(written.pngs.count, 1)
         XCTAssertEqual(written.pngs.first.map { Array($0.prefix(4)) }, [0x89, 0x50, 0x4E, 0x47], "a PNG")
         XCTAssertEqual(c.banner, L(.ko).plazaPhotoCopied)
-        XCTAssertEqual(shell.take(), [.setHUDHidden(true)])
+        XCTAssertEqual(shell.take(), [.setHiddenPanels(PlazaPanelID.hiddenInPhotoMode)])
         c.handleClose()
     }
 }

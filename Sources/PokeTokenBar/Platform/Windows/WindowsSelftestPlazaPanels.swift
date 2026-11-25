@@ -231,7 +231,7 @@ extension WindowsSelftest {
         let toggleButtons = buttons(panels, .backgroundToggle), rosterButtons = buttons(panels, .roster)
         let beforeCount = panels.drawList.count
         let beforeIDs = Set(panels.entries.keys).subtracting([.pills])
-        shell.setHUDHidden(true)
+        shell.setHiddenPanels(WinPlazaPanels.hiddenInPhotoMode)
         model.isPhotoMode = true
         await pumpPanels(0.4)
         let drawnIDs = Set(panels.entries.keys).subtracting(WinPlazaPanels.hiddenInPhotoMode)
@@ -241,7 +241,7 @@ extension WindowsSelftest {
         let hiddenClicks = log.count
         let photoShot = shot("plaza-panels-photo.png")
         let afterCount = panels.drawList.count
-        shell.setHUDHidden(false)
+        shell.setHiddenPanels([])
         model.isPhotoMode = false
         await pumpPanels(0.4)
         r.add("plaza.photo", afterCount < beforeCount && hiddenClicks == 0 && Set(panels.entries.keys).subtracting([.pills]) == beforeIDs && afterCount == drawnIDs.count,
@@ -342,13 +342,31 @@ extension WindowsSelftest {
               "symbol font used: \(WinPlazaSymbols.installed.map { "\($0)" } ?? "none"); \(surveyed) candidate glyphs written as plaza-glyph-XXXX.png")
 
         // plaza.transparent: the background hidden (the toggle shows its other state); plaza.sizes: the minimum and a large window.
-        c.toggleBackground()
+        c.cycleDisplayMode()   // mode 2 (UI hidden), then mode 3 (background hidden)
+        c.cycleDisplayMode()
         await pumpPanels(0.5)
         let transparentShot = shot("plaza-panels-transparent.png")
         let toggleShown = panels.entries[.backgroundToggle] != nil
-        c.toggleBackground()
+        c.cycleDisplayMode()   // mode 4, then back to mode 1
+        c.cycleDisplayMode()
         await pumpPanels(0.4)
         r.add("plaza.transparent", toggleShown, "toggle still shown over the see-through window: \(toggleShown); \(transparentShot)")
+
+        // plaza.uiHidden: the background toggle steps shown -> UI hidden -> background hidden -> both hidden -> shown (the Mac's four modes). The UI
+        // modes hide `hiddenWithUI` and keep the pill and the banner; the capture is taken in the UI-hidden mode (only the pill left).
+        let shownBefore = c.isBackgroundHidden || c.isUIHidden
+        var modeLines: [String] = [], modesOK = !shownBefore
+        var uiShot = ""
+        for (step, want) in [(true, false), (false, true), (true, true), (false, false)].enumerated() {
+            c.cycleDisplayMode()
+            await pumpPanels(0.4)
+            let uiOK = PlazaPanelID.hiddenWithUI.allSatisfy { hud.isShown($0) == !want.0 }
+            let stateOK = c.isUIHidden == want.0 && c.isBackgroundHidden == want.1 && hud.isShown(.backgroundToggle) && hud.isShown(.pills)
+            modesOK = modesOK && uiOK && stateOK
+            modeLines.append("click \(step + 1): UI hidden \(c.isUIHidden) background hidden \(c.isBackgroundHidden) panels as wanted \(uiOK) pill and banner kept \(stateOK)")
+            if step == 0 { uiShot = shot("plaza-ui-hidden.png") }
+        }
+        r.add("plaza.uiHidden", modesOK, "four clicks end back in mode 1 (everything shown); \(modeLines.joined(separator: "; ")); \(uiShot)")
 
         var original = RECT()
         _ = GetWindowRect(hwnd, &original)

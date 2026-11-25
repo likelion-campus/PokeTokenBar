@@ -35,7 +35,7 @@ private struct RigNoSprites: PlazaSpriteFetching {
             if let screen = NSScreen.screens.first(where: { $0.frame.intersects(reach) }) { throw XCTSkip("a screen (\(screen.localizedName)) reaches the off-screen frame") }
             frontmostAtStart = NSWorkspace.shared.frontmostApplication?.processIdentifier
         }
-        // The controller drives the REAL shell, so `setChatLogAboveInput`, `setHUDHidden`, `focusScene` and the rest reach the window the way
+        // The controller drives the REAL shell, so `setChatLogAboveInput`, `setHiddenPanels`, `focusScene` and the rest reach the window the way
         // the app's calls do. A borderless window cannot become key; the front closure never activates anything.
         let shell = PlazaMacWindow(autosaveName: name, styleMask: [.borderless], front: { _ in })
         self.shell = shell

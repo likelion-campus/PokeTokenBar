@@ -48,8 +48,8 @@ struct PlazaOverlayBindings {
     func setTitle(_ title: String)
     /// See-through window (background hidden): no fill, no shadow.
     func setTransparent(_ transparent: Bool)
-    /// Hides the HUD panels for photo mode (not the overlay or the chat field).
-    func setHUDHidden(_ hidden: Bool)
+    /// Hides exactly these HUD panels (photo mode, the UI toggle; never the overlay or the chat field) and shows the others.
+    func setHiddenPanels(_ ids: Set<PlazaPanelID>)
     /// Gives the keys back to the scene.
     func focusScene()
     func focusChatInput()

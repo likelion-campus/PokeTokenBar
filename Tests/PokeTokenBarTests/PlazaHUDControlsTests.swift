@@ -104,7 +104,7 @@ import Observation
         let r = rig()
         let toggle = try XCTUnwrap(r.host.drawings[.backgroundToggle])
         XCTAssertEqual(toggle.accessibility.map(\.role), [.button])
-        XCTAssertEqual(toggle.accessibility.first?.label, L(.ko).plazaBackgroundHide)
+        XCTAssertEqual(toggle.accessibility.first?.label, L(.ko).plazaModeShown)
         let tf = try XCTUnwrap(toggle.accessibility.first).frame
         click(r, .backgroundToggle, CGPoint(x: tf.minX + 1, y: tf.minY + 1))   // padding corner: the label carried its padding
         click(r, .backgroundToggle, CGPoint(x: tf.midX, y: tf.midY))
@@ -112,7 +112,7 @@ import Observation
         XCTAssertEqual(r.actions.actions, ["backgroundToggle toggle -", "backgroundToggle toggle -"], "on the pill only")
         r.background.isHidden = true
         await flush()
-        XCTAssertEqual(r.host.drawings[.backgroundToggle]?.accessibility.first?.label, L(.ko).plazaBackgroundShow)
+        XCTAssertEqual(r.host.drawings[.backgroundToggle]?.accessibility.first?.label, L(.ko).plazaModeBackgroundHidden)
 
         // The picker: closed it is one button; opened, a button per palette colour, labelled as the chat log's.
         r.actions.actions = []
@@ -324,14 +324,15 @@ import Observation
         click(.nameColorPicker, PlazaPanelHit(action: "choose", index: 99))
         XCTAssertEqual(saved.count, 1, "an index outside the palette picks nothing")
         click(.backgroundToggle, PlazaPanelHit(action: "toggle", index: nil))
-        XCTAssertTrue(c.isBackgroundHidden)
-        XCTAssertEqual(shell.take(), [.setTransparent(true), .focusScene])
+        XCTAssertTrue(c.isUIHidden)
+        XCTAssertEqual(shell.take(), [.setHiddenPanels(PlazaPanelID.hiddenWithUI), .focusScene])
         // ...and through real mouse events on the panels, not only presses.
         let frame = try XCTUnwrap(hud.layout(viewport: hud.viewport, scale: hud.scale)[.backgroundToggle])
         let p = CGPoint(x: frame.midX, y: frame.midY)
         _ = hud.handleMouse(PlazaMouseEvent(kind: .down, location: p), in: .backgroundToggle)
         _ = hud.handleMouse(PlazaMouseEvent(kind: .up, location: p), in: .backgroundToggle)
-        XCTAssertFalse(c.isBackgroundHidden, "a click on the pill toggles it back")
+        XCTAssertFalse(c.isUIHidden, "the next click on the pill is the next mode")
+        XCTAssertTrue(c.isBackgroundHidden)
         c.handleClose()
     }
 

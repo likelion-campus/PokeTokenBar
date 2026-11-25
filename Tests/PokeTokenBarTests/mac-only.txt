@@ -71,6 +71,8 @@ PlazaChatTests+Mac.swift
 # PlazaInputMappingTests: maps NSEvent key events and modifier flags (AppKit)
 PlazaInputMappingTests.swift
 PlazaNameColorTests.swift
+# PlazaToggleModesTests+Mac: the real PlazaMacWindow's panel hosts (NSView isHidden, hit testing)
+PlazaToggleModesTests+Mac.swift
 # PlazaNamePlateTests+Mac: NSFont metrics and CGImage pixel reads of the name plate
 PlazaNamePlateTests+Mac.swift
 PlazaPhotoParityTests.swift

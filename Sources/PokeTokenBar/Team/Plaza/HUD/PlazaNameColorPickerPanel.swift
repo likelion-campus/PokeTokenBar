@@ -27,13 +27,13 @@ import Observation
         self.toggle = toggle
         observer = PlazaChangeObserver(track: { _ = model.current; _ = model.isOpen }, changed: { [weak self] in self?.modelChanged() })
         // The picker sits right of the toggle, whose width follows its text: it moves with it.
-        toggleObserver = PlazaChangeObserver(track: { _ = background.isHidden }, changed: { [weak self] in self?.modelChanged() })
+        toggleObserver = PlazaChangeObserver(track: { _ = background.isHidden; _ = background.isUIHidden }, changed: { [weak self] in self?.modelChanged() })
         self.background = background
     }
 
     private weak var background: PlazaBackgroundModel?
     private var rendered: String?
-    private var state: String { "\(model.current) \(model.isOpen) \(background?.isHidden ?? false)" }
+    private var state: String { "\(model.current) \(model.isOpen) \(background?.mode ?? "")" }
     private func modelChanged() { if rendered != state { onChange?() } }
 
     var isVisible: Bool { true }
