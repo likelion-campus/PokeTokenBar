@@ -31,9 +31,12 @@ protocol TeamTransportHarness: AnyObject {
     /// A TLS connection with the team's key, ready, that the test writes to as it likes.
     func rawTLS(to e: Endpoint, code: TeamCode) async throws -> (send: (Data) -> Void, close: () -> Void)
     func tearDown()
+    /// What happened to the transports so far, for a failure message; empty where the harness keeps no record.
+    var diagnosticRecord: String { get }
 }
 
 extension TeamTransportHarness {
+    var diagnosticRecord: String { "" }
     func make() -> Transport { make(linkLimit: TeamTransportRules.maxLinks) }
 }
 
@@ -60,6 +63,9 @@ func contractConnectedPair<H: TeamTransportHarness>(_ h: H) async throws
     a.start(code: code); b.start(code: code)
     h.connect(b, to: try await h.loopbackEndpoint(of: a))
     let up = await contractWaitUntil(5) { aPeer != nil && bPeer != nil && h.linkCount(a) == 1 }
+    if !up {
+        print("TRANSPORT RECORD (the pair did not come up in 5 s; aPeer=\(aPeer != nil) bPeer=\(bPeer != nil) linksA=\(h.linkCount(a)) linksB=\(h.linkCount(b)))\n\(h.diagnosticRecord)")
+    }
     XCTAssertTrue(up)
     return (a, b, try XCTUnwrap(aPeer), try XCTUnwrap(bPeer))
 }
