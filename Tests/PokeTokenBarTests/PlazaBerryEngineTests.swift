@@ -331,7 +331,7 @@ final class PlazaBerryEngineTests: XCTestCase {
         let seed = richDeal
         func play(skew: [String: Double]) -> (flips: [Int], clears: [Int], scores: [Int], firstFlip: Double)? {
             var room = Room(["a", "b", "c"], skew: skew, seed: seed)
-            if skew["b"] != nil { room.uptimeZero = ["a": 50_000, "b": 7, "c": 900_000] }
+            if !skew.isEmpty { room.uptimeZero = ["a": 50_000, "b": 7, "c": 900_000] }
             let lock = room.start()
             var first: Double?
             for _ in 0..<60 where first == nil {
@@ -343,9 +343,9 @@ final class PlazaBerryEngineTests: XCTestCase {
             XCTAssertEqual(Set(room.live.map { room[$0].state }).count, 1)
             return (b.flips, b.clears, b.scores, first ?? 99)
         }
-        // The clocks are as far apart as the plaza's own checks allow: the others' stamps may run 60 s ahead of a Mac's clock.
+        // The dealer runs 45 s ahead; the others stay inside the 60 s `clockSlack` the plaza accepts a stamp ahead by.
         let plain = play(skew: [:])
-        let skewed = play(skew: ["a": 0, "b": -45, "c": 14])
+        let skewed = play(skew: ["a": 45, "b": 0, "c": -14])   // the dealer's own clock is the shifted one
         XCTAssertNotNil(plain)
         XCTAssertEqual(plain?.flips, skewed?.flips)
         XCTAssertEqual(plain?.clears, skewed?.clears)
@@ -742,20 +742,56 @@ final class PlazaBerryEngineTests: XCTestCase {
         XCTAssertTrue(c == nil || c?.endedAt != nil, "c adopts the end or drops the game")
     }
 
-    func testEveryoneLeavingEndsTheGame() {
+    func testLeaversWriteNothingAndTheLastPlayerEndsTheGame() {
+        var room = Room(["a", "b", "c"], seed: richDeal)
+        room.start()
+        XCTAssertTrue(room.clearNextFive(by: "b"))
+        let a = room["a"].state, b = room["b"].state
+        room.leave("a")
+        room.leave("b")
+        XCTAssertEqual(room["a"].state, a, "a leaver writes nothing")
+        XCTAssertEqual(room["b"].state, b)
+        room.run(for: 4.5)
+        XCTAssertNotNil(room["c"].state?.endedAt, "c, the one left, ends it on its own clock")
+        XCTAssertEqual(room["c"].state?.winner, "b", "the top scorer wins even though gone")
+        XCTAssertEqual(room["a"].state, a)
+        XCTAssertEqual(room["b"].state, b)
+    }
+
+    func testWhenAllPlayersLeaveTogetherAWatcherDropsTheGame() {
         var room = Room(["a", "b", "c", "d"])
         room.notJoining = ["d"]
         let lock = room.start()
         room.run(to: lock + 5.0)
-        room.leave("a")
-        room.leave("b")
-        room.leave("c")
-        XCTAssertNotNil(room["c"].state?.endedAt, "the last one out ends it")
-        room.run(for: 5.0)
-        XCTAssertNotNil(room["d"].state?.endedAt, "a teammate watching sees the end")
+        let before = ["a", "b", "c"].map { room[$0].state }
+        for id in ["a", "b", "c"] { room.leave(id) }
+        XCTAssertEqual(["a", "b", "c"].map { room[$0].state }, before, "no one wrote when leaving")
         let flips = room["d"].state?.berry?.flips.count
+        room.run(for: PlazaDraw.abandonedAfter - 1)
+        XCTAssertNotNil(room["d"].state, "still waiting out the grace")
+        room.run(for: 3.0)
+        XCTAssertNil(room["d"].state, "the watcher dropped the game")
+        XCTAssertNil(room["d"].berryPhase(now: room.now("d")))
+        XCTAssertNotNil(flips)
         room.run(for: 10.0)
-        XCTAssertEqual(room["d"].state?.berry?.flips.count, flips, "nobody keeps dealing")
-        XCTAssertEqual(room.wrote["d"] ?? 0, 0)
+        XCTAssertNil(room["d"].state, "the frozen copies do not bring it back")
+        XCTAssertEqual(["a", "b", "c"].map { room[$0].state }, before)
+    }
+
+    func testACutOffPlayerClosingThePlazaDoesNotEndTheGame() {
+        var room = Room(["a", "b", "c"])
+        let lock = room.start()
+        room.run(to: lock + 5.0)
+        room.cutOff = ["c"]
+        room.tick()
+        let before = room["c"].state
+        room.leave("c")   // its `present` is empty: it cannot tell "everyone left" from "I lost the network"
+        XCTAssertEqual(room["c"].state, before)
+        XCTAssertNil(room["c"].state?.endedAt)
+        let flips = room.flips
+        room.run(for: 6.0)
+        XCTAssertNil(room["a"].state?.endedAt)
+        XCTAssertGreaterThan(room.flips, flips, "the dealer keeps flipping")
+        XCTAssertNil(room["b"].state?.endedAt)
     }
 }

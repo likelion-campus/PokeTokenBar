@@ -415,7 +415,7 @@ struct PlazaGameEngine {
                 return
             }
             if s.kind == PlazaGameKind.berry.rawValue {
-                leaveBerry(now: now, present: present)
+                joined = nil   // like the quiz: only the dealer ends a game (a cut-off Mac cannot tell "all left" from "I lost the network")
                 return
             }
             guard PlazaBomb.alive(s).contains(me) else { return }
@@ -459,6 +459,7 @@ struct PlazaGameEngine {
             return state != before
         }
         if s.kind == PlazaGameKind.berry.rawValue, s.startsAt != nil {
+            // The quiz's `PlazaDraw.abandonedAfter` governs berry five too.
             if dropAbandonedDraw(now: now, joins: joins, hearing: heard.map { !$0.isEmpty } ?? connected) { return true }
             tickBerry(now: now, joins: joins, connected: connected, heard: heard, bells: bells)
             return state != before
@@ -825,15 +826,6 @@ extension PlazaGameEngine {
                                           serial: c.serial + 1)
         if ring == .wrong { berryLocal?.lockedUntil = uptime + PlazaBerry.lockoutSeconds }
         return ring
-    }
-
-    /// I closed the plaza: out of the game for good. The last one out of the plaza ends it, so a frozen running copy is never all that is left.
-    fileprivate mutating func leaveBerry(now: Date, present: Set<String>) {
-        guard let s = state else { return }
-        joined = nil
-        guard s.endedAt == nil, s.berry != nil, s.players.contains(me), present.isDisjoint(with: Set(s.players).subtracting([me])) else { return }
-        state = PlazaBerry.ended(s, at: now.timeIntervalSince1970)
-        settle(now: now)
     }
 
     fileprivate mutating func tickBerry(now: Date, joins: Set<String>, connected: Bool, heard: Set<String>?, bells: [String: PlazaBerryBell]) {
