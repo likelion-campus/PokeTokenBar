@@ -3,10 +3,19 @@ import Foundation
 /// A plaza minigame. A new game adds a case here, its payload on `PlazaGameState`, and its rules beside `PlazaBomb`.
 /// The lobby (open, join, countdown, result) is shared by every game.
 enum PlazaGameKind: String, CaseIterable, Sendable {
-    case bomb, draw
+    case bomb, draw, berry
 
-    /// What the M menu lists: the games the app offers to open. Not `allCases`, so a game that is in the code but not yet ready stays out of the menu.
-    static var offered: [PlazaGameKind] { [.bomb, .draw] }
+    /// The most players a game of this kind takes.
+    var maxPlayers: Int {
+        switch self {
+        case .bomb: PlazaGame.maxPlayers
+        case .draw: PlazaDraw.maxPlayers
+        case .berry: PlazaBerry.maxPlayers
+        }
+    }
+
+    /// The cap for a kind raw value; a kind this version does not know gets the shared one.
+    static func maxPlayers(ofKind raw: String) -> Int { PlazaGameKind(rawValue: raw)?.maxPlayers ?? PlazaGame.maxPlayers }
 }
 
 /// One minigame as the team knows it: carried in every member's presence and passed on, like the campfire switch.
@@ -30,6 +39,7 @@ struct PlazaGameState: Codable, Hashable, Sendable {
     var winner: String?
     var bomb: PlazaBombState?
     var draw: PlazaDrawState?
+    var berry: PlazaBerryState?
 }
 
 /// 폭탄 돌리기. The holder passes the bomb by hitting another player; whoever holds it when the fuse runs out is out.
@@ -93,15 +103,15 @@ enum PlazaGame {
         func okTime(_ v: Double, from low: Double) -> Bool { v.isFinite && v >= low && v <= t + clockSlack }
         guard okID(s.id), okID(s.host), !s.kind.isEmpty, s.kind.utf8.count <= 32,
               s.opensAt.isFinite, s.opensAt <= t + clockSlack,
-              s.players.count <= maxPlayers, s.players.allSatisfy(okID), Set(s.players).count == s.players.count else { return nil }
+              s.players.count <= PlazaGameKind.maxPlayers(ofKind: s.kind), s.players.allSatisfy(okID), Set(s.players).count == s.players.count else { return nil }
         if let starts = s.startsAt {
             guard starts.isFinite, starts >= s.opensAt, starts <= s.opensAt + recruitSeconds + hostGrace + countdownSeconds,
                   s.players.count >= minPlayers else { return nil }
         } else {
-            guard s.players.isEmpty, s.bomb == nil, s.draw == nil else { return nil }
+            guard s.players.isEmpty, s.bomb == nil, s.draw == nil, s.berry == nil else { return nil }
         }
         if s.kind == PlazaGameKind.draw.rawValue {
-            guard s.players.count <= PlazaDraw.maxPlayers, s.bomb == nil else { return nil }
+            guard s.bomb == nil else { return nil }   // the count is already held to the kind's cap above
             if let d = s.draw {
                 guard let kept = PlazaDraw.accepted(d, players: s.players) else { return nil }
                 s.draw = kept
@@ -109,6 +119,15 @@ enum PlazaGame {
         } else {
             // `precedes` reads the draw keys of every kind, so a stray payload could steer the merge.
             guard s.draw == nil else { return nil }
+        }
+        if s.kind == PlazaGameKind.berry.rawValue {
+            if let b = s.berry {
+                guard let kept = PlazaBerry.accepted(b, players: s.players.count) else { return nil }
+                s.berry = kept
+            }
+        } else {
+            // Same reason: `precedes` reads the berry keys of every kind.
+            guard s.berry == nil else { return nil }
         }
         if let ended = s.endedAt { guard okTime(ended, from: s.opensAt) else { return nil } }
         if let winner = s.winner { guard s.endedAt != nil, s.players.contains(winner) else { return nil } }
@@ -139,6 +158,8 @@ enum PlazaGame {
         if rank(a) != rank(b) { return rank(a) < rank(b) }
         let drawA = PlazaDraw.keys(a.draw), drawB = PlazaDraw.keys(b.draw)
         for (p, q) in zip(drawA, drawB) where p != q { return p < q }
+        let berryA = PlazaBerry.keys(a.berry), berryB = PlazaBerry.keys(b.berry)
+        for (p, q) in zip(berryA, berryB) where p != q { return p < q }
         let x = a.bomb, y = b.bomb
         let keysA: [Double] = [Double(x?.out.count ?? -1), Double(x?.pass ?? -1), x?.roundStartsAt ?? 0, a.endedAt ?? 0, a.startsAt ?? 0]
         let keysB: [Double] = [Double(y?.out.count ?? -1), Double(y?.pass ?? -1), y?.roundStartsAt ?? 0, b.endedAt ?? 0, b.startsAt ?? 0]
@@ -146,6 +167,9 @@ enum PlazaGame {
         let tieA = [x?.holder ?? "", a.winner ?? "", a.players.joined(separator: ","), String(a.seed)]
         let tieB = [y?.holder ?? "", b.winner ?? "", b.players.joined(separator: ","), String(b.seed)]
         for (p, q) in zip(tieA, tieB) where p != q { return p > q }   // the smaller ID keeps the bomb
+        if a.berry == b.berry { return false }   // equal payloads: no need to encode them
+        let berryTieA = PlazaBerry.tie(a.berry), berryTieB = PlazaBerry.tie(b.berry)
+        if berryTieA != berryTieB { return berryTieA < berryTieB }
         return false
     }
 }
@@ -220,6 +244,16 @@ enum PlazaDrawPhase: Equatable, Sendable {
     case over
 }
 
+/// Where a berry five game is, as this Mac sees it. The countdown is counted from when this Mac saw the lock.
+enum PlazaBerryPhase: Equatable, Sendable {
+    case countdown(left: TimeInterval)
+    case playing
+    case over
+}
+
+/// What a press on the bell did.
+enum PlazaBerryRing: Equatable, Sendable { case ignored, right, wrong }
+
 /// One Mac's part in the team's minigame: what it knows, what it answered, and the moves only it may make. Pure
 /// values; the plaza feeds it the clock and who is there, publishes `state` and `joined`, and draws from `state`.
 struct PlazaGameEngine {
@@ -245,6 +279,8 @@ struct PlazaGameEngine {
     }
     fileprivate struct DrawSecret { var game: String; var turn: Int; var word: String }
     fileprivate var drawClock: DrawClock?
+    /// This Mac's own memory of the berry five game it holds (first-seen times, my screen, my bell).
+    fileprivate var berryLocal: PlazaBerryLocal?
     /// The word I chose as the drawer. Never part of `state` before the turn ends.
     fileprivate var secret: DrawSecret?
     /// The game I dropped out of because this Mac lost every teammate (the plaza says so instead of naming a loser).
@@ -304,10 +340,13 @@ struct PlazaGameEngine {
 
     private mutating func settle(now: Date) {
         if joined != state?.id { joined = nil }
+        // The lock left me out (a ninth yes in a quiz, a 21st in the bomb): I am not in this game, so I keep no flag for it.
+        if let s = state, s.startsAt != nil, joined == s.id, !s.players.contains(me) { joined = nil }
         if declined != state?.id { declined = nil }
         if lostConnection != state?.id { lostConnection = nil; lostWithTeammates = false }
         if state?.startsAt != nil || state == nil { startRequested = false }
         observeDraw(now: now)
+        observeBerry(now: now)
         let t = now.timeIntervalSince1970
         if let s = state, s.startsAt == nil, let ended = s.endedAt { cancelled[s.host] = max(cancelled[s.host] ?? ended, ended) }
         cancelled = cancelled.filter { t < $0.value + PlazaGame.reopenDelay }
@@ -375,6 +414,10 @@ struct PlazaGameEngine {
                 joined = nil   // out for good: the others skip my turns, and reopening the plaza does not bring me back
                 return
             }
+            if s.kind == PlazaGameKind.berry.rawValue {
+                joined = nil   // like the quiz: only the dealer ends a game (a cut-off Mac cannot tell "all left" from "I lost the network")
+                return
+            }
             guard PlazaBomb.alive(s).contains(me) else { return }
             putOut(me, now: now, present: present.subtracting([me]))
         default: break
@@ -402,7 +445,8 @@ struct PlazaGameEngine {
     /// Mac is connected to, in the plaza or not (nil: not known, the drawing quiz then goes by `connected`). True when
     /// `state` changed (publish it).
     @discardableResult
-    mutating func tick(now: Date, present: Set<String>, joins: Set<String>, connected: Bool = true, heard: Set<String>? = nil) -> Bool {
+    mutating func tick(now: Date, present: Set<String>, joins: Set<String>, connected: Bool = true, heard: Set<String>? = nil,
+                       bells: [String: PlazaBerryBell] = [:]) -> Bool {
         let before = state
         state = PlazaGame.accepted(state, now: now)
         settle(now: now)
@@ -412,6 +456,12 @@ struct PlazaGameEngine {
         if s.kind == PlazaGameKind.draw.rawValue, s.startsAt != nil {
             if dropAbandonedDraw(now: now, joins: joins, hearing: heard.map { !$0.isEmpty } ?? connected) { return true }
             tickDraw(now: now, present: present, joins: joins, connected: connected, heard: heard)
+            return state != before
+        }
+        if s.kind == PlazaGameKind.berry.rawValue, s.startsAt != nil {
+            // The quiz's `PlazaDraw.abandonedAfter` governs berry five too.
+            if dropAbandonedDraw(now: now, joins: joins, hearing: heard.map { !$0.isEmpty } ?? connected) { return true }
+            tickBerry(now: now, joins: joins, connected: connected, heard: heard, bells: bells)
             return state != before
         }
         if phase == .countdown || phase == .playing, PlazaBomb.alive(s).contains(me) {
@@ -438,13 +488,13 @@ struct PlazaGameEngine {
             let players = (joins.intersection(present).union(joined == s.id ? [me] : [])).sorted()
             let timeUp = t >= s.opensAt + PlazaGame.recruitSeconds
             if players.count >= PlazaGame.minPlayers, timeUp || startRequested {
+                let cap = PlazaGameKind.maxPlayers(ofKind: s.kind)
                 if s.kind == PlazaGameKind.draw.rawValue {
                     // The host is always among the players: it plays the first turn it can, and its own game never starts without it.
-                    let cap = PlazaDraw.maxPlayers
                     s.players = players.count > cap && players.contains(me)
                         ? ([me] + players.filter { $0 != me }.prefix(cap - 1)).sorted() : Array(players.prefix(cap))
                 } else {
-                    s.players = Array(players.prefix(PlazaGame.maxPlayers))
+                    s.players = Array(players.prefix(cap))
                 }
                 s.seed = makeSeed()
                 s.startsAt = t + PlazaGame.countdownSeconds
@@ -454,6 +504,8 @@ struct PlazaGameEngine {
                 } else if s.kind == PlazaGameKind.draw.rawValue {
                     s.draw = PlazaDrawState(order: PlazaDraw.order(players: s.players, seed: s.seed), turn: 0, step: 0,
                                             scores: Dictionary(uniqueKeysWithValues: s.players.map { ($0, 0) }))
+                } else if s.kind == PlazaGameKind.berry.rawValue {
+                    s.berry = PlazaBerryState(seats: s.players.count)
                 }
                 state = s
             } else if timeUp {
@@ -481,6 +533,7 @@ struct PlazaGameEngine {
         default: break
         }
         if state?.bomb?.holder != s.bomb?.holder || state?.bomb?.round != s.bomb?.round { holderAbsentSince = nil }
+        observeBerry(now: now)   // a lock I just wrote is seen now, not a tick later
         return state != before
     }
 
@@ -609,7 +662,7 @@ extension PlazaGameEngine {
     /// A quiz nobody plays is over: I am not playing it, I hear a teammate, and for `abandonedAfter` seconds on my own
     /// clock no player of it has been playing. I forget it and remember its id; nothing shared is written.
     fileprivate mutating func dropAbandonedDraw(now: Date, joins: Set<String>, hearing: Bool) -> Bool {
-        guard let s = state, s.endedAt == nil, s.draw != nil, joined != s.id, hearing, joins.isDisjoint(with: s.players) else {
+        guard let s = state, s.endedAt == nil, s.draw != nil || s.berry != nil, joined != s.id, hearing, joins.isDisjoint(with: s.players) else {
             abandonedSince = nil
             return false
         }
@@ -692,5 +745,164 @@ extension PlazaGameEngine {
             drawClock?.drawerAbsentSince = nil
         }
         observeDraw(now: now)
+    }
+}
+
+// MARK: - 열매 다섯
+
+/// Berry five's engine. The dealer (the host while it plays, else the smallest id playing once the host has been out for
+/// `absenceGrace`) is the only writer: it flips on its own clock and judges the bells that ride each player's presence. A bell
+/// carries a reaction time its sender measured on its own monotonic clock, so no two machines' clocks are ever compared.
+extension PlazaGameEngine {
+    private var isBerryGame: Bool { state?.kind == PlazaGameKind.berry.rawValue && state?.startsAt != nil && state?.berry != nil }
+
+    /// A local timer reaches its length (a hair of slack for float sums of wall-clock times).
+    private static func reached(_ since: Double?, _ length: TimeInterval, _ t: Double) -> Bool {
+        since.map { t - $0 >= length - 1e-5 } ?? false
+    }
+
+    func berryPhase(now: Date) -> PlazaBerryPhase? {
+        guard isBerryGame, let s = state, let c = berryLocal, c.game == s.id, PlazaGame.phase(s, now: now) != nil else { return nil }
+        if s.endedAt != nil { return .over }
+        let left = PlazaGame.countdownSeconds - (now.timeIntervalSince1970 - (c.lockSeen ?? now.timeIntervalSince1970))
+        return left > 0 ? .countdown(left: left) : .playing
+    }
+
+    /// Who deals, as this machine saw it at the last tick.
+    var berryDealer: String? { berryLocal?.dealer }
+
+    /// `playing` at the last tick.
+    var berryPlaying: Set<String> { berryLocal?.playing ?? [] }
+
+    /// My last bell for this game; my presence carries it.
+    var berryBell: PlazaBerryBell? { berryLocal?.bell }
+
+    /// My wrong bell's second is running.
+    func berryLocked(uptime: TimeInterval) -> Bool { uptime < (berryLocal?.lockedUntil ?? -.infinity) }
+
+    /// Remembers when this machine first saw the lock, each flip and each clear; forgets everything of another game.
+    fileprivate mutating func observeBerry(now: Date) {
+        guard isBerryGame, let s = state, let b = s.berry else {
+            berryLocal = nil
+            return
+        }
+        var c = berryLocal?.game == s.id ? berryLocal! : PlazaBerryLocal(game: s.id)
+        c.observe(flips: b.flips.count, clears: b.clears.count, at: now.timeIntervalSince1970)
+        berryLocal = c
+    }
+
+    /// The table now in `state` is on my screen from `uptime` (my monotonic clock); nil while my plaza is hidden.
+    mutating func berrySeen(at uptime: TimeInterval?) {
+        guard isBerryGame, let s = state, berryLocal?.game == s.id else { return }
+        guard let uptime else {
+            berryLocal?.shown = [:]
+            berryLocal?.visible = false
+            return
+        }
+        let fives = PlazaBerry.fives(PlazaBerry.table(s))
+        var shown = berryLocal?.shown.filter { fives.contains($0.key) } ?? [:]
+        for berry in fives where shown[berry] == nil { shown[berry] = uptime }
+        berryLocal?.shown = shown
+        berryLocal?.visible = true
+    }
+
+    /// Space or a press on the bell.
+    mutating func ringBerry(now: Date, uptime: TimeInterval) -> PlazaBerryRing {
+        guard berryPhase(now: now) == .playing, let s = state, let b = s.berry, let c = berryLocal, c.visible,
+              s.players.contains(me), joined == s.id, uptime >= c.lockedUntil else { return .ignored }
+        let table = PlazaBerry.table(s)
+        guard table.contains(where: { $0 != nil }) else { return .ignored }
+        // My right bell is still waiting for its verdict: another one would only be the same ring twice.
+        if let last = c.bell, last.right, last.game == s.id, last.clears == b.clears.count { return .ignored }
+        let fives = PlazaBerry.fives(table)
+        let ring: PlazaBerryRing = fives.isEmpty ? .wrong : .right
+        var ms = 0
+        if ring == .right {
+            guard let first = fives.compactMap({ c.shown[$0] }).min() else { return .ignored }
+            ms = min(max(0, Int(((uptime - first) * 1000).rounded())), PlazaBerry.maxReactionMS)
+        }
+        berryLocal?.serial += 1
+        berryLocal?.bell = PlazaBerryBell(game: s.id, clears: b.clears.count, flip: b.flips.count, ms: ms, right: ring == .right,
+                                          serial: c.serial + 1)
+        if ring == .wrong { berryLocal?.lockedUntil = uptime + PlazaBerry.lockoutSeconds }
+        return ring
+    }
+
+    fileprivate mutating func tickBerry(now: Date, joins: Set<String>, connected: Bool, heard: Set<String>?, bells: [String: PlazaBerryBell]) {
+        guard let s = state, let b = s.berry, var c = berryLocal, c.game == s.id else { return }
+        let t = now.timeIntervalSince1970
+        let others = Set(s.players).subtracting([me])
+        let playing = joins.intersection(s.players).union(joined == s.id && s.players.contains(me) ? [me] : [])
+        c.playing = playing
+        berryLocal = c
+        guard s.endedAt == nil, s.players.contains(me), joined == s.id else { return }
+        // Cut off from everyone I cannot tell who is still here: I write nothing, and after a while I step out myself.
+        let heardAPlayer = heard.map { !$0.isDisjoint(with: others) } ?? true
+        let unheardWhileAlone = playing.count < PlazaGame.minPlayers && !(heard.map { others.isSubset(of: $0) } ?? true)
+        guard connected, heardAPlayer, !unheardWhileAlone else {
+            berryLocal?.lackSince = nil
+            berryLocal?.hostAbsentSince = nil
+            berryLocal?.dealer = nil
+            berryLocal?.windowSeen = nil
+            let since = isolatedSince ?? t
+            isolatedSince = since
+            if t - since >= PlazaGame.isolationLimit {
+                lostConnection = s.id
+                lostWithTeammates = connected && heard?.isEmpty != true
+                joined = nil
+            }
+            return
+        }
+        isolatedSince = nil
+        c.hostAbsentSince = playing.contains(s.host) ? nil : (c.hostAbsentSince ?? t)
+        c.lackSince = playing.count < PlazaGame.minPlayers ? (c.lackSince ?? t) : nil
+        let hostHolds = playing.contains(s.host) || !Self.reached(c.hostAbsentSince, PlazaBomb.absenceGrace, t)
+        c.dealer = hostHolds ? s.host : playing.min()
+        berryLocal = c
+        // A window opened under an earlier turn as dealer must not outlive it.
+        if c.dealer != me { berryLocal?.windowSeen = nil }
+        guard c.dealer == me else { return }
+
+        if Self.reached(c.lackSince, PlazaBomb.absenceGrace, t) {
+            state = PlazaBerry.ended(s, at: t)
+            observeBerry(now: now)
+            return
+        }
+        // Every bell I know of: the others' (from their presences) and mine. Only those of players count.
+        var all = bells.filter { $0.key != me && playing.contains($0.key) && $0.value.game == s.id }
+        if let mine = c.bell { all[me] = mine }
+        let seats = Dictionary(uniqueKeysWithValues: s.players.enumerated().map { ($1, $0) })
+        var cur = s
+        // A wrong bell costs its point at once, once per serial; flipping goes on.
+        for id in all.keys.sorted() where all[id]!.right == false {
+            if let seat = seats[id], PlazaBerry.isValidWrong(all[id]!, seat: seat, in: cur),
+               let next = PlazaBerry.penalized(cur, seat: seat, bell: all[id]!) { cur = next }
+        }
+        let right = all.filter { PlazaBerry.isValidRight($0.value, in: cur) }
+        if right.isEmpty { berryLocal?.windowSeen = nil } else if berryLocal?.windowSeen == nil { berryLocal?.windowSeen = t }
+        if !right.isEmpty {
+            if Self.reached(berryLocal?.windowSeen, PlazaBerry.judgeSeconds, t) {
+                let win = right.min { ($0.value.ms, $0.key) < ($1.value.ms, $1.key) }!
+                let seatSet = Set(playing.compactMap { seats[$0] })
+                cur = PlazaBerry.cleared(cur, seat: seats[win.key]!, bell: win.value, playing: seatSet, at: t) ?? cur
+                berryLocal?.windowSeen = nil
+            }
+            state = cur
+            observeBerry(now: now)
+            return
+        }
+        c = berryLocal ?? c
+        let cb = cur.berry ?? b
+        let seatSet = Set(playing.compactMap { seats[$0] })
+        let next = PlazaBerry.nextSeat(cur, playing: seatSet)
+        let sinceClear = cb.clears.isEmpty || Self.reached(c.clearSeen, PlazaBerry.restSeconds, t)
+        let due = cb.flips.isEmpty ? Self.reached(c.lockSeen, PlazaGame.countdownSeconds, t) : Self.reached(c.flipSeen, PlazaBerry.flipSeconds, t)
+        if let seat = next {
+            if sinceClear, due { cur = PlazaBerry.flipped(cur, seat: seat, at: t) ?? cur }
+        } else if Self.reached(c.flipSeen, PlazaBerry.endWait, t) {
+            cur = PlazaBerry.ended(cur, at: t)
+        }
+        state = cur
+        observeBerry(now: now)
     }
 }

@@ -302,7 +302,7 @@ struct PlazaBerryBoard: Equatable {
             let s = board.seats[i]
             cardLayer("deck \(s.deckLeft)", centre: seat.deck, size: deckSize, rotation: seat.rotation) { canvas in
                 let line = text.line("\(s.deckLeft)", font: small)
-                Self.drawBack(size: deckSize, u: u * f, rotation: seat.rotation, label: line, on: canvas)
+                Self.drawBack(size: deckSize, u: u * f, scale: scale, rotation: seat.rotation, label: line, on: canvas)
             }
         }
         let ringing = ringT != nil
@@ -312,7 +312,7 @@ struct PlazaBerryBoard: Equatable {
                 let askew = (k == 2 ? CGFloat(i % 3 - 1) * 7 : (i % 2 == 1 ? 4 : -5)) * .pi / 180
                 cardLayer("under \(k)", centre: seat.pile, size: cardSize, rotation: seat.rotation + askew) { canvas in
                     canvas.rotate(by: -(seat.rotation + askew))
-                    Self.drawUnder(size: cardSize, u: u * f, on: canvas)
+                    Self.drawUnder(size: cardSize, u: u * f, scale: scale, on: canvas)
                 }
             }
             guard let top = s.top else { continue }
@@ -368,7 +368,8 @@ struct PlazaBerryBoard: Equatable {
         switch board.center {
         case .countdown(let n):
             let digit = "\(n)"
-            tail = [(text.line(digit, font: body), digit, Self.gold, 2)]
+            let note = l.plazaBerryCountdownNote
+            tail = [(text.line(digit, font: body), digit, Self.gold, 2)] + text.wrappedLines(note, font: small, width: inner).map { ($0, note, .white, 1) }
         case .playing(let event):
             if let event { tail = text.wrappedLines(event, font: small, width: inner).map { ($0, event, Self.gold, 1) } }
         case .result(let lines):
@@ -594,9 +595,9 @@ struct PlazaBerryBoard: Equatable {
     }
 
     /// A card lying under the top one: cream, blank.
-    private static func drawUnder(size: CGSize, u: CGFloat, on canvas: any PlazaCanvas) {
+    private static func drawUnder(size: CGSize, u: CGFloat, scale: CGFloat, on canvas: any PlazaCanvas) {
         let r = CGRect(x: -size.width / 2, y: -size.height / 2, width: size.width, height: size.height)
-        canvas.setShadow(PlazaShadow(offset: CGSize(width: 0, height: -0.2 * u * 2), blur: 0.4 * u * 2, color: PlazaColor(srgbRed: 0, green: 0, blue: 0, alpha: 0.4)))
+        canvas.setShadow(PlazaShadow(offset: CGSize(width: 0, height: -0.2 * u * scale), blur: 0.4 * u * scale, color: PlazaColor(srgbRed: 0, green: 0, blue: 0, alpha: 0.4)))
         canvas.setFillColor(.white)
         canvas.fillRoundedRect(r, radius: 0.8 * u)
         canvas.setShadow(nil)
@@ -605,13 +606,13 @@ struct PlazaBerryBoard: Equatable {
     }
 
     /// Two face-down cards: red stripes in a white border, and the count upright on top.
-    private static func drawBack(size: CGSize, u: CGFloat, rotation: CGFloat, label: PlazaTextLine, on canvas: any PlazaCanvas) {
+    private static func drawBack(size: CGSize, u: CGFloat, scale: CGFloat, rotation: CGFloat, label: PlazaTextLine, on canvas: any PlazaCanvas) {
         canvas.rotate(by: -rotation)
         let border = max(1, 0.35 * u), radius = 0.8 * u
         for offset in [CGFloat(0.25 * u), 0] {
             let r = CGRect(x: -size.width / 2 + offset, y: -size.height / 2 - offset, width: size.width, height: size.height)
             canvas.saveState()
-            canvas.setShadow(PlazaShadow(offset: CGSize(width: 0, height: -0.25 * u * 2), blur: 0.6 * u * 2, color: PlazaColor(srgbRed: 0, green: 0, blue: 0, alpha: 0.45)))
+            canvas.setShadow(PlazaShadow(offset: CGSize(width: 0, height: -0.25 * u * scale), blur: 0.6 * u * scale, color: PlazaColor(srgbRed: 0, green: 0, blue: 0, alpha: 0.45)))
             canvas.setFillColor(.white)
             canvas.fillRoundedRect(r, radius: radius)
             canvas.restoreState()
