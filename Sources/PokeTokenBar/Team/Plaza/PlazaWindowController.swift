@@ -1832,6 +1832,9 @@ import Observation
         if overDecoy, shownDitto?.isDecoy == true { scene?.showEmote(memberID: PlazaDitto.sceneKey, kind: kind) }
     }
 
+    /// 런타임이 부른다. 그림 퀴즈 화면이 붙기 전까지는 받아서 버린다.
+    func showDraw(from sender: String, _ draw: TeamDraw) {}
+
     /// 런타임이 부른다. 창이 닫혀 있으면(장면이 없으면) 아무것도 안 한다.
     func showChat(memberID: String, text: String, isLoud: Bool = false) {
         guard let scene, let member = members[memberID] else { return }

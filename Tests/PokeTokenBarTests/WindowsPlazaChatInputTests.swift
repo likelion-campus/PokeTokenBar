@@ -169,6 +169,39 @@ import XCTest
         XCTAssertFalse(r.input.isLoud, "each new line starts as an ordinary line")
     }
 
+    func testTheWordFieldCutsAtTwelveAndHasItsOwnPlaceholder() async throws {
+        let r = try rig(open: false)
+        r.input.purpose = .quizWord
+        r.input.open()
+        type(r, String(repeating: "가", count: 15))
+        XCTAssertEqual(r.input.text.count, 12)
+        XCTAssertEqual(r.input.cueText, L(.ko).plazaDrawWordPlaceholder)
+    }
+
+    func testTheWordFieldHasNoMegaphone() async throws {
+        let r = try rig(open: false)
+        r.input.purpose = .quizWord
+        r.input.open()
+        key(r, 0x09)
+        XCTAssertFalse(r.input.isLoud)
+        XCTAssertFalse(r.input.bar.isLoud)
+        XCTAssertFalse(r.input.bar.hasEmojiButton, "no 😀 in the word line, as on the Mac")
+        r.input.close()
+        XCTAssertTrue(r.input.bar.hasEmojiButton, "back for the chat line")
+    }
+
+    func testClosingPutsThePurposeBackToChat() async throws {
+        let r = try rig(open: false)
+        r.input.purpose = .quizWord
+        r.input.open()
+        r.input.close()
+        XCTAssertEqual(r.input.purpose, .chat)
+        r.input.open()
+        type(r, String(repeating: "가", count: TeamChat.maxCharacters + 1))
+        XCTAssertEqual(r.input.text.count, TeamChat.maxCharacters)
+        XCTAssertEqual(r.input.cueText, L(.ko).plazaChatPlaceholder)
+    }
+
     func testCuttingAnOverlongLineKeepsTheCaret() async throws {
         let r = try rig()
         type(r, String(repeating: "가", count: TeamChat.maxCharacters))

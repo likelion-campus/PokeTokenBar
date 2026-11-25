@@ -25,6 +25,7 @@ import Foundation
     func showPray(memberID: String)
     func showEmote(memberID: String, kind: TeamEmoteKind, alsoOver other: String?, overDecoy: Bool)
     func showChat(memberID: String, text: String, isLoud: Bool)
+    func showDraw(from sender: String, _ draw: TeamDraw)
     func showBigEvent(_ e: TeamEvent)
     func applySchedule()
     func endFocusSilently()

@@ -26,6 +26,7 @@ private final class Node {
     var emotes: [(memberID: String, emote: TeamEmote)] = []
     var chats: [(memberID: String, text: String)] = []
     var loudChats: [String] = []
+    var draws: [(memberID: String, draw: TeamDraw)] = []
 
     static let pikachu = TeamMonSummary(speciesID: 25, isShiny: false, form: nil, speciesName: "Pikachu", gender: nil)
     static let eevee = TeamMonSummary(speciesID: 133, isShiny: true, form: nil, speciesName: "Eevee", gender: nil)
@@ -55,6 +56,7 @@ private final class Node {
             chats.append(($0, $1))
             if $2 { loudChats.append($1) }
         }
+        session.onDraw = { [unowned self] in draws.append(($0, $1)) }
         session.applySettings()
     }
 
@@ -1102,6 +1104,17 @@ final class TeamSessionTests: XCTestCase {
         hub.connect(raw.transport, to: a.transport)
         raw.hello(memberID: id, nickname: String(repeating: "x", count: 13))
         XCTAssertEqual(a.session.members[id]?.nickname, "")
+    }
+
+    // MARK: - Draw
+
+    func testADrawReachesTheTeammatesOnDraw() async {
+        let a = node("A"), b = node("B")
+        connect(a, b)
+        let draw = TeamDraw(game: "g", turn: 1, seq: 0, op: .stroke, color: 2, width: 1, points: [0, 0, 5, 5])
+        a.session.sendDraw(draw)
+        XCTAssertEqual(b.draws.map(\.memberID), [a.memberID])
+        XCTAssertEqual(b.draws.map(\.draw), [draw])
     }
 
     // MARK: - Chat

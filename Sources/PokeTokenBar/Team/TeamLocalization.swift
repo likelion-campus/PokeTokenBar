@@ -591,6 +591,7 @@ extension L {
     var plazaEggName: String { "알" }
     var plazaAwaySuffix: String { "zZ" }
     var plazaChatPlaceholder: String { "한마디 (Enter 전송, Tab 확성기, Esc 취소)" }
+    var plazaDrawWordPlaceholder: String { "제시어 (12자까지)" }
     var plazaLoudPlaceholder: String { "📢 확성기: 광장 밖 팀원도 알림 (Tab 끄기)" }
     var plazaLoudTooSoon: String { "확성기는 1분에 한 번만 쓸 수 있어요" }
     var plazaChatEmoji: String { "이모지" }
