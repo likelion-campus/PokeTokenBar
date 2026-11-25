@@ -29,7 +29,7 @@ import XCTest
 
     /// (UI hidden, background hidden) after 0 to 4 clicks, and the label the pill shows.
     private static let modes: [(ui: Bool, background: Bool, label: String)] = [
-        (false, false, "모두 표시"), (true, false, "UI 숨기기"), (false, true, "배경 숨기기"), (true, true, "UI·배경 숨기기"), (false, false, "모두 표시"),
+        (false, false, "모두 표시"), (true, false, "UI 숨기기"), (false, true, "배경 숨기기"), (true, true, "UI·배경 숨김"), (false, false, "모두 표시"),
     ]
 
     func testTheUIHiddenSetIsPinnedAndInsidePhotoMode() async {
@@ -39,6 +39,25 @@ import XCTest
             XCTAssertFalse(PlazaPanelID.hiddenWithUI.contains(kept), "\(kept) stays")
         }
         XCTAssertTrue(PlazaPanelID.hiddenInPhotoMode.contains(.backgroundToggle), "photo mode hides the pill itself")
+    }
+
+    /// In the smallest window a banner (360 wide, centred) shares the top row with the pill, which is drawn over it. In no mode may the pill
+    /// reach the banner's text: only the banner's side padding may lie under it ("UI·배경 숨기기" reached 5 pt into the text). Not checked
+    /// here: the name colour pill and the guide, which lie over a banner's left end in windows under about 750 wide and did so before.
+    func testInTheSmallestWindowThePillNeverCoversABannersText() async throws {
+        let shell = RecordingPlazaShell()
+        let c = controller(shell, defaults: defaults())
+        c.show()
+        let viewport = PlazaWindowController.minContentSize
+        let bannerText = (viewport.width - PlazaPanelStyle.bannerWidth) / 2 + PlazaPanelStyle.banner.padding.width
+        for step in 0...3 {
+            if step > 0 {
+                clickToggle(c)
+                await Task.yield()
+            }
+            let frame = try XCTUnwrap(c.hud.frames(of: [.backgroundToggle], viewport: viewport, scale: 2)[.backgroundToggle])
+            XCTAssertLessThanOrEqual(frame.maxX - PlazaPanelStyle.strokeRoom, bannerText, "\(Self.modes[step].label): the pill's right edge")
+        }
     }
 
     func testFourClicksStepThroughTheModesInOrderAndTheFifthIsTheFirst() async throws {

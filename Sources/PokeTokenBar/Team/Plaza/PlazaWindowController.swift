@@ -630,7 +630,7 @@ import Observation
         shell.focusScene()
     }
 
-    /// 왼쪽 위 단추를 한 번 누른다: 모두 표시 → UI 숨기기 → 배경 숨기기 → UI·배경 숨기기 → 모두 표시. 누른 뒤에도 키는 장면이 받는다.
+    /// 왼쪽 위 단추를 한 번 누른다: 모두 표시 → UI 숨기기 → 배경 숨기기 → UI·배경 숨김 → 모두 표시. 누른 뒤에도 키는 장면이 받는다.
     func cycleDisplayMode() {
         // 모드 번호: UI 숨김이 1, 배경 숨김이 2. 0, 1, 2, 3 순으로 돈다.
         let mode = ((preferences.isUIHidden ? 1 : 0) + (preferences.isBackgroundHidden ? 2 : 0) + 1) % 4
