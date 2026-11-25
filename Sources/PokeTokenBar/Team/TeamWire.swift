@@ -66,6 +66,9 @@ struct TeamPresence: Codable, Equatable, Sendable {
     /// The `PlazaGameState.id` this member said yes to while it recruits. Left out otherwise; a receiver keeps at most
     /// `TeamWire.maxFieldBytes` bytes; earlier versions ignore it.
     @LossyOptional var gameJoin: String?
+    /// This member's own berry five bell ring (`PlazaBerryBell`). Left out when none; a receiver keeps it only inside
+    /// `PlazaBerryBell.accepted`'s bounds; unreadable values become nil; earlier versions ignore it.
+    @LossyOptional var gameBell: PlazaBerryBell?
 }
 
 /// 읽을 수 없는 값(나중 버전의 모양, 잘못된 값)을 nil 로 읽는 선택값. 이 필드만 너그럽고 나머지 필드는 합성 Codable 그대로라,

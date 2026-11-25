@@ -435,6 +435,38 @@ final class TeamWireTests: XCTestCase {
         XCTAssertEqual(Set(json?.keys ?? [:].keys), ["nickname", "character", "inPlaza", "tile", "facing", "isWalking"])
     }
 
+    private let bell = PlazaBerryBell(game: "g1", clears: 2, flip: 9, ms: 412, right: true, serial: 3)
+
+    func testAPresenceWithABellRoundTrips() throws {
+        var p = presence
+        p.gameBell = bell
+        var decoder = TeamWire.FrameDecoder()
+        let got = try decoder.append(try TeamWire.encode(.presence(p)))
+        XCTAssertEqual(got, [.presence(p)])
+        guard case .presence(let back) = got[0] else { return XCTFail() }
+        XCTAssertEqual(back.gameBell, bell)
+    }
+
+    func testAPresenceWithoutABellDecodesAsBefore() throws {
+        let text = String(decoding: try TeamWire.encode(.presence(presence)).dropFirst(4), as: UTF8.self)
+        XCTAssertFalse(text.contains("gameBell"))
+        var decoder = TeamWire.FrameDecoder()
+        let got = try decoder.append(try TeamWire.encode(.presence(presence)))
+        guard case .presence(let back) = got[0] else { return XCTFail() }
+        XCTAssertNil(back.gameBell)
+        XCTAssertEqual(back.nickname, "Ash")
+    }
+
+    func testALaterBellShapeIsDroppedAndTheFrameKept() throws {
+        let json = #"{"presence":{"_0":{"nickname":"Ash","character":{"speciesID":25,"isShiny":false,"speciesName":"P"},"inPlaza":true,"tile":{"x":3,"y":4},"facing":"left","isWalking":true,"gameBell":{"game":3}}}}"#
+        var decoder = TeamWire.FrameDecoder()
+        let got = try decoder.append(frame(json))
+        guard case .presence(let back) = got.first else { return XCTFail("frame lost") }
+        XCTAssertNil(back.gameBell)
+        XCTAssertEqual(back.nickname, "Ash")
+        XCTAssertEqual(back.tile, TilePoint(x: 3, y: 4))
+    }
+
     func testWireJSONCarriesNoUsageOrHostWords() throws {
         var withActivity = presence
         withActivity.activity = PlazaActivity(day: "2026-11-13")

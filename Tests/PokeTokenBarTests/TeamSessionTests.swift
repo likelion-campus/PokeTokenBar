@@ -989,6 +989,32 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertEqual(b.session.members[a.memberID]?.isDiving, false)
     }
 
+    private func recruiting(host: String) -> PlazaGameState {
+        PlazaGameState(id: "g1", kind: PlazaGameKind.berry.rawValue, host: host, opensAt: clock.now.timeIntervalSince1970)
+    }
+
+    func testMyBellReachesTeammatesAtOnce() async {
+        let a = node("A"), b = node("B")
+        connect(a, b)
+        let state = recruiting(host: a.memberID)
+        let bell = PlazaBerryBell(game: state.id, clears: 1, flip: 4, ms: 380, right: true, serial: 1)
+        a.session.updateGame(state, join: state.id, bell: bell)
+        XCTAssertEqual(b.session.members[a.memberID]?.gameBell, bell)
+        XCTAssertEqual(b.session.members[a.memberID]?.game, state)
+    }
+
+    func testABellIsNotSentWithoutItsGame() async {
+        let a = node("A")
+        let state = recruiting(host: a.memberID)
+        let bell = PlazaBerryBell(game: state.id, clears: 1, flip: 4, ms: 380, right: true, serial: 1)
+        a.session.updateGame(nil, join: nil, bell: bell)
+        XCTAssertNil(a.session.makePresence().gameBell)
+        a.session.updateGame(state, join: nil, bell: PlazaBerryBell(game: "other", clears: 1, flip: 4, ms: 380, right: true, serial: 1))
+        XCTAssertNil(a.session.makePresence().gameBell)
+        a.session.updateGame(state, join: nil, bell: bell)
+        XCTAssertEqual(a.session.makePresence().gameBell, bell)
+    }
+
     func testPresenceCarriesFlushedOnlyWhileOn() async {
         let a = node("A"), b = node("B")
         connect(a, b)
