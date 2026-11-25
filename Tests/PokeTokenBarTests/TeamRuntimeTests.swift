@@ -1236,5 +1236,4 @@ final class TeamRuntimeNotificationTests: XCTestCase {
         node.settings.isEnabled = true
         await settle { poster.authorizationRequests == 1 }
     }
-
 }
