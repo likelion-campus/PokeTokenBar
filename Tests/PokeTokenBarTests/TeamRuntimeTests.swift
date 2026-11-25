@@ -352,8 +352,8 @@ final class TeamRuntimeTests: XCTestCase {
         plaza.handleClose()
     }
 
-    /// A teammate who does something else stops dancing on my screen; the shared moments and the Ditto copy's jump do not.
-    func testARemotesActionEmoteOrChatStopsItsDance() async {
+    /// A teammate who does something else stops dancing on my screen; the shared moments, the Ditto copy's jump and a line do not.
+    func testARemotesActionEmoteStopsItsDanceAndALineDoesNot() async {
         let (a, b) = connectedPair()
         let suite = "ptb.test.team.runtime.danceStop.\(UUID().uuidString)"
         let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: TestDefaults.make(suite: suite)),
@@ -375,7 +375,9 @@ final class TeamRuntimeTests: XCTestCase {
         }
         await dance()
         a.runtime.session.sendChat("안녕", loud: false)
-        await settle { plaza.scene?.isDancing(memberID: sender) == false }
+        await settle { plaza.scene?.shownChat(memberID: sender) == "안녕" }
+        XCTAssertEqual(plaza.scene?.shownChat(memberID: sender), "안녕")
+        XCTAssertEqual(plaza.scene?.isDancing(memberID: sender), true, "a line leaves the dance going")
         for kind in TeamEmoteKind.allCases where !kind.endsSendersDance && kind != .dance {
             await dance()
             a.runtime.session.sendEmote(kind, target: nil)

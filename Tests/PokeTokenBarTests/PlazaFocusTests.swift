@@ -779,7 +779,7 @@ final class PlazaFocusTests: XCTestCase {
         await gate.tick()
     }
 
-    /// 말풍선·점프·인사·몸통박치기·불꽃놀이·글은 실제로 일어날 때 내 춤을 멈추고, 연타 제한에 걸려 아무 일도 없으면 멈추지 않는다.
+    /// 말풍선·점프·인사·몸통박치기·불꽃놀이는 실제로 일어날 때 내 춤을 멈추고, 연타 제한에 걸려 아무 일도 없으면 멈추지 않는다.
     func testEachLocalActionStopsMyDance() async {
         var sceneClock = 4000.0
         let actions: [(String, (PlazaWindowController) -> Void)] = [
@@ -788,7 +788,6 @@ final class PlazaFocusTests: XCTestCase {
             ("greet", { $0.scene!.onGreetKey?() }),
             ("tackle", { $0.scene!.onTackleKey?() }),
             ("firework", { $0.scene!.onFireworkKey?() }),
-            ("chat", { _ = $0.chatInputForTesting.onSubmit?("안녕") }),
         ]
         for (name, act) in actions {
             let (_, other, c) = await pair(start: spawn)
@@ -813,6 +812,20 @@ final class PlazaFocusTests: XCTestCase {
         XCTAssertTrue(scene.isDancing(memberID: nil))
         scene.onEmoteKey?(.lol)   // same controller clock: too soon, ignored
         XCTAssertTrue(scene.isDancing(memberID: nil), "a bubble that was refused does not stop the dance")
+        c.handleClose()
+        await gate.tick()
+    }
+
+    /// 한마디는 내 춤을 멈추지 않는다. 말풍선이 ♪ 자리에 뜨고 춤은 이어진다.
+    func testALineDoesNotStopMyDance() async {
+        let (_, other, c) = await pair(start: spawn)
+        let scene = c.scene!
+        await place(other, at: beside, in: c)
+        key(scene, dKey)
+        XCTAssertTrue(scene.isDancing(memberID: nil))
+        XCTAssertEqual(c.chatInputForTesting.onSubmit?("안녕"), true, "the line went out")
+        XCTAssertTrue(scene.isDancing(memberID: nil), "a line leaves the dance going")
+        XCTAssertEqual(scene.shownChat(memberID: nil), "안녕")
         c.handleClose()
         await gate.tick()
     }

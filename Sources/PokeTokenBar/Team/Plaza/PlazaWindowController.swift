@@ -643,8 +643,7 @@ import Observation
         }
         lastChatAt = now
         if loud { lastLoudAt = now }
-        scene.stopDance(memberID: nil)
-        scene.showChat(memberID: nil, text: text)
+        scene.showChat(memberID: nil, text: text)   // 춤은 멈추지 않는다. 말풍선이 떠 있는 동안 ♪만 가려진다
         chatLog.append(time: now, name: nickname(), text: text, color: scene.nameColor, isLoud: loud)
         session?.sendChat(text, loud: loud)
         if loud { showBanner(L(.ko).teamMegaphoneNotice(nickname: nickname(), text: text)) }
@@ -837,7 +836,7 @@ import Observation
         scene?.playFirework(memberID: memberID, style: style)
     }
 
-    /// 런타임이 부른다. 팀원이 다른 동작(말풍선, 글, 점프 같은)을 해 그 팀원의 춤을 멈춘다. 창이 닫혀 있으면 아무것도 안 한다.
+    /// 런타임이 부른다. 팀원이 다른 동작(말풍선, 점프 같은)을 해 그 팀원의 춤을 멈춘다. 한마디는 춤을 멈추지 않아 이걸 부르지 않는다. 창이 닫혀 있으면 아무것도 안 한다.
     func stopDance(memberID: String) {
         scene?.stopDance(memberID: memberID)
     }
