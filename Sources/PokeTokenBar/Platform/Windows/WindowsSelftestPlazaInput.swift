@@ -79,12 +79,13 @@ extension WindowsSelftest {
         await tap(PlazaKeyCode.space, hold: 0.9)
         await pumpFor(0.2)
         let afterHold = c.berryTableSpaces
-        let onlyTable = panels.drawList.count == 1 && panels.entries[.berryTable] != nil
+        let drawn = panels.drawList.count, hasTable = panels.entries[.berryTable] != nil
+        let onlyTable = drawn == 1 && hasTable
         let open = c.isBerryTableOpen
         c.setBerryBoardForTesting(nil)
         await pumpFor(0.3)
         r.add("plaza.berrySpace", open && afterTap == before + 1 && afterHold == before + 2 && onlyTable,
-              "table open \(open); Space presses that reached it: \(before) -> \(afterTap) after one tap, \(afterHold) after a 0.9 s hold (expected +1 each); drawn panels \(panels.drawList.count), the table among them: \(panels.entries[.berryTable] != nil) (expected it alone)")
+              "table open \(open); Space presses that reached it: \(before) -> \(afterTap) after one tap, \(afterHold) after a 0.9 s hold (expected +1 each); drawn panels \(drawn), the table among them: \(hasTable) (expected it alone), both read before the table closed")
     }
 
     /// plaza.keys, plaza.repeat, plaza.walk, plaza.altAlone, plaza.altGr, plaza.resignReleasesKeys, plaza.imeOff, plaza.click.

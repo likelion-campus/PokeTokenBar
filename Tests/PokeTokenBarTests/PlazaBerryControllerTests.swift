@@ -757,4 +757,42 @@ final class PlazaBerryControllerTests: XCTestCase {
         XCTAssertFalse(w.c.isBerryTableOpen)
         XCTAssertNil(w.c.gameJoined)
     }
+
+    func testAResultThatEndedWhileHiddenShowsForFiveSecondsFromWhenItIsShown() async throws {
+        let w = await world()
+        await lock(w, seed: richDeal)
+        w.c.setRendering(visible: false)
+        var rung = -1
+        for _ in 0..<2500 {
+            await run(w, ticks: 1)
+            guard let s = w.c.gameState, let b = s.berry else { continue }
+            if s.endedAt != nil { break }
+            if hasFive(w), rung != b.clears.count { rung = b.clears.count; ring(w, w.d) }   // d wins; I am hidden and ring nothing
+        }
+        XCTAssertNotNil(w.c.gameState?.endedAt, "test precondition")
+        await run(w, seconds: 10)
+        XCTAssertTrue(w.c.isBerryTableOpen, "a hidden window never sees the result, so the timer has not run")
+        w.c.setRendering(visible: true)
+        await run(w, seconds: 4.5)
+        XCTAssertTrue(w.c.isBerryTableOpen, "the result shows for five seconds from now")
+        await run(w, seconds: 0.8)
+        XCTAssertFalse(w.c.isBerryTableOpen)
+    }
+
+    func testTheTableOfANoScoreEndHasNoWinnerOrTieLine() async throws {
+        let l = L(.ko)
+        let w = await world()
+        await lock(w)
+        for _ in 0..<3000 {
+            await run(w, ticks: 1)
+            if w.c.gameState?.endedAt != nil { break }
+        }
+        XCTAssertNotNil(w.c.gameState?.endedAt, "test precondition: the deck ran out")
+        XCTAssertEqual(w.c.gameState?.berry?.scores.reduce(0, +), 0)
+        guard case .result(let lines)? = w.c.berryBoard?.center else { return XCTFail("the centre shows the result") }
+        XCTAssertEqual(lines.first, l.plazaGameOverBanner(game: l.plazaGameName(.berry)))
+        XCTAssertFalse(lines.contains { $0.contains("공동") }, "\(lines)")
+        press(w, spaceKey)
+        XCTAssertEqual(w.c.banner, l.plazaGameOverBanner(game: l.plazaGameName(.berry)), "the banner after closing says the same")
+    }
 }

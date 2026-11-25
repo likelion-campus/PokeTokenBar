@@ -38,15 +38,20 @@ extension PlazaBerryBoard {
         case .over:
             let ranking = PlazaBerry.ranking(s)
             var lines: [String] = []
+            // The banner's rule: a winner; a tie only at a top score above 0; a deck that ran out with no point is just over.
+            let best = ranking.first?.score ?? 0
+            let leaders = ranking.filter { $0.score == best }
             if let winner = s.winner {
                 lines.append(l.plazaBerryWinner(nickname: shown(winner)))
+            } else if best > 0, leaders.count > 1 {
+                lines.append(l.plazaBerryTie(names: leaders.map { info($0.id).name }))
             } else {
-                let best = ranking.first?.score ?? 0
-                lines.append(l.plazaBerryTie(names: ranking.filter { $0.score == best }.map { info($0.id).name }))
+                lines.append(l.plazaGameOverBanner(game: l.plazaGameName(.berry)))
             }
             for (i, r) in ranking.enumerated() {
-                let place = (ranking.firstIndex { $0.score == r.score } ?? i) + 1
-                lines.append(l.plazaBerryRank(place: place, nickname: info(r.id).name, score: r.score, tied: ranking.filter { $0.score == r.score }.count > 1))
+                let place = best > 0 ? (ranking.firstIndex { $0.score == r.score } ?? i) + 1 : i + 1
+                lines.append(l.plazaBerryRank(place: place, nickname: info(r.id).name, score: r.score,
+                                              tied: best > 0 && ranking.filter { $0.score == r.score }.count > 1))
             }
             lines.append(l.plazaBerryCloseHint)
             center = .result(lines: lines)

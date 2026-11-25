@@ -3246,12 +3246,12 @@ extension PlazaWindowController {
             guard berryTableClosedGame != s.id else { return }
             openBerryTable()
         }
-        if phase == .over {
+        guard hud.isRendering else { return }   // a hidden window keeps the board it had: a jump of flips is one sudden change when it shows again
+        if phase == .over {   // the five seconds count from when the result is on screen
             let seen = berryResultSeen?.game == s.id ? berryResultSeen!.at : now
             berryResultSeen = (s.id, seen)
             if now.timeIntervalSince(seen) >= PlazaBerry.resultSeconds - 1e-6 { return closeBerryTable() }
         }
-        guard hud.isRendering else { return }   // a hidden window keeps the board it had: a jump of flips is one sudden change when it shows again
         let me = memberID()
         let board = PlazaBerryBoard.make(engine: game, now: now, uptime: uptime()) { [self] id in
             if id == me {
