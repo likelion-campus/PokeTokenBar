@@ -1230,11 +1230,21 @@ import Observation
         let now = clock()
         let before = game.state
         move(&game, now)
-        for m in members.values { game.learn(m.game, from: m.memberID, now: now) }
+        let lostBefore = game.lostConnection
+        for m in members.values where m.inPlaza { if let id = m.gameJoin { game.heardPlaying(id) } }
+        for m in members.values {
+            // A plaza that is closed cannot follow a drawing quiz: its running copy is whatever it held at the close.
+            // (The bomb's leave write travels in such a copy, so only the quiz is held back; an ended copy always counts.)
+            if !m.inPlaza, let g = m.game, g.kind == PlazaGameKind.draw.rawValue, g.startsAt != nil, g.endedAt == nil { continue }
+            game.learn(m.game, from: m.memberID, now: now)
+        }
         let present = gamePresent
         let id = game.state?.id
         game.tick(now: now, present: present, joins: Set(members.values.filter { $0.inPlaza && id != nil && $0.gameJoin == id }.map(\.memberID)),
-                  connected: !members.isEmpty)
+                  connected: !members.isEmpty, heard: Set(members.keys))
+        if let lost = game.lostConnection, lost != lostBefore, lost == game.state?.id, game.state?.kind == PlazaGameKind.draw.rawValue {
+            showBanner(game.lostWithTeammates ? L(.ko).plazaGameLostPlayersBanner : L(.ko).plazaGameLostConnectionBanner)   // the quiz keeps its state when I step out, so `gameChanged` does not see it
+        }
         session?.updateGame(game.state, join: game.joined)
         if game.state != before { gameChanged(from: before, now: now) }
         refreshGame(now: now)
@@ -1256,7 +1266,7 @@ import Observation
         if iPlay, same, let last = s.draw?.last, last != old?.draw?.last {   // the drawing quiz's turn ended
             if let solver = last.solver {
                 flash(.init(text: solver == me ? l.plazaDrawRight : l.plazaDrawRightBy(nickname: name(solver)), tone: .win), for: Self.gameWinFlash)
-            } else {
+            } else if last.word != nil {   // a skipped turn has no word: the board's foot already says so
                 flash(.init(text: l.plazaDrawTimeUp, tone: .out), for: Self.gameOutFlash)
             }
         }
@@ -1319,8 +1329,11 @@ import Observation
             joined = 1 + members.values.filter { $0.inPlaza && $0.gameJoin == s.id && $0.memberID != s.host }.count
                 + (game.joined == s.id && s.host != me ? 1 : 0)
         }
+        let playing = game.state.map { s in
+            Set(members.values.filter { $0.inPlaza && $0.gameJoin == s.id }.map(\.memberID)).union(game.joined == s.id ? [me] : [])
+        }
         let view = PlazaGameView.make(engine: game, now: now, joinedCount: joined, canPlay: subject().speciesID != nil,
-                                      flash: gameFlashes.first(where: { $0.from <= now })?.title, drawNote: quiz.note,
+                                      flash: gameFlashes.first(where: { $0.from <= now })?.title, drawNote: quiz.note, entryWait: wordEntryWait, playing: playing,
                                       name: { [members, nickname] in $0 == me ? nickname() : members[$0]?.nickname })
         let hintChanged = view.hint != gameView.hint || view.status != gameView.status
         let marksChanged = view.holder != gameView.holder || view.alive != gameView.alive || view.out != gameView.out
@@ -2955,6 +2968,14 @@ extension PlazaWindowController {
     fileprivate var isWordEntryOn: Bool {
         if game.isDrawer, case .entry? = drawPhaseNow { return true }
         return false
+    }
+
+    /// My entry phase is on but the word field cannot open yet: a chat line is open, or a window or photo mode has the keyboard.
+    fileprivate var wordEntryWait: PlazaGameView.EntryWait? {
+        guard isWordEntryOn, !(chatInput.isOpen && chatInput.purpose == .quizWord), let s = game.state, let d = s.draw,
+              quiz.wordTurn != DrawQuiz.Key(game: s.id, turn: d.turn) else { return nil }
+        if chatInput.isOpen { return .chatOpen }
+        return overlayModel.content != .none || isPhotoMode ? .overlay : nil
     }
 
     private var isDrawing: Bool {

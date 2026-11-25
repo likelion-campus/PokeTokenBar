@@ -37,6 +37,8 @@ enum PlazaDraw {
     }
     static let wordSeconds: TimeInterval = 20, drawSeconds: TimeInterval = 60, revealSeconds: TimeInterval = 6
     static let refereeSlack: TimeInterval = 10
+    /// A machine that is not playing drops a quiz in which it has seen no player playing for this long.
+    static let abandonedAfter: TimeInterval = 5
     static let guessPoints = 10, drawerPoints = 5
     static let maxWordCharacters = 12
     /// The word's size on the wire: combining marks make a short word long, and the word is relayed to every Mac.
@@ -87,11 +89,21 @@ enum PlazaDraw {
 
     private static let ignoredPunctuation: Set<Character> = [".", ",", "!", "?", "~", "\u{2026}", "\"", "'", "\u{201C}", "\u{201D}", "\u{2018}", "\u{2019}"]
 
+    /// Punctuation of any script ("사과！", "사과。") is ignored like the ASCII kind.
+    private static func isPunctuation(_ c: Character) -> Bool {
+        ignoredPunctuation.contains(c) || c.unicodeScalars.allSatisfy {
+            switch $0.properties.generalCategory {
+            case .connectorPunctuation, .dashPunctuation, .openPunctuation, .closePunctuation, .initialPunctuation, .finalPunctuation, .otherPunctuation: true
+            default: false
+            }
+        }
+    }
+
     /// Spaces and punctuation dropped, ASCII letters lowercased. Swift compares `Character`s by canonical equivalence,
     /// so decomposed Hangul equals the precomposed text without any Foundation normalisation.
     private static func cleaned(_ s: String) -> [Character] {
         s.compactMap { c in
-            if c.isWhitespace || ignoredPunctuation.contains(c) { return nil }
+            if c.isWhitespace || isPunctuation(c) { return nil }
             return c.isASCII ? Character(c.lowercased()) : c
         }
     }
@@ -128,6 +140,11 @@ enum PlazaDraw {
             if (0x1100...0x1112).contains(v) { return initialConsonants[Int(v - 0x1100)] }
             return unknownInitial
         })
+    }
+
+    /// What an `initials` string may hold: what a word may hold, and the marks `initials` itself writes (the initial consonants and "○").
+    private static func isInitialsScalar(_ u: Unicode.Scalar) -> Bool {
+        isAllowed(u) || u == unknownInitial.unicodeScalars.first! || initialConsonants.contains { $0.unicodeScalars.first == u }
     }
 
     /// What the hints show `elapsed` seconds after drawing began.
@@ -209,7 +226,8 @@ enum PlazaDraw {
               d.scores.allSatisfy({ known.contains($0.key) && (0...(d.order.count * 10)).contains($0.value) }),
               d.entryAt.map(\.isFinite) ?? true, d.drawAt.map(\.isFinite) ?? true,
               d.letters.map({ (0...maxWordCharacters).contains($0) }) ?? true,
-              (d.initials?.count ?? 0) <= maxWordCharacters, (d.initials?.utf8.count ?? 0) <= maxWordBytes else { return nil }
+              (d.initials?.count ?? 0) <= maxWordCharacters, (d.initials?.utf8.count ?? 0) <= maxWordBytes,
+              d.initials?.unicodeScalars.allSatisfy(isInitialsScalar) ?? true else { return nil }
         var kept = d
         if let r = d.last {
             guard (0..<d.order.count).contains(r.turn), known.contains(r.drawer), r.solver.map(known.contains) ?? true else { return nil }

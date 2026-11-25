@@ -746,7 +746,7 @@ extension PlazaGameTests {
         XCTAssertNotNil(PlazaGame.accepted(s, now: now))
     }
 
-    func testTheMenuDoesNotOfferTheDrawingQuizYet() {
-        XCTAssertEqual(PlazaGameMenu().kinds, [.bomb])
+    func testTheMenuOffersBothGames() {
+        XCTAssertEqual(PlazaGameMenu().kinds, [.bomb, .draw])
     }
 }

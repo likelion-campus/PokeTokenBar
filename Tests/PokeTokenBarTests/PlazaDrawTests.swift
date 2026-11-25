@@ -61,6 +61,15 @@ final class PlazaDrawTests: XCTestCase {
         XCTAssertFalse(PlazaDraw.matches("!!", word: "사과"))
     }
 
+    func testFullWidthAndOtherPunctuationAtTheEndIsIgnoredLikeASCII() {
+        for line in ["사과！", "사과。", "사과？", "사과、", "「사과」", "사과…", "사과!!"] {
+            XCTAssertTrue(PlazaDraw.matches(line, word: "사과"), line)
+        }
+        XCTAssertTrue(PlazaDraw.matches("사과！", word: "사과 "))
+        XCTAssertFalse(PlazaDraw.matches("사과！다", word: "사과"), "punctuation is dropped, the letters still have to be the word")
+        XCTAssertTrue(PlazaDraw.contains("이건 사과！ 야", word: "사과"))
+    }
+
     func testTheDrawersOwnLineIsBlockedOnlyWhenItHoldsTheWord() {
         XCTAssertTrue(PlazaDraw.contains("힌트: 사 과!", word: "사과"))
         XCTAssertTrue(PlazaDraw.contains(decomposed("이건 사과야"), word: "사과"))
@@ -206,6 +215,26 @@ final class PlazaDrawTests: XCTestCase {
     }
 
     // MARK: - Bounds
+
+    func testInitialsOfOtherCharactersAreRefusedAndTheOnesTheHintWritesAreKept() {
+        let players = ["a", "b", "c"]
+        func with(_ initials: String) -> PlazaDrawState? {
+            PlazaDraw.accepted(PlazaDrawState(order: ["a", "b", "c"], turn: 0, drawAt: 1, letters: 2, initials: initials, step: 3, scores: [:]), players: players)
+        }
+        for ok in [PlazaDraw.initials("사과"), PlazaDraw.initials("꽃 2송이"), PlazaDraw.initials("TV"), "ㅅㅇ ㅋ"] { XCTAssertNotNil(with(ok), ok) }
+        XCTAssertNil(with("ㅅ\u{7}"), "a control character")
+        XCTAssertNil(with("\u{202E}ㅅㄱ"), "a bidi override")
+        XCTAssertNil(with("ㅅ\n"), "a line break")
+        XCTAssertNil(with("ㅅ\u{2066}"), "a bidi isolate")
+    }
+
+    func testABombPayloadOnAQuizIsRefused() {
+        var s = game()
+        s.draw = nil
+        XCTAssertNotNil(PlazaGame.accepted(s, now: Date(timeIntervalSince1970: 1_800_000_031)), "test precondition: a started quiz without a payload is kept")
+        s.bomb = PlazaBombState(round: 1, roundStartsAt: 1_800_000_030, holder: "a")
+        XCTAssertNil(PlazaGame.accepted(s, now: Date(timeIntervalSince1970: 1_800_000_031)))
+    }
 
     func testAPayloadOutOfBoundsIsRefusedAndABadWordIsOnlyRemoved() {
         let players = ["a", "b", "c"]
