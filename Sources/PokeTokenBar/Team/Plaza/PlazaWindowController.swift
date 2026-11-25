@@ -481,7 +481,7 @@ import Observation
         s.setBackgroundHidden(preferences.isBackgroundHidden)
         backgroundModel.isHidden = preferences.isBackgroundHidden
         shortcutModel.isFolded = preferences.areShortcutsFolded
-        applyUIHidden()
+        if preferences.isUIHidden { applyUIHidden() }   // the window opens shown: only a remembered hide needs telling
         s.onOverlayKey = { [weak self] in self?.handleOverlayKey($0) }
         s.onWalkKey = { [weak self] in self?.standUp() }
         if let feed {
