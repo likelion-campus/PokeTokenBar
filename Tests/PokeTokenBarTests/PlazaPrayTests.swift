@@ -91,6 +91,7 @@ final class PlazaPrayTests: XCTestCase {
     /// A prays, also with Hangul input (the character is "ㅁ"); not with Cmd/Ctrl/Opt or when held.
     func testAKeyPraysWithHangulInputOnly() async {
         let scene = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: map.spawn, zoom: 2, nickname: "나")
+        pinPlazaClock(scene)
         var presses = 0
         scene.onPrayKey = { presses += 1 }
         XCTAssertEqual(scene.handleKeyDown(keyCode: prayKey, characters: "ㅁ", isRepeat: false), .swallowed)

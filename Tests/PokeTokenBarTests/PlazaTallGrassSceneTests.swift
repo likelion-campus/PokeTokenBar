@@ -12,6 +12,7 @@ final class PlazaTallGrassSceneTests: XCTestCase {
     func scene(start: TilePoint, tallGrass: PlazaTallGrassArt?, zoom: Int = 2) -> PlazaScene {
         let s = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: start, zoom: zoom,
                            nickname: "me", tallGrass: tallGrass)
+        pinPlazaClock(s)
         s.size = CGSize(width: 800, height: 600)
         s.backingOverride = 2
         return s

@@ -9,6 +9,7 @@ final class PlazaTackleWaterTests: XCTestCase {
     private func scene(start: TilePoint) -> PlazaScene {
         let s = PlazaScene(map: PlazaMapData.map, mapImage: PlazaTileArt.plainGrassImage(PlazaMapData.map), start: start, zoom: 2,
                            nickname: "me", pondVisuals: true)
+        pinPlazaClock(s)
         s.size = CGSize(width: 800, height: 600)
         s.backingOverride = 2
         s.setCharacter(frames())
