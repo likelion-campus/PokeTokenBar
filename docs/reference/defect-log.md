@@ -854,6 +854,17 @@ read_when:
   `xcrun xctest -XCTest <모듈.스위트> -AppleLanguages '(en)' <.xctest 번들>` 로 재현된다.
   로컬 재현은 도구체인 조합에 달려 있다: 이 Mac 의 CLT(Swift 6.0.3)는 `SwiftBridging` 모듈 중복으로
   `Foundation` 을 못 읽고, Xcode 26.5 컴파일러에 15.2 SDK 를 붙이면 `@Observable` 매크로가 맞지 않는다.
+  **재발(2026-11-26, 열매 다섯 탁자 패널, Windows 빌드):** `PlazaBerryTablePanel.swift` 에서 `error: sending 'draw' risks
+  causing data races [#SendingRisksDataRace]` 로 첫 Windows 빌드가 실패했다. `cardLayer` 의 `draw` 인자는 비격리
+  클로저인데, `picture(...)` 에 넘긴 `@MainActor` 클로저 안에서 불렀다. Mac 툴체인은 이 진단을 내지 않아 로컬 전체
+  테스트가 통과했다. **왜 못 걸렀나:** Windows 컴파일러는 CI 에서만 돈다(Mac 의 `swift test` 는 `Platform/Windows`
+  를 컴파일하지 않지만, 이 파일은 공유 소스라 Mac 에서 컴파일되고도 통과했다). → 그리는 클로저 인자와 그것을 돌려주는
+  `face(...)` 를 `@MainActor` 로 선언했다. **스윕:** `Sources/PokeTokenBar/Team` 에서 `picture(`/`image(scale:` 에 넘긴 클로저
+  안에서 클로저 *인자*를 부르는 곳을 찾았다. `PlazaPanel.image`, `PlazaBoardPanel.image`, `PlazaChatLogPanel.image`,
+  `PlazaCardPanel.image` 는 `draw(canvas)` 를 자기 본문에서 직접 부르고 다른 클로저 안에서 부르지 않아 해당 없음.
+  `PlazaBerryTablePanel.picture` 도 `draw` 를 통째로 넘길 뿐 안에서 부르지 않는다. 해당하는 곳은 `cardLayer` 하나였다.
+  **규칙:** 클로저를 받아 다른 클로저 안에서 부르는 도우미는 인자를 `@MainActor` 로 선언하고, 공유 소스를 건드린
+  브랜치는 Mac 이 통과해도 `windows.yml` 을 돌려 본다.
   **재발(2026-11-05, 사진 모드 PR #67):** 새 `@MainActor` 테스트가 동기 `override func setUp() { clockTime = 0 }` 로
   격리된 `var` 를 되돌려 CI(Xcode 16.4/Swift 6.1.2)의 테스트 컴파일이 실패했다. 로컬 Xcode 26.5(Swift 6.3.2)는 통과시킨다.
   **왜 못 걸렀나:** 위 규칙이 문장으로만 있어 계획의 전역 제약에도 과제 리뷰에도 들어가지 않았고, 로컬 전체 테스트와
@@ -3664,6 +3675,14 @@ Found before release by three independent read-only reviews (correctness, policy
 - **영구 캡처:** `PlazaSceneClockScanTests` — 테스트 파일에서 `PlazaScene(` 을 만드는 줄마다 뒤 14줄 안에 `pinPlazaClock(` 또는 `.now = ` 가 없으면 실패한다(텍스트 스캔이라 맞는 시각인지까지는 못 본다). 고정 전에는 31곳에서 실패했고, 한 곳의 고정을 지우면 다시 실패한다. 허용 목록은 비어 있다.
 - **규칙:** 규칙이 글에만 있으면 다음 테스트가 어긴다. 장면을 만드는 테스트는 시계를 고정하고(`pinPlazaClock`), 새로 알게 된 "벽시계에서 받는 것"은 위 스캔의 주석과 이 항목에 더한다. 시간 의존 결함은 로컬 통과로 닫지 말고 시계를 경계 너머로 주입해 같은 숫자로 실패하는지를 본다.
 
+## 윈도우 숨김 HUD 테스트가 CI 에서 실패했다: 두 브랜치가 각각 광장 패널을 하나씩 더했는데 고정된 개수가 한 칸 모자랐다 (윈도우 CI 45643416640, 2026-11-26, feat/berry-five-table)
+- **증상:** `WindowsPlazaPanelsTests.testHUDHiddenHidesTheMacsSet` 의 207·220줄이 `16` 대 `15` 로 실패했다.
+- **직접 원인:** 이 브랜치는 `.berryTable`, `origin/main` 은 `.drawBoard`(#382)를 더했고 양쪽이 같은 줄을 14에서 15로 고쳤다. 두 쪽의 수정이 똑같으면 머지가 충돌 없이 15로 합친다(3e954a0b 와 #382 커밋 둘 다 15). 맞는 값은 16이다. 다른 고정 목록(`zOrder` 등)은 충돌이 나서 손으로 고쳤지만 이 줄은 충돌로 드러나지 않았다.
+- **왜 못 걸렀나:** 파일이 `#if os(Windows)` 라 Mac 의 `swift test` 는 컴파일도 하지 않는다. 머지를 푸는 쪽은 충돌 난 부분만 다시 보고, 리뷰어는 diff 만 읽는데 이 줄은 머지 diff 에 나타나지 않는다.
+- **부류 스윕:** 양쪽이 바꾼 `Tests`·`Sources` 파일 중 윈도우 전용(`#if os(Windows)`, `Platform/Windows`)은 `WindowsPlazaPanelsTests.swift` 뿐이었고, 같은 식으로 합쳐진 줄은 이 두 줄뿐이었다. Mac 에서 도는 개수(`PlazaWindowTests+Mac` 의 17 등)는 이미 통과했다.
+- **영구 캡처:** 기계로 막는 장치는 없다(머지가 조용히 합치는 줄을 잡을 방법이 없다). 대신 `windows.yml` 이 이 브랜치에서 다시 돈다.
+- **규칙:** 광장 패널 id 나 개수가 걸린 항목을 더하는 브랜치에 main 을 머지한 뒤에는 양쪽이 더한 만큼을 합쳐 고정된 숫자·목록을 전부 다시 센다. 윈도우 전용 테스트를 건드리는 브랜치는 머지 전에 `windows.yml` 을 브랜치에서 돌린다.
+
 ## 끝난 미니게임이 약 1분 뒤 되살아났다: 광장을 닫은 Mac이 얼어붙은 진행 중 사본을 계속 보냈다 (그림 퀴즈 최종 리뷰 C1, 2026-11-25, feat/draw-quiz-menu)
 - **증상:** 그림 퀴즈 도중 한 명이 광장 창을 닫으면(앱은 켜진 채), 나머지가 판을 끝내고 순위 카드가 60초 보인 뒤 판이 다시 나타났다: 그리는 사람이 다시 "내 차례!" 를 보거나, 제시어 없이 빈 그림판만 남거나, 남은 차례를 옛 점수로 다시 돌렸다. 끝나면 60초 뒤 또 되살아나 판을 연 지 15분까지 반복했고, 그동안 M 메뉴는 "진행 중" 이었다. 폭탄 돌리기도 같은 구조였다(폭탄은 퓨즈가 이미 지나 대개 같은 걸음에 다시 끝나서 보이지 않았을 뿐).
 - **직접 원인:** 로비가 낡은 사본을 막는 수단은 "끝난 사본이 진행 중 사본보다 앞선다" 하나뿐이고, 끝난 사본은 `endedKeep`(60초) 뒤 잊힌다. 광장을 닫은 Mac은 판의 끝을 못 배우고(`stepGame` 은 장면이 있어야 돈다) 닫을 때 알던 진행 중 상태를 하트비트마다 보낸다(`makePresence` 는 `opensAt + maxLife` 까지 살아 있다고 본다). 다른 Mac은 매 걸음 모든 팀원에게서 배우므로, 끝난 사본이 사라진 첫 걸음에 `merged(nil, 그 사본)` 이 그 사본을 채택했다.
@@ -3672,3 +3691,12 @@ Found before release by three independent read-only reviews (correctness, policy
 - **고침:** (a) 엔진이 끝난 판의 id 를 기억한다(`finished[id] = opensAt`, `settle` 에서 끝난 상태를 볼 때마다, `opensAt + maxLife` 뒤 정리). `learn` 은 기억된 id 의 끝나지 않은 사본을 버린다. 폭탄을 포함한 모든 종류에 적용된다. (b) `stepGame` 은 광장에 없는 팀원의 시작된 그림 퀴즈 사본(끝나지 않은 것)을 배우지 않는다(폭탄은 그 사본에 떠난 쓰기가 실려 오므로 그대로). (c) 참가하지 않는 Mac이 5초 동안 참가자 한 명도 못 보면(팀원은 들린다) 그 퀴즈를 이 Mac에서만 접고 `finished` 에 적는다(모두가 광장을 닫은 판이 15분 남지 않게).
 - **부류 스윕:** 로비와 프레즌스에서 사본이나 대답을 들고 있다가 그것을 이긴 상태보다 오래 남을 수 있는 것을 전부 훑었다. `cancelled`(취소된 모집 알림): 취소된 판은 시작된 적이 없어 얼어붙은 모집 사본은 `opensAt + 모집시간 + hostGrace` 에 스스로 만료되고 그것은 끝난 사본(60초)보다 먼저라 되살아날 수 없다. `gameJoin`(내 대답): `joins` 가 광장에 있는 팀원만 세므로 닫은 Mac의 낡은 대답은 세지 않고, `joined` 는 상태 id 가 바뀌면 지워진다. `declined`, `startRequested`: 내 Mac 안에만 있고 상태 id 로 지워진다. 그림 메시지(`showDraw`): 보낸 사람의 광장 상태와 그 사람의 현재 사본으로 판정해서 얼어붙은 사본으로는 통과하지 않는다. `TeamSession.makePresence`/`receivePresence` 는 `accepted` 를 통과한 사본을 그대로 전한다: 이 경로가 사본을 오래 들게 하는 원인이므로 보내는 쪽은 손대지 않고 받는 쪽 규칙(위 (a)~(c))으로 막았다. 그 밖에 지금 이 길로 오래 사는 사본은 찾지 못했다.
 - **영구 캡처:** 하니스에 `closed`(tick 도 learn 도 하지 않지만 마지막 상태는 모두에게 들린다), 관찰자마다 다른 시야(`views`: 본 것과 들은 것), hello 만 온 팀원을 더했다. `testAClosedPlazasFrozenQuizNeverBringsAFinishedGameBack`, `testAClosedPlazasFrozenBombCopyNeverBringsAFinishedGameBack`(끝난 뒤 `endedKeep + 2` 초와 60초를 더 걸으며 매 초 상태가 없는지 본다), `testAQuizNobodyPlaysIsDroppedAfterFiveSecondsAndStaysGone`, 컨트롤러의 닫힌 광장 사본 테스트. `finished` 검사나 (c) 를 지우면 각각 실패하는 것을 확인했다. 규칙: 사본을 전하는 길이 있으면 하니스는 "닫힌 Mac의 마지막 상태가 계속 들리는 경우" 와 "끝난 뒤 만료를 넘겨 걷는 경우" 를 밟는다.
+
+## 컷된 참가자가 판의 `joined` 를 쥐고 있어 버려진 판이 사라지지 않았다 (열매 다섯 최종 리뷰 I1, 2026-11-26, feat/berry-five-rules)
+- **증상:** 한꺼번에 9명 이상이 참가하면(열매 다섯·그림 퀴즈 상한 8명, 폭탄 20명) 잠금에서 밀린 9번째부터는 판에 들지 못했는데도 `joined == 판 id` 를 판이 끝날 때까지 쥐었다. 열매 다섯에서는 id 가 뒤에 오는 호스트도 그렇다. 그 Mac의 프레즌스가 `gameJoin == id` 를 계속 알려 모든 Mac의 `stepGame` 이 `heardPlaying(id)` 로 `abandoned[id]` 를 지웠다. 판이 딜러의 끝 없이 버려지면(여덟 명이 한꺼번에 나가거나, 고립 뒤 마지막 한 명이 빠질 때) 밀린 Mac은 판을 접지 못하고 진행 중 사본을 계속 중계했고, 구경꾼은 5초 뒤 접었다가 다음 걸음에 다시 채택해 "판이 시작됐어요" 배너를 `opensAt + 15분` 까지 되풀이했다.
+- **직접 원인:** `PlazaGame.tick` 의 잠금이 `prefix(cap)` 으로 참가자를 자르는데(`PlazaGame.swift` 잠금부), `settle` 은 판 id 가 바뀔 때만 `joined` 를 지웠다. 버려진 판을 접는 조건(`dropAbandonedDraw` 의 `joined != s.id`)과 프레즌스의 `gameJoin` 이 모두 이 플래그를 읽는다.
+- **왜 못 걸렀나:** 잠금이 상한보다 많은 참가자를 자르는 테스트(`testNineAnswersLockTheFirstEightByID`)는 명단만 확인했고, 자른 뒤 판을 버리는 테스트(`testWhenAllPlayersLeaveTogetherAWatcherDropsTheGame`)는 참가자 넷이라 아무도 잘리지 않았다. 둘이 한 시나리오로 만난 적이 없다.
+- **부류:** "한 Mac이 더는 자기를 세지 않는 판에 대한 로컬 플래그를 쥐고 있다."
+- **고침:** `settle` 에서 잠긴 상태(`startsAt != nil`)가 나를 `players` 에 싣지 않았으면 `joined = nil`. 명단에 오른 참가자의 동작은 그대로다. 폭탄의 21번째 참가자는 폭탄에서는 `dropAbandonedDraw` 를 타지 않아 판을 못 접는 증상은 없었지만 같은 플래그를 쥐고 있었으므로 같은 줄로 함께 정리된다.
+- **부류 스윕:** 판마다 로컬로 쥐는 값을 모두 훑었다. `joined`: 위 결함, 고침. `declined`: 판 id 가 바뀌면 지워지고 N 을 누른 사람만 쥔다(잠금에서 밀리는 것과 무관). `abandonedSince`: `dropAbandonedDraw` 의 가드가 깨질 때마다 nil 로 돌아간다. `lockSeen`·`flipSeen`·`clearSeen`(`PlazaBerryLocal`): `berryLocal.game == s.id` 일 때만 쓰이고 판이 바뀌면 새로 만든다. 단 `tickBerry` 의 `windowSeen` 은 딜러가 아닌 동안 남을 수 있어 같은 날 함께 고쳤다(딜러를 벗어나면 비운다). 그림 퀴즈의 시계(`drawClock`): 명단에 오른 참가자만 `joined == s.id` 로 도는데, 밀린 참가자는 이제 `joined` 가 nil 이라 그 시계가 돌지 않는다.
+- **영구 캡처:** `PlazaBerryEngineTests.testAJoinerTheLockLeftOutDropsTheGameWhenTheEightLeave`(열 대의 Mac: 아홉 명이 참가하고 id 가 가장 뒤인 호스트가 밀린다. 잠금 뒤 호스트의 `joined` 가 nil, 호스트는 쓰지 않고, 가장 작은 id 가 딜러가 되고, 여덟 명이 한꺼번에 나가면 호스트와 구경꾼 둘 다 판을 접고 `abandonedAfter × 3` 동안 돌아오지 않는다. 방 하니스의 `hearAll` 이 각 Mac의 `joined` 로 `heardPlaying` 을 먹이므로 `stepGame` 의 길을 그대로 탄다), `PlazaGameTests.testAJoinerTheLockLeftOutKeepsNoJoinedFlag`(그림 퀴즈 9번째, 폭탄 21번째). 새 줄을 지우면 둘 다 실패하는 것을 확인했다. 규칙: 상한을 넘는 참가자와 잠금 뒤의 버려짐을 한 시나리오로 밟는다.

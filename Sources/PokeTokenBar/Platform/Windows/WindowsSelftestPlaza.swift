@@ -281,6 +281,8 @@ extension WindowsSelftest {
         await plazaPanelChecks(r, c, shell, hwnd, feed: feed)
         // plaza.keys / repeat / walk / altAlone / altGr / resignReleasesKeys / imeOff / click: Task 6's keyboard and mouse.
         if let s = scene { await plazaInputChecks(r, shell, hwnd, scene: s) }
+        // plaza.berrySpace: Space at the berry five table, with real input on CI.
+        await plazaBerrySpaceCheck(r, c, shell, hwnd)
         // plaza.chat* / plaza.imeChar: Task 11's chat line (the native field, the IME path, focus moves, the tray menu).
         let afterChat = await plazaChatChecks(r, c, shell, hwnd, app: app)
         scene = nil   // the selftest's own reference: the close check below asks whether the controller let go of it

@@ -104,6 +104,7 @@ PlazaWindowController.isFrontmost | A7
 PlazaWindowController.persistState | A7
 PlazaWindowController.show | A7
 PlazaWindowController.showBanner | A7
+PlazaWindowController.showMegaphoneBanner | A7
 PopoverNavigation.claudeAccountID | P20
 PopoverNavigation.dexDetailCollectionID | D6
 PopoverNavigation.expandAdvancedOnOpen | G17

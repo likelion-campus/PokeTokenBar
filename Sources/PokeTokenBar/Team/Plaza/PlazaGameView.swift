@@ -6,7 +6,7 @@ enum PlazaGameKey: Equatable, Sendable { case menu, yes, no }
 
 /// M으로 여는 미니게임 메뉴. 고를 수 있는 줄은 게임마다 하나이고, 열 수 없을 때는 줄 대신 까닭 한 줄이 보인다.
 struct PlazaGameMenu: Equatable {
-    var kinds: [PlazaGameKind] = PlazaGameKind.offered
+    var kinds: [PlazaGameKind] = PlazaGameKind.allCases
     var selection = 0
     /// 지금 판을 열 수 없는 까닭. nil이면 열 수 있다.
     var blocked: String?
@@ -88,6 +88,9 @@ struct PlazaGameView: Equatable {
         if kind == .draw, phase != .recruiting {
             return drawView(engine: engine, state: s, phase: phase, now: now, flash: flash, drawNote: drawNote, entryWait: entryWait, playing: playing, name: nick)
         }
+        if kind == .berry, phase != .recruiting {
+            return berryView(engine: engine, state: s, playing: playing, name: nick)
+        }
         switch phase {
         case .recruiting:
             guard engine.declined != s.id else { break }
@@ -100,7 +103,8 @@ struct PlazaGameView: Equatable {
                 break
             }
             card.lines = l.plazaGameRules(kind)
-            let status = kind == .draw ? l.plazaDrawRecruiting(players: joinedCount, seconds: left) : l.plazaGameRecruiting(players: joinedCount, seconds: left)
+            let status = kind == .bomb ? l.plazaGameRecruiting(players: joinedCount, seconds: left)
+                : l.plazaRecruitingOf(players: joinedCount, of: kind.maxPlayers, seconds: left)
             if s.host == me {
                 card.lines.append(joinedCount < PlazaGame.minPlayers ? l.plazaGameNeedsTwo(seconds: left) : status)
                 card.buttons = [Button(label: l.plazaGameButtonStart, action: "start", isEnabled: joinedCount >= PlazaGame.minPlayers),
@@ -113,7 +117,7 @@ struct PlazaGameView: Equatable {
                 card.buttons = [Button(label: l.plazaGameButtonLeave, action: "decline")]
             } else {
                 card.lines.append(status)
-                let full = kind == .draw && joinedCount >= PlazaDraw.maxPlayers
+                let full = joinedCount >= kind.maxPlayers
                 if full { card.lines.append(l.plazaDrawFull) }
                 card.buttons = [Button(label: l.plazaGameButtonJoin, action: "join", isEnabled: !full), Button(label: l.plazaGameButtonDecline, action: "decline")]
             }
@@ -155,6 +159,18 @@ struct PlazaGameView: Equatable {
             break
         }
         if let flash { view.title = flash }
+        return view
+    }
+}
+
+extension PlazaGameView {
+    /// A running berry five game. The table shows a player everything, so the plaza view holds only the name line and the rings (the bomb
+    /// game's: every player is in, nobody holds anything). The result is a banner (the controller's), never a title or a card.
+    fileprivate static func berryView(engine: PlazaGameEngine, state s: PlazaGameState, playing: Set<String>?, name nick: (String) -> String) -> PlazaGameView {
+        var view = PlazaGameView()
+        guard s.endedAt == nil else { return view }
+        view.alive = playing.map { p in s.players.filter(p.contains) } ?? s.players
+        view.status = L(.ko).plazaBerryStatus(scores: PlazaBerry.ranking(s).map { (nick($0.id), $0.score) })
         return view
     }
 }

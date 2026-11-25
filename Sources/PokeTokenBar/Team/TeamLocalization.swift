@@ -521,6 +521,7 @@ extension L {
         switch kind {
         case .bomb: "폭탄 돌리기"
         case .draw: "그림 퀴즈"
+        case .berry: "열매 다섯"
         }
     }
     var plazaGameUnknownName: String { "새 미니게임" }
@@ -528,6 +529,7 @@ extension L {
         switch kind {
         case .bomb: ["폭탄은 몸통박치기(C)로 넘길 수 있어요", "터질 때 들고 있으면 탈락!", "마지막 한 명이 이겨요 · 한 판 1~3분"]
         case .draw: ["돌아가며 한 명씩 제시어를 정해 그림으로 그려요", "나머지는 한마디(Enter)로 맞혀요 · 맞히면 +10점, 그린 사람 +5점", "그림에 글자·숫자로 정답을 쓰면 반칙! · 한 판 2~12분"]
+        case .berry: ["탁자에 보이는 같은 열매가 딱 5개면 스페이스로 종을 쳐요", "가장 먼저 치면 +1점, 잘못 치면 −1점이고 1초 쉬어요", "먼저 5점을 내면 이겨요 · 한 판 1~2분"]
         }
     }
     func plazaGameMenuRow(_ kind: PlazaGameKind) -> String { "\(plazaGameName(kind)) 열기" }
@@ -535,6 +537,31 @@ extension L {
     func plazaGameMenuWait(seconds: Int) -> String { "\(seconds)초 뒤에 판을 열 수 있어요" }
     var plazaGameMenuEgg: String { "알은 걸을 수 없어 판을 열 수 없어요" }
     var plazaGameMenuHowTo: String { "판을 열면 30초 동안 참가할 팀원을 모아요" }
+    // Berry five's table: the head, the rule, the bell's stand-in word, the wrong-bell marks and the VoiceOver label of a seat.
+    var plazaBerryHead: String { "열매 다섯 · 먼저 5점" }
+    var plazaBerryRule: String { "탁자 위 같은 열매 딱 5개면 스페이스!" }
+    var plazaBerryBellFallback: String { "종" }
+    var plazaBerryWrongMark: String { "✕" }
+    var plazaBerryWrongRest: String { "1초 쉬기" }
+    var plazaBerryBellMark: String { "🔔" }
+    func plazaBerrySeatLabel(name: String, score: Int) -> String { "\(name) \(score)점" }
+    // The event line, the result and the closing hint. `nickname` nil: me.
+    func plazaBerryRang(nickname: String?, ms: Int) -> String {
+        "\(nickname.map { "\($0)님이" } ?? "내가") 종을 쳤어요 · \(String(format: "%.2f", Double(ms) / 1000))초 · +1점"
+    }
+    func plazaBerryMissed(nickname: String?) -> String { "\(nickname.map { "\($0)님이" } ?? "내가") 잘못 쳤어요 · −1점" }
+    func plazaBerryWinner(nickname: String?) -> String { nickname.map { "\($0)님이 이겼어요!" } ?? "내가 이겼어요!" }
+    func plazaBerryTie(names: [String]) -> String { "공동 1등 \(names.joined(separator: " · "))" }
+    func plazaBerryRank(place: Int, nickname: String, score: Int, tied: Bool) -> String { "\(tied ? "공동 " : "")\(place)등 \(nickname) \(score)점" }
+    /// Under the countdown digit on the centre plate: nothing else tells a first-time player the cards turn by themselves.
+    var plazaBerryCountdownNote: String { "카드는 저절로 넘어가요" }
+    var plazaBerryCloseHint: String { "스페이스나 Esc로 닫기" }
+    /// The name line for a teammate who is not at the table, best score first.
+    func plazaBerryStatus(scores: [(name: String, score: Int)]) -> String {
+        "열매 다섯 진행 중 · " + scores.map { "\($0.name) \($0.score)" }.joined(separator: " · ")
+    }
+    /// The top banner when the game ends level; a single winner gets `plazaGameWinBanner`.
+    func plazaBerryTieBanner(names: [String]) -> String { "🏆 열매 다섯 공동 1등: \(names.joined(separator: " · "))" }
     func plazaGameCardTitle(host: String?, game: String) -> String { host.map { "\($0)님의 \(game)" } ?? "내가 연 \(game)" }
     func plazaGameRecruiting(players: Int, seconds: Int) -> String { "참가 \(players)명 · \(seconds)초 뒤 시작" }
     func plazaGameNeedsTwo(seconds: Int) -> String { "두 명부터 시작돼요 · \(seconds)초 남음" }
@@ -592,7 +619,8 @@ extension L {
     }
     var plazaDrawRankingTitle: String { "그림 퀴즈 결과" }
     func plazaDrawRankLine(rank: Int, name: String, score: Int, tied: Bool) -> String { "\(tied ? "공동 " : "")\(rank)등 \(name) \(score)점" }
-    func plazaDrawRecruiting(players: Int, seconds: Int) -> String { "참가 \(players)/\(PlazaDraw.maxPlayers)명 · \(seconds)초 뒤 시작" }
+    func plazaDrawRecruiting(players: Int, seconds: Int) -> String { plazaRecruitingOf(players: players, of: PlazaDraw.maxPlayers, seconds: seconds) }
+    func plazaRecruitingOf(players: Int, of cap: Int, seconds: Int) -> String { "참가 \(players)/\(cap)명 · \(seconds)초 뒤 시작" }
     var plazaDrawFull: String { "자리가 찼어요" }
     var plazaDrawWordInvalid: String { "제시어는 글자나 숫자 1~12자로 써 주세요" }
     var plazaDrawOwnWordBlocked: String { "제시어가 들어 있는 말은 보낼 수 없어요" }

@@ -384,7 +384,8 @@ private func crtExit(_ code: Int32) -> Never {
         teamRuntime.notifier = TeamNotifier(
             settings: teamSettings, poster: WindowsTeamNotificationPoster(presenter: balloons),
             isPlazaFrontmost: { [weak plaza] in plaza?.isFrontmost ?? false },
-            showInPlaza: { [weak plaza] in plaza?.showBanner($0) })
+            showInPlaza: { [weak plaza] in plaza?.showBanner($0) },
+            showMegaphoneInPlaza: { [weak plaza] in plaza?.showMegaphoneBanner($0) })
         teamRuntime.start()
         let settings = teamSettings!, session = teamRuntime.session, feed = teamRuntime.feed
         tray.teammatesOnline = { settings.isReady ? session.members.count : nil }

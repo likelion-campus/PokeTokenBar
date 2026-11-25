@@ -136,7 +136,7 @@ struct PlazaCampfireMenu: Equatable {
     }
 }
 
-enum PlazaOverlayContent: Equatable { case none, card(PlazaCardState), board, memberMenu(PlazaMemberMenu), campfireMenu(PlazaCampfireMenu), gameMenu(PlazaGameMenu) }
+enum PlazaOverlayContent: Equatable { case none, card(PlazaCardState), board, memberMenu(PlazaMemberMenu), campfireMenu(PlazaCampfireMenu), gameMenu(PlazaGameMenu), berryTable }
 
 /// 판이 열린 동안 장면이 넘기는 키. 판마다 쓰는 키가 다르다.
 enum PlazaOverlayKey: Equatable { case up, down, space, enter, escape }

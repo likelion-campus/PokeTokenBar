@@ -8,6 +8,8 @@ final class TeamNotifier {
     private let poster: TeamNotificationPosting
     private let isPlazaFrontmost: () -> Bool
     private let showInPlaza: (String) -> Void
+    /// Where a megaphone line's banner goes in front of the plaza (the plaza may hide it); `showInPlaza` when nil.
+    private let showMegaphoneInPlaza: ((String) -> Void)?
     private let clock: () -> Date
     private var batcher = TeamNotificationBatcher()
     /// True while the user sits at the campfire. Set by the runtime.
@@ -29,11 +31,12 @@ final class TeamNotifier {
     private var megaphones = TeamTokenBucket(capacity: Double(megaphoneBurst), perSecond: 1 / megaphoneRefillInterval)
 
     init(settings: TeamSettings, poster: TeamNotificationPosting, isPlazaFrontmost: @escaping () -> Bool,
-         showInPlaza: @escaping (String) -> Void, clock: @escaping () -> Date = Date.init) {
+         showInPlaza: @escaping (String) -> Void, showMegaphoneInPlaza: ((String) -> Void)? = nil, clock: @escaping () -> Date = Date.init) {
         self.settings = settings
         self.poster = poster
         self.isPlazaFrontmost = isPlazaFrontmost
         self.showInPlaza = showInPlaza
+        self.showMegaphoneInPlaza = showMegaphoneInPlaza
         self.clock = clock
     }
 
@@ -86,7 +89,8 @@ final class TeamNotifier {
         guard megaphones.take(now: now) else { return }
         lastMegaphone = lastMegaphone.filter { now.timeIntervalSince($0.value) < Self.megaphoneInterval }   // only the recent ones matter
         lastMegaphone[member.memberID] = now
-        show(L(.ko).teamMegaphoneNotice(nickname: member.nickname, text: text))
+        let line = L(.ko).teamMegaphoneNotice(nickname: member.nickname, text: text)
+        if isPlazaFrontmost() { (showMegaphoneInPlaza ?? showInPlaza)(line) } else { post(line) }
     }
 
     /// A teammate opened a minigame: one notification for those not looking at the plaza (the plaza shows its own
