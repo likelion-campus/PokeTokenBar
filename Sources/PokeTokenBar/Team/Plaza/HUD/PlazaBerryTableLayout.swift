@@ -5,8 +5,10 @@ import Foundation
 /// Seat `i` of `n` sits at angle `a = π/2 + 2πi/n` (screen y down: seat 0 at the bottom, then clockwise), its pile on the inner ellipse and
 /// its deck beside the pile along the tangent, both turned to face their seat.
 ///
-/// Cards and seat boxes shrink by one common factor (`shrink`) in steps of 2 % until nothing overlaps: seat boxes, piles and decks (rotated
-/// rectangles) stay clear of each other, of the seat boxes and of the centre plate, and every pile and deck corner lies inside the felt.
+/// Cards and seat boxes shrink by their own factors, in steps of 2 %, only as far as their own limits need. Cards (`shrink`): piles and decks
+/// (rotated rectangles) stay clear of each other and of the centre plate, and every corner lies inside the rim's outer edge (the felt plus the
+/// rim). Seat boxes (`seatShrink`): clear of each other and of every card, inside the window. The user chose this over one common factor and
+/// over keeping the corners inside the felt (the sheet's candidate 3).
 struct PlazaBerryTableLayout: Equatable {
     struct Seat: Equatable {
         var box: CGRect
@@ -18,8 +20,9 @@ struct PlazaBerryTableLayout: Equatable {
 
     /// The mockup's unit: one hundredth of the stage's width.
     var unit: CGFloat
-    /// 1 when nothing needed to shrink.
+    /// The cards' factor and the seat boxes' factor: 1 when nothing needed to shrink.
     var shrink: CGFloat
+    var seatShrink: CGFloat
     /// The table ellipse's box.
     var felt: CGRect
     /// The centre plate, and the bell inside it.
@@ -40,16 +43,26 @@ struct PlazaBerryTableLayout: Equatable {
     /// The least gap two shapes keep, in points (so rounding to device pixels never makes them touch).
     static let clearance: CGFloat = 0.2
 
+    /// The wood rim's width around the felt, in `u` (the drawing's rim and its shadow ring).
+    static let rimWidth: CGFloat = 1.4
+
+    enum Limit { case seatSeat, seatWindow, seatCard, cardCard, cardPlate, cardRim }
+
     static func make(viewport: CGSize, seats n: Int, scale: CGFloat) -> PlazaBerryTableLayout {
-        var f: CGFloat = 1
-        while true {
-            let layout = build(viewport: viewport, seats: n, scale: scale, shrink: f)
-            if layout.isClear(in: viewport) || f - shrinkStep < minimumShrink - 0.0001 { return layout }
-            f -= shrinkStep
+        func search(_ limits: Set<Limit>, _ make: (CGFloat) -> PlazaBerryTableLayout) -> PlazaBerryTableLayout {
+            var f: CGFloat = 1
+            while true {
+                let layout = make(f)
+                if layout.isClear(in: viewport, limits: limits) || f - shrinkStep < minimumShrink - 0.0001 { return layout }
+                f -= shrinkStep
+            }
         }
+        // The cards first, with the seat boxes full size (their own limits do not apply to the cards' factor), then the seat boxes around them.
+        let cards = search([.cardCard, .cardPlate, .cardRim]) { build(viewport: viewport, seats: n, scale: scale, shrink: $0, seatShrink: 1) }
+        return search([.seatSeat, .seatWindow, .seatCard]) { build(viewport: viewport, seats: n, scale: scale, shrink: cards.shrink, seatShrink: $0) }
     }
 
-    private static func build(viewport: CGSize, seats n: Int, scale: CGFloat, shrink f: CGFloat) -> PlazaBerryTableLayout {
+    private static func build(viewport: CGSize, seats n: Int, scale: CGFloat, shrink f: CGFloat, seatShrink fs: CGFloat) -> PlazaBerryTableLayout {
         let u = min(viewport.width, viewport.height * stageAspect) / 100
         let stageH = 100 * u / stageAspect
         let ox = (viewport.width - 100 * u) / 2, oy = (viewport.height - stageH) / 2
@@ -61,7 +74,7 @@ struct PlazaBerryTableLayout: Equatable {
             rect(CGRect(x: c.x - size.width / 2, y: c.y - size.height / 2, width: size.width, height: size.height))
         }
         let mid = CGPoint(x: x(50), y: y(50))
-        let box = CGSize(width: seatSize.width * u * f, height: seatSize.height * u * f)
+        let box = CGSize(width: seatSize.width * u * fs, height: seatSize.height * u * fs)
         let card = CGSize(width: snap(7.6 * u * f), height: snap(10.6 * u * f))
         let deckCard = CGSize(width: snap(6.2 * u * f), height: snap(8.6 * u * f))
         let plate = centred(mid, CGSize(width: plateSize.width * u, height: plateSize.height * u))
@@ -77,7 +90,7 @@ struct PlazaBerryTableLayout: Equatable {
             let deck = CGPoint(x: pile.x + 9 * u * -sin(a), y: pile.y + 9 * u * cos(a))
             seats.append(Seat(box: seatBox, pile: pile, deck: deck, rotation: a - .pi / 2))
         }
-        return PlazaBerryTableLayout(unit: u, shrink: f, felt: rect(CGRect(x: x(13), y: y(13), width: 74 * u, height: 0.74 * stageH)),
+        return PlazaBerryTableLayout(unit: u, shrink: f, seatShrink: fs, felt: rect(CGRect(x: x(13), y: y(13), width: 74 * u, height: 0.74 * stageH)),
                                      center: plate,
                                      bell: rect(CGRect(x: plate.midX - side / 2, y: plate.minY + bellTop * u, width: side, height: side)),
                                      card: card, deckCard: deckCard, seats: seats)
@@ -117,26 +130,31 @@ struct PlazaBerryTableLayout: Equatable {
         return false
     }
 
-    /// Nothing overlaps, every seat box is inside the window and every pile and deck corner is inside the felt.
-    func isClear(in viewport: CGSize) -> Bool {
+    /// Whether the given limits hold: seat boxes inside the window and clear of each other, every pile and deck clear of each other, of the
+    /// centre plate and of the seat boxes, and every pile and deck corner inside the rim's outer edge.
+    func isClear(in viewport: CGSize, limits: Set<Limit>) -> Bool {
         let gap = Self.clearance
         var shapes: [(corners: [CGPoint], seat: Int)] = []
         for i in seats.indices { shapes.append((pileCorners(i), i)); shapes.append((deckCorners(i), i)) }
         let plate = Self.corners(of: center)
-        let bounds = CGRect(origin: .zero, size: viewport)
-        for seat in seats where !bounds.contains(seat.box) { return false }
-        for i in seats.indices {
-            for j in seats.indices where j > i && !Self.apart(Self.corners(of: seats[i].box), Self.corners(of: seats[j].box), gap: gap) { return false }
-        }
-        let rx = felt.width / 2, ry = felt.height / 2
-        for (k, shape) in shapes.enumerated() {
-            for p in shape.corners {
-                let dx = (p.x - felt.midX) / rx, dy = (p.y - felt.midY) / ry
-                if dx * dx + dy * dy > 1 { return false }
+        if limits.contains(.seatWindow) { for seat in seats where !CGRect(origin: .zero, size: viewport).contains(seat.box) { return false } }
+        if limits.contains(.seatSeat) {
+            for i in seats.indices {
+                for j in seats.indices where j > i && !Self.apart(Self.corners(of: seats[i].box), Self.corners(of: seats[j].box), gap: gap) { return false }
             }
-            if !Self.apart(shape.corners, plate, gap: gap) { return false }
-            for seat in seats where !Self.apart(shape.corners, Self.corners(of: seat.box), gap: gap) { return false }
-            for other in shapes[(k + 1)...] where !Self.apart(shape.corners, other.corners, gap: gap) { return false }
+        }
+        let rim = Self.rimWidth * unit
+        let rx = felt.width / 2 + rim, ry = felt.height / 2 + rim
+        for (k, shape) in shapes.enumerated() {
+            if limits.contains(.cardRim) {
+                for p in shape.corners {
+                    let dx = (p.x - felt.midX) / rx, dy = (p.y - felt.midY) / ry
+                    if dx * dx + dy * dy > 1 { return false }
+                }
+            }
+            if limits.contains(.cardPlate), !Self.apart(shape.corners, plate, gap: gap) { return false }
+            if limits.contains(.seatCard) { for seat in seats where !Self.apart(shape.corners, Self.corners(of: seat.box), gap: gap) { return false } }
+            if limits.contains(.cardCard) { for other in shapes[(k + 1)...] where !Self.apart(shape.corners, other.corners, gap: gap) { return false } }
         }
         return true
     }

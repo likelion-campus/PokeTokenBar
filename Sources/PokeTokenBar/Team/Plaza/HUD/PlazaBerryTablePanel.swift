@@ -279,7 +279,7 @@ struct PlazaBerryBoard: Equatable {
         }) { layers.append(.image(image, frame: tableFrame)) }
 
         // Cards: a card's image is its rotated bounding box on whole device pixels about its snapped centre.
-        func cardLayer(_ key: String, centre: CGPoint, size: CGSize, rotation: CGFloat, _ draw: @escaping (any PlazaCanvas) -> Void) {
+        func cardLayer(_ key: String, centre: CGPoint, size: CGSize, rotation: CGFloat, _ draw: @MainActor (any PlazaCanvas) -> Void) {
             let c = CGPoint(x: snap(centre.x, scale), y: snap(centre.y, scale))
             let corners = PlazaBerryTableLayout.corners(centre: .zero, size: size, rotation: rotation)
             let reach = max(corners.map { abs($0.x) }.max() ?? 0, corners.map { abs($0.y) }.max() ?? 0) + ceil(0.15 * size.width) + 3
@@ -291,7 +291,7 @@ struct PlazaBerryBoard: Equatable {
             }) { layers.append(.image(image, frame: frame)) }
         }
         let cardSize = layout.card, deckSize = layout.deckCard
-        func face(_ card: PlazaBerry.Card, rotation: CGFloat, widthScale: CGFloat = 1, rim: Bool = false) -> (_ canvas: any PlazaCanvas) -> Void {
+        func face(_ card: PlazaBerry.Card, rotation: CGFloat, widthScale: CGFloat = 1, rim: Bool = false) -> @MainActor (_ canvas: any PlazaCanvas) -> Void {
             { canvas in
                 canvas.rotate(by: -rotation)
                 canvas.scale(x: widthScale, y: 1)

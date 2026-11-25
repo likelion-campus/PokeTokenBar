@@ -156,9 +156,9 @@ import CoreText
                     ctx.interpolationQuality = .high
                     ctx.draw(image, in: CGRect(x: x, y: height - y - h, width: w, height: h))
                     let layout = PlazaBerryTableLayout.make(viewport: viewport, seats: n, scale: 2)
-                    let caption = "카드·자리 축소 \(Int((layout.shrink * 100).rounded()))%"
+                    let caption = String(format: "카드 %.2f · 자리 %.2f", layout.shrink, layout.seatShrink)
                     text(caption, x, y + h + 8, 24, NSColor(white: 0.9, alpha: 1))
-                    notes.append("\(Int(viewport.width))x\(Int(viewport.height)) \(n) \(m.rawValue): shrink \(layout.shrink), sprites \(spriteCount)/\(n)")
+                    notes.append("\(Int(viewport.width))x\(Int(viewport.height)) \(n) \(m.rawValue): cards \(layout.shrink) seats \(layout.seatShrink), sprites \(spriteCount)/\(n)")
                     x += colWidth + gap
                 }
             }

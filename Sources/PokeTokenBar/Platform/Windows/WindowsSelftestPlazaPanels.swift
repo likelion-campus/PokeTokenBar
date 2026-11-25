@@ -159,8 +159,13 @@ extension WindowsSelftest {
                                  mon: TeamMonSummary(speciesID: 25 + i, isShiny: false, form: nil, speciesName: nil, gender: nil), score: i % 4,
                                  deckLeft: 10 + i, top: PlazaBerry.Card(berry: PlazaBerry.Berry.allCases[i % 4], count: 1 + i % 5), under: 2, isPlaying: true)
         }
+        // Every seat's top card changes with `flip`, so each cost render draws new card pictures (the panel keeps what it drew for the same cards).
         func berryBoard(flip: Int) -> PlazaBerryBoard {
-            PlazaBerryBoard(seats: berrySeats, center: .playing(event: nil), flip: flip, flippedSeat: nil, ring: nil, wrong: false)
+            var seats = berrySeats
+            for i in seats.indices {
+                seats[i].top = PlazaBerry.Card(berry: PlazaBerry.Berry.allCases[(i + flip) % 4], count: 1 + (i + flip) % 5)
+            }
+            return PlazaBerryBoard(seats: seats, center: .playing(event: nil), flip: flip, flippedSeat: flip % 8, ring: nil, wrong: false)
         }
         c.setBerryBoardForTesting(berryBoard(flip: 3))
         await expect("berry table", present: [.berryTable], png: "plaza-berry-five.png")
@@ -171,6 +176,8 @@ extension WindowsSelftest {
                 let t0 = Date()
                 _ = table.render(scale: hud.scale, viewport: hud.viewport, graphics: hud.graphics)
                 spent += Date().timeIntervalSince(t0)
+                // Let the observer and the HUD take this step before the next one (the render above ran before them, on cards not drawn yet).
+                for _ in 0..<20 { await Task.yield() }
             }
             r.add("plaza.berryCost", true, "FIXTURE 8-seat board, mean of 100 renders after a flip +1: \(pText(spent * 10)) ms (a report, not a budget)")
         } else {

@@ -105,7 +105,7 @@ final class PlazaBerryTablePanelTests: XCTestCase {
                     let tag = "\(Int(viewport.width))x\(Int(viewport.height)) @\(scale) n=\(n)"
                     let layout = PlazaBerryTableLayout.make(viewport: viewport, seats: n, scale: scale)
                     XCTAssertEqual(layout.seats.count, n, tag)
-                    shrinks.append("\(tag): \(layout.shrink)")
+                    shrinks.append("\(tag): cards \(layout.shrink) seats \(layout.seatShrink)")
                     var shapes: [(String, [CGPoint])] = []
                     for (i, s) in layout.seats.enumerated() {
                         XCTAssertTrue(CGRect(origin: .zero, size: viewport).contains(s.box), "\(tag) seat \(i) box \(s.box) leaves the window")
@@ -120,8 +120,10 @@ final class PlazaBerryTablePanelTests: XCTestCase {
                         for (i, s) in layout.seats.enumerated() { XCTAssertFalse(overlap(shape.1, box(s.box)), "\(tag) \(shape.0) touches seat \(i)'s box") }
                         for other in shapes[(k + 1)...] { XCTAssertFalse(overlap(shape.1, other.1), "\(tag) \(shape.0) and \(other.0) overlap") }
                         for p in shape.1 {
-                            let dx = (p.x - layout.felt.midX) / (layout.felt.width / 2), dy = (p.y - layout.felt.midY) / (layout.felt.height / 2)
-                            XCTAssertLessThanOrEqual(dx * dx + dy * dy, 1, "\(tag) \(shape.0) leaves the felt")
+                            // Inside the rim's outer edge: the felt and the 1.4u wood rim around it.
+                            let rim = 1.4 * layout.unit
+                            let dx = (p.x - layout.felt.midX) / (layout.felt.width / 2 + rim), dy = (p.y - layout.felt.midY) / (layout.felt.height / 2 + rim)
+                            XCTAssertLessThanOrEqual(dx * dx + dy * dy, 1, "\(tag) \(shape.0) leaves the rim")
                         }
                     }
                     XCTAssertTrue(layout.center.contains(layout.bell), "\(tag) the bell is on the plate")
@@ -139,7 +141,20 @@ final class PlazaBerryTablePanelTests: XCTestCase {
                 }
             }
         }
-        print("BERRY layout shrink factors: \(shrinks.filter { $0.contains("@2.0") })")
+        print("BERRY layout factors: \(shrinks.filter { $0.contains("@2.0") })")
+    }
+
+    /// The seat boxes shrink only for their own limits: with the cards at 0.5 the boxes stay big (the user's choice of the sheet's candidate 3), and a
+    /// seat box is never smaller than the cards' own factor demands.
+    func testSeatBoxesShrinkOnlyForTheirOwnLimits() async {
+        for viewport in [narrow, CGSize(width: 760, height: 480), wide] {
+            for n in 2...8 {
+                let layout = PlazaBerryTableLayout.make(viewport: viewport, seats: n, scale: 2)
+                XCTAssertGreaterThanOrEqual(layout.seatShrink, 0.85, "\(Int(viewport.width)) n=\(n): the seat boxes are not shrunk by the cards' factor \(layout.shrink)")
+                let want = PlazaBerryTableLayout.seatSize.width * layout.unit * layout.seatShrink
+                XCTAssertEqual(layout.seats[0].box.width, want, accuracy: 1, "the box is seatSize x its own factor")
+            }
+        }
     }
 
     /// The mockup's places, which the overlap search must not be able to move: a seat on the outer ellipse, its pile on the inner one and its deck
@@ -247,11 +262,20 @@ final class PlazaBerryTablePanelTests: XCTestCase {
     func testAFlippedCardIsVisibleFromTheFirstFrame() async throws {
         let r = Rig(viewport: wide, board: Self.board(flip: 3))
         await Self.settle()
-        let layersBefore = try XCTUnwrap(r.host.drawings[.berryTable]).layers.count
+        let seat = PlazaBerryTableLayout.make(viewport: wide, seats: 5, scale: 2).seats[2]
+        func images(at point: CGPoint) throws -> Int {
+            try XCTUnwrap(r.host.drawings[.berryTable]).layers.filter {
+                if case .image(_, let f) = $0 { return abs(f.midX - point.x) < 1 && abs(f.midY - point.y) < 1 }
+                return false
+            }.count
+        }
+        XCTAssertEqual(try images(at: seat.deck), 1, "before the flip only the deck is there")
+        XCTAssertEqual(try images(at: seat.pile), 3, "the pile is two cards under and the top face")
         r.model.board = Self.board(flip: 4, flippedSeat: 2)
         await Self.settle()
         XCTAssertTrue(r.panel.isAnimating)
-        XCTAssertEqual(try XCTUnwrap(r.host.drawings[.berryTable]).layers.count, layersBefore, "the card is drawn at once, face up, on its way")
+        XCTAssertEqual(try images(at: seat.deck), 2, "the new card starts on its deck, face up, from the first frame")
+        XCTAssertEqual(try images(at: seat.pile), 2, "its face has left the pile: the two cards under are what stays")
     }
 
     func testARightBellRimsSweepsAndStops() async throws {
