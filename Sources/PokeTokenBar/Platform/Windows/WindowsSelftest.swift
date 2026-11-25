@@ -31,6 +31,14 @@ enum WindowsSelftest {
     /// (this file is on the env-read allow-list). The name stays `onCI` because `SelftestUserPCSafetyScanTests` keys on it.
     static var onCI: Bool { ProcessInfo.processInfo.environment[runnerVariable] == "1" }
     static let runnerVariable = "PTB_SELFTEST_RUNNER"
+    /// The entry guard of a diagnostic mode that is for the CI runner only (`--selftest-net-burst`, `--selftest-waker-hunt`,
+    /// `--selftest-park`): off the runner it says so and exits non-zero before any request. The workflows set the runner variable for the
+    /// whole job, so their `Start-Process` starts inherit it; `LiveFetchForbiddenTests.testEveryRequestOrLaunchSiteIsAccountedFor`
+    /// requires this call in each of those files.
+    @MainActor static func refuseOffRunner(_ mode: String) -> Never {
+        try? FileHandle.standardOutput.write(contentsOf: Data("\(mode) runs only on the CI runner (\(runnerVariable)=1); nothing was sent\n".utf8))
+        WindowsApp.exit(4, .helper)
+    }
     /// Length of the idle windows (`PTB_SELFTEST_IDLE_SECONDS`, default 60), read here for the other selftest files too.
     static var idleSeconds: Double { Double(ProcessInfo.processInfo.environment["PTB_SELFTEST_IDLE_SECONDS"] ?? "") ?? 60 }
     /// `OPENSSL_CONF` as the process sees it (the workflow points it at a poisoned file; OpenSSL must never read it).

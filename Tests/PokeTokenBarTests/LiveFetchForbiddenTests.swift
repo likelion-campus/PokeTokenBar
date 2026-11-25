@@ -104,12 +104,30 @@ final class LiveFetchForbiddenTests: XCTestCase {
         XCTAssertEqual(CountingProtocol.count, 0, "no request reached the session")
         _ = try await PlatformCompat.oneShotData(for: URLRequest(url: try XCTUnwrap(URL(string: "http://127.0.0.1:9/x"))), session: session)
         XCTAssertEqual(CountingProtocol.count, 1, "loopback passes")
-        AppEnv.beginExemption(hosts: ["script.google.com"])
-        _ = try await PlatformCompat.oneShotData(for: URLRequest(url: try XCTUnwrap(URL(string: "https://script.google.com/x"))), session: session)
-        AppEnv.endExemption(hosts: ["script.google.com"])
+        do {
+            AppEnv.beginExemption(hosts: ["script.google.com"])
+            defer { AppEnv.endExemption(hosts: ["script.google.com"]) }
+            _ = try await PlatformCompat.oneShotData(for: URLRequest(url: try XCTUnwrap(URL(string: "https://script.google.com/x"))), session: session)
+        }
         XCTAssertEqual(CountingProtocol.count, 2, "an exempted host passes inside the block")
         do { _ = try await PlatformCompat.oneShotData(for: URLRequest(url: try XCTUnwrap(URL(string: "https://script.google.com/x"))), session: session); XCTFail("exemption outlived its block") } catch {}
         XCTAssertEqual(CountingProtocol.count, 2)
+    }
+
+    /// `WindowsApp.providersReadingLogins` is Windows-only code a Mac test cannot call, so the Mac test reads its literal from the source and
+    /// applies the same filter the app applies to `UsageStore.defaultProviders()`: a person's store has no Cursor provider, the normal one has it.
+    @MainActor func testAPersonsStoreLeavesOutTheCursorProvider() async throws {
+        let app = try String(contentsOf: SharedSources.sourcesRoot.appendingPathComponent("Platform/Windows/WindowsApp.swift"), encoding: .utf8)
+        let line = try XCTUnwrap(app.components(separatedBy: "\n").first { $0.contains("static let providersReadingLogins") })
+        let literal = try XCTUnwrap(line.split(separator: "[", maxSplits: 1).last)
+        let ids = Set(literal.split(whereSeparator: { !($0.isLetter || $0.isNumber || $0 == "_") }).map(String.init))
+        XCTAssertEqual(ids, [LocalCursorProvider().id], "the filter's ids are exactly the providers that read another app's login")
+        XCTAssertTrue(app.contains("filter { !Self.providersReadingLogins.contains($0.id) }"), "the person's store applies the filter")
+        let normal = UsageStore.defaultProviders().map(\.id)
+        let persons = UsageStore.defaultProviders().filter { !ids.contains($0.id) }.map(\.id)
+        XCTAssertTrue(normal.contains(LocalCursorProvider().id), "control: the normal store has Cursor")
+        XCTAssertFalse(persons.contains(LocalCursorProvider().id))
+        XCTAssertEqual(persons.count, normal.count - 1, "nothing else is dropped")
     }
 
     /// The credential readers hand back nothing, from a fake file that would otherwise be read (a temp folder; never a real path).
@@ -139,8 +157,9 @@ final class LiveFetchForbiddenTests: XCTestCase {
     }
 
     /// Completeness: every file that can send a request or start a program is known here. A new one fails this test until someone
-    /// decides how a person's selftest is kept out of it (add the check, or give the reason). Files under UI/, Team/UI/ and the
-    /// selftests themselves are left out (they are the Mac's UI and the selftest's own loopback / documented requests).
+    /// decides how a person's selftest is kept out of it (add the check, or give the reason). Files under UI/ and Team/UI/ are left out
+    /// (the Mac's UI). Selftest files are not skipped: each one with a site is listed in `selftestSites` with its reason, and the
+    /// diagnostic modes that send to outside hosts must carry their runner-only entry guard (`guarded`).
     func testEveryRequestOrLaunchSiteIsAccountedFor() throws {
         let known: [String: String] = [
             "Platform/PlatformCompat.swift": "the choke point: oneShotData/oneShotDownload check AppEnv.fetchBlock",
@@ -152,15 +171,31 @@ final class LiveFetchForbiddenTests: XCTestCase {
             "Platform/Windows/WinProcess.swift": "starts this app / helpers (local)",
             "Platform/Windows/WindowsUpdateInstaller.swift": "the update download: oneShotDownload (checked) and a loopback feed only with CI=true",
         ]
+        let guardText = "guard WindowsSelftest.onCI else { WindowsSelftest.refuseOffRunner("
+        let selftestSites: [String: (reason: String, guarded: Int)] = [
+            "Platform/Windows/WindowsSelftestNetBurst.swift": ("diagnostic: direct requests to external endpoints; runner-only, guarded at entry", 1),
+            "Platform/Windows/WindowsSelftestWakers.swift": ("diagnostic: waker hunt GETs api.github.com/zen; park sends nothing; runner-only, both guarded at entry", 2),
+            "Platform/Windows/WindowsSelftestClientCertificate.swift": ("the two graphql.pokeapi.co requests TEAM.md tells a person about; only when packaged", 0),
+            "Platform/Windows/WindowsSelftestAgentLink.swift": ("starts this app for a link (local)", 0),
+            "Platform/Windows/WindowsSelftestPopoverWindow.swift": ("starts this app's --selftest-second (local)", 0),
+            "Platform/Windows/WindowsSelftest.swift": ("starts this app's helper processes (local)", 0),
+        ]
+        var seenSelftest = Set<String>()
         let patterns = ["URLSession.shared.data", "ession.data(", "= Process()", "URLSession.shared.download", ".dataTask(", "WinHTTPFetch.data(", "CreateProcessW"]
         var unknown: [String] = []
         for url in SharedSources.allSwiftFiles(root: SharedSources.sourcesRoot) {
             let rel = SharedSources.relativePath(url, root: SharedSources.sourcesRoot)
-            if rel.hasPrefix("UI/") || rel.hasPrefix("Team/UI/") || rel.contains("Selftest") { continue }
+            if rel.hasPrefix("UI/") || rel.hasPrefix("Team/UI/") { continue }
             let text = try String(contentsOf: url, encoding: .utf8)
             let code = text.split(separator: "\n", omittingEmptySubsequences: false).filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }.joined(separator: "\n")
-            if patterns.contains(where: { code.contains($0) }), known[rel] == nil { unknown.append(rel) }
+            guard patterns.contains(where: { code.contains($0) }) else { continue }
+            if rel.contains("Selftest") {
+                guard let site = selftestSites[rel] else { unknown.append(rel); continue }
+                seenSelftest.insert(rel)
+                XCTAssertEqual(code.components(separatedBy: guardText).count - 1, site.guarded, "\(rel): \(site.reason)")
+            } else if known[rel] == nil { unknown.append(rel) }
         }
-        XCTAssertEqual(unknown, [], "a file that sends a request or starts a program is not accounted for in LiveFetchForbiddenTests.known")
+        XCTAssertEqual(seenSelftest, Set(selftestSites.keys), "a listed selftest file no longer has a request or launch site")
+        XCTAssertEqual(unknown, [], "a file that sends a request or starts a program is not accounted for in LiveFetchForbiddenTests.known / selftestSites")
     }
 }

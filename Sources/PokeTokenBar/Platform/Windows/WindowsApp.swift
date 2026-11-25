@@ -471,10 +471,10 @@ private func crtExit(_ code: Int32) -> Never {
         }
     }
 
-    /// The Mac's `TeamSettings.defaultStore()` choice (standard, or a per-state-folder suite), as a syncing defaults.
     /// Usage providers that read a login token of another app to ask a server for usage (see `AppEnv.liveFetchForbidden`).
     static let providersReadingLogins: Set<String> = ["cursor"]
 
+    /// The Mac's `TeamSettings.defaultStore()` choice (standard, or a per-state-folder suite), as a syncing defaults.
     static func teamDefaults(fallback: WinSyncingDefaults) -> WinSyncingDefaults {
         // The selftest keeps the team settings in its own suite too (removed at exit): a state folder's own `ptb.team.<hash>` file would stay.
         guard !WinDefaultsSync.selftestOwnsSettings,
