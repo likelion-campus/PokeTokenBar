@@ -2,16 +2,16 @@ import Foundation
 
 /// The overlay panels the plaza draws through the canvas (Track A Tasks 14–17w): the Mac and Windows both show them.
 /// `chatBar` is Windows' chat line chrome (`PlazaChatBarPanel`, around the native field); the Mac's chat bar is the AppKit `PlazaChatInput`.
-enum PlazaPanelID: Hashable, Sendable { case pills, clock, shortcuts, backgroundToggle, nameColorPicker, photoFrame, menu, minimap, chatLog, roster, board, card, chatBar, gameCard, gameTitle }
+enum PlazaPanelID: Hashable, Sendable { case pills, clock, shortcuts, backgroundToggle, nameColorPicker, photoFrame, menu, minimap, chatLog, roster, board, card, chatBar, gameCard, gameTitle, berryTable }
 
 extension PlazaPanelID {
     /// The order the windows stack the panels in, bottom first (the Mac's subview order; the Windows window draws and routes in it): the
     /// roster over the scene, the board over it, the card over that, the photo frame, the menu, the pills right over the scene's top lines,
     /// then the chat log, the minimap, the clock, the guide, the toggle and the colour picker. A click goes to the top-most panel with a hit.
     static let stackOrder: [PlazaPanelID] = [.roster, .board, .card, .photoFrame, .menu, .gameTitle, .gameCard, .pills, .chatLog, .minimap, .clock, .shortcuts, .backgroundToggle,
-                                             .nameColorPicker]
-    /// The panels that take every click, hover and scroll over the whole window while shown (the full-window overlays: board and card).
-    static let swallowingWholeWindow: Set<PlazaPanelID> = [.board, .card]
+                                             .nameColorPicker, .berryTable]
+    /// The panels that take every click, hover and scroll over the whole window while shown (the full-window overlays: board, card and the berry five table).
+    static let swallowingWholeWindow: Set<PlazaPanelID> = [.board, .card, .berryTable]
     /// What the background toggle's "UI hidden" modes hide: the roster, chat log, minimap, clock, shortcut guide and name-colour picker. Listed
     /// on its own, not derived from `hiddenInPhotoMode`, so a panel photo mode hides need not hide here. What stays: the toggle pill itself, the
     /// pills (banners and the hint line) and everything the user opens (menu, board, card, mini-game panels, the chat line, the photo frame).
