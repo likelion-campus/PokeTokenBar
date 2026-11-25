@@ -176,6 +176,11 @@ final class PlazaGameControllerTests: XCTestCase {
         XCTAssertEqual(w.c.gameState?.kind, PlazaGameKind.draw.rawValue)
         XCTAssertEqual(w.b.session.members[w.me.id]?.game, w.c.gameState, "the teammate's Mac got it")
         XCTAssertEqual(Array(w.c.gameCard?.lines.prefix(3) ?? []), L(.ko).plazaGameRules(.draw), "the three rule lines are on the card")
+        // The teammate's node is a bare engine (no controller, so no card of its own): its card is what the same view builder makes from its engine.
+        await sync(w)
+        XCTAssertEqual(w.b.engine.state?.kind, PlazaGameKind.draw.rawValue, "the teammate's engine knows a drawing quiz")
+        let theirs = PlazaGameView.make(engine: w.b.engine, now: now, joinedCount: 1, canPlay: true, flash: nil, name: { $0 })
+        XCTAssertEqual(Array(theirs.card?.lines.prefix(3) ?? []), L(.ko).plazaGameRules(.draw), "the teammate's card shows the three rule lines")
     }
 
     func testAnEggCannotOpenAGameAndTheMenuSaysWhy() async {

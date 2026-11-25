@@ -392,7 +392,10 @@ extension WindowsSelftest {
                 r.add("plaza.drawBoard", false, "the board did not stay on screen for the capture")
             }
         } else {
-            r.add("plaza.drawDrag", false, "the board did not show (panel \(quizPanel != nil), entry \(panels.entries[.drawBoard] != nil))")
+            let why = "the board did not show (panel \(quizPanel != nil), entry \(panels.entries[.drawBoard] != nil))"
+            r.add("plaza.drawDrag", false, why)
+            r.add("plaza.drawBoard", false, "no capture: " + why)
+            r.add("plaza.drawCost", false, "not measured: " + why)
         }
         quizModel.board = nil
         quizModel.canvas = PlazaDrawCanvas()
