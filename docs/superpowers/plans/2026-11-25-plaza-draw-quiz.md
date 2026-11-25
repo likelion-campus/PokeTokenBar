@@ -315,6 +315,8 @@ Rules to implement (§3.7, §4), each with a test below:
 
 ### Task 6: The panel, and the sheet the user picks from
 
+> Shipped: the user picked the centred layout, and the candidates had been reduced to two feasible ones.
+
 **Files:**
 - Create: `Sources/PokeTokenBar/Team/Plaza/HUD/PlazaDrawPanel.swift` (`PlazaDrawBoard`, `PlazaDrawModel`, `PlazaDrawLayout`, `PlazaDrawPanel`)
 - Modify: `Sources/PokeTokenBar/Team/Plaza/HUD/PlazaPanel.swift` (`PlazaPanelID.drawBoard`; `stackOrder`: right after `.roster`; `hiddenInPhotoMode`)
@@ -401,7 +403,7 @@ What each part does:
 - **Snapshots:** send `op: .snapshot` (base64 of `canvas.packed()`, `seq` = last sent) when a member id appears in `members` that was not there on the last step, or a member's `inPlaza` turns true, and every 10 s while the canvas changed since the last snapshot.
 - **Strokes in** (`showDraw`): ignore unless I am playing this game. Accept only from the member whose own presence state (`members[sender]?.game`) has this game's id, `draw.order[draw.turn] == sender`, `draw.drawAt != nil` and `turn == d.turn` (§5.2: do not wait for my next game step). Apply a stroke or clear; a snapshot replaces the canvas when its `cells` is within `TeamDraw.maxCellsBase64` and unpacks, and sets the last seq. Strokes with `seq` at or below the last seq are ignored. The canvas and the seq reset when the game id or the turn changes.
 - **Titles:** when `draw.last` changes, flash "정답!" (tone `.win`) or "시간 초과" (tone `.out`) through the existing `gameFlashes`, for players only.
-- **Strings** (Korean, in `TeamLocalization`; one reviewer who did not write them reads them once before the PR, as the defect log's 2026-11-25 fortune entry requires): rules (three lines), head, time, "내 차례! 제시어를 정하세요 · N초", "○○님이 제시어를 정하고 있어요 · N초", "그리세요! 제시어는 X · N초", "○○님이 그리는 중 · Enter로 답을 말해요 · N초", hint lines ("힌트는 30초가 남으면 나와요", "힌트 □□□", "힌트 ㅅㄱ"), result lines ("정답은 X · ○○님이 맞혔어요", "○○ +10 · ○○ +5", "정답은 X였어요", "이번 차례는 점수가 없어요", "정답을 알 수 없어요"), "다음은 ○○님 차례 · N초", "그림 퀴즈 진행 중", the ranking card ("그림 퀴즈 결과", "1등 ○○ 35점", "공동 1등"), `plazaDrawWordInvalid`, `plazaDrawOwnWordBlocked`, "연결이 끊겨 빠졌어요" (reuse the bomb game's if it exists).
+- **Strings** (Korean, in `TeamLocalization`; one reviewer who did not write them reads them once before the PR, as the defect log's 2026-11-25 fortune entry requires): rules (three lines), head ("차례 3/6 · 그리는 사람 ○○"; mine "차례 3/6 · 내가 그려요"), time ("⏱ 52"), "내 차례! 아래에 제시어를 쓰고 Enter · N초", "○○님이 제시어를 정하고 있어요 · N초", "글자 없이 그림으로만 그리세요", "Enter로 정답을 말해요", hint lines ("힌트는 30초가 남으면 나와요", "힌트 □□□ · 3글자", "힌트 ㅅㄱ"), result lines ("정답은 X · ○○님이 맞혔어요", "○○ +10점 · ○○ +5점", "정답은 X · 아무도 못 맞혔어요", "이번 차례는 점수가 없어요", "이번 차례는 건너뛰었어요"), "다음은 ○○님 차례 · N초", "그림 퀴즈 진행 중 · …", the ranking card ("그림 퀴즈 결과", "1등 ○○ 35점", "공동 1등"), `plazaDrawWordInvalid`, `plazaDrawOwnWordBlocked`, the bomb game's "팀원과 연결이 끊겨 판에서 빠졌어요" (reused).
 
 - [ ] **Step 1: Write the test world** in `PlazaDrawControllerTests`, modelled on `PlazaGameControllerTests`: my real controller plus two bare teammate nodes each driving its own engine, a shared settable clock, helpers `start(order:)` (teammate hosts with a seed that gives the wanted order) and `stepAll()`.
 - [ ] **Step 2: Write the failing tests:**
@@ -429,6 +431,8 @@ What each part does:
 - [ ] **Step 8: Commit** `feat(team): play the drawing quiz in the plaza`. Run the plaza filter. Open **PR C** with the Task 6 images; its text says the game is still not in the menu.
 
 ### Task 8: Into the menu, Windows checks, documents
+
+> Shipped: `PlazaGameKind.offered` is kept (another game kind must stay out of the menu) and now lists both games explicitly, `[.bomb, .draw]`, instead of being deleted.
 
 **Files:**
 - Modify: `Sources/PokeTokenBar/Team/Plaza/PlazaGame.swift` (delete `PlazaGameKind.offered`), `PlazaGameView.swift` (`kinds` back to `allCases`)

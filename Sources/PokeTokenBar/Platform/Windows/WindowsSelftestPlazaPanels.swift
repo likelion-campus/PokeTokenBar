@@ -328,6 +328,76 @@ extension WindowsSelftest {
         let hoverResult = await hoverOnce()
         r.add("plaza.hover", hoverResult.ok, hoverResult.line)
 
+        // plaza.drawDrag / plaza.drawBoard / plaza.drawCost: the drawing quiz's board in the drawer's state over FIXTURE text (the word is a fixture). The
+        // controller's own game loop (1 s without a game) clears a board no game owns, so the board is set again until it is shown and the messages are
+        // posted in one synchronous run right after (nothing else runs on the main actor in between). Everything is put back at the end.
+        let quizText = L(.ko)
+        let quizBoard = PlazaDrawBoard(head: quizText.plazaDrawHead(turn: 3, of: 6, drawer: nil), time: quizText.plazaDrawTime(seconds: 52), cover: nil,
+                                       foot: .tools(word: "apple"), canDraw: true)
+        let quizModel = c.drawModel
+        let quizPanel = hud.panels.first(where: { $0.id == .drawBoard }) as? PlazaDrawPanel
+        func showQuizBoard(_ canvas: PlazaDrawCanvas) async -> WinPlazaPanels.Entry? {
+            for _ in 0..<5 {
+                quizModel.canvas = canvas
+                quizModel.board = quizBoard
+                await pumpPanels(0.35)
+                if quizModel.board == quizBoard, let e = panels.entries[.drawBoard] { return e }
+            }
+            return nil
+        }
+        // The canvas image is the layer after the plate (the board has no cover here): its frame in panel points.
+        func quizCanvasFrame(_ e: WinPlazaPanels.Entry) -> CGRect? {
+            if case .image(_, let frame)? = e.drawing.layers.dropFirst().first { return frame }
+            return nil
+        }
+        if let quizPanel, let entry = await showQuizBoard(PlazaDrawCanvas()), let canvasFrame = quizCanvasFrame(entry) {
+            let fractions: [CGFloat] = [0.2, 0.4, 0.6, 0.8]
+            let along = fractions.map { CGPoint(x: canvasFrame.minX + canvasFrame.width * $0, y: canvasFrame.minY + canvasFrame.height * $0) }   // panel points
+            func quizPixel(_ p: CGPoint) -> CGPoint { pixel(shell, CGPoint(x: entry.frame.minX + p.x, y: entry.frame.minY + p.y)) }
+            let first = packed(quizPixel(along[0]))
+            _ = SendMessageW(hwnd, 0x0200, 0, first)
+            _ = SendMessageW(hwnd, 0x0201, 1, first)
+            for p in along.dropFirst() { _ = SendMessageW(hwnd, 0x0200, 1, packed(quizPixel(p))) }
+            _ = SendMessageW(hwnd, 0x0202, 0, packed(quizPixel(along[along.count - 1])))
+            let cellsUnder = along.compactMap { quizPanel.cell(at: $0) }
+            let drawnUnder = cellsUnder.filter { quizModel.canvas[$0.x, $0.y] != 0 }.count
+            let drawnTotal = quizModel.canvas.cells.filter { $0 != 0 }.count
+            r.add("plaza.drawDrag", cellsUnder.count == along.count && drawnUnder == along.count && drawnTotal > along.count,
+                  "WM_LBUTTONDOWN, \(along.count - 1) WM_MOUSEMOVE and WM_LBUTTONUP along the canvas diagonal (\(Int(canvasFrame.width))x\(Int(canvasFrame.height)) points): "
+                  + "\(drawnUnder) of \(cellsUnder.count) cells under the points are inked, \(drawnTotal) inked cells in all")
+
+            // plaza.drawBoard: the capture, with a sample drawing so the sheet is not empty.
+            var sample = PlazaDrawCanvas()
+            _ = sample.stroke(points: [0, 52, 95, 52], color: 8, width: 3)
+            _ = sample.stroke(points: [20, 52, 20, 30, 50, 30, 50, 52], color: 1, width: 3)
+            _ = sample.stroke(points: [16, 30, 35, 14, 54, 30], color: 2, width: 3)
+            _ = sample.stroke(points: [78, 10, 78, 10], color: 4, width: 5)
+            if let shown = await showQuizBoard(sample) {
+                let picture = shot("plaza-draw-quiz.png")
+                r.add("plaza.drawBoard", panels.entries[.drawBoard] != nil && quizModel.canvas == sample,
+                      "FIXTURE drawing and word; board panel \(Int(shown.frame.width))x\(Int(shown.frame.height)) points at (\(Int(shown.frame.minX)), \(Int(shown.frame.minY))); \(picture)")
+
+                // plaza.drawCost: the mean time of the panel's own redraw after a canvas change, over 100 changes (reported, not judged).
+                let clock = ContinuousClock()
+                var spent = Duration.zero
+                for i in 0..<100 {
+                    _ = quizModel.canvas.stroke(points: [i % 90, 5, i % 90, 6], color: 1 + i % 8, width: 1)
+                    let t0 = clock.now
+                    _ = quizPanel.render(scale: hud.scale, viewport: hud.viewport, graphics: hud.graphics)
+                    spent += clock.now - t0
+                }
+                let micros = (Double(spent.components.seconds) * 1e6 + Double(spent.components.attoseconds) / 1e12) / 100
+                r.add("plaza.drawCost", true, "mean of 100 redraws of the board after a canvas change: \(pText(micros / 1000)) ms (\(Int(micros)) us); reported, not a budget")
+            } else {
+                r.add("plaza.drawBoard", false, "the board did not stay on screen for the capture")
+            }
+        } else {
+            r.add("plaza.drawDrag", false, "the board did not show (panel \(quizPanel != nil), entry \(panels.entries[.drawBoard] != nil))")
+        }
+        quizModel.board = nil
+        quizModel.canvas = PlazaDrawCanvas()
+        await pumpPanels(0.4)
+
 
         // plaza.eyeGlyphs: which symbol font this machine has and what its candidate eye code points look like (one PNG each, to be read by eye).
         var surveyed = 0

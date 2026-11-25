@@ -5,8 +5,8 @@ import Foundation
 enum PlazaGameKind: String, CaseIterable, Sendable {
     case bomb, draw
 
-    /// What the M menu lists. `.draw` joins it in the last task of the drawing-quiz plan; delete this then.
-    static var offered: [PlazaGameKind] { allCases.filter { $0 != .draw } }
+    /// What the M menu lists: the games the app offers to open. Not `allCases`, so a game that is in the code but not yet ready stays out of the menu.
+    static var offered: [PlazaGameKind] { [.bomb, .draw] }
 }
 
 /// One minigame as the team knows it: carried in every member's presence and passed on, like the campfire switch.
