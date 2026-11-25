@@ -43,6 +43,17 @@ final class PlazaDrawCanvasTests: XCTestCase {
         XCTAssertEqual(c[7, 5], 2)
     }
 
+    func testAReversedSegmentDrawsTheSameCells() {
+        var a = PlazaDrawCanvas(), b = PlazaDrawCanvas()
+        a.stroke(points: [2, 2, 5, 2], color: 1, width: 1)
+        b.stroke(points: [5, 2, 2, 2], color: 1, width: 1)
+        XCTAssertEqual(a, b)
+        var d1 = PlazaDrawCanvas(), d2 = PlazaDrawCanvas()
+        d1.stroke(points: [0, 0, 7, 5], color: 1, width: 1)
+        d2.stroke(points: [7, 5, 0, 0], color: 1, width: 1)
+        XCTAssertEqual(d1, d2)
+    }
+
     func testABrushAtTheEdgeIsClippedNotWrapped() {
         var c = PlazaDrawCanvas()
         XCTAssertTrue(c.stroke(points: [0, 0], color: 5, width: 5))
@@ -61,6 +72,8 @@ final class PlazaDrawCanvasTests: XCTestCase {
             ([5, 5, 6, 64], 1, 1),
             ([5, 5], 9, 1),
             ([5, 5], 1, 2),
+            ([5, 5], -1, 1),
+            ([5, 5], 1, -1),
         ]
         for b in bad {
             var c = PlazaDrawCanvas()
@@ -90,6 +103,10 @@ final class PlazaDrawCanvasTests: XCTestCase {
         var long = empty; long[long.count - 2] += 1
         XCTAssertNil(PlazaDrawCanvas(packed: Data(long)), "one cell long")
         XCTAssertNil(PlazaDrawCanvas(packed: Data(empty + [0, 0])), "a count of 0")
+        XCTAssertNil(PlazaDrawCanvas(packed: Data(empty + [1])), "an odd length")
+        XCTAssertNil(PlazaDrawCanvas(packed: Data()), "empty data")
+        let tooLong = Data([UInt8](repeating: 1, count: 2 * PlazaDrawCanvas.width * PlazaDrawCanvas.height + 2))
+        XCTAssertNil(PlazaDrawCanvas(packed: tooLong), "longer than any valid run list")
         var badColour = empty; badColour[1] = 9
         XCTAssertNil(PlazaDrawCanvas(packed: Data(badColour)), "colour 9")
     }

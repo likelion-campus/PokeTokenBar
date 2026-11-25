@@ -74,7 +74,7 @@ struct PlazaDrawCanvas: Equatable, Sendable {
     /// nil unless the data expands to exactly `width * height` cells of valid colours.
     init?(packed: Data) {
         let total = Self.width * Self.height
-        guard packed.count % 2 == 0 else { return nil }
+        guard packed.count % 2 == 0, packed.count <= 2 * total else { return nil }
         var cells = [UInt8]()
         cells.reserveCapacity(total)
         let bytes = [UInt8](packed)
