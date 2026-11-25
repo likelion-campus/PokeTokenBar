@@ -251,6 +251,13 @@ struct PlazaGameEngine {
     private(set) var lostConnection: String?
     /// Hosts whose game was cancelled before it started, and when: their next invitation waits `reopenDelay`.
     private var cancelled: [String: Double] = [:]
+    /// Games I saw end (or dropped as abandoned), by id, with when they opened. A running copy of one of them that a
+    /// Mac still relays (its plaza was closed during the game) is stale: it never brings the game back.
+    private var finished: [String: Double] = [:]
+    /// Since when I have seen no player of the drawing quiz playing (my clock), while I am not playing it myself.
+    fileprivate var abandonedSince: Double?
+    /// Since when fewer than two players of the drawing quiz are playing in my view (my clock), while I hear a player.
+    fileprivate var lackSince: Double?
     /// Draws the seed when I lock a game as its host.
     var makeSeed: () -> UInt64 = { UInt64.random(in: .min ... .max) }
 
@@ -278,6 +285,7 @@ struct PlazaGameEngine {
     mutating func learn(_ received: PlazaGameState?, from sender: String? = nil, now: Date) -> Bool {
         let before = state
         var incoming = PlazaGame.accepted(received, now: now)
+        if let r = incoming, r.endedAt == nil, finished[r.id] != nil { incoming = nil }
         if let r = incoming, r.id != state?.id, r.startsAt == nil, r.endedAt == nil {
             if let sender, sender != r.host { incoming = nil }
             if let at = cancelled[r.host], r.opensAt < at + PlazaGame.reopenDelay { incoming = nil }
@@ -296,6 +304,8 @@ struct PlazaGameEngine {
         let t = now.timeIntervalSince1970
         if let s = state, s.startsAt == nil, let ended = s.endedAt { cancelled[s.host] = max(cancelled[s.host] ?? ended, ended) }
         cancelled = cancelled.filter { t < $0.value + PlazaGame.reopenDelay }
+        if let s = state, s.endedAt != nil { finished[s.id] = s.opensAt }
+        finished = finished.filter { t <= $0.value + PlazaGame.maxLife }
     }
 
     /// How long until I can open a game: 0 when none is alive, the last one ended a moment ago, and my own last game
@@ -377,10 +387,11 @@ struct PlazaGameEngine {
     }
 
     /// Does what only this Mac may do right now. `present`: teammates in the plaza (not me). `joins`: those of them who
-    /// said yes to the current game. `connected`: this Mac reaches at least one teammate. True when `state` changed
-    /// (publish it).
+    /// said yes to the current game. `connected`: this Mac reaches at least one teammate. `heard`: every teammate this
+    /// Mac is connected to, in the plaza or not (nil: not known, the drawing quiz then goes by `connected`). True when
+    /// `state` changed (publish it).
     @discardableResult
-    mutating func tick(now: Date, present: Set<String>, joins: Set<String>, connected: Bool = true) -> Bool {
+    mutating func tick(now: Date, present: Set<String>, joins: Set<String>, connected: Bool = true, heard: Set<String>? = nil) -> Bool {
         let before = state
         state = PlazaGame.accepted(state, now: now)
         settle(now: now)
@@ -388,7 +399,8 @@ struct PlazaGameEngine {
         let t = now.timeIntervalSince1970
         let phase = PlazaGame.phase(s, now: now)
         if s.kind == PlazaGameKind.draw.rawValue, s.startsAt != nil {
-            tickDraw(now: now, present: present, joins: joins, connected: connected)
+            if dropAbandonedDraw(now: now, joins: joins, hearing: heard.map { !$0.isEmpty } ?? connected) { return true }
+            tickDraw(now: now, present: present, joins: joins, connected: connected, heard: heard)
             return state != before
         }
         if phase == .countdown || phase == .playing, PlazaBomb.alive(s).contains(me) {
@@ -576,13 +588,33 @@ extension PlazaGameEngine {
         myWord.map { PlazaDraw.contains(line, word: $0) } ?? false
     }
 
-    fileprivate mutating func tickDraw(now: Date, present: Set<String>, joins: Set<String>, connected: Bool) {
+    /// A quiz nobody plays is over: I am not playing it, I hear a teammate, and for `abandonedAfter` seconds on my own
+    /// clock no player of it has been playing. I forget it and remember its id; nothing shared is written.
+    fileprivate mutating func dropAbandonedDraw(now: Date, joins: Set<String>, hearing: Bool) -> Bool {
+        guard let s = state, s.endedAt == nil, s.draw != nil, joined != s.id, hearing, joins.isDisjoint(with: s.players) else {
+            abandonedSince = nil
+            return false
+        }
+        let t = now.timeIntervalSince1970
+        let since = abandonedSince ?? t
+        abandonedSince = since
+        guard t - since >= PlazaDraw.abandonedAfter else { return false }
+        finished[s.id] = s.opensAt
+        state = nil
+        abandonedSince = nil
+        settle(now: now)
+        return true
+    }
+
+    fileprivate mutating func tickDraw(now: Date, present: Set<String>, joins: Set<String>, connected: Bool, heard: Set<String>?) {
         // A state without its `draw` (an old app's relay) is passed on and never played or refereed.
         guard let s = state, s.endedAt == nil, let d = s.draw, d.order.indices.contains(d.turn), s.players.contains(me),
               joined == s.id, let c = drawClock else { return }
         let t = now.timeIntervalSince1970
         // Cut off from everyone I cannot tell who is still here: I write nothing, and after a while I step out myself.
-        guard connected else {
+        let heardAPlayer = heard.map { !$0.isDisjoint(with: Set(s.players).subtracting([me])) } ?? true
+        guard connected, heardAPlayer else {
+            lackSince = nil
             drawClock?.drawerAbsentSince = nil
             let since = isolatedSince ?? t
             isolatedSince = since
@@ -595,6 +627,19 @@ extension PlazaGameEngine {
         isolatedSince = nil
         let playing = joins.intersection(s.players).union([me])
         let who = d.order[d.turn]
+        // The others are heard but not playing (they left the game, or only their hello has arrived): the turn waits.
+        // Once that has lasted the grace, the one left ends the game now. It is the drawer or the referee, so it may write.
+        if playing.count < PlazaGame.minPlayers {
+            let since = lackSince ?? t
+            lackSince = since
+            if t - since >= PlazaBomb.absenceGrace {
+                state = PlazaDraw.ended(s, word: myWord, solver: nil, playing: playing, at: t)
+                lackSince = nil
+                observeDraw(now: now)
+            }
+            return
+        }
+        lackSince = nil
         if who == me {
             if d.entryAt == nil, d.drawAt == nil {
                 if introLeft(d, c, t) <= 0, let next = PlazaDraw.opened(s, by: me, at: t) { state = next }

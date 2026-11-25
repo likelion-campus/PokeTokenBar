@@ -37,6 +37,8 @@ enum PlazaDraw {
     }
     static let wordSeconds: TimeInterval = 20, drawSeconds: TimeInterval = 60, revealSeconds: TimeInterval = 6
     static let refereeSlack: TimeInterval = 10
+    /// A machine that is not playing drops a quiz in which it has seen no player playing for this long.
+    static let abandonedAfter: TimeInterval = 5
     static let guessPoints = 10, drawerPoints = 5
     static let maxWordCharacters = 12
     /// The word's size on the wire: combining marks make a short word long, and the word is relayed to every Mac.
