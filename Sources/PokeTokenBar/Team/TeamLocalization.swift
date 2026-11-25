@@ -621,8 +621,11 @@ extension L {
     var plazaChatLogExpand: String { "펼치기 ▴" }
     var plazaChatLogCollapse: String { "접기 ▾" }
     func teamMegaphoneNotice(nickname: String, text: String) -> String { "📢 \(nickname): \(text)" }
-    var plazaBackgroundHide: String { "배경 숨기기" }
-    var plazaBackgroundShow: String { "배경 보이기" }
+    /// The background toggle's label is its current mode: it cycles shown, UI hidden, background hidden, both hidden.
+    var plazaModeShown: String { "모두 표시" }
+    var plazaModeUIHidden: String { "UI 숨기기" }
+    var plazaModeBackgroundHidden: String { "배경 숨기기" }
+    var plazaModeBothHidden: String { "UI·배경 숨기기" }
     var plazaNameColor: String { "이름 색" }
     func plazaClock(phase: PlazaDaylight.Phase, time: String) -> String {
         let name = switch phase {

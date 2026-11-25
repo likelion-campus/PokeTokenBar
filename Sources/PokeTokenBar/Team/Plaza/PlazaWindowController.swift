@@ -482,6 +482,8 @@ import Observation
         s.setBackgroundHidden(preferences.isBackgroundHidden)
         backgroundModel.isHidden = preferences.isBackgroundHidden
         shortcutModel.isFolded = preferences.areShortcutsFolded
+        backgroundModel.isUIHidden = preferences.isUIHidden
+        if preferences.isUIHidden { applyHiddenPanels() }   // the window opens shown: only a remembered hide needs telling
         s.onOverlayKey = { [weak self] in self?.handleOverlayKey($0) }
         s.onWalkKey = { [weak self] in self?.standUp() }
         if let feed {
@@ -578,7 +580,7 @@ import Observation
         case (.gameCard, _): gameAction(hit.action)   // the plate's own clicks ("card") are taken and do nothing
         case (.chatLog, "toggle"): toggleChatLog()   // the log's own clicks ("log") are taken and do nothing
         case (.shortcuts, "toggle"): toggleShortcuts()
-        case (.backgroundToggle, "toggle"): toggleBackground()
+        case (.backgroundToggle, "toggle"): cycleDisplayMode()
         case (.nameColorPicker, "toggle"): toggleNameColorPicker()
         case (.nameColorPicker, "choose"):
             if let i = hit.index, PlazaNameColor.hexes.indices.contains(i) { pickNameColor(PlazaNameColor.hexes[i]) }
@@ -607,11 +609,32 @@ import Observation
     var isNameColorPickerOpen: Bool { nameColorModel.isOpen }
     var shownNameColor: UInt32 { nameColorModel.current }
 
-    /// 지도와 바탕을 숨기거나 되살린다. 창도 투명하게 바꿔 뒤의 작업 화면이 비치게 한다.
+    /// 지도와 바탕을 숨기거나 되살린다. 창도 투명하게 바꿔 뒤의 작업 화면이 비치게 한다. 왼쪽 위 단추는 `cycleDisplayMode`를 부르고, 이건 배경만 바꾸는 테스트가 쓴다.
     func toggleBackground() {
         preferences.isBackgroundHidden.toggle()
         applyBackground()
         shell.focusScene()
+    }
+
+    /// 왼쪽 위 단추를 한 번 누른다: 모두 표시 → UI 숨기기 → 배경 숨기기 → UI·배경 숨기기 → 모두 표시. 누른 뒤에도 키는 장면이 받는다.
+    func cycleDisplayMode() {
+        // 모드 번호: UI 숨김이 1, 배경 숨김이 2. 0, 1, 2, 3 순으로 돈다.
+        let mode = ((preferences.isUIHidden ? 1 : 0) + (preferences.isBackgroundHidden ? 2 : 0) + 1) % 4
+        let ui = mode & 1 != 0, background = mode & 2 != 0
+        let backgroundChanged = background != preferences.isBackgroundHidden
+        preferences.isUIHidden = ui
+        backgroundModel.isUIHidden = ui
+        applyHiddenPanels()
+        if backgroundChanged {
+            preferences.isBackgroundHidden = background
+            applyBackground()
+        }
+        shell.focusScene()
+    }
+
+    /// 사진 모드는 단추까지 숨기고, 나가면 단추의 모드가 가리키는 상태로 돌아간다. 열린 이름 색 팔레트는 사진 모드처럼 그대로 둔다.
+    private func applyHiddenPanels() {
+        shell.setHiddenPanels(overlayModel.isPhotoMode ? PlazaPanelID.hiddenInPhotoMode : backgroundModel.isUIHidden ? PlazaPanelID.hiddenWithUI : [])
     }
 
     /// 단축키 안내를 접거나 펼치고 기억한다.
@@ -634,6 +657,7 @@ import Observation
     /// 테스트용 읽기 전용 값.
     var chatLogLines: [PlazaChatLog.Line] { chatLog.lines }
     var isBackgroundHidden: Bool { backgroundModel.isHidden }
+    var isUIHidden: Bool { backgroundModel.isUIHidden }
 
     /// 내 말풍선은 바로 띄운다. 보낼 글이 없으면 true(입력창을 닫는다), 너무 빠르면 false(글을 남겨 둔다).
     private func submitChat(_ raw: String) -> Bool {
@@ -901,7 +925,7 @@ import Observation
     /// 사진 모드를 열고 닫을 때: 틀을 그리고 HUD를 숨기거나 되살린다.
     private func photoModeChanged(_ on: Bool) {
         overlayModel.isPhotoMode = on
-        shell.setHUDHidden(on)
+        applyHiddenPanels()
         refreshHint()
         refreshCountdown()
         refreshMinimap()   // 나가면 지도의 보이는 영역도 따라가기 화면으로 돌아와야 한다(1초 뒤 틱을 기다리지 않는다)

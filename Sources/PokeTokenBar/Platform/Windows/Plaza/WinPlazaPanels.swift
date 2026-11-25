@@ -111,10 +111,11 @@ import Foundation
 
     // MARK: window states
 
-    /// Photo mode: `PlazaMacWindow.setHUDHidden`.
-    func setHidden(_ hidden: Bool) {
-        hud.hiddenPanels = hidden ? Self.hiddenInPhotoMode : []
-        if hidden { hovered.subtract(Self.hiddenInPhotoMode); if let c = captured, Self.hiddenInPhotoMode.contains(c) { captured = nil } }
+    /// Photo mode and the UI toggle: `PlazaMacWindow.setHiddenPanels`.
+    func setHidden(_ ids: Set<PlazaPanelID>) {
+        hud.hiddenPanels = ids
+        hovered.subtract(ids)
+        if let c = captured, ids.contains(c) { captured = nil }
         rebuild()
     }
 

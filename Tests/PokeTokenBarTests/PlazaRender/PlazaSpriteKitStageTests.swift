@@ -13,6 +13,7 @@ final class PlazaSpriteKitStageTests: XCTestCase {
 
     private func scene() -> PlazaScene {
         let s = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: map.spawn, zoom: 2, nickname: "나")
+        pinPlazaClock(s)
         s.currentModifiers = { [] }
         return s
     }

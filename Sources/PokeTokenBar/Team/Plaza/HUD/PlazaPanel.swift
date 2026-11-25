@@ -12,6 +12,10 @@ extension PlazaPanelID {
                                              .backgroundToggle, .nameColorPicker]
     /// The panels that take every click, hover and scroll over the whole window while shown (the full-window overlays: board and card).
     static let swallowingWholeWindow: Set<PlazaPanelID> = [.board, .card]
+    /// What the background toggle's "UI hidden" modes hide: the roster, chat log, minimap, clock, shortcut guide and name-colour picker. Listed
+    /// on its own, not derived from `hiddenInPhotoMode`, so a panel photo mode hides need not hide here. What stays: the toggle pill itself, the
+    /// pills (banners and the hint line) and everything the user opens (menu, board, card, mini-game panels, the chat line, the photo frame).
+    static let hiddenWithUI: Set<PlazaPanelID> = [.roster, .chatLog, .minimap, .clock, .shortcuts, .nameColorPicker]
     /// What photo mode hides; the photo frame, menu, pills, board and card stay.
     static let hiddenInPhotoMode: Set<PlazaPanelID> = [.roster, .drawBoard, .chatLog, .minimap, .clock, .shortcuts, .backgroundToggle, .nameColorPicker]
 }

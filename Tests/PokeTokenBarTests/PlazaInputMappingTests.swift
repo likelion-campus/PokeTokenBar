@@ -7,7 +7,9 @@ import XCTest
 final class PlazaInputMappingTests: XCTestCase {
     private func makeScene() -> PlazaScene {
         let map = PlazaMapData.map
-        return PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: map.spawn, zoom: 2, nickname: "나")
+        let scene = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: map.spawn, zoom: 2, nickname: "나")
+        pinPlazaClock(scene)
+        return scene
     }
 
     private func key(_ code: UInt16, _ characters: String, flags: NSEvent.ModifierFlags = [], repeats: Bool = false) throws -> NSEvent {

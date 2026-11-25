@@ -21,7 +21,7 @@ import XCTest
         try rig.click(.roster, at: nextArrow)
         XCTAssertEqual(rig.overlays.rosterModel.page, 1, "a click through sendEvent turned the page")
         rig.overlays.rosterModel.page = 0
-        rig.shell.setHUDHidden(true)
+        rig.shell.setHiddenPanels(PlazaPanelID.hiddenInPhotoMode)
         await rig.flush()
         try rig.click(.roster, at: nextArrow)
         XCTAssertEqual(rig.overlays.rosterModel.page, 0, "a hidden roster is not clicked through sendEvent either")
