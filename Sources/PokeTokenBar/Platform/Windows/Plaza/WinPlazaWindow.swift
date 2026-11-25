@@ -73,7 +73,7 @@ import WinSDK
     private(set) var chat: WinPlazaChatInput?
     private var dpi: UInt32 = 96
     private var transparent = false
-    private(set) var isHUDHidden = false
+    private(set) var hiddenPanels: Set<PlazaPanelID> = []
     private(set) var isChatLogAboveInput = false
     private var showMaximized = false
     private var lastNormal: (rect: WinPlazaPlacement.Rect, dpi: UInt32)?
@@ -186,7 +186,7 @@ import WinSDK
         panels.applyScrollers(alwaysVisible: WinPlazaPanels.alwaysShowScrollbars())
         contentHeight = 0
         layoutForClient()   // reports the content height once: what `restoreFrame` does on the Mac (the roster's page size)
-        panels.setHidden(isHUDHidden)
+        panels.setHidden(hiddenPanels)
         panels.setChatLogAbove(isChatLogAboveInput)
         panels.attach()     // every visible panel renders once, before the first frame
         visibility = WinPlazaVisibility(hookMessage: Self.hookMessage)
@@ -274,10 +274,10 @@ import WinSDK
         stage?.setNeedsDraw()
     }
 
-    /// Photo mode: the panels the Mac hides are neither drawn nor hit (the flag is kept for a window opened later).
-    func setHUDHidden(_ hidden: Bool) {
-        isHUDHidden = hidden
-        panels?.setHidden(hidden)
+    /// Photo mode and the UI toggle: the panels the Mac hides are neither drawn nor hit (the set is kept for a window opened later).
+    func setHiddenPanels(_ ids: Set<PlazaPanelID>) {
+        hiddenPanels = ids
+        panels?.setHidden(ids)
     }
 
     /// The IME on the scene window: off while the scene has the keyboard; Task 11 turns it on for the chat field's focus.

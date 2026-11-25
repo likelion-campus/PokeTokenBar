@@ -6,6 +6,7 @@ import Foundation
     private static let lastTileKey = "team.plaza.lastTile"
     private static let backgroundHiddenKey = "team.plaza.backgroundHidden"
     private static let shortcutsFoldedKey = "team.plaza.shortcutsFolded"
+    private static let uiHiddenKey = "team.plaza.uiHidden"
     private static let focusKey = "team.plaza.focus"
     private static let iceBreakKey = "team.plaza.iceBreak"
     private static let campfireKey = "team.plaza.campfire"
@@ -44,6 +45,12 @@ import Foundation
     var areShortcutsFolded: Bool {
         get { defaults.bool(forKey: Self.shortcutsFoldedKey) }
         set { defaults.set(newValue, forKey: Self.shortcutsFoldedKey) }
+    }
+
+    /// 광장 UI(목록·채팅 기록·미니맵 등)를 숨겼다. 숨기기 버튼만 남는다.
+    var isUIHidden: Bool {
+        get { defaults.bool(forKey: Self.uiHiddenKey) }
+        set { defaults.set(newValue, forKey: Self.uiHiddenKey) }
     }
 
     /// 모닥불 집중 상태. 없으면 nil이고, nil을 넣으면 저장값을 지운다.

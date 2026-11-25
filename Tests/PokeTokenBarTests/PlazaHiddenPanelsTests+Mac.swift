@@ -2,7 +2,7 @@ import AppKit
 import XCTest
 @testable import PokeTokenBar
 
-/// Task 17w review item 3: photo mode hides the roster and chat log hosts (`setHUDHidden`); a hidden host must take no click, and the HUD
+/// Task 17w review item 3: photo mode hides the roster and chat log hosts (`setHiddenPanels`); a hidden host must take no click, and the HUD
 /// must not keep drawing (or animating) what nobody sees. Through `NSWindow.sendEvent` on the real window.
 @MainActor final class PlazaHiddenPanelsTests: XCTestCase {
     private func people(_ n: Int, presence: PlazaPresence = .online) -> [PlazaRosterEntry] {
@@ -36,7 +36,7 @@ import XCTest
         rig.overlays.rosterModel.page = 0
         actions.removeAll()
         // Photo mode: the window hides them.
-        rig.shell.setHUDHidden(true)
+        rig.shell.setHiddenPanels(PlazaPanelID.hiddenInPhotoMode)
         await rig.flush()
         XCTAssertTrue(rosterHost.isHidden && logHost.isHidden)
         XCTAssertTrue(try rig.click(.roster, at: nextArrow) !== rosterHost, "a hidden host is not hit")
@@ -47,7 +47,7 @@ import XCTest
         XCTAssertFalse(rig.controller.isChatLogExpanded, "the log did not fold")
         XCTAssertEqual(rig.overlays.rosterModel.entries.count, 8)
         // Shown again: clicks work.
-        rig.shell.setHUDHidden(false)
+        rig.shell.setHiddenPanels([])
         await rig.flush()
         try rig.click(.roster, at: nextArrow)
         XCTAssertEqual(rig.overlays.rosterModel.page, 1)
@@ -61,13 +61,13 @@ import XCTest
         await rig.flush()
         let panel = try XCTUnwrap(rig.panel(.roster, as: PlazaRosterPanel.self))
         XCTAssertTrue(panel.animationClock.isRunning, "online members bounce while the roster shows")
-        rig.shell.setHUDHidden(true)
+        rig.shell.setHiddenPanels(PlazaPanelID.hiddenInPhotoMode)
         await rig.flush()
         let base = rig.hud.renderCounts[.roster] ?? 0
         try await Task.sleep(for: .milliseconds(2300))
         XCTAssertEqual(rig.hud.renderCounts[.roster] ?? 0, base, "hidden: no renders")
         XCTAssertFalse(panel.animationClock.isRunning, "hidden: the bounce clock is stopped")
-        rig.shell.setHUDHidden(false)
+        rig.shell.setHiddenPanels([])
         await rig.flush()
         XCTAssertTrue(panel.animationClock.isRunning, "shown again: it bounces again")
     }
@@ -80,7 +80,7 @@ import XCTest
         var actions: [String] = []
         let own = rig.hud.onAction
         rig.hud.onAction = { id, hit in actions.append("\(id) \(hit.action)"); own?(id, hit) }
-        rig.shell.setHUDHidden(true)
+        rig.shell.setHiddenPanels(PlazaPanelID.hiddenInPhotoMode)
         await rig.flush()
         for id in [PlazaPanelID.shortcuts, .backgroundToggle, .nameColorPicker] {
             let host = try XCTUnwrap(rig.host(id))

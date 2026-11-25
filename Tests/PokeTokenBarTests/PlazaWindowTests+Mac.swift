@@ -148,10 +148,10 @@ private struct NoSprites: PlazaSpriteFetching {
         XCTAssertEqual(installed().between, expected.sorted())
 
         chat.open()
-        shell.setHUDHidden(true)
+        shell.setHiddenPanels(PlazaPanelID.hiddenInPhotoMode)
         XCTAssertEqual(subs.map(\.isHidden), [false, true, false, false, false, false, false, false, false, true, true, true, true, true, true, false],
                        "photo mode hides the roster, chat log, map, clock, guide and both toggles; not the scene, the board, the card, the photo frame, the minigame panels and pills or the open field")
-        shell.setHUDHidden(false)
+        shell.setHiddenPanels([])
         XCTAssertEqual(subs.map(\.isHidden), Array(repeating: false, count: 16))
         shell.focusChatInput()
         XCTAssertFalse(w.firstResponder === view, "the field takes the keys")
@@ -180,7 +180,7 @@ private struct NoSprites: PlazaSpriteFetching {
         XCTAssertNil(w.delegate)
         XCTAssertNil(w.contentView)
         XCTAssertNil(shell.windowForTesting)
-        shell.setHUDHidden(true)
+        shell.setHiddenPanels(PlazaPanelID.hiddenInPhotoMode)
         XCTAssertFalse(subs[1].isHidden, "a dismantled window's views are let go of")
         c.handleClose()
     }
@@ -373,7 +373,7 @@ private struct NoSprites: PlazaSpriteFetching {
         shell.focusChatInput()
         shell.setTitle("x")
         shell.setTransparent(true)
-        shell.setHUDHidden(true)
+        shell.setHiddenPanels(PlazaPanelID.hiddenInPhotoMode)
         shell.setChatLogAboveInput(true)
         shell.requestClose()
         shell.stopPresenting()
@@ -431,7 +431,7 @@ private struct NoSprites: PlazaSpriteFetching {
         XCTAssertEqual(written.pngs.count, 1)
         XCTAssertEqual(written.pngs.first.map { Array($0.prefix(4)) }, [0x89, 0x50, 0x4E, 0x47], "a PNG")
         XCTAssertEqual(c.banner, L(.ko).plazaPhotoCopied)
-        XCTAssertEqual(shell.take(), [.setHUDHidden(true)])
+        XCTAssertEqual(shell.take(), [.setHiddenPanels(PlazaPanelID.hiddenInPhotoMode)])
         c.handleClose()
     }
 }

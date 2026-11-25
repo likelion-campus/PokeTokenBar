@@ -135,7 +135,7 @@ import Observation
     private let minimap = PlazaMinimapModel()
     /// The panels drawn through the canvas over the scene, bottom first: the countdown/banner/hint pills (above the
     /// overlay) and the clock on the minimap. `setRendering` switches their rendering with the scene's.
-    private(set) lazy var hud = PlazaHUD(panels: [rosterPanel] + [boardPanel].compactMap { $0 } + [cardPanel, photoFramePanel, menuPanel, gameTitlePanel, gameCardPanel, pillsPanel, chatLogPanel, minimapPanel, clockPanel, shortcutsPanel, togglePanel, pickerPanel])
+    private(set) lazy var hud = PlazaHUD(panels: [rosterPanel] + [boardPanel].compactMap { $0 } + [cardPanel, photoFramePanel, menuPanel, gameTitlePanel, gameCardPanel, pillsPanel, chatLogPanel, minimapPanel, clockPanel, shortcutsPanel, togglePanel, pickerPanel, uiTogglePanel])
     /// The pictures the roster and the card show (the platform's loaders; a test hands in its own).
     private let iconSource: any PlazaIconSource
     private lazy var rosterPanel = PlazaRosterPanel(model: rosterModel, icons: iconSource)
@@ -146,6 +146,7 @@ import Observation
     private lazy var shortcutsPanel = PlazaShortcutGuidePanel(model: shortcutModel, toggle: togglePanel)
     private lazy var togglePanel = PlazaBackgroundTogglePanel(model: backgroundModel)
     private lazy var pickerPanel = PlazaNameColorPickerPanel(model: nameColorModel, toggle: togglePanel, background: backgroundModel)
+    private lazy var uiTogglePanel = PlazaUITogglePanel(model: uiModel, toggle: togglePanel, picker: pickerPanel, background: backgroundModel)
     private lazy var pillsPanel = PlazaPillsPanel(model: overlayModel)
     private lazy var chatLogPanel = PlazaChatLogPanel(log: chatLog)
     private lazy var menuPanel = PlazaMenuPanel(model: overlayModel, pills: pillsPanel)
@@ -158,6 +159,7 @@ import Observation
     private let chatInput: any PlazaChatInputHost
     private let chatLog = PlazaChatLog()
     private let backgroundModel = PlazaBackgroundModel()
+    private let uiModel = PlazaUIModel()
     private let shortcutModel = PlazaShortcutGuideModel()
     /// 사진 PNG를 내보낸다. 성공하면 true. 테스트가 클립보드를 건드리지 않게 바꿔 끼운다.
     private let photoWriter: (Data) -> Bool
@@ -479,6 +481,7 @@ import Observation
         s.setBackgroundHidden(preferences.isBackgroundHidden)
         backgroundModel.isHidden = preferences.isBackgroundHidden
         shortcutModel.isFolded = preferences.areShortcutsFolded
+        applyUIHidden()
         s.onOverlayKey = { [weak self] in self?.handleOverlayKey($0) }
         s.onWalkKey = { [weak self] in self?.standUp() }
         if let feed {
@@ -575,6 +578,7 @@ import Observation
         case (.chatLog, "toggle"): toggleChatLog()   // the log's own clicks ("log") are taken and do nothing
         case (.shortcuts, "toggle"): toggleShortcuts()
         case (.backgroundToggle, "toggle"): toggleBackground()
+        case (.uiToggle, "toggle"): toggleUI()
         case (.nameColorPicker, "toggle"): toggleNameColorPicker()
         case (.nameColorPicker, "choose"):
             if let i = hit.index, PlazaNameColor.hexes.indices.contains(i) { pickNameColor(PlazaNameColor.hexes[i]) }
@@ -610,6 +614,26 @@ import Observation
         shell.focusScene()
     }
 
+    /// 광장 UI(목록·채팅 기록·미니맵·시계·단축키 안내·배경/이름 색 버튼과 위쪽 안내 줄)를 숨기거나 되살린다. 이 버튼은 남는다.
+    func toggleUI() {
+        preferences.isUIHidden.toggle()
+        applyUIHidden()
+        shell.focusScene()
+    }
+
+    private func applyUIHidden() {
+        let hidden = preferences.isUIHidden
+        uiModel.isHidden = hidden
+        if hidden { nameColorModel.isOpen = false }
+        applyHiddenPanels()
+        refreshHint()
+    }
+
+    /// 사진 모드는 UI 버튼까지 숨기고, 나가면 UI 버튼이 가리키는 상태로 돌아간다.
+    private func applyHiddenPanels() {
+        shell.setHiddenPanels(overlayModel.isPhotoMode ? PlazaPanelID.hiddenInPhotoMode : uiModel.isHidden ? PlazaPanelID.hiddenWithUI : [])
+    }
+
     /// 단축키 안내를 접거나 펼치고 기억한다.
     func toggleShortcuts() {
         preferences.areShortcutsFolded.toggle()
@@ -630,6 +654,7 @@ import Observation
     /// 테스트용 읽기 전용 값.
     var chatLogLines: [PlazaChatLog.Line] { chatLog.lines }
     var isBackgroundHidden: Bool { backgroundModel.isHidden }
+    var isUIHidden: Bool { uiModel.isHidden }
 
     /// 내 말풍선은 바로 띄운다. 보낼 글이 없으면 true(입력창을 닫는다), 너무 빠르면 false(글을 남겨 둔다).
     private func submitChat(_ raw: String) -> Bool {
@@ -897,7 +922,7 @@ import Observation
     /// 사진 모드를 열고 닫을 때: 틀을 그리고 HUD를 숨기거나 되살린다.
     private func photoModeChanged(_ on: Bool) {
         overlayModel.isPhotoMode = on
-        shell.setHUDHidden(on)
+        applyHiddenPanels()
         refreshHint()
         refreshCountdown()
         refreshMinimap()   // 나가면 지도의 보이는 영역도 따라가기 화면으로 돌아와야 한다(1초 뒤 틱을 기다리지 않는다)
@@ -1808,6 +1833,7 @@ import Observation
         if text == nil, !isPhotoMode, subject().speciesID == nil, overlayModel.content == .none, !chatInput.isOpen {
             text = L(.ko).plazaPrayHint(prayers: prayerCount(), hatchUsed: prayerHatchUsedToday())
         }
+        if uiModel.isHidden { text = nil }   // the UI toggle empties the hint line whatever the fallbacks above chose
         if overlayModel.hint != text { overlayModel.hint = text }
         // 미니게임 명단은 다른 안내와 상관없이 판이 도는 동안 늘 보인다(사진 모드에서는 안내 줄과 함께 숨는다).
         let status = isPhotoMode ? nil : gameView.status

@@ -125,7 +125,7 @@ extension WindowsSelftest {
             lines.append("\(state): shown [\(ids())] missing \(missing) unexpected \(extra) \(shot(png))")
         }
         await expect("default (banner, guide unfolded, roster of 3, chat log of 40, minimap, clock, toggle)",
-                     present: [.pills, .shortcuts, .roster, .chatLog, .minimap, .clock, .backgroundToggle], absent: [.menu, .board, .card, .photoFrame],
+                     present: [.pills, .shortcuts, .roster, .chatLog, .minimap, .clock, .backgroundToggle, .uiToggle], absent: [.menu, .board, .card, .photoFrame],
                      png: "plaza-panels-default.png")
         model.content = .memberMenu(PlazaMemberMenu(memberID: "fixture-1", nickname: "Fixture 1"))
         await expect("member menu", present: [.menu, .roster], png: "plaza-panels-member-menu.png")
@@ -149,7 +149,7 @@ extension WindowsSelftest {
         await expect("board (\(inserted) FIXTURE events)", present: [.board], png: "plaza-panels-board.png")
         model.content = .none
         c.toggleNameColorPicker()
-        await expect("name colour picker", present: [.nameColorPicker, .backgroundToggle], png: "plaza-panels-picker.png")
+        await expect("name colour picker", present: [.nameColorPicker, .backgroundToggle, .uiToggle], png: "plaza-panels-picker.png")
         c.toggleNameColorPicker()
         await pumpPanels(0.3)
         r.add("plaza.panels", ok, "FIXTURE data; \(lines.joined(separator: "; ")); panel bitmaps \(panels.bitmapBytes / 1024) KB in \(panels.entries.count) panels; "
@@ -177,7 +177,7 @@ extension WindowsSelftest {
             clicksOK = clicksOK && total > 0 && matched == enabledCount && disabledActed == 0
             clickLines.append("\(id): \(matched)/\(enabledCount) enabled items acted, \(disabledSeen) disabled clicked and \(disabledActed) of them acted (\(total) items)")
         }
-        for id in [PlazaPanelID.backgroundToggle, .shortcuts, .roster, .chatLog] { await clickAll(id) }
+        for id in [PlazaPanelID.backgroundToggle, .uiToggle, .shortcuts, .roster, .chatLog] { await clickAll(id) }
         c.toggleNameColorPicker()
         await pumpPanels(0.3)
         await clickAll(.nameColorPicker)
@@ -228,10 +228,10 @@ extension WindowsSelftest {
         r.add("plaza.cover", coverResult.ok, coverResult.line)
 
         // plaza.photo: photo mode hides the Mac's set: not drawn, no click.
-        let toggleButtons = buttons(panels, .backgroundToggle), rosterButtons = buttons(panels, .roster)
+        let toggleButtons = buttons(panels, .backgroundToggle) + buttons(panels, .uiToggle), rosterButtons = buttons(panels, .roster)
         let beforeCount = panels.drawList.count
         let beforeIDs = Set(panels.entries.keys).subtracting([.pills])
-        shell.setHUDHidden(true)
+        shell.setHiddenPanels(WinPlazaPanels.hiddenInPhotoMode)
         model.isPhotoMode = true
         await pumpPanels(0.4)
         let drawnIDs = Set(panels.entries.keys).subtracting(WinPlazaPanels.hiddenInPhotoMode)
@@ -241,7 +241,7 @@ extension WindowsSelftest {
         let hiddenClicks = log.count
         let photoShot = shot("plaza-panels-photo.png")
         let afterCount = panels.drawList.count
-        shell.setHUDHidden(false)
+        shell.setHiddenPanels([])
         model.isPhotoMode = false
         await pumpPanels(0.4)
         r.add("plaza.photo", afterCount < beforeCount && hiddenClicks == 0 && Set(panels.entries.keys).subtracting([.pills]) == beforeIDs && afterCount == drawnIDs.count,
@@ -349,6 +349,16 @@ extension WindowsSelftest {
         c.toggleBackground()
         await pumpPanels(0.4)
         r.add("plaza.transparent", toggleShown, "toggle still shown over the see-through window: \(toggleShown); \(transparentShot)")
+
+        // plaza.uiHidden: the UI toggle hides the panels of `hiddenWithUI` and keeps itself and the banner; a second press brings them back.
+        c.toggleUI()
+        await pumpPanels(0.4)
+        let uiGone = PlazaPanelID.hiddenWithUI.allSatisfy { !hud.isShown($0) } && hud.isShown(.uiToggle) && hud.isShown(.pills) && c.isUIHidden
+        let uiShot = shot("plaza-ui-hidden.png")
+        c.toggleUI()
+        await pumpPanels(0.4)
+        let uiBack = PlazaPanelID.hiddenWithUI.allSatisfy { hud.isShown($0) } && hud.isShown(.uiToggle) && !c.isUIHidden
+        r.add("plaza.uiHidden", uiGone && uiBack, "hidden set gone with the button and banner kept: \(uiGone); back after the second press: \(uiBack); \(uiShot)")
 
         var original = RECT()
         _ = GetWindowRect(hwnd, &original)

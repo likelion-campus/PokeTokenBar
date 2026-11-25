@@ -5,7 +5,7 @@ import XCTest
 @MainActor final class RecordingPlazaShell: PlazaWindowShell {
     enum Call: Equatable {
         case open(title: String), bringToFront, requestClose, stopPresenting, dismantle, setTitle(String)
-        case setTransparent(Bool), setHUDHidden(Bool), focusScene, focusChatInput, setChatLogAboveInput(Bool)
+        case setTransparent(Bool), setHiddenPanels(Set<PlazaPanelID>), focusScene, focusChatInput, setChatLogAboveInput(Bool)
     }
 
     private(set) var calls: [Call] = []
@@ -49,7 +49,7 @@ import XCTest
     }
     func setTitle(_ title: String) { calls.append(.setTitle(title)) }
     func setTransparent(_ transparent: Bool) { calls.append(.setTransparent(transparent)) }
-    func setHUDHidden(_ hidden: Bool) { calls.append(.setHUDHidden(hidden)) }
+    func setHiddenPanels(_ ids: Set<PlazaPanelID>) { calls.append(.setHiddenPanels(ids)) }
     func focusScene() { calls.append(.focusScene) }
     func focusChatInput() { calls.append(.focusChatInput) }
     func setChatLogAboveInput(_ above: Bool) { calls.append(.setChatLogAboveInput(above)) }
@@ -327,10 +327,10 @@ private struct NoSpritesFetcher: PlazaSpriteFetching {
         let scene = try XCTUnwrap(c.scene)
         key(scene, PlazaKeyCode.p)
         XCTAssertTrue(c.overlayIsPhotoMode)
-        XCTAssertEqual(shell.take(), [.setHUDHidden(true)])
+        XCTAssertEqual(shell.take(), [.setHiddenPanels(PlazaPanelID.hiddenInPhotoMode)])
         key(scene, PlazaKeyCode.escape)
         XCTAssertFalse(c.overlayIsPhotoMode)
-        XCTAssertEqual(shell.take(), [.setHUDHidden(false)])
+        XCTAssertEqual(shell.take(), [.setHiddenPanels([])])
         c.handleClose()
     }
 

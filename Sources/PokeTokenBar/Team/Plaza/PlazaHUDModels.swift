@@ -10,6 +10,11 @@ final class PlazaBackgroundModel {
 }
 
 @MainActor @Observable
+final class PlazaUIModel {
+    var isHidden = false
+}
+
+@MainActor @Observable
 final class PlazaNameColorModel {
     /// 지금 이름표 색(RGB). 고르지 않았으면 멤버 ID의 색.
     var current: UInt32 = PlazaNameColor.hexes[0]

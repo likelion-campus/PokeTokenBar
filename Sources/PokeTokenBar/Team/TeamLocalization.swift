@@ -611,6 +611,8 @@ extension L {
     func teamMegaphoneNotice(nickname: String, text: String) -> String { "📢 \(nickname): \(text)" }
     var plazaBackgroundHide: String { "배경 숨기기" }
     var plazaBackgroundShow: String { "배경 보이기" }
+    var plazaUIHide: String { "UI 숨기기" }
+    var plazaUIShow: String { "UI 보이기" }
     var plazaNameColor: String { "이름 색" }
     func plazaClock(phase: PlazaDaylight.Phase, time: String) -> String {
         let name = switch phase {

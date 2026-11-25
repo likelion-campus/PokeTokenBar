@@ -34,7 +34,7 @@ import Foundation
     func dismantle() { isOpen = false }
     func setTitle(_ title: String) {}
     func setTransparent(_ transparent: Bool) {}
-    func setHUDHidden(_ hidden: Bool) {}
+    func setHiddenPanels(_ ids: Set<PlazaPanelID>) {}
     func focusScene() {}
     func focusChatInput() {}
     func setChatLogAboveInput(_ above: Bool) {}
