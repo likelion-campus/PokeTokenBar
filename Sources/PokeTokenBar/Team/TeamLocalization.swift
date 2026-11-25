@@ -559,6 +559,43 @@ extension L {
     func plazaDrawColorName(_ index: Int) -> String {
         ["", "검정", "빨강", "주황", "노랑", "초록", "파랑", "보라", "갈색"][min(max(index, 0), 8)]
     }
+    // The drawing quiz while it runs. Every line is read on its own by a first-time player, so each says what to do or what happened.
+    /// The board's head line. The drawer's own board names no drawer (it is me).
+    func plazaDrawHead(turn: Int, of total: Int, drawer: String?) -> String {
+        "그림 퀴즈 \(turn)/\(total)" + (drawer.map { " · 그리는 사람 \($0)" } ?? "")
+    }
+    func plazaDrawTime(seconds: Int) -> String { "⏱ \(seconds)" }
+    func plazaDrawMyEntry(seconds: Int) -> String { "내 차례! 제시어를 정하세요 · \(seconds)초" }
+    func plazaDrawOtherEntry(nickname: String, seconds: Int) -> String { "\(nickname)님이 제시어를 정하고 있어요 · \(seconds)초" }
+    func plazaDrawMyDrawing(word: String, seconds: Int) -> String { "그리세요! 제시어는 \(word) · \(seconds)초" }
+    func plazaDrawOtherDrawing(nickname: String, seconds: Int) -> String { "\(nickname)님이 그리는 중 · Enter로 답을 말해요 · \(seconds)초" }
+    func plazaDrawHintLater(seconds: Int) -> String { "힌트는 \(seconds)초가 남으면 나와요" }
+    func plazaDrawHintLetters(_ count: Int) -> String { "힌트 " + String(repeating: "□", count: count) }
+    func plazaDrawHintInitials(_ initials: String) -> String { "힌트 \(initials)" }
+    func plazaDrawResultSolved(word: String, solver: String) -> String { "정답은 \(word) · \(solver)님이 맞혔어요" }
+    func plazaDrawResultPoints(solver: String, solverPoints: Int, drawer: String, drawerPoints: Int) -> String {
+        "\(solver) +\(solverPoints) · \(drawer) +\(drawerPoints)"
+    }
+    func plazaDrawResultTimeout(word: String) -> String { "정답은 \(word)였어요" }
+    var plazaDrawResultNoPoints: String { "이번 차례는 점수가 없어요" }
+    var plazaDrawResultUnknown: String { "정답을 알 수 없어요" }
+    /// Over the empty canvas between turns; `nickname` nil is me.
+    func plazaDrawNext(nickname: String?, seconds: Int) -> String {
+        nickname.map { "다음은 \($0)님 차례 · \(seconds)초" } ?? "다음은 내 차례 · \(seconds)초"
+    }
+    /// The name line while the quiz runs. A teammate who is not playing is told what is going on; a player sees the scores only.
+    func plazaDrawStatus(scores: [(name: String, score: Int)], watching: Bool) -> String {
+        let list = scores.map { "\($0.name) \($0.score)" }.joined(separator: " · ")
+        return watching ? "그림 퀴즈 진행 중 · \(list)" : list
+    }
+    var plazaDrawRankingTitle: String { "그림 퀴즈 결과" }
+    func plazaDrawRankLine(rank: Int, name: String, score: Int, tied: Bool) -> String { "\(tied ? "공동 " : "")\(rank)등 \(name) \(score)점" }
+    func plazaDrawRecruiting(players: Int, seconds: Int) -> String { "참가 \(players)/\(PlazaDraw.maxPlayers) · \(seconds)초 뒤 시작" }
+    var plazaDrawFull: String { "자리가 찼어요" }
+    var plazaDrawWordInvalid: String { "제시어는 글자와 숫자만, 12자까지예요" }
+    var plazaDrawOwnWordBlocked: String { "제시어가 들어 있어서 보낼 수 없어요" }
+    var plazaDrawRight: String { "정답!" }
+    var plazaDrawTimeUp: String { "시간 초과" }
     var plazaGameButtonCancel: String { "N 취소" }
     var plazaGameButtonClose: String { "N 닫기" }
     var plazaGameGo: String { "시작!" }

@@ -42,6 +42,8 @@ struct PlazaDrawBoard: Equatable {
     /// A stroke the user just drew on this machine, already applied to `model.canvas`: canvas points, colour, width.
     var onStroke: ((_ points: [Int], _ color: Int, _ width: Int) -> Void)?
     var onClear: (() -> Void)?
+    /// A stroke ended (the button came up, the pen left the canvas, the board stopped taking strokes, or `cancelStroke`): what was held back can go out.
+    var onStrokeEnd: (() -> Void)?
     /// The panel was laid out with a cell under 2 points: it asks for room (called once per such layout, on the main actor's next turn).
     var onNeedsRoom: (() -> Void)?
     private let model: PlazaDrawModel
@@ -453,7 +455,16 @@ struct PlazaDrawBoard: Equatable {
     private var last: (x: Int, y: Int)?
     private var isPressed = false
 
-    private func endStroke() { last = nil; isPressed = false }
+    private func endStroke() {
+        let wasUnderWay = isPressed || last != nil
+        last = nil
+        isPressed = false
+        if wasUnderWay { onStrokeEnd?() }
+    }
+
+    /// Something else took the window (a menu, the board, photo mode) while the button was down: the stroke ends where it was, and the drags and the
+    /// release that follow draw nothing. The next press draws again.
+    func cancelStroke() { endStroke() }
 
     func scrollerMouse(_ phase: PlazaScrollerPhase, at point: CGPoint) {
         // Without the right to draw, or under a cover, nothing is drawn and no stroke goes on.

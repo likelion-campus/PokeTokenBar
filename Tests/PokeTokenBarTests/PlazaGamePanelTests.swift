@@ -88,4 +88,23 @@ final class PlazaGamePanelTests: XCTestCase {
         r.game.title = .init(text: "민수 탈락!", tone: .out)
         XCTAssertGreaterThan(try XCTUnwrap(r.hud.layout(viewport: viewport, scale: 2)[.gameTitle]).width, frame.width)
     }
+
+    func testTheRankingCardListsEveryoneAndMarksATie() async throws {
+        let name: (String) -> String = { $0.uppercased() }
+        let tie = PlazaGameView.rankingCard([("a", 35), ("b", 35), ("c", 20), ("d", 0)], name: name)
+        XCTAssertEqual(tie.title, "그림 퀴즈 결과")
+        XCTAssertEqual(tie.lines, ["공동 1등 A 35점", "공동 1등 B 35점", "3등 C 20점", "4등 D 0점"])
+        XCTAssertTrue(tie.buttons.isEmpty)
+        let single = PlazaGameView.rankingCard([("a", 35), ("b", 20)], name: name)
+        XCTAssertEqual(single.lines, ["1등 A 35점", "2등 B 20점"])
+        // The biggest game: eight lines under the title still sit inside the smallest window.
+        let eight = PlazaGameView.rankingCard((0..<8).map { ("p\($0)", 80 - 10 * $0) }, name: name)
+        let r = rig()
+        r.game.card = eight
+        _ = r.card.render(scale: 2, viewport: viewport, graphics: PlatformPlaza.graphics)
+        let placed = try XCTUnwrap(r.card.placed)
+        XCTAssertEqual(placed.lines.map(\.text), [eight.title] + eight.lines)
+        let frame = try XCTUnwrap(r.hud.layout(viewport: CGSize(width: 600, height: 372), scale: 2)[.gameCard])
+        XCTAssertLessThanOrEqual(frame.maxY, 372)
+    }
 }

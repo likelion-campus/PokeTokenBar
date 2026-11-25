@@ -58,6 +58,8 @@ struct PlazaGameView: Equatable {
     var out: [String] = []
     /// The line that names them under the hint, as long as the game runs.
     var status: String?
+    /// The drawing quiz's board; only a player has one.
+    var board: PlazaDrawBoard?
 
     /// The mark of one member; nil when they do not play.
     func mark(of id: String) -> PlazaGameMark? {
@@ -68,7 +70,8 @@ struct PlazaGameView: Equatable {
     /// `name`: a member's nickname. `joinedCount`: how many said yes, the host included. `canPlay`: I am not an egg.
     /// `flash`: an explosion or the result, shown as the title until it runs out. Who gets the next bomb stays hidden
     /// until it is live, so nobody gets a head start on the holder.
-    static func make(engine: PlazaGameEngine, now: Date, joinedCount: Int, canPlay: Bool, flash: Title?,
+    /// `drawNote`: why the drawer's word was refused, shown as the hint while the word field is open.
+    static func make(engine: PlazaGameEngine, now: Date, joinedCount: Int, canPlay: Bool, flash: Title?, drawNote: String? = nil,
                      name: (String) -> String?) -> PlazaGameView {
         var view = PlazaGameView()
         guard let s = engine.state, let phase = engine.phase(now: now) else { return view }
@@ -77,6 +80,9 @@ struct PlazaGameView: Equatable {
         let game = kind.map(l.plazaGameName) ?? l.plazaGameUnknownName
         let isPlayer = engine.isPlayer
         func nick(_ id: String) -> String { name(id) ?? l.plazaGroupPhotoSomeone }
+        if kind == .draw, phase != .recruiting {
+            return drawView(engine: engine, state: s, phase: phase, now: now, flash: flash, drawNote: drawNote, name: nick)
+        }
         switch phase {
         case .recruiting:
             guard engine.declined != s.id else { break }
@@ -89,7 +95,7 @@ struct PlazaGameView: Equatable {
                 break
             }
             card.lines = l.plazaGameRules(kind)
-            let status = l.plazaGameRecruiting(players: joinedCount, seconds: left)
+            let status = kind == .draw ? l.plazaDrawRecruiting(players: joinedCount, seconds: left) : l.plazaGameRecruiting(players: joinedCount, seconds: left)
             if s.host == me {
                 card.lines.append(joinedCount < PlazaGame.minPlayers ? l.plazaGameNeedsTwo(seconds: left) : status)
                 card.buttons = [Button(label: l.plazaGameButtonStart, action: "start", isEnabled: joinedCount >= PlazaGame.minPlayers),
@@ -102,7 +108,9 @@ struct PlazaGameView: Equatable {
                 card.buttons = [Button(label: l.plazaGameButtonLeave, action: "decline")]
             } else {
                 card.lines.append(status)
-                card.buttons = [Button(label: l.plazaGameButtonJoin, action: "join"), Button(label: l.plazaGameButtonDecline, action: "decline")]
+                let full = kind == .draw && joinedCount >= PlazaDraw.maxPlayers
+                if full { card.lines.append(l.plazaDrawFull) }
+                card.buttons = [Button(label: l.plazaGameButtonJoin, action: "join", isEnabled: !full), Button(label: l.plazaGameButtonDecline, action: "decline")]
             }
             view.card = card
         case .countdown:
@@ -143,6 +151,84 @@ struct PlazaGameView: Equatable {
         }
         if let flash { view.title = flash }
         return view
+    }
+}
+
+extension PlazaGameView {
+    /// A running or ended drawing quiz. A player gets the board, the hint line and the big title; a teammate who is not playing gets the name line
+    /// only, and at the end everyone in the plaza gets the ranking card. The rings are the bomb game's: every player is in, nobody holds anything.
+    fileprivate static func drawView(engine: PlazaGameEngine, state s: PlazaGameState, phase: PlazaGame.Phase, now: Date, flash: Title?,
+                                     drawNote: String?, name nick: (String) -> String) -> PlazaGameView {
+        var view = PlazaGameView()
+        let l = L(.ko), me = engine.me
+        guard let d = s.draw else { return view }   // a copy an old app passed on: nothing to show
+        if phase == .ended {
+            view.card = rankingCard(PlazaDraw.ranking(s), name: nick)
+            view.title = flash
+            return view
+        }
+        guard let drawPhase = engine.drawPhase(now: now) else { return view }
+        view.alive = s.players
+        view.status = l.plazaDrawStatus(scores: PlazaDraw.ranking(s).map { (nick($0.id), $0.score) }, watching: !engine.isPlayer)
+        guard engine.isPlayer, let who = engine.drawer else { return view }
+        let mine = who == me
+        func seconds(_ t: TimeInterval) -> Int { max(0, Int(t.rounded(.up))) }
+        let head = l.plazaDrawHead(turn: min(d.turn + 1, d.order.count), of: d.order.count, drawer: mine ? nil : nick(who))
+        func board(_ left: TimeInterval, cover: String?, foot: PlazaDrawBoard.Foot, canDraw: Bool = false) -> PlazaDrawBoard {
+            PlazaDrawBoard(head: head, time: l.plazaDrawTime(seconds: seconds(left)), cover: cover, foot: foot, canDraw: canDraw)
+        }
+        func next(_ left: TimeInterval) -> String { l.plazaDrawNext(nickname: mine ? nil : nick(who), seconds: seconds(left)) }
+        switch drawPhase {
+        case .countdown(let left):
+            view.title = Title(text: "\(max(1, seconds(left)))", tone: .count)
+            view.board = board(left, cover: next(left), foot: .lines([]))
+        case .reveal(let left):
+            view.board = board(left, cover: next(left), foot: .lines(d.last.map { resultLines($0, name: nick) } ?? []))
+        case .entry(let left):
+            view.board = board(left, cover: mine ? l.plazaDrawMyEntry(seconds: seconds(left)) : l.plazaDrawOtherEntry(nickname: nick(who), seconds: seconds(left)),
+                               foot: .lines([]))
+            if mine { view.hint = drawNote }
+        case .drawing(let left):
+            if mine, let word = engine.myWord {
+                view.board = board(left, cover: nil, foot: .tools(word: word), canDraw: true)
+                view.hint = l.plazaDrawMyDrawing(word: word, seconds: seconds(left))
+            } else if !mine {
+                var hints = [d.letters.map(l.plazaDrawHintLetters)
+                    ?? l.plazaDrawHintLater(seconds: Int(PlazaDraw.drawSeconds - PlazaDraw.lettersHintSeconds))]
+                if let initials = d.initials { hints.append(l.plazaDrawHintInitials(initials)) }
+                view.board = board(left, cover: nil, foot: .lines(hints))
+                view.hint = l.plazaDrawOtherDrawing(nickname: nick(who), seconds: seconds(left))
+            }
+        case .over:
+            break
+        }
+        if let flash { view.title = flash }
+        return view
+    }
+
+    /// What the last turn came to, as the two lines under the empty canvas between turns.
+    static func resultLines(_ r: PlazaDrawState.Result, name nick: (String) -> String) -> [String] {
+        let l = L(.ko)
+        let points = r.solver.map {
+            l.plazaDrawResultPoints(solver: nick($0), solverPoints: PlazaDraw.guessPoints, drawer: nick(r.drawer), drawerPoints: PlazaDraw.drawerPoints)
+        }
+        switch (r.solver, r.word) {
+        case (let solver?, let word?): return [l.plazaDrawResultSolved(word: word, solver: nick(solver)), points ?? ""]
+        case (_, let word?): return [l.plazaDrawResultTimeout(word: word), l.plazaDrawResultNoPoints]
+        case (_?, nil): return [l.plazaDrawResultUnknown, points ?? ""]
+        case (nil, nil): return [l.plazaDrawResultUnknown, l.plazaDrawResultNoPoints]
+        }
+    }
+
+    /// The finished quiz: one line per player, best first; players on the same score share the place and are marked as tied.
+    static func rankingCard(_ ranking: [(id: String, score: Int)], name nick: (String) -> String) -> Card {
+        let l = L(.ko)
+        var rank = 1
+        let lines = ranking.enumerated().map { i, r -> String in
+            if i > 0, r.score != ranking[i - 1].score { rank = i + 1 }
+            return l.plazaDrawRankLine(rank: rank, name: nick(r.id), score: r.score, tied: ranking.filter { $0.score == r.score }.count > 1)
+        }
+        return Card(title: l.plazaDrawRankingTitle, lines: lines)
     }
 }
 
