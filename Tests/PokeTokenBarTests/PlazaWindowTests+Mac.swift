@@ -90,14 +90,14 @@ private struct NoSprites: PlazaSpriteFetching {
         XCTAssertEqual(subs.map { String(describing: type(of: $0)) },
                        ["SKView", "PlazaPanelHostView", "PlazaPanelHostView", "PlazaPanelHostView", "PlazaPanelHostView", "PlazaPanelHostView",
                         "PlazaPanelHostView", "PlazaPanelHostView", "PlazaPanelHostView", "PlazaPanelHostView",
-                        "PlazaPanelHostView", "PlazaPanelHostView", "PlazaPanelHostView", "PlazaPanelHostView", "PlazaPanelHostView", "PlazaPanelHostView", "NSView"],
-                       "bottom first, as show() added them; the photo frame's, the menu's and the pills' hosts right above the overlay, the minimap's, the clock's, the guide's, the toggle's, the picker's and the UI button's hosts where their hosting views were")
-        guard subs.count == 17 else { return }
+                        "PlazaPanelHostView", "PlazaPanelHostView", "PlazaPanelHostView", "PlazaPanelHostView", "PlazaPanelHostView", "NSView"],
+                       "bottom first, as show() added them; the photo frame's, the menu's and the pills' hosts right above the overlay, the minimap's, the clock's, the guide's, the toggle's and the picker's hosts where their hosting views were")
+        guard subs.count == 16 else { return }
         XCTAssertEqual(subs.compactMap { ($0 as? PlazaPanelHostView)?.panelID },
-                       [.roster, .board, .card, .photoFrame, .menu, .gameTitle, .gameCard, .pills, .chatLog, .minimap, .clock, .shortcuts, .backgroundToggle, .nameColorPicker, .uiToggle])
-        XCTAssertTrue(subs[16] === chat.view, "the chat field's bar is on top")
+                       [.roster, .board, .card, .photoFrame, .menu, .gameTitle, .gameCard, .pills, .chatLog, .minimap, .clock, .shortcuts, .backgroundToggle, .nameColorPicker])
+        XCTAssertTrue(subs[15] === chat.view, "the chat field's bar is on top")
         for v in subs.dropFirst() { XCTAssertFalse(v.translatesAutoresizingMaskIntoConstraints) }
-        let named = ["roster", "board", "card", "photoFrame", "menu", "gameTitle", "gameCard", "pills", "chatLog", "map", "clock", "shortcuts", "toggle", "colorPicker", "uiToggle", "chatBar"]
+        let named = ["roster", "board", "card", "photoFrame", "menu", "gameTitle", "gameCard", "pills", "chatLog", "map", "clock", "shortcuts", "toggle", "colorPicker", "chatBar"]
         var names = [ObjectIdentifier(container): "container"]
         for (i, n) in named.enumerated() { names[ObjectIdentifier(subs[i + 1])] = n }
         func installed() -> (between: [String], own: Set<String>) {
@@ -136,8 +136,6 @@ private struct NoSprites: PlazaSpriteFetching {
             "toggle.leading = container.leading + 0", "toggle.trailing = container.trailing + 0",
             "colorPicker.top = container.top + 0", "colorPicker.bottom = container.bottom + 0",
             "colorPicker.leading = container.leading + 0", "colorPicker.trailing = container.trailing + 0",
-            "uiToggle.top = container.top + 0", "uiToggle.bottom = container.bottom + 0",
-            "uiToggle.leading = container.leading + 0", "uiToggle.trailing = container.trailing + 0",
         ]
         XCTAssertEqual(installed().between, expected.sorted())
         XCTAssertTrue(installed().own.isSuperset(of: ["chatBar.width = \(String(format: "%g", PlazaChatLog.width))"]),
@@ -151,10 +149,10 @@ private struct NoSprites: PlazaSpriteFetching {
 
         chat.open()
         shell.setHiddenPanels(PlazaPanelID.hiddenInPhotoMode)
-        XCTAssertEqual(subs.map(\.isHidden), [false, true, false, false, false, false, false, false, false, true, true, true, true, true, true, true, false],
-                       "photo mode hides the roster, chat log, map, clock, guide and all three toggles; not the scene, the board, the card, the photo frame, the minigame panels and pills or the open field")
+        XCTAssertEqual(subs.map(\.isHidden), [false, true, false, false, false, false, false, false, false, true, true, true, true, true, true, false],
+                       "photo mode hides the roster, chat log, map, clock, guide and both toggles; not the scene, the board, the card, the photo frame, the minigame panels and pills or the open field")
         shell.setHiddenPanels([])
-        XCTAssertEqual(subs.map(\.isHidden), Array(repeating: false, count: 17))
+        XCTAssertEqual(subs.map(\.isHidden), Array(repeating: false, count: 16))
         shell.focusChatInput()
         XCTAssertFalse(w.firstResponder === view, "the field takes the keys")
         shell.focusScene()
@@ -236,7 +234,7 @@ private struct NoSprites: PlazaSpriteFetching {
         let shell = PlazaMacWindow(autosaveName: name, front: { _ in XCTFail("this test never brings a window forward") })
         shell.open(stage: scene.stage, title: "t", overlays: c.overlayBindings)
         let subs = try XCTUnwrap(shell.windowForTesting?.contentView).subviews
-        guard subs.count == 17 else { return XCTFail("\(subs)") }
+        guard subs.count == 16 else { return XCTFail("\(subs)") }
         func state() -> [Bool] { [c.isChatLogExpanded, c.areShortcutsFolded, c.isBackgroundHidden, c.isNameColorPickerOpen] }
         func click(_ id: PlazaPanelID, _ point: (CGRect) -> CGPoint) throws {
             // A click on the panel's host view: the HUD's frame for the panel, the point in it, down and up through the host.
@@ -261,7 +259,9 @@ private struct NoSprites: PlazaSpriteFetching {
         try click(.shortcuts, { CGPoint(x: $0.minX + 20, y: $0.minY + 14) })
         XCTAssertEqual(state(), [true, true, false, false], "the guide's header folds the guide")
         try click(.backgroundToggle, { CGPoint(x: $0.midX, y: $0.midY) })
-        XCTAssertEqual(state(), [true, true, true, false], "the eye button hides the background")
+        XCTAssertEqual(state(), [true, true, false, false], "the eye button's first click hides the UI, not the background")
+        try click(.backgroundToggle, { CGPoint(x: $0.midX, y: $0.midY) })
+        XCTAssertEqual(state(), [true, true, true, false], "its second click shows the UI again and hides the background")
         try click(.nameColorPicker, { CGPoint(x: $0.minX + 20, y: $0.minY + 14) })
         XCTAssertEqual(state(), [true, true, true, true], "the colour button opens the palette")
         for _ in 0..<20 { await Task.yield() }   // the HUD draws the palette on the main actor's next turn

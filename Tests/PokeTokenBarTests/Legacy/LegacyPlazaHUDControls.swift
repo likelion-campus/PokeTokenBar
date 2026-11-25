@@ -52,10 +52,10 @@ struct LegacyPlazaBackgroundToggle: View {
     let toggle: () -> Void
 
     var body: some View {
-        let l = L(.ko)
         Button(action: toggle) {
-            Label(model.isHidden ? l.plazaBackgroundShow : l.plazaBackgroundHide,
-                  systemImage: model.isHidden ? "eye" : "eye.slash")
+            // The label names the mode (four modes since the toggle also hides the UI): the old view's look with the new text and icon rule.
+            Label(PlazaBackgroundTogglePanel.title(ui: model.isUIHidden, background: model.isHidden),
+                  systemImage: model.isHidden || model.isUIHidden ? "eye.slash" : "eye")
                 .font(Font(PlazaResources.font(.small)))
                 .foregroundStyle(Color(hex: 0xF8F8F0))
                 .padding(.horizontal, 8).padding(.vertical, 5)

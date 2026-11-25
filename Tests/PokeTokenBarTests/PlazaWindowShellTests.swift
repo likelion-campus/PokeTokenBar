@@ -141,10 +141,11 @@ private struct NoSpritesFetcher: PlazaSpriteFetching {
         XCTAssertFalse(c.isNameColorPickerOpen)
         o.hud.press(PlazaPanelHit(action: "next", index: nil), in: .roster)
         o.hud.press(PlazaPanelHit(action: "toggle", index: nil), in: .backgroundToggle)
-        XCTAssertTrue(c.isBackgroundHidden)
+        XCTAssertTrue(c.isUIHidden)
+        XCTAssertFalse(c.isBackgroundHidden, "the first click of the toggle hides the UI only")
         XCTAssertEqual(shell.take(), [.focusScene, .focusScene, .focusScene, .focusScene, .focusScene,
-                                      .setTransparent(true), .focusScene],
-                       "every HUD click hands the keys back to the scene; the background toggle turns the window see-through first")
+                                      .setHiddenPanels(PlazaPanelID.hiddenWithUI), .focusScene],
+                       "every HUD click hands the keys back to the scene; the toggle hides the panels first")
         c.handleClose()
     }
 

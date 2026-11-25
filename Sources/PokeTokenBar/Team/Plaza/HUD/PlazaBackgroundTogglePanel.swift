@@ -40,9 +40,9 @@ enum PlazaControlStyle {
     }
 }
 
-/// The eye button at the window's top left that hides or shows the plaza's map and background (`PlazaBackgroundToggle`
-/// before Track A Task 15): an eye icon (`eye.slash` while the background shows, `eye` while it is hidden) and the text.
-/// A click anywhere on the pill toggles; the controller keeps the keys with the scene.
+/// The eye button at the window's top left (`PlazaBackgroundToggle` before Track A Task 15). Each click steps it through four modes:
+/// everything shown, UI hidden, background hidden, both hidden. Its text names the current mode and its icon is `eye` while everything
+/// shows, `eye.slash` in the others. A click anywhere on the pill steps; the controller keeps the keys with the scene.
 @MainActor final class PlazaBackgroundTogglePanel: PlazaPanel {
     let id = PlazaPanelID.backgroundToggle
     let anchor = PlazaPanelAnchor.topLeading
@@ -62,15 +62,25 @@ enum PlazaControlStyle {
     /// `eye.slash` is taller than the text line, `eye` is not (measured): the row's height and the text's drop.
     static let slashExtra: CGFloat = 0.875
 
+    /// The mode's name: the label of the pill and of its accessibility item.
+    static func title(ui: Bool, background: Bool) -> String {
+        switch (ui, background) {
+        case (false, false): L(.ko).plazaModeShown
+        case (true, false): L(.ko).plazaModeUIHidden
+        case (false, true): L(.ko).plazaModeBackgroundHidden
+        case (true, true): L(.ko).plazaModeBothHidden
+        }
+    }
+
     init(model: PlazaBackgroundModel) {
         self.model = model
-        observer = PlazaChangeObserver(track: { _ = model.isHidden }, changed: { [weak self] in self?.modelChanged() })
+        observer = PlazaChangeObserver(track: { _ = model.isHidden; _ = model.isUIHidden }, changed: { [weak self] in self?.modelChanged() })
     }
 
     /// What the last render showed: a model write that changes nothing since (the controller sets what the window already
     /// shows when it opens) is not reported.
-    private var rendered: Bool?
-    private func modelChanged() { if rendered != model.isHidden { onChange?() } }
+    private var rendered: String?
+    private func modelChanged() { if rendered != model.mode { onChange?() } }
 
     var isVisible: Bool { true }
 
@@ -85,12 +95,12 @@ enum PlazaControlStyle {
     private var cache: (key: String, layout: Layout)?
 
     func layout(scale: CGFloat, text: any PlazaTextEngine) -> Layout {
-        let hidden = model.isHidden
-        let key = "\(hidden) \(scale) \(String(describing: type(of: text)))"
+        let slash = model.isHidden || model.isUIHidden
+        let key = "\(model.mode) \(scale) \(String(describing: type(of: text)))"
         if let cache, cache.key == key { return cache.layout }
-        let title = hidden ? L(.ko).plazaBackgroundShow : L(.ko).plazaBackgroundHide
+        let title = Self.title(ui: model.isUIHidden, background: model.isHidden)
         let line = text.line(title, font: PlazaControlStyle.pill.font)
-        let height = PlazaControlStyle.lineHeight(text) + (hidden ? 0 : Self.slashExtra)
+        let height = PlazaControlStyle.lineHeight(text) + (slash ? Self.slashExtra : 0)
         let content = CGSize(width: 16 + Self.iconSlot + PlazaPanelStyle.pixelUp(line.width, scale: scale), height: 10 + height)
         let result = Layout(content: content, host: CGSize(width: content.width.rounded(.up), height: content.height.rounded(.up) + 1),
                             line: line, title: title)
@@ -103,14 +113,14 @@ enum PlazaControlStyle {
     }
 
     func render(scale: CGFloat, viewport: CGSize, graphics: any PlazaGraphics) -> PlazaPanelDrawing {
-        rendered = model.isHidden
+        rendered = model.mode
         let l = layout(scale: scale, text: graphics.text)
         let space = PlazaPanelSpace(content: l.host)
         let o = l.origin
         let style = PlazaControlStyle.pill
         let m = graphics.text.metrics(style.font)
-        let hidden = model.isHidden
-        let symbol = PlatformPlaza.symbolImage(named: hidden ? "eye" : "eye.slash", pointSize: 12, weight: .regular, scale: scale, color: style.text)
+        let slash = model.isHidden || model.isUIHidden
+        let symbol = PlatformPlaza.symbolImage(named: slash ? "eye.slash" : "eye", pointSize: 12, weight: .regular, scale: scale, color: style.text)
         let image = space.image(scale: scale, graphics: graphics) { canvas in
             canvas.saveState()
             if Self.isPressed(interaction) { canvas.setAlpha(PlazaPanelStyle.pressedOpacity) }
@@ -118,12 +128,12 @@ enum PlazaControlStyle {
             canvas.setFillColor(style.fill)
             canvas.fillRoundedRect(r, radius: style.cornerRadius)
             canvas.setFillColor(style.text)
-            let top = 5 + (hidden ? 0 : Self.slashExtra)
+            let top = 5 + (slash ? Self.slashExtra : 0)
             canvas.draw(l.line, at: space.canvas(PlazaControlStyle.snapped(CGPoint(x: o.x + 8 + Self.iconSlot, y: o.y + top + m.ascender), scale: scale)))
             if let symbol {
                 canvas.draw(symbol.image, in: space.canvas(CGRect(x: o.x + 8.6, y: o.y + 4.75, width: symbol.size.width, height: symbol.size.height)))
             } else {
-                Self.drawEye(on: canvas, space: space, origin: o, slash: !hidden, style: style)
+                Self.drawEye(on: canvas, space: space, origin: o, slash: slash, style: style)
             }
             canvas.setStrokeColor(style.stroke)
             canvas.strokeRoundedRect(r, radius: style.cornerRadius, lineWidth: style.lineWidth)

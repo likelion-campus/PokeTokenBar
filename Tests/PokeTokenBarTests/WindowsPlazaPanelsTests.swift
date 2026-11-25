@@ -93,7 +93,7 @@ import XCTest
 
     func testZListIsTheMacsSubviewOrder() async {
         XCTAssertEqual(WinPlazaPanels.zOrder, [.roster, .board, .card, .photoFrame, .menu, .gameTitle, .gameCard, .pills, .chatLog, .minimap, .clock, .shortcuts,
-                                               .backgroundToggle, .nameColorPicker, .uiToggle])
+                                               .backgroundToggle, .nameColorPicker])
         // the controller's own HUD list (what the Mac window's stack follows) is the same order
         let c = controller(feed: true)
         XCTAssertEqual(c.hud.panels.map(\.id), WinPlazaPanels.zOrder)
@@ -204,7 +204,7 @@ import XCTest
             list.append(Fake(id, offset: CGPoint(x: CGFloat(i) * 60, y: 10), size: CGSize(width: 50, height: 50), hit: CGRect(x: 0, y: 0, width: 50, height: 50)))
         }
         let rig = Rig(list, viewport: CGSize(width: 900, height: 200))
-        XCTAssertEqual(rig.panels.drawList.count, 15)
+        XCTAssertEqual(rig.panels.drawList.count, 14)
         rig.panels.setHidden(PlazaPanelID.hiddenInPhotoMode)
         let shown = Set(WinPlazaPanels.zOrder).subtracting(WinPlazaPanels.hiddenInPhotoMode)
         XCTAssertEqual(shown, [.board, .card, .photoFrame, .menu, .gameTitle, .gameCard, .pills])
@@ -217,7 +217,7 @@ import XCTest
             }
         }
         rig.panels.setHidden([])
-        XCTAssertEqual(rig.panels.drawList.count, 15)
+        XCTAssertEqual(rig.panels.drawList.count, 14)
     }
 
     func testPressDimsAndReleaseOutsideCancels() async {
