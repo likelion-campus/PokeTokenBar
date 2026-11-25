@@ -1254,8 +1254,11 @@ import Observation
         }
         if !same { gameFlashes = [] }
         if iPlay, same, let last = s.draw?.last, last != old?.draw?.last {   // the drawing quiz's turn ended
-            let right = last.solver != nil
-            flash(.init(text: right ? l.plazaDrawRight : l.plazaDrawTimeUp, tone: right ? .win : .out), for: right ? Self.gameWinFlash : Self.gameOutFlash)
+            if let solver = last.solver {
+                flash(.init(text: solver == me ? l.plazaDrawRight : l.plazaDrawRightBy(nickname: name(solver)), tone: .win), for: Self.gameWinFlash)
+            } else {
+                flash(.init(text: l.plazaDrawTimeUp, tone: .out), for: Self.gameOutFlash)
+            }
         }
         if s.startsAt != nil, !(same && old?.startsAt != nil), s.endedAt == nil {
             if iPlay {
@@ -2977,7 +2980,9 @@ extension PlazaWindowController {
         // The word field: opened once per turn (it waits for a chat line being typed), closed unsent when the entry is over.
         let entry = isWordEntryOn
         if chatInput.isOpen, chatInput.purpose == .quizWord, !entry { chatInput.close() }
-        if entry, !chatInput.isOpen, let s = game.state, let d = s.draw, quiz.wordTurn != DrawQuiz.Key(game: s.id, turn: d.turn) {
+        // It waits like it does for a chat line: an overlay or photo mode has the keyboard.
+        if entry, !chatInput.isOpen, overlayModel.content == .none, !isPhotoMode, let s = game.state, let d = s.draw,
+           quiz.wordTurn != DrawQuiz.Key(game: s.id, turn: d.turn) {
             quiz.wordTurn = DrawQuiz.Key(game: s.id, turn: d.turn)
             openChat()
         }
@@ -2987,8 +2992,11 @@ extension PlazaWindowController {
         quiz.knownInPlaza = inPlaza
         guard isDrawing else { return }
         sendHeldStroke(now: now, all: false)
-        if newcomer || (quiz.changedSinceSnapshot && now.timeIntervalSince(quiz.lastSnapshot ?? now) >= Self.drawSnapshotInterval) {
+        let periodic = now.timeIntervalSince(quiz.lastSnapshot ?? now) >= Self.drawSnapshotInterval
+        if newcomer || (periodic && quiz.changedSinceSnapshot) {
             sendSnapshot(now: now)
+        } else if periodic {
+            quiz.lastSnapshot = now   // nothing changed in this interval: the next one counts from here
         }
     }
 
@@ -3069,6 +3077,12 @@ extension PlazaWindowController {
     /// Sends what is held in messages of at most 64 points. `all`: whatever is held (the stroke ended); else only when 64 points are held or
     /// the interval has passed. The next message starts at the point this one ended on.
     private func sendHeldStroke(now: Date, all: Bool) {
+        // My turn is over (a right guess, the clock): what was held belongs to a finished picture and goes nowhere.
+        guard isDrawing else {
+            quiz.held = []
+            quiz.fresh = 0
+            return
+        }
         while quiz.fresh > 0 {
             let count = quiz.held.count / 2
             let full = count >= TeamDraw.maxPoints
@@ -3109,7 +3123,8 @@ extension PlazaWindowController {
     func showDraw(from sender: String, _ d: TeamDraw) {
         guard scene != nil, game.isPlayer, sender != memberID(), let mine = game.state, mine.id == d.game,
               mine.kind == PlazaGameKind.draw.rawValue, mine.players.contains(sender),
-              let theirs = (session?.members ?? members)[sender]?.game, theirs.id == mine.id, theirs.endedAt == nil,
+              let who = (session?.members ?? members)[sender], who.inPlaza, who.gameJoin == mine.id,
+              let theirs = who.game, theirs.id == mine.id, theirs.endedAt == nil,
               let draw = theirs.draw, draw.order.indices.contains(draw.turn), draw.order[draw.turn] == sender,
               draw.drawAt != nil, draw.turn == d.turn else { return }
         let key = DrawQuiz.Key(game: d.game, turn: d.turn)

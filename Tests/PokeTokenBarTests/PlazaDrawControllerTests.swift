@@ -52,7 +52,7 @@ final class PlazaDrawControllerTests: XCTestCase {
     private var now = Date(timeIntervalSince1970: 1_800_000_000)
     private let mKey: UInt16 = 46, yKey: UInt16 = 16, returnKey: UInt16 = 36
     private let word = "사과"
-    private let viewport = CGSize(width: 960, height: 640)
+    private var viewport = CGSize(width: 960, height: 640)
     private static let park: @MainActor (Duration) async -> Void = { _ in try? await Task.sleep(for: .seconds(3600)) }
 
     override func setUp() async throws {
@@ -173,15 +173,16 @@ final class PlazaDrawControllerTests: XCTestCase {
 
     /// `host` (the first teammate) opens the quiz with a seed that makes `first` draw first, everyone else says yes, and recruiting runs out.
     /// `meJoins: false` leaves me watching.
-    private func lock(_ w: World, first: String, meJoins: Bool = true) async {
-        let players = meJoins ? w.all : w.others.map(\.id)
+    private func lock(_ w: World, first: String, meJoins: Bool = true, joining: [Node]? = nil) async {
+        let joiners = joining ?? Array(w.others.dropFirst())
+        let players = (meJoins ? [w.me.id] : []) + [w.b.id] + joiners.map(\.id)
         let seed = (UInt64(1)...5000).first { PlazaDraw.order(players: players, seed: $0).first == first }!
         w.b.engine.makeSeed = { seed }
         XCTAssertTrue(w.b.engine.open(.draw, now: now))
         await sync(w)
         if meJoins { press(w.c, yKey) }
         await settle()
-        for o in w.others.dropFirst() {
+        for o in joiners {
             o.step(now)
             o.engine.answer(join: true, now: now)
             o.tell()
@@ -239,7 +240,8 @@ final class PlazaDrawControllerTests: XCTestCase {
     private var panelHost: RecordingPanelHost?
 
     /// The board rendered in the controller's own HUD, so that the mouse goes through `hud.handleMouse` as it does in the window.
-    private func attachHUD(_ w: World) async {
+    private func attachHUD(_ w: World, size: CGSize? = nil) async {
+        if let size { viewport = size }
         let host = RecordingPanelHost()
         panelHost = host
         w.c.hud.host = host
@@ -293,6 +295,10 @@ final class PlazaDrawControllerTests: XCTestCase {
         XCTAssertEqual(w.input.purpose, .quizWord)
         XCTAssertEqual(w.c.hint, L(.ko).plazaDrawWordInvalid)
         XCTAssertEqual(w.c.drawBoard?.canDraw, false)
+        w.input.type("")   // an empty Enter is a refused word too: the field stays and the same line shows
+        XCTAssertFalse(w.input.submit())
+        XCTAssertTrue(w.input.isOpen)
+        XCTAssertEqual(w.c.hint, L(.ko).plazaDrawWordInvalid)
         w.input.type(word)
         XCTAssertTrue(w.input.submit())
         await sync(w)
@@ -344,7 +350,7 @@ final class PlazaDrawControllerTests: XCTestCase {
         let scores = w.c.gameState?.draw?.scores
         XCTAssertEqual(scores?[w.b.id], PlazaDraw.guessPoints)
         XCTAssertEqual(scores?[w.me.id], PlazaDraw.drawerPoints)
-        XCTAssertEqual(w.c.gameTitle, PlazaGameView.Title(text: L(.ko).plazaDrawRight, tone: .win))
+        XCTAssertEqual(w.c.gameTitle, PlazaGameView.Title(text: L(.ko).plazaDrawRightBy(nickname: "가"), tone: .win), "everyone but the solver reads who solved it")
         XCTAssertEqual(w.c.gameState?.draw?.last?.solver, w.b.id)
     }
 
@@ -665,6 +671,155 @@ final class PlazaDrawControllerTests: XCTestCase {
         await sync(w)
         XCTAssertEqual(w.c.gameTitle, PlazaGameView.Title(text: L(.ko).plazaDrawTimeUp, tone: .out))
         XCTAssertEqual(w.c.drawBoard?.foot, .lines([L(.ko).plazaDrawResultTimeout(word: word), L(.ko).plazaDrawResultNoPoints]))
+    }
+
+    // MARK: - Review round: guards and the time paths
+
+    func testAStrokeIsNotSentAfterMyTurnEndedMidDrag() async {
+        let w = await world()
+        await myDrawing(w)
+        await attachHUD(w)
+        mouse(w, .down, x: 0, y: 0)
+        mouse(w, .moved, x: 1, y: 0)
+        mouse(w, .moved, x: 2, y: 0)
+        let before = sentDraws(w, to: w.b).count
+        w.c.showChat(memberID: w.b.id, text: word)   // a right guess ends my turn while the button is down
+        await settle()
+        XCTAssertEqual(w.c.gameState?.draw?.turn, 1)
+        mouse(w, .moved, x: 3, y: 0)
+        mouse(w, .moved, x: 4, y: 0)
+        mouse(w, .up, x: 4, y: 0)
+        await settle()
+        XCTAssertEqual(sentDraws(w, to: w.b).count, before, "no drawing message left after the turn ended")
+        XCTAssertEqual(w.c.drawCanvas, PlazaDrawCanvas())
+    }
+
+    func testTheWordFieldWaitsForAnOverlayAndOpensWhenItCloses() async {
+        let w = await world()
+        await lock(w, first: w.me.id)
+        press(w.c, mKey)
+        guard case .gameMenu = w.c.overlayContent else { return XCTFail("the menu is open") }
+        await beginEntry(w)
+        XCTAssertNotNil(w.c.gameState?.draw?.entryAt, "test precondition: my entry began")
+        XCTAssertFalse(w.input.isOpen, "the menu has the keyboard")
+        w.c.chooseGame(index: 0)   // closes the menu
+        XCTAssertEqual(w.c.overlayContent, .none)
+        await sync(w)
+        XCTAssertTrue(w.input.isOpen)
+        XCTAssertEqual(w.input.purpose, .quizWord)
+    }
+
+    func testTheWordFieldWaitsForPhotoMode() async {
+        let w = await world()
+        await lock(w, first: w.me.id)
+        w.scene.enterPhotoMode()
+        await beginEntry(w)
+        XCTAssertFalse(w.input.isOpen)
+        w.scene.exitPhotoMode()
+        await sync(w)
+        XCTAssertEqual(w.input.purpose, .quizWord)
+        XCTAssertTrue(w.input.isOpen)
+    }
+
+    func testAStrokeFromADrawerWhoLeftTheGameIsIgnored() async {
+        let w = await world()
+        await lock(w, first: w.b.id)
+        await beginEntry(w)
+        await teammateSetsWord(w, w.b)
+        w.c.showDraw(from: w.b.id, stroke(w, seq: 1, [10, 10, 20, 10]))
+        XCTAssertEqual(w.c.drawCanvas[15, 10], 2, "test precondition: the drawer is heard")
+        // Their own presence now says they are not in this game.
+        w.b.session.updateGame(w.b.engine.state, join: nil)
+        w.c.showDraw(from: w.b.id, stroke(w, seq: 2, [10, 20, 20, 20]))
+        XCTAssertEqual(w.c.drawCanvas[15, 20], 0)
+        w.b.tell()
+        w.b.session.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false, isFlushed: false)
+        w.c.showDraw(from: w.b.id, stroke(w, seq: 2, [10, 30, 20, 30]))
+        XCTAssertEqual(w.c.drawCanvas[15, 30], 0, "nor from one who is not in the plaza")
+    }
+
+    func testAShortHeldStrokeGoesOutOnceTheIntervalHasPassed() async {
+        let w = await world()
+        await myDrawing(w)
+        await attachHUD(w)
+        mouse(w, .down, x: 0, y: 0)
+        mouse(w, .moved, x: 1, y: 0)
+        XCTAssertEqual(sentDraws(w, to: w.b).count, 0, "held: 2 points, no time has passed")
+        now += PlazaWindowController.drawFlushInterval + 0.02
+        w.c.advanceGame()
+        let sent = sentDraws(w, to: w.b)
+        XCTAssertEqual(sent.map(\.op), [.stroke])
+        XCTAssertEqual(sent.first?.points, [0, 0, 1, 0])
+        mouse(w, .up, x: 1, y: 0)
+        XCTAssertEqual(sentDraws(w, to: w.b).count, 1, "nothing more was held")
+    }
+
+    func testASnapshotGoesOutEveryTenSecondsOnlyWhileThePictureChanged() async {
+        let w = await world()
+        await myDrawing(w)
+        await attachHUD(w)
+        func snapshots() -> Int { sentDraws(w, to: w.b).filter { $0.op == .snapshot }.count }
+        now += PlazaWindowController.drawSnapshotInterval + 0.5
+        w.c.advanceGame()
+        XCTAssertEqual(snapshots(), 0, "an untouched canvas is not sent")
+        mouse(w, .down, x: 4, y: 4)
+        mouse(w, .up, x: 4, y: 4)
+        w.c.advanceGame()
+        XCTAssertEqual(snapshots(), 0, "the interval counts from the last look, not from the stroke")
+        now += PlazaWindowController.drawSnapshotInterval + 0.5
+        w.c.advanceGame()
+        XCTAssertEqual(snapshots(), 1)
+        now += PlazaWindowController.drawSnapshotInterval + 0.5
+        w.c.advanceGame()
+        XCTAssertEqual(snapshots(), 1, "unchanged since the last one")
+        mouse(w, .down, x: 8, y: 8)
+        mouse(w, .up, x: 8, y: 8)
+        now += PlazaWindowController.drawSnapshotInterval + 0.5
+        w.c.advanceGame()
+        XCTAssertEqual(snapshots(), 2)
+    }
+
+    func testAMemberWhoJoinsThePlazaWithoutPlayingGetsASnapshotToo() async {
+        let w = await world(others: 3)
+        let watcher = w.others[2]
+        watcher.session.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false, isFlushed: false)
+        await settle()
+        await lock(w, first: w.me.id, joining: [w.d])
+        await beginEntry(w)
+        w.input.type(word)
+        XCTAssertTrue(w.input.submit())
+        await sync(w)
+        func snapshots(_ n: Node) -> Int { sentDraws(w, to: n).filter { $0.op == .snapshot }.count }
+        XCTAssertEqual(snapshots(w.b), 0)
+        watcher.session.updatePlazaPosition(inPlaza: true, tile: TilePoint(x: 14, y: 6), facing: .left, isWalking: false, isFlushed: false)
+        await sync(w)
+        // Pinned: the drawer cannot tell who plays from who stands there, so everyone gets the snapshot; a viewer discards it.
+        XCTAssertEqual(snapshots(w.b), 1)
+        XCTAssertEqual(snapshots(watcher), 1)
+    }
+
+    func testWhenTheOthersLeaveTheGameEndsAndTheBoardTheFieldAndTheRoomGoAway() async {
+        let w = await world()
+        await attachHUD(w, size: CGSize(width: 600, height: 372))
+        await lock(w, first: w.me.id)
+        await beginEntry(w)
+        await settle()
+        w.input.type("사")
+        XCTAssertNotNil(w.c.drawBoard)
+        XCTAssertTrue(w.c.showsShortcutsFolded, "test precondition: the small window made room")
+        for o in w.others {
+            o.engine.leave(now: now, present: Set(w.all))
+            o.tell()
+        }
+        now += PlazaDraw.wordSeconds + 1
+        await sync(w)
+        XCTAssertNotNil(w.c.gameState?.endedAt)
+        XCTAssertNil(w.c.drawBoard)
+        XCTAssertFalse(w.input.isOpen)
+        XCTAssertEqual(sentChats(w), [])
+        XCTAssertFalse(w.me.transport.sent.contains { encoded($0.message).contains("사") }, "the half-typed word was not sent")
+        await settle()
+        XCTAssertFalse(w.c.showsShortcutsFolded, "the room is given back")
     }
 
     // MARK: - Closing

@@ -107,4 +107,19 @@ final class PlazaGamePanelTests: XCTestCase {
         let frame = try XCTUnwrap(r.hud.layout(viewport: CGSize(width: 600, height: 372), scale: 2)[.gameCard])
         XCTAssertLessThanOrEqual(frame.maxY, 372)
     }
+
+    /// The drawing quiz's invitation, the longest it gets (rules, the count, the full-house line), has to fit the smallest window.
+    func testTheDrawInvitationFitsTheSmallestWindow() async throws {
+        let l = L(.ko)
+        let r = rig()
+        r.game.card = PlazaGameView.Card(title: l.plazaGameCardTitle(host: "민수", game: l.plazaGameName(.draw)),
+                                         lines: l.plazaGameRules(.draw) + [l.plazaDrawRecruiting(players: 8, seconds: 30), l.plazaDrawFull],
+                                         buttons: [.init(label: l.plazaGameButtonJoin, action: "join", isEnabled: false), .init(label: l.plazaGameButtonDecline, action: "decline")])
+        _ = r.card.render(scale: 2, viewport: viewport, graphics: PlatformPlaza.graphics)
+        let placed = try XCTUnwrap(r.card.placed)
+        let narrow = CGSize(width: 600, height: 372)
+        let frame = try XCTUnwrap(r.hud.layout(viewport: narrow, scale: 2)[.gameCard])
+        XCTAssertLessThanOrEqual(placed.size.width, narrow.width - 2 * PlazaRosterMetrics.margin, "card \(placed.size.width) pt wide")
+        XCTAssertLessThanOrEqual(frame.maxY, narrow.height)
+    }
 }

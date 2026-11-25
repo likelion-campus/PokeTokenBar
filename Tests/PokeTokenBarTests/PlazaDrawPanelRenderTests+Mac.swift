@@ -30,14 +30,20 @@ import CoreText
     /// log shows 3 lines, the shortcuts guide is folded).
     private func composed(role: Role, viewport: CGSize, scale: CGFloat, map: PlazaImage) throws -> CGImage {
         let small = viewport == narrow
-        let board: PlazaDrawBoard
+        // The lines are the shipping ones (`L(.ko)`), not sample text.
+        let l = L(.ko)
+        let board: PlazaDrawBoard, hint: String
         switch role {
-        case .drawer: board = PlazaDrawBoard(head: "그림 퀴즈 3/6 · 그리는 사람 나", time: "⏱ 52", cover: nil, foot: .tools(word: "사과"), canDraw: true)
-        case .guesser: board = PlazaDrawBoard(head: "그림 퀴즈 3/6 · 그리는 사람 민수", time: "⏱ 38", cover: nil,
-                                               foot: .lines(["힌트 ○○ (2글자) · 첫 글자 ㅅ", "Enter로 답을 말해요"]), canDraw: false)
+        case .drawer:
+            board = PlazaDrawBoard(head: l.plazaDrawHead(turn: 3, of: 6, drawer: nil), time: l.plazaDrawTime(seconds: 52), cover: nil, foot: .tools(word: "사과"), canDraw: true)
+            hint = l.plazaDrawMyDrawing(seconds: 52)
+        case .guesser:
+            board = PlazaDrawBoard(head: l.plazaDrawHead(turn: 3, of: 6, drawer: "민수"), time: l.plazaDrawTime(seconds: 38), cover: nil,
+                                   foot: .lines([l.plazaDrawHintLetters(2), l.plazaDrawHintInitials("ㅅㄱ")]), canDraw: false)
+            hint = l.plazaDrawOtherDrawing(nickname: "민수", seconds: 38)
         }
         let r = Rig(viewport: viewport, scale: scale, board: board, full: true, chatLines: small ? 3 : 6, guideFolded: small,
-                    hint: "그림 퀴즈 · 제시어를 맞혀 보세요", canvas: sample())
+                    hint: hint, canvas: sample())
         let frames = r.hud.layout(viewport: viewport, scale: scale)
         let ctx = K.context(Int(viewport.width * scale), Int(viewport.height * scale))
         ctx.interpolationQuality = .none

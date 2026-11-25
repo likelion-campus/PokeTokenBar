@@ -191,7 +191,7 @@ extension PlazaGameView {
         case .drawing(let left):
             if mine, let word = engine.myWord {
                 view.board = board(left, cover: nil, foot: .tools(word: word), canDraw: true)
-                view.hint = l.plazaDrawMyDrawing(word: word, seconds: seconds(left))
+                view.hint = l.plazaDrawMyDrawing(seconds: seconds(left))
             } else if !mine {
                 var hints = [d.letters.map(l.plazaDrawHintLetters)
                     ?? l.plazaDrawHintLater(seconds: Int(PlazaDraw.drawSeconds - PlazaDraw.lettersHintSeconds))]
