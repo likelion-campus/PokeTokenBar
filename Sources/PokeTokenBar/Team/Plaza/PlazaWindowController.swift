@@ -152,7 +152,11 @@ import Observation
     private let gameModel = PlazaGameModel()
     private lazy var gameCardPanel = PlazaGameCardPanel(game: gameModel, overlay: overlayModel, pills: pillsPanel)
     private lazy var gameTitlePanel = PlazaGameTitlePanel(game: gameModel)
-    private let drawModel = PlazaDrawModel()
+    /// The drawing quiz board's model (the game sets `board`; tests read the panel through `hud`).
+    let drawModel = PlazaDrawModel()
+    /// The log and the guide are held small while the board does not fit with them as they are; see `makeRoomForDrawBoard`.
+    private var isDrawRoomMade = false
+    private var drawBoardObserver: PlazaChangeObserver?
     private lazy var drawPanel = PlazaDrawPanel(model: drawModel, neighbours: { [unowned self] viewport, scale in
         hud.frames(of: PlazaDrawPanel.neighbours, viewport: viewport, scale: scale) })
     private lazy var minimapPanel = PlazaMinimapPanel(model: minimap, background: backgroundModel, worldSize: map.pixelSize,
@@ -368,6 +372,9 @@ import Observation
         restoreFocus()
         _ = hud   // the pills follow the overlay model from now on
         hud.onAction = { [weak self] id, hit in self?.panelClicked(id, hit) }
+        drawPanel.onNeedsRoom = { [weak self] in self?.makeRoomForDrawBoard() }
+        drawBoardObserver = PlazaChangeObserver(track: { [drawModel] in _ = drawModel.board },
+                                                changed: { [weak self] in if self?.drawModel.board == nil { self?.giveBackDrawRoom() } })
         minimapPanel.update(date: clock())   // the map is lit for the right minute from its first drawing
         self.chatInput.onSubmit = { [weak self] in self?.submitChat($0) ?? true }
         self.chatInput.onClose = { [weak self] in
@@ -634,7 +641,25 @@ import Observation
 
     /// 사진 모드는 단추까지 숨기고, 나가면 단추의 모드가 가리키는 상태로 돌아간다. 열린 이름 색 팔레트는 사진 모드처럼 그대로 둔다.
     private func applyHiddenPanels() {
+        if overlayModel.isPhotoMode { giveBackDrawRoom() }   // the board is hidden: the log and the guide are as the user left them
         shell.setHiddenPanels(overlayModel.isPhotoMode ? PlazaPanelID.hiddenInPhotoMode : backgroundModel.isUIHidden ? PlazaPanelID.hiddenWithUI : [])
+    }
+
+    /// The drawing quiz's board is on screen and does not fit with the chat log and the shortcuts guide as they are (a small window): the log shows
+    /// three lines and the guide is folded, for as long as the board shows. Nothing is saved: the preferences and the log's own fold are untouched,
+    /// and `giveBackDrawRoom` puts both back as they were. Once made, the room stays made (nothing flips back on a later resize).
+    private func makeRoomForDrawBoard() {
+        guard !isDrawRoomMade, drawModel.board != nil, !overlayModel.isPhotoMode else { return }
+        isDrawRoomMade = true
+        chatLog.isReduced = true
+        shortcutModel.isForcedFolded = true
+    }
+
+    private func giveBackDrawRoom() {
+        guard isDrawRoomMade else { return }
+        isDrawRoomMade = false
+        chatLog.isReduced = false
+        shortcutModel.isForcedFolded = false
     }
 
     /// 단축키 안내를 접거나 펼치고 기억한다.
@@ -646,6 +671,10 @@ import Observation
 
     /// 테스트용 읽기 전용 값.
     var areShortcutsFolded: Bool { shortcutModel.isFolded }
+    /// What the guide shows now (folded by the saved choice or held folded for the drawing quiz's board).
+    var showsShortcutsFolded: Bool { shortcutModel.showsFolded }
+    /// How many lines the chat log shows now.
+    var chatLogVisibleCount: Int { chatLog.visible.count }
 
     private func applyBackground() {
         let hidden = preferences.isBackgroundHidden

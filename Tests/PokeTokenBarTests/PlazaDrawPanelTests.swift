@@ -24,7 +24,7 @@ final class PlazaDrawPanelTests: XCTestCase {
         let host = RecordingPanelHost()
         let strokes = Box<[[Int]]>([])
 
-        init(viewport: CGSize, scale: CGFloat, layout: PlazaDrawLayout = .top, board: PlazaDrawBoard?, full: Bool = false, chatLines: Int = 6, guideFolded: Bool = false,
+        init(viewport: CGSize, scale: CGFloat, board: PlazaDrawBoard?, full: Bool = false, chatLines: Int = 6, guideFolded: Bool = false,
              hint: String? = nil, canvas: PlazaDrawCanvas = PlazaDrawCanvas()) {
             let box = HUDBox()
             panel = PlazaDrawPanel(model: model, neighbours: { v, s in box.hud?.frames(of: PlazaDrawPanel.neighbours, viewport: v, scale: s) ?? [:] })
@@ -50,7 +50,6 @@ final class PlazaDrawPanelTests: XCTestCase {
             box.hud = hud
             overlay.hint = hint
             model.canvas = canvas
-            model.layout = layout
             model.board = board
             let strokes = strokes
             panel.onStroke = { points, _, _ in strokes.value.append(points) }
@@ -95,13 +94,13 @@ final class PlazaDrawPanelTests: XCTestCase {
     }
 
     func testACellIsAWholeNumberOfDevicePixels() async {
-        for layout in PlazaDrawLayout.allCases {
+        do {
             for viewport in [narrow, wide] {
                 for scale in [CGFloat(1), 1.25, 1.5, 2] {
-                    let r = Rig(viewport: viewport, scale: scale, layout: layout, board: board())
+                    let r = Rig(viewport: viewport, scale: scale, board: board())
                     let width = r.canvasFrame.width * scale
                     let cells = width / CGFloat(PlazaDrawCanvas.width)
-                    let tag = "\(layout) \(viewport) @\(scale)"
+                    let tag = "\(viewport) @\(scale)"
                     XCTAssertEqual(width.truncatingRemainder(dividingBy: 96) < 0.001 || 96 - width.truncatingRemainder(dividingBy: 96) < 0.001, true, "\(tag): \(width) px")
                     XCTAssertGreaterThanOrEqual(width, 192 - 0.001, tag)
                     XCTAssertEqual(r.canvasFrame.height * scale, cells * 64, accuracy: 0.001, tag)
@@ -117,11 +116,11 @@ final class PlazaDrawPanelTests: XCTestCase {
     /// Review Focus 1: the window is resized, or sits at its smallest, while a stroke is under way.
     func testACellUnderThePointerIsTheSameAtEveryWindowSize() async throws {
         for scale in [CGFloat(1), 2] {
-            for layout in PlazaDrawLayout.allCases {
-                let r = Rig(viewport: narrow, scale: scale, layout: layout, board: board())
+            do {
+                let r = Rig(viewport: narrow, scale: scale, board: board())
                 for viewport in [narrow, wide, narrow] {
                     r.hud.setViewport(viewport, scale: scale)
-                    let c = r.canvasFrame, tag = "\(layout) \(viewport) @\(scale)"
+                    let c = r.canvasFrame, tag = "\(viewport) @\(scale)"
                     let mid = r.panel.cell(at: CGPoint(x: c.midX, y: c.midY))
                     XCTAssertEqual(mid?.x, 48, tag); XCTAssertEqual(mid?.y, 32, tag)
                     let corner = r.panel.cell(at: CGPoint(x: c.minX, y: c.minY))
@@ -140,19 +139,19 @@ final class PlazaDrawPanelTests: XCTestCase {
                 // a stroke begun at one size and continued at the other draws a connected line between the two cells
                 XCTAssertTrue(r.mouse(.down, r.point(cellX: 10, y: 10)))
                 r.hud.setViewport(wide, scale: scale)
-                XCTAssertTrue(r.mouse(.moved, r.point(cellX: 30, y: 20)), "\(layout) @\(scale)")
+                XCTAssertTrue(r.mouse(.moved, r.point(cellX: 30, y: 20)), "@\(scale)")
                 r.hud.setViewport(narrow, scale: scale)
                 XCTAssertTrue(r.mouse(.up, r.point(cellX: 50, y: 30)))
                 for (x, y) in [(10, 10), (20, 15), (30, 20), (40, 25), (50, 30)] {
-                    XCTAssertNotEqual(r.model.canvas[x, y], 0, "\(layout) @\(scale): cell (\(x), \(y)) is on the line")
+                    XCTAssertNotEqual(r.model.canvas[x, y], 0, "@\(scale): cell (\(x), \(y)) is on the line")
                 }
-                XCTAssertEqual(r.strokes.value, [[10, 10], [10, 10, 30, 20], [30, 20, 50, 30]], "\(layout) @\(scale)")
+                XCTAssertEqual(r.strokes.value, [[10, 10], [10, 10, 30, 20], [30, 20, 50, 30]], "@\(scale)")
             }
         }
     }
 
     func testALongHeadIsCutShortOfTheTime() async throws {
-        let r = Rig(viewport: narrow, scale: 1, layout: .right, board: PlazaDrawBoard(head: String(repeating: "그림 퀴즈 ", count: 12), time: "⏱ 52", cover: nil, foot: .lines(["a"]), canDraw: false))
+        let r = Rig(viewport: narrow, scale: 1, board: PlazaDrawBoard(head: String(repeating: "그림 퀴즈 ", count: 12), time: "⏱ 52", cover: nil, foot: .lines(["a"]), canDraw: false))
         let items = try XCTUnwrap(r.host.drawings[.drawBoard]).accessibility
         let head = try XCTUnwrap(items.first), time = try XCTUnwrap(items.dropFirst().first)
         XCTAssertLessThanOrEqual(head.frame.maxX, time.frame.minX)
@@ -317,54 +316,70 @@ final class PlazaDrawPanelTests: XCTestCase {
         XCTAssertEqual(bitmap[19, 19], PlazaDraw.palette[2])
     }
 
-    func testTheLayoutsKeepTheirPlace() async throws {
+    func testThePanelIsCentredUnderThePills() async throws {
         for viewport in [narrow, wide] {
-            let withPills = Rig(viewport: viewport, scale: 1, layout: .top, board: board())
-            withPills.overlay.hint = "안내"
-            let pillsFrame = try XCTUnwrap(withPills.hud.layout(viewport: viewport, scale: 1)[.pills])
-            let top = try XCTUnwrap(withPills.hud.layout(viewport: viewport, scale: 1)[.drawBoard])
-            XCTAssertGreaterThanOrEqual(top.minY, pillsFrame.maxY, "under the pills")
-            XCTAssertEqual(top.midX, viewport.width / 2, accuracy: 1, "centred")
-            let right = Rig(viewport: viewport, scale: 1, layout: .right, board: board()).frame
-            XCTAssertEqual(right.maxX, viewport.width - PlazaRosterMetrics.margin, accuracy: 1, "against the right margin")
+            let r = Rig(viewport: viewport, scale: 1, board: board(), hint: "안내")
+            let pillsFrame = try XCTUnwrap(r.hud.layout(viewport: viewport, scale: 1)[.pills])
+            let mine = r.frame
+            XCTAssertGreaterThanOrEqual(mine.minY, pillsFrame.maxY, "under the pills")
+            XCTAssertEqual(mine.midX, viewport.width / 2, accuracy: 1, "centred")
         }
     }
 
-    /// The panel keeps clear of the panels above it, by their real frames: the chat log (6 lines) is never covered; `right` covers the minimap
-    /// and the clock on purpose (it is drawn above them); `top` keeps clear of those and of the guide, with the HUD in the state it needs at
-    /// the smallest window (chat log of 3 lines, guide folded).
+    /// The panel keeps clear of the panels above it, by their real frames, with the HUD in the state the small window needs (chat log of 3 lines,
+    /// guide folded) and as it is at the default window (6 lines, guide unfolded). Overlap only with the roster, which is below it.
     func testNoLayoutIsCoveredByThePanelsAboveIt() async throws {
         for viewport in [narrow, wide] {
             for scale in [CGFloat(1), 1.25, 1.5, 2] {
-                for layout in PlazaDrawLayout.allCases {
-                    let small = viewport == narrow && layout == .top
-                    let r = Rig(viewport: viewport, scale: scale, layout: layout, board: board(), full: true, chatLines: small ? 3 : 6, guideFolded: small, hint: "안내")
-                    let tag = "\(layout) \(viewport) @\(scale)"
-                    let frames = r.hud.layout(viewport: viewport, scale: scale)
-                    let mine = try XCTUnwrap(frames[.drawBoard], tag)
-                    let placed = r.panel.layout(in: viewport, scale: scale, text: PlatformPlaza.graphics.text)
-                    XCTAssertGreaterThanOrEqual(placed.cell, 2, tag)
-                    // Known limit, measured: centred under the pills, `top` has no room at 600x372 at 1x and 1.25x even with the 3-line log and the
-                    // folded guide (the minimap and the clock take the right of the middle, the log the bottom): it keeps the smallest cell and says so.
-                    if layout == .top && viewport == narrow && scale < 1.5 {
-                        XCTAssertFalse(placed.fits, "\(tag): if this fits now, drop the exception")
-                        continue
-                    }
-                    XCTAssertTrue(placed.fits, "\(tag): the smallest cell fits")
-                    let chat = try XCTUnwrap(frames[.chatLog], tag)
-                    XCTAssertTrue(CGRect(origin: .zero, size: viewport).contains(mine), "\(tag): inside the window \(mine)")
-                    XCTAssertFalse(mine.intersects(chat), "\(tag): the chat log is clear \(mine) \(chat)")
-                    if layout == .top {
-                        for id in [PlazaPanelID.minimap, .clock, .shortcuts, .backgroundToggle, .nameColorPicker, .pills] {
-                            XCTAssertFalse(mine.intersects(try XCTUnwrap(frames[id], "\(tag) \(id)")), "\(tag): \(id) is clear")
-                        }
-                    }
-                    // every tool and the canvas are inside the panel (so inside the window), and no tool is under 14 points tall
-                    let items = try XCTUnwrap(r.host.drawings[.drawBoard], tag).accessibility
-                    for item in items where item.role == .button { XCTAssertGreaterThanOrEqual(item.frame.height, 14, tag) }
-                    for item in items { XCTAssertTrue(CGRect(origin: .zero, size: mine.size).insetBy(dx: -0.001, dy: -0.001).contains(item.frame), "\(tag): \(item.label) inside the panel") }
+                let small = viewport == narrow
+                let r = Rig(viewport: viewport, scale: scale, board: board(), full: true, chatLines: small ? 3 : 6, guideFolded: small, hint: "안내")
+                let tag = "\(viewport) @\(scale)"
+                let frames = r.hud.layout(viewport: viewport, scale: scale)
+                let mine = try XCTUnwrap(frames[.drawBoard], tag)
+                let placed = r.panel.layout(in: viewport, scale: scale, text: PlatformPlaza.graphics.text)
+                XCTAssertGreaterThanOrEqual(placed.cell, 2, tag)
+                XCTAssertTrue(placed.fits, "\(tag): the smallest cell fits")
+                XCTAssertTrue(CGRect(origin: .zero, size: viewport).contains(mine), "\(tag): inside the window \(mine)")
+                for id in [PlazaPanelID.chatLog, .minimap, .clock, .shortcuts, .backgroundToggle, .nameColorPicker, .pills] {
+                    XCTAssertFalse(mine.intersects(try XCTUnwrap(frames[id], "\(tag) \(id)")), "\(tag): \(id) is clear \(mine) \(frames[id]!)")
                 }
+                // every tool and the canvas are inside the panel, and no tool is under 14 points tall
+                let items = try XCTUnwrap(r.host.drawings[.drawBoard], tag).accessibility
+                for item in items where item.role == .button { XCTAssertGreaterThanOrEqual(item.frame.height, 14, tag) }
+                for item in items { XCTAssertTrue(CGRect(origin: .zero, size: mine.size).insetBy(dx: -0.001, dy: -0.001).contains(item.frame), "\(tag): \(item.label) inside the panel") }
             }
         }
+    }
+
+    /// The press that began a stroke is gone when the board goes away or is hidden (the HUD sends no release to a panel it does not show): a
+    /// drag that follows draws nothing, and the next press starts a stroke.
+    func testAStrokeDoesNotSurviveTheBoardGoingAway() async throws {
+        let r = Rig(viewport: wide, scale: 2, board: board())
+        _ = r.mouse(.down, r.point(cellX: 10, y: 10))
+        XCTAssertEqual(r.strokes.value, [[10, 10]])
+        let point = r.point(cellX: 30, y: 30)
+        r.model.board = nil
+        for _ in 0..<10 { await Task.yield() }
+        r.model.board = board()
+        for _ in 0..<10 { await Task.yield() }
+        let before = r.model.canvas
+        _ = r.mouse(.moved, point)
+        _ = r.mouse(.up, point)
+        XCTAssertEqual(r.strokes.value, [[10, 10]], "no stroke without a press on this board")
+        XCTAssertEqual(r.model.canvas, before)
+        _ = r.mouse(.down, r.point(cellX: 40, y: 40))
+        XCTAssertEqual(r.strokes.value, [[10, 10], [40, 40]], "a fresh press draws")
+    }
+
+    func testACoverEndsTheStrokeUnderTheDrawersHand() async throws {
+        let r = Rig(viewport: wide, scale: 2, board: board())
+        _ = r.mouse(.down, r.point(cellX: 10, y: 10))
+        r.model.board = board(cover: "민수님이 제시어를 정하고 있어요")
+        _ = r.mouse(.moved, r.point(cellX: 30, y: 30))
+        XCTAssertEqual(r.strokes.value, [[10, 10]])
+        XCTAssertEqual(r.model.canvas[30, 30], 0, "nothing is drawn into the hidden canvas")
+        r.model.board = board()
+        _ = r.mouse(.moved, r.point(cellX: 50, y: 50))
+        XCTAssertEqual(r.strokes.value, [[10, 10]], "and it does not start again without a new press")
     }
 }

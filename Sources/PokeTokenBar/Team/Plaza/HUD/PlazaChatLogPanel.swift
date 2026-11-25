@@ -51,14 +51,14 @@ enum PlazaChatLogStyle {
     /// the user had scrolled to); it happens when the panel next lays out.
     private var scrollToEnd = true
 
-    private struct Observed: Equatable { let first: Int?, last: Int?, count: Int, expanded: Bool }
-    private var observed: Observed { Observed(first: log.lines.first?.id, last: log.lines.last?.id, count: log.lines.count, expanded: log.isExpanded) }
+    private struct Observed: Equatable { let first: Int?, last: Int?, count: Int, expanded: Bool, shown: Int }
+    private var observed: Observed { Observed(first: log.lines.first?.id, last: log.lines.last?.id, count: log.lines.count, expanded: log.showsExpanded, shown: log.visible.count) }
     private var rendered: Observed?
 
     init(log: PlazaChatLog) {
         self.log = log
         scrollIndicator.onChange = { [weak self] in self?.onChange?() }
-        observer = PlazaChangeObserver(track: { _ = log.lines; _ = log.isExpanded }, changed: { [weak self] in self?.modelChanged() })
+        observer = PlazaChangeObserver(track: { _ = log.lines; _ = log.showsExpanded; _ = log.isReduced }, changed: { [weak self] in self?.modelChanged() })
     }
 
     private func modelChanged() {
@@ -119,7 +119,7 @@ enum PlazaChatLogStyle {
         let small = text.metrics(PlazaChatLogStyle.headerFont), body = text.metrics(PlazaChatLogStyle.rowFont)
         let headerHeight = (small.ascender - small.descender).rounded(), lineHeight = (body.ascender - body.descender).rounded()
         let l = L(.ko)
-        let expanded = log.isExpanded
+        let expanded = log.showsExpanded
         let shown = expanded ? log.lines : log.visible
         func build(width: CGFloat) -> (rows: [Row], height: CGFloat) {
             if wrapped.engine != engine || wrapped.width != width { wrapped = (engine, width, [:]) }

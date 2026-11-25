@@ -20,15 +20,6 @@ struct PlazaDrawBoard: Equatable {
     var canDraw: Bool
 }
 
-/// Where the panel sits. The user picks one from the layout sheet; the other is removed then.
-enum PlazaDrawLayout: String, CaseIterable, Sendable {
-    /// In the column right of the chat log, under the pills, down to the bottom margin. It covers the minimap and the clock (so it is drawn
-    /// above them) and may cover the roster.
-    case right
-    /// Centred under the pills, down to the chat log's top; clear of the minimap, the clock and the shortcuts guide.
-    case top
-}
-
 @MainActor @Observable final class PlazaDrawModel {
     /// nil hides the panel.
     var board: PlazaDrawBoard?
@@ -37,52 +28,59 @@ enum PlazaDrawLayout: String, CaseIterable, Sendable {
     var color = 1
     /// 1 or 3; the eraser draws 5 wide.
     var width = 3
-    var layout: PlazaDrawLayout = .top
 }
 
-/// The drawing quiz's panel: a head line (turn, drawer, time), the canvas, and under it the drawer's tools or a guesser's lines. The canvas
-/// is one image layer the hosts enlarge with nearest sampling; its cell is a whole number of device pixels, so the picture is never uneven
-/// at 125 % or 150 %. A press on the canvas is captured like a scroller's track (`scrollerContains` / `scrollerMouse`) and each point of the
-/// drag becomes a cell. A change of the canvas renders at most 30 times a second and once more after the last change. The panel keeps clear
-/// of the chat log (always) and of the other panels above it (per layout) by their real frames, which `neighbours` reports.
+/// The drawing quiz's panel: a head line (turn, drawer, time), the canvas, and under it the drawer's tools or a guesser's lines. It sits under the
+/// pills, as near the window's middle as the other panels allow: the chat log is never covered, and it slides sideways just enough to clear the
+/// minimap, the clock and the shortcuts guide. The canvas is one image layer the hosts enlarge with nearest sampling; its cell is a whole number
+/// of device pixels, so the picture is never uneven at 125 % or 150 %. A press on the canvas is captured like a scroller's track
+/// (`scrollerContains` / `scrollerMouse`) and each point of the drag becomes a cell. A change of the canvas renders at most 30 times a second and
+/// once more after the last change.
 @MainActor final class PlazaDrawPanel: PlazaPanel {
     let id = PlazaPanelID.drawBoard
     var onChange: (() -> Void)?
     /// A stroke the user just drew on this machine, already applied to `model.canvas`: canvas points, colour, width.
     var onStroke: ((_ points: [Int], _ color: Int, _ width: Int) -> Void)?
     var onClear: (() -> Void)?
+    /// The panel was laid out with a cell under 2 points: it asks for room (called once per such layout, on the main actor's next turn).
+    var onNeedsRoom: (() -> Void)?
     private let model: PlazaDrawModel
     /// The frames (window points) of the panels in `Self.neighbours` that are shown, for a window size and backing scale.
     private let neighbourFrames: (CGSize, CGFloat) -> [PlazaPanelID: CGRect]
     private var observer: PlazaChangeObserver?
 
-    /// The panels whose frames the layouts read.
+    /// The panels whose frames the layout reads.
     static let neighbours: [PlazaPanelID] = [.pills, .gameCard, .chatLog, .minimap, .clock, .shortcuts, .backgroundToggle, .nameColorPicker]
-    static let padding: CGFloat = 4, rowGap: CGFloat = 3, gap: CGFloat = 8, clear: CGFloat = 4, swatch: CGFloat = 18, swatchGap: CGFloat = 3
-    static let buttonPadding = CGSize(width: 6, height: 2), buttonGap: CGFloat = 3, minCell = 2
-    private static let cellDivisor = PlazaDrawCanvas.width
+    static let padding: CGFloat = 4, rowGap: CGFloat = 3, clear: CGFloat = 4, swatch: CGFloat = 16, swatchGap: CGFloat = 2
+    static let buttonPadding = CGSize(width: 3, height: 2), buttonGap: CGFloat = 2
+    /// The smallest cell: 2 device pixels. Before it asks for room the panel wants 2 points (a cell of 2 pixels at 2x would make a 96-point canvas).
+    static let minCell = 2
+    static func roomyCell(scale: CGFloat) -> Int { max(minCell, Int((2 * scale).rounded(.up))) }
     static let minInterval = Duration.milliseconds(33)
-    private static let gold = PlazaColor(hex: 0xF2C14E)
+    private static let gold = PlazaPanelStyle.countdown.stroke
+    private static let line = PlazaPanelStyle.banner.stroke
     private static let ink = PlazaColor(hex: 0x2B2233)
 
     init(model: PlazaDrawModel, neighbours: @escaping (CGSize, CGFloat) -> [PlazaPanelID: CGRect]) {
         self.model = model
         neighbourFrames = neighbours
-        observer = PlazaChangeObserver(track: { _ = model.board; _ = model.canvas; _ = model.color; _ = model.width; _ = model.layout },
+        observer = PlazaChangeObserver(track: { _ = model.board; _ = model.canvas; _ = model.color; _ = model.width },
                                        changed: { [weak self] in self?.modelChanged() })
     }
 
     // MARK: change reports
 
-    private struct Look: Equatable { let board: PlazaDrawBoard?, color: Int, width: Int, layout: PlazaDrawLayout }
-    private var look: Look { Look(board: model.board, color: model.color, width: model.width, layout: model.layout) }
+    private struct Look: Equatable { let board: PlazaDrawBoard?, color: Int, width: Int }
+    private var look: Look { Look(board: model.board, color: model.color, width: model.width) }
     private var reported: Look?
     private var lastReport: ContinuousClock.Instant?
     private var trailing: Task<Void, Never>?
 
     private func modelChanged() {
         let now = look
-        if now != reported {   // a tool, the board or the layout: shown at once
+        // A stroke does not outlive the board, the right to draw or the canvas's cover.
+        if now.board?.canDraw != true || now.board?.cover != nil { endStroke() }
+        if now != reported {   // a tool or the board: shown at once
             reported = now
             report()
             return
@@ -116,6 +114,8 @@ enum PlazaDrawLayout: String, CaseIterable, Sendable {
 
     var isVisible: Bool { model.board != nil }
 
+    func didAppear() { endStroke() }
+
     // MARK: layout
 
     struct Button {
@@ -133,8 +133,10 @@ enum PlazaDrawLayout: String, CaseIterable, Sendable {
         /// The panel's top-left corner in the window, in points.
         let origin: CGPoint
         let size: CGSize
-        /// False when even the smallest cell does not fit its room: the panel sits at the layout's corner and covers what it must.
+        /// False when even the smallest cell does not fit: the panel sits under the pills in the middle and covers what it must.
         let fits: Bool
+        /// The cell is at least 2 points: nothing needs to make room. False asks the controller for room (`onNeedsRoom`).
+        let isRoomy: Bool
         let head: (line: PlazaTextLine, frame: CGRect)
         let time: (line: PlazaTextLine, frame: CGRect)
         let canvas: CGRect
@@ -145,18 +147,19 @@ enum PlazaDrawLayout: String, CaseIterable, Sendable {
         let lines: [(line: PlazaTextLine, text: String, frame: CGRect)]
     }
 
-    private struct Key: Equatable { let viewport: CGSize, scale: CGFloat, board: PlazaDrawBoard?, color: Int, width: Int, layout: PlazaDrawLayout, engine: String, around: [PlazaPanelID: CGRect] }
+    private struct Key: Equatable { let viewport: CGSize, scale: CGFloat, board: PlazaDrawBoard?, color: Int, width: Int, engine: String, around: [PlazaPanelID: CGRect] }
     private var laidOut: (key: Key, placed: Placed)?
     /// The layout of the last `size` or `render`: what `hit` and `cell(at:)` read.
     private var placed: Placed? { laidOut?.placed }
 
     func layout(in viewport: CGSize, scale: CGFloat, text: any PlazaTextEngine) -> Placed {
         let around = neighbourFrames(viewport, scale)
-        let key = Key(viewport: viewport, scale: scale, board: model.board, color: model.color, width: model.width, layout: model.layout,
+        let key = Key(viewport: viewport, scale: scale, board: model.board, color: model.color, width: model.width,
                       engine: String(describing: type(of: text)), around: around)
         if let laidOut, laidOut.key == key { return laidOut.placed }
         let made = build(viewport: viewport, scale: scale, text: text, around: around)
         laidOut = (key, made)
+        if !made.isRoomy, model.board != nil { Task { @MainActor [weak self] in self?.onNeedsRoom?() } }
         return made
     }
 
@@ -165,7 +168,7 @@ enum PlazaDrawLayout: String, CaseIterable, Sendable {
         let font = PlazaFont.plaza(.body)
         let metrics = text.metrics(font)
         let lineH = (metrics.ascender - metrics.descender).rounded()
-        let pad = Self.padding, gap = Self.rowGap, margin = PlazaRosterMetrics.margin
+        let pad = Self.padding, gap = Self.rowGap, margin = PlazaRosterMetrics.margin, clear = Self.clear
         let board = model.board ?? PlazaDrawBoard(head: "", time: "", cover: nil, foot: .lines([]), canDraw: false)
         func width(_ line: PlazaTextLine) -> CGFloat { PlazaPanelStyle.pixelUp(line.width, scale: scale) }
         func centered(_ rowWidth: CGFloat, in inner: CGFloat) -> CGFloat { pad + PlazaPanelStyle.pixel((inner - rowWidth) / 2, scale: scale) }
@@ -190,71 +193,62 @@ enum PlazaDrawLayout: String, CaseIterable, Sendable {
         }
         let buttonWidths = toolButtons.map { PlazaPanelStyle.pixelUp($0.line.width, scale: scale) + 2 * Self.buttonPadding.width }
         let buttonsRow = buttonWidths.reduce(0, +) + CGFloat(max(0, buttonWidths.count - 1)) * Self.buttonGap
-        let wordWidth = word.map { width($0.0) } ?? 0
-        /// The least width the tools take: the swatches, or two buttons side by side (the buttons wrap into two rows).
-        /// The tools' least width: all the buttons in one row (`wide`), or two buttons side by side with the buttons in two rows.
-        func toolsMin(_ wide: Bool) -> CGFloat {
-            word == nil ? 0 : max(swatchesWidth, wide ? max(buttonsRow, wordWidth) : (buttonWidths.max() ?? 0) * 2 + Self.buttonGap)
-        }
 
         func footLines(_ inner: CGFloat) -> [(PlazaTextLine, String)] {
             guard case .lines(let strings) = board.foot else { return [] }
             return strings.flatMap { s in text.wrappedLines(s, font: font, width: inner).map { ($0, s) } }
         }
-        /// The tools' rows at `inner` points wide: the word and the swatches share a row when they fit, the buttons are one row when they fit
-        /// and else two rows of two equal buttons.
+        /// The tools: the word and the swatches in one row, the buttons in the next; the guesser's lines otherwise.
         func footHeight(_ inner: CGFloat) -> CGFloat {
-            if word != nil {
-                let sharedRow = wordWidth + Self.gap + swatchesWidth <= inner
-                let first = sharedRow ? max(lineH, Self.swatch) : lineH + gap + Self.swatch
-                let buttons = buttonsRow <= inner ? buttonH : 2 * buttonH + Self.buttonGap
-                return first + gap + buttons
-            }
+            if word != nil { return max(lineH, Self.swatch) + gap + buttonH }
             let n = footLines(inner).count
             return n == 0 ? 0 : CGFloat(n) * lineH + CGFloat(n - 1) * 2
         }
         func canvasSize(_ n: Int) -> CGSize { CGSize(width: CGFloat(PlazaDrawCanvas.width * n) / scale, height: CGFloat(PlazaDrawCanvas.height * n) / scale) }
-        func innerWidth(_ n: Int, _ wide: Bool) -> CGFloat { max(canvasSize(n).width, toolsMin(wide)) }
-        func panelSize(_ n: Int, _ wide: Bool) -> CGSize {
-            let inner = innerWidth(n, wide), foot = footHeight(inner)
+        func innerWidth(_ n: Int) -> CGFloat { max(canvasSize(n).width, buttonsRow) }
+        func panelSize(_ n: Int) -> CGSize {
+            let inner = innerWidth(n), foot = footHeight(inner)
             return CGSize(width: PlazaPanelStyle.pixelUp(2 * pad + inner, scale: scale),
                           height: PlazaPanelStyle.pixelUp(2 * pad + lineH + gap + canvasSize(n).height + (foot > 0 ? gap + foot : 0), scale: scale))
         }
 
-        // The window's room for each layout, by the neighbours' real frames. The chat log is never covered.
-        let chat = around[.chatLog]
-        let topLimit: CGFloat = max(margin, ([PlazaPanelID.pills, .gameCard].compactMap { around[$0]?.maxY }.max()).map { $0 + Self.clear } ?? margin)
-        func origin(for size: CGSize) -> (CGPoint, fits: Bool) {
-            switch model.layout {
-            case .right:
-                let x = viewport.width - margin - size.width, y = topLimit
-                let fits = x >= (chat.map { $0.maxX + Self.gap } ?? margin) && y + size.height <= viewport.height - margin
-                return (CGPoint(x: x, y: y), fits)
-            case .top:
-                let x = PlazaPanelStyle.pixel((viewport.width - size.width) / 2, scale: scale)
-                var top = topLimit, bottom = viewport.height - margin
-                let span = (x - Self.gap)...(x + size.width + Self.gap)
-                for id in [PlazaPanelID.chatLog, .minimap, .clock, .shortcuts, .backgroundToggle, .nameColorPicker] {
-                    guard let f = around[id], f.maxX >= span.lowerBound, f.minX <= span.upperBound else { continue }
-                    if f.midY < viewport.height / 2 { top = max(top, f.maxY + Self.clear) } else { bottom = min(bottom, f.minY - Self.clear) }
+        // Under the pills and the game card; as near the middle as the panels around allow. The chat log is never covered.
+        let top = PlazaPanelStyle.pixelUp(max(margin, ([PlazaPanelID.pills, .gameCard].compactMap { around[$0]?.maxY }.max()).map { $0 + clear } ?? margin), scale: scale)
+        let obstacles = [PlazaPanelID.chatLog, .minimap, .clock, .shortcuts, .backgroundToggle, .nameColorPicker].compactMap { around[$0] }
+        func place(_ size: CGSize) -> (origin: CGPoint, fits: Bool) {
+            let middle = PlazaPanelStyle.pixel((viewport.width - size.width) / 2, scale: scale)
+            let low = margin, high = viewport.width - margin - size.width
+            guard top + size.height <= viewport.height - margin, high >= low else { return (CGPoint(x: middle, y: top), false) }
+            func free(_ x: CGFloat) -> Bool {
+                !obstacles.contains { o in
+                    x < o.maxX + clear - 0.001 && x + size.width > o.minX - clear + 0.001 && top < o.maxY + clear - 0.001 && top + size.height > o.minY - clear + 0.001
                 }
-                return (CGPoint(x: x, y: top), top + size.height <= bottom)
             }
+            // The middle, or flush against the side of a panel it would meet.
+            var xs = [min(max(middle, low), high)]
+            for o in obstacles {
+                xs.append(((o.maxX + clear) * scale).rounded(.up) / scale)
+                xs.append(((o.minX - clear - size.width) * scale).rounded(.down) / scale)
+            }
+            let best = xs.filter { $0 >= low - 0.001 && $0 <= high + 0.001 && free($0) }.min { abs($0 - middle) < abs($1 - middle) }
+            return (CGPoint(x: best ?? middle, y: top), best != nil)
         }
 
-        // The largest cell, in whole device pixels, whose panel fits its room (the smallest cell when none does).
-        var n = Self.minCell, wide = false, fits = false
-        var candidate = max(Self.minCell, Int((viewport.width * scale).rounded(.down)) / PlazaDrawPanel.cellDivisor)
-        search: while candidate >= Self.minCell {
-            for form in [true, false] where origin(for: panelSize(candidate, form)).fits { (n, wide, fits) = (candidate, form, true); break search }
-            candidate -= 1
+        // The largest cell, in whole device pixels, whose panel fits: of at least 2 points if possible, else down to 2 pixels.
+        var n = Self.minCell, fits = false, roomy = false
+        let widest = max(Self.minCell, Int((viewport.width * scale).rounded(.down)) / PlazaDrawCanvas.width)
+        search: for floor in [Self.roomyCell(scale: scale), Self.minCell] {
+            var candidate = widest
+            while candidate >= floor {
+                if place(panelSize(candidate)).fits { (n, fits, roomy) = (candidate, true, floor == Self.roomyCell(scale: scale)); break search }
+                candidate -= 1
+            }
         }
-        let size = panelSize(n, wide)
-        let raw = origin(for: size).0
-        let at = CGPoint(x: PlazaPanelStyle.pixel(raw.x, scale: scale), y: PlazaPanelStyle.pixel(raw.y, scale: scale))
-        let inner = innerWidth(n, wide), canvasW = canvasSize(n)
+        let size = panelSize(n)
+        let at = place(size).origin
+        let inner = innerWidth(n), canvasW = canvasSize(n)
         // A narrow canvas cuts the head short of the time.
-        let headRoom = inner - width(time) - Self.gap
+        let headRoom = inner - width(time) - 2 * clear
         if width(head) > headRoom { head = text.truncated(head, width: max(0, headRoom), ellipsis: text.line("…", font: font)) ?? head }
         var y = pad
         let headFrame = CGRect(x: pad, y: y, width: width(head), height: lineH)
@@ -282,33 +276,22 @@ enum PlazaDrawLayout: String, CaseIterable, Sendable {
         var buttons: [Button] = []
         var lines: [(PlazaTextLine, String, CGRect)] = []
         if let word {
-            let shared = wordWidth + Self.gap + swatchesWidth <= inner
-            let swatchX = shared ? pad + inner - swatchesWidth : centered(swatchesWidth, in: inner)
+            // The word at the left (cut short of the swatches when it is long), the swatches at the right.
             let rowH = max(lineH, Self.swatch)
-            if shared {
-                wordPlaced = (word.0, word.1, CGRect(x: pad, y: y + (rowH - lineH) / 2, width: wordWidth, height: lineH))
-            } else {
-                wordPlaced = (word.0, word.1, CGRect(x: centered(wordWidth, in: inner), y: y, width: wordWidth, height: lineH))
-                y += lineH + gap
-            }
-            var x = swatchX
+            var wordLine = word.0
+            let wordRoom = inner - swatchesWidth - 2 * clear
+            if width(wordLine) > wordRoom { wordLine = text.truncated(wordLine, width: max(0, wordRoom), ellipsis: text.line("…", font: font)) ?? wordLine }
+            wordPlaced = (wordLine, word.1, CGRect(x: pad, y: y + (rowH - lineH) / 2, width: width(wordLine), height: lineH))
+            var x = pad + inner - swatchesWidth
             for i in 1..<PlazaDraw.palette.count {
                 swatches.append((i, CGRect(x: x, y: y + (rowH - Self.swatch) / 2, width: Self.swatch, height: Self.swatch)))
                 x += Self.swatch + Self.swatchGap
             }
-            y += (shared ? rowH : Self.swatch) + gap
-            if buttonsRow <= inner {
-                var bx = centered(buttonsRow, in: inner)
-                for (b, w) in zip(toolButtons, buttonWidths) {
-                    buttons.append(Button(hit: b.hit, label: b.label, line: b.line, frame: CGRect(x: bx, y: y, width: w, height: buttonH), selected: b.selected))
-                    bx += w + Self.buttonGap
-                }
-            } else {
-                let cell = (inner - Self.buttonGap) / 2
-                for (i, b) in toolButtons.enumerated() {
-                    let bx = pad + CGFloat(i % 2) * (cell + Self.buttonGap), by = y + CGFloat(i / 2) * (buttonH + Self.buttonGap)
-                    buttons.append(Button(hit: b.hit, label: b.label, line: b.line, frame: CGRect(x: bx, y: by, width: cell, height: buttonH), selected: b.selected))
-                }
+            y += rowH + gap
+            var bx = centered(buttonsRow, in: inner)
+            for (b, w) in zip(toolButtons, buttonWidths) {
+                buttons.append(Button(hit: b.hit, label: b.label, line: b.line, frame: CGRect(x: bx, y: y, width: w, height: buttonH), selected: b.selected))
+                bx += w + Self.buttonGap
             }
         } else {
             for (line, s) in footLines(inner) {
@@ -317,7 +300,7 @@ enum PlazaDrawLayout: String, CaseIterable, Sendable {
                 y += lineH + 2
             }
         }
-        return Placed(scale: scale, cell: n, origin: at, size: size, fits: fits, head: (head, headFrame), time: (time, timeFrame), canvas: canvas, cover: cover,
+        return Placed(scale: scale, cell: n, origin: at, size: size, fits: fits, isRoomy: roomy, head: (head, headFrame), time: (time, timeFrame), canvas: canvas, cover: cover,
                       word: wordPlaced, swatches: swatches, buttons: buttons, lines: lines)
     }
 
@@ -346,7 +329,7 @@ enum PlazaDrawLayout: String, CaseIterable, Sendable {
                 let all = space.canvas(CGRect(origin: .zero, size: p.size))
                 canvas.setFillColor(PlazaColor(hex: 0x1D4F55, alpha: 0.96))
                 canvas.fillRoundedRect(all, radius: 8)
-                canvas.setStrokeColor(PlazaColor(hex: 0x5FB7BD))
+                canvas.setStrokeColor(Self.line)
                 canvas.strokeRoundedRect(all.insetBy(dx: 1, dy: 1), radius: 7, lineWidth: 2)
                 func draw(_ line: PlazaTextLine, in frame: CGRect, _ color: PlazaColor) {
                     canvas.setFillColor(color)
@@ -376,7 +359,7 @@ enum PlazaDrawLayout: String, CaseIterable, Sendable {
                     let r = space.canvas(b.frame)
                     canvas.setFillColor(b.selected ? PlazaColor(hex: 0x2D7F87) : PlazaColor(hex: 0x14393D))
                     canvas.fillRoundedRect(r, radius: 5)
-                    canvas.setStrokeColor(b.selected ? Self.gold : PlazaColor(hex: 0x5FB7BD))
+                    canvas.setStrokeColor(b.selected ? Self.gold : Self.line)
                     canvas.strokeRoundedRect(r, radius: 5, lineWidth: b.selected ? 2 : 1)
                     draw(b.line, in: CGRect(x: b.frame.minX + (b.frame.width - b.line.width) / 2, y: b.frame.minY + Self.buttonPadding.height,
                                             width: b.line.width, height: b.frame.height), .white)
@@ -462,13 +445,26 @@ enum PlazaDrawLayout: String, CaseIterable, Sendable {
         return p.canvas.contains(point)
     }
 
+    /// The cell the pen is on while a stroke is under way, and whether the press that began it is still held (a drag with no press draws nothing).
     private var last: (x: Int, y: Int)?
+    private var isPressed = false
+
+    private func endStroke() { last = nil; isPressed = false }
 
     func scrollerMouse(_ phase: PlazaScrollerPhase, at point: CGPoint) {
-        guard model.board?.canDraw == true else { last = nil; return }
-        if phase == .down { last = nil }
+        // Without the right to draw, or under a cover, nothing is drawn and no stroke goes on.
+        guard let board = model.board, board.canDraw, board.cover == nil else { endStroke(); return }
+        switch phase {
+        case .down:
+            isPressed = true
+            last = nil
+        case .drag:
+            guard isPressed else { return }
+        case .up:
+            guard isPressed else { return }
+        }
         extend(to: cell(at: point))
-        if phase == .up { last = nil }
+        if phase == .up { endStroke() }
     }
 
     /// One segment from the last cell (or a dot) to `cell`; outside the canvas ends the stroke.

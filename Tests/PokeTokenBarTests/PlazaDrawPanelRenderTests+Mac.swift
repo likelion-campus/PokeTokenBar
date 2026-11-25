@@ -3,9 +3,8 @@ import AppKit
 import CoreText
 @testable import PokeTokenBar
 
-/// The sheet the user picks the drawing quiz's layout from: each candidate, numbered, as the drawer sees it and as a guesser sees it, in the
-/// smallest window and the default one, over the plaza's map with the other panels drawn too (in the stack order the candidate needs), so
-/// any overlap shows. With `PTB_PLAZA_HUD_OUT` set, one png is written into that directory. Real CoreText; nothing is shown on screen.
+/// The drawing quiz panel's pictures for the pull request. With `PTB_PLAZA_HUD_OUT` set they are written into that directory. Real CoreText;
+/// nothing is shown on screen.
 @MainActor final class PlazaDrawPanelRenderTests: XCTestCase {
     private typealias K = PlazaPanelRenderTests
     private typealias Rig = PlazaDrawPanelTests.Rig
@@ -27,33 +26,28 @@ import CoreText
         return c
     }
 
-    /// The window as the candidate's stack order draws it; also the canvas size in points and the cell size for the caption.
-    private func composed(layout: PlazaDrawLayout, role: Role, viewport: CGSize, map: PlazaImage) throws -> (image: CGImage, caption: String) {
-        let small = layout == .top && viewport == narrow
+    /// The window as the HUD's stack order draws it, at `scale`. In the small window the HUD is in the state the board needs there (the chat
+    /// log shows 3 lines, the shortcuts guide is folded).
+    private func composed(role: Role, viewport: CGSize, scale: CGFloat, map: PlazaImage) throws -> CGImage {
+        let small = viewport == narrow
         let board: PlazaDrawBoard
         switch role {
         case .drawer: board = PlazaDrawBoard(head: "그림 퀴즈 3/6 · 그리는 사람 나", time: "⏱ 52", cover: nil, foot: .tools(word: "사과"), canDraw: true)
         case .guesser: board = PlazaDrawBoard(head: "그림 퀴즈 3/6 · 그리는 사람 민수", time: "⏱ 38", cover: nil,
                                                foot: .lines(["힌트 ○○ (2글자) · 첫 글자 ㅅ", "Enter로 답을 말해요"]), canDraw: false)
         }
-        let r = Rig(viewport: viewport, scale: 1, layout: layout, board: board, full: true, chatLines: small ? 3 : 6, guideFolded: small,
+        let r = Rig(viewport: viewport, scale: scale, board: board, full: true, chatLines: small ? 3 : 6, guideFolded: small,
                     hint: "그림 퀴즈 · 제시어를 맞혀 보세요", canvas: sample())
-        let frames = r.hud.layout(viewport: viewport, scale: 1)
-        // `right` covers the minimap and the clock, so it is drawn above them (and below the chat log); `top` is where the stack puts it.
-        var order = PlazaPanelID.stackOrder.filter { frames[$0] != nil }
-        if layout == .right {
-            order.removeAll { $0 == .drawBoard }
-            order.insert(.drawBoard, at: order.firstIndex(of: .clock)! + 1)
-        }
-        let ctx = K.context(Int(viewport.width), Int(viewport.height))
+        let frames = r.hud.layout(viewport: viewport, scale: scale)
+        let ctx = K.context(Int(viewport.width * scale), Int(viewport.height * scale))
         ctx.interpolationQuality = .none
-        ctx.draw(map.cgImage, in: CGRect(x: -400, y: viewport.height - CGFloat(map.height) + 300, width: CGFloat(map.width), height: CGFloat(map.height)))
-        for id in order {
+        ctx.draw(map.cgImage, in: CGRect(x: -400 * scale, y: (viewport.height - CGFloat(map.height) + 300) * scale, width: CGFloat(map.width) * scale, height: CGFloat(map.height) * scale))
+        for id in PlazaPanelID.stackOrder {
             guard let drawing = r.host.drawings[id], let frame = frames[id] else { continue }
             for layer in drawing.layers {
                 func bottomLeft(_ rect: CGRect) -> CGRect {
                     let at = rect.offsetBy(dx: frame.minX, dy: frame.minY)
-                    return CGRect(x: at.minX, y: viewport.height - at.maxY, width: at.width, height: at.height)
+                    return CGRect(x: at.minX * scale, y: (viewport.height - at.maxY) * scale, width: at.width * scale, height: at.height * scale)
                 }
                 switch layer {
                 case .image(let image, let rect): ctx.draw(image.cgImage, in: bottomLeft(rect))
@@ -61,67 +55,18 @@ import CoreText
                 }
             }
         }
-        let placed = r.panel.layout(in: viewport, scale: 1, text: PlatformPlaza.graphics.text)
-        var caption = "그림판 \(Int(placed.canvas.width))×\(Int(placed.canvas.height)) · 칸 \(placed.cell)px"
-        if !placed.fits { caption += " · 안 들어감" }
-        if small { caption += "\n작은 창: 대화 기록 3줄 · 단축키 안내 접힘" }
-        return (try XCTUnwrap(ctx.makeImage()), caption)
+        return try XCTUnwrap(ctx.makeImage())
     }
 
-    private static let names: [PlazaDrawLayout: String] = [.right: "오른쪽 세로", .top: "가운데 위"]
-    private static let number: [PlazaDrawLayout: Int] = [.right: 1, .top: 2]
-
-    func testWriteLayoutSheet() async throws {
+    /// The pictures for the pull request: the board as the drawer and a guesser see it, at the default window and the smallest, over the plaza.
+    func testWritePullRequestImages() async throws {
         guard let dir = ProcessInfo.processInfo.environment["PTB_PLAZA_HUD_OUT"] else { throw XCTSkip("PTB_PLAZA_HUD_OUT not set") }
         let out = URL(fileURLWithPath: dir)
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
         let map = try XCTUnwrap(PlatformPlaza.tileSheet().map { PlazaTileArt.mapImage(PlazaMapData.map, sheet: $0, tallGrass: nil) })
-        let columns: [(String, CGSize, Role)] = [("600×372 · 그리는 사람", narrow, .drawer), ("600×372 · 맞히는 사람", narrow, .guesser),
-                                                  ("960×640 · 그리는 사람", wide, .drawer), ("960×640 · 맞히는 사람", wide, .guesser)]
-        let gap = 24, titleH = 70, rowHeader = 120, captionH = 90
-        let colWidths = columns.map { Int($0.1.width) }
-        let width = colWidths.reduce(gap) { $0 + $1 + gap }
-        let paletteH = 200
-        let height = titleH + PlazaDrawLayout.allCases.count * (rowHeader + Int(wide.height) + captionH + gap) + paletteH + gap
-        let ctx = K.context(width, height)
-        ctx.setFillColor(CGColor(srgbRed: 0.12, green: 0.13, blue: 0.15, alpha: 1))
-        ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
-        func text(_ s: String, _ x: Int, _ yTop: Int, _ size: CGFloat, _ color: NSColor = .white) {
-            let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: size, weight: .bold), .foregroundColor: color]
-            ctx.textPosition = CGPoint(x: CGFloat(x), y: CGFloat(height - yTop) - size)
-            CTLineDraw(CTLineCreateWithAttributedString(NSAttributedString(string: s, attributes: attributes)), ctx)
+        for (name, viewport, role) in [("draw-quiz-drawer-960", wide, Role.drawer), ("draw-quiz-guesser-960", wide, .guesser),
+                                       ("draw-quiz-drawer-600", narrow, .drawer), ("draw-quiz-guesser-600", narrow, .guesser)] {
+            try K.write(try composed(role: role, viewport: viewport, scale: 2, map: map), out.appendingPathComponent("\(name).png"))
         }
-        var x = gap
-        for (i, c) in columns.enumerated() {
-            text(c.0, x, 16, 36)
-            x += colWidths[i] + gap
-        }
-        var y = titleH
-        for layout in [PlazaDrawLayout.right, .top] {
-            text("\(Self.number[layout]!)", gap, y + 6, 84, NSColor(srgbRed: 0.95, green: 0.76, blue: 0.31, alpha: 1))
-            text("\(Self.names[layout]!)  (\(layout.rawValue))", gap + 90, y + 40, 48)
-            y += rowHeader
-            x = gap
-            for (i, c) in columns.enumerated() {
-                let (image, caption) = try composed(layout: layout, role: c.2, viewport: c.1, map: map)
-                ctx.draw(image, in: CGRect(x: x, y: height - y - image.height, width: image.width, height: image.height))
-                for (k, line) in caption.split(separator: "\n").enumerated() {
-                    text(String(line), x, y + Int(c.1.height) + 8 + k * 32, 26, NSColor(white: 0.9, alpha: 1))
-                }
-                x += colWidths[i] + gap
-            }
-            y += Int(wide.height) + captionH + gap
-        }
-        text("팔레트 (0 은 바탕)", gap, y + 4, 40)
-        let hexes = ["F6F1E3", "2B2233", "D2453B", "E8862E", "F2C14E", "3F9D4B", "3B7BD1", "7D4FC2", "8A5A36"]
-        for (i, p) in PlazaDraw.palette.enumerated() {
-            let sx = gap + i * 280
-            ctx.setFillColor(CGColor(srgbRed: CGFloat(p.r) / 255, green: CGFloat(p.g) / 255, blue: CGFloat(p.b) / 255, alpha: 1))
-            ctx.fill(CGRect(x: sx, y: height - (y + 60) - 80, width: 80, height: 80))
-            text("\(i)", sx + 92, y + 56, 56)
-            text("#\(hexes[i])", sx + 92, y + 118, 24, NSColor(white: 0.8, alpha: 1))
-        }
-        XCTAssertEqual(hexes.map { $0.lowercased() }, PlazaDraw.palette.map { String(format: "%02x%02x%02x", $0.r, $0.g, $0.b) })
-        try K.write(try XCTUnwrap(ctx.makeImage()), out.appendingPathComponent("draw-layout-sheet.png"))
     }
 }

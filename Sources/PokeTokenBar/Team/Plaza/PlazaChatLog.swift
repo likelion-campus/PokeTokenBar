@@ -23,7 +23,14 @@ final class PlazaChatLog {
     static let expandedHeight: CGFloat = 240
     private var nextID = 0
 
-    var visible: [Line] { Array(lines.suffix(Self.visibleCount)) }
+    /// While the drawing quiz's board needs the room, the log shows `reducedCount` lines and looks folded, whatever the user chose. Not a preference:
+    /// `isExpanded` is untouched and the log looks as it was when this goes back to false.
+    var isReduced = false
+    static let reducedCount = 3
+    /// What the log shows now: expanded only when the user unfolded it and nothing reduces it.
+    var showsExpanded: Bool { isExpanded && !isReduced }
+
+    var visible: [Line] { Array(lines.suffix(isReduced ? Self.reducedCount : Self.visibleCount)) }
 
     func append(time: Date, name: String, text: String, color: PlazaColor, isLoud: Bool = false) {
         lines.append(Line(id: nextID, time: time, name: name, text: text, color: color, isLoud: isLoud))
