@@ -36,11 +36,11 @@ import CoreText
         switch role {
         case .drawer:
             board = PlazaDrawBoard(head: l.plazaDrawHead(turn: 3, of: 6, drawer: nil), time: l.plazaDrawTime(seconds: 52), cover: nil, foot: .tools(word: "사과"), canDraw: true)
-            hint = l.plazaDrawMyDrawing(seconds: 52)
+            hint = l.plazaDrawMyDrawing
         case .guesser:
             board = PlazaDrawBoard(head: l.plazaDrawHead(turn: 3, of: 6, drawer: "민수"), time: l.plazaDrawTime(seconds: 38), cover: nil,
                                    foot: .lines([l.plazaDrawHintLetters(2), l.plazaDrawHintInitials("ㅅㄱ")]), canDraw: false)
-            hint = l.plazaDrawOtherDrawing(nickname: "민수", seconds: 38)
+            hint = l.plazaDrawOtherDrawing
         }
         let r = Rig(viewport: viewport, scale: scale, board: board, full: true, chatLines: small ? 3 : 6, guideFolded: small,
                     hint: hint, canvas: sample())

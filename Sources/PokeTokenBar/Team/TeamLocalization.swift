@@ -567,8 +567,8 @@ extension L {
     func plazaDrawTime(seconds: Int) -> String { "⏱ \(seconds)" }
     func plazaDrawMyEntry(seconds: Int) -> String { "내 차례! 아래에 제시어를 쓰고 Enter · \(seconds)초" }
     func plazaDrawOtherEntry(nickname: String, seconds: Int) -> String { "\(nickname)님이 제시어를 정하고 있어요 · \(seconds)초" }
-    func plazaDrawMyDrawing(seconds: Int) -> String { "글자 없이 그림으로만 그리세요 · \(seconds)초" }
-    func plazaDrawOtherDrawing(nickname: String, seconds: Int) -> String { "\(nickname)님이 그리는 중 · Enter로 정답을 말해요 · \(seconds)초" }
+    var plazaDrawMyDrawing: String { "글자 없이 그림으로만 그리세요" }
+    var plazaDrawOtherDrawing: String { "Enter로 정답을 말해요" }
     func plazaDrawHintLater(seconds: Int) -> String { "힌트는 \(seconds)초가 남으면 나와요" }
     func plazaDrawHintLetters(_ count: Int) -> String { "힌트 " + String(repeating: "□", count: count) + " · \(count)글자" }
     func plazaDrawHintInitials(_ initials: String) -> String { "힌트 \(initials)" }

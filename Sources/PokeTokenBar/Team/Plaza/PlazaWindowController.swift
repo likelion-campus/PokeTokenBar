@@ -3077,12 +3077,6 @@ extension PlazaWindowController {
     /// Sends what is held in messages of at most 64 points. `all`: whatever is held (the stroke ended); else only when 64 points are held or
     /// the interval has passed. The next message starts at the point this one ended on.
     private func sendHeldStroke(now: Date, all: Bool) {
-        // My turn is over (a right guess, the clock): what was held belongs to a finished picture and goes nowhere.
-        guard isDrawing else {
-            quiz.held = []
-            quiz.fresh = 0
-            return
-        }
         while quiz.fresh > 0 {
             let count = quiz.held.count / 2
             let full = count >= TeamDraw.maxPoints

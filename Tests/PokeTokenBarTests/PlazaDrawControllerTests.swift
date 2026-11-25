@@ -642,7 +642,7 @@ final class PlazaDrawControllerTests: XCTestCase {
         await teammateSetsWord(w, w.b)
         XCTAssertNil(w.c.drawBoard?.cover)
         XCTAssertEqual(w.c.drawBoard?.foot, .lines([L(.ko).plazaDrawHintLater(seconds: Int(PlazaDraw.drawSeconds - PlazaDraw.lettersHintSeconds))]))
-        XCTAssertEqual(w.c.hint, L(.ko).plazaDrawOtherDrawing(nickname: "가", seconds: Int(PlazaDraw.drawSeconds)))
+        XCTAssertEqual(w.c.hint, L(.ko).plazaDrawOtherDrawing)
         now += PlazaDraw.lettersHintSeconds + 1
         await sync(w)
         XCTAssertEqual(w.c.drawBoard?.foot, .lines([L(.ko).plazaDrawHintLetters(2)]), "the drawer's Mac publishes the hint")
