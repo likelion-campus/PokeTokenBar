@@ -695,7 +695,7 @@ extension L {
     var plazaModeShown: String { "모두 표시" }
     var plazaModeUIHidden: String { "UI 숨기기" }
     var plazaModeBackgroundHidden: String { "배경 숨기기" }
-    var plazaModeBothHidden: String { "UI·배경 숨기기" }
+    var plazaModeBothHidden: String { "UI·배경 숨김" }
     var plazaNameColor: String { "이름 색" }
     func plazaClock(phase: PlazaDaylight.Phase, time: String) -> String {
         let name = switch phase {
