@@ -694,4 +694,59 @@ extension PlazaGameTests {
         XCTAssertFalse(holder(1, 1).touches(me), "touching is unchanged: no diagonals")
     }
 
+    // MARK: - Drawing quiz payload
+
+    private func drawState(turn: Int, step: Int, word: String? = nil) -> PlazaGameState {
+        var s = PlazaGameState(id: "a@1", kind: "draw", host: "a", opensAt: 1_800_000_000)
+        s.startsAt = 1_800_000_030
+        s.players = ["a", "b"]
+        var d = PlazaDrawState(order: ["a", "b", "a", "b"], turn: turn, step: step, scores: [:])
+        if turn > 0 { d.last = .init(turn: turn - 1, drawer: "a", word: word, solver: nil) }
+        s.draw = d
+        return s
+    }
+
+    func testADrawStateWithMoreProgressWins() {
+        let low = drawState(turn: 1, step: 5), high = drawState(turn: 2, step: 1)
+        XCTAssertEqual(PlazaGame.merged(low, high), high)
+        XCTAssertEqual(PlazaGame.merged(high, low), high)
+        let early = drawState(turn: 1, step: 2), later = drawState(turn: 1, step: 3)
+        XCTAssertEqual(PlazaGame.merged(early, later), later)
+        XCTAssertEqual(PlazaGame.merged(later, early), later)
+        let hidden = drawState(turn: 1, step: 3), shown = drawState(turn: 1, step: 3, word: "사과")
+        XCTAssertEqual(PlazaGame.merged(hidden, shown), shown)
+        XCTAssertEqual(PlazaGame.merged(shown, hidden), shown)
+    }
+
+    func testACopyWithoutTheDrawPayloadLoses() {
+        let full = drawState(turn: 0, step: 0)
+        var stripped = full
+        stripped.draw = nil
+        XCTAssertEqual(PlazaGame.merged(full, stripped), full)
+        XCTAssertEqual(PlazaGame.merged(stripped, full), full)
+    }
+
+    func testARecruitingGameCarriesNoDrawPayload() {
+        var s = drawState(turn: 0, step: 0)
+        s.startsAt = nil
+        s.players = []
+        let now = Date(timeIntervalSince1970: 1_800_000_001)
+        XCTAssertNil(PlazaGame.accepted(s, now: now))
+        s.draw = nil
+        XCTAssertNotNil(PlazaGame.accepted(s, now: now))
+    }
+
+    func testAGameOfAnotherKindCarriesNoDrawPayload() {
+        var s = drawState(turn: 0, step: 0)
+        s.kind = PlazaGameKind.bomb.rawValue
+        let now = Date(timeIntervalSince1970: 1_800_000_031)
+        XCTAssertNil(PlazaGame.accepted(s, now: now), "a bomb game with a draw payload")
+        s.draw = nil
+        s.bomb = PlazaBombState(round: 1, roundStartsAt: 1_800_000_030, holder: "a")
+        XCTAssertNotNil(PlazaGame.accepted(s, now: now))
+    }
+
+    func testTheMenuDoesNotOfferTheDrawingQuizYet() {
+        XCTAssertEqual(PlazaGameMenu().kinds, [.bomb])
+    }
 }

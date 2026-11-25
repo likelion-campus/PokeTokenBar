@@ -520,12 +520,14 @@ extension L {
     func plazaGameName(_ kind: PlazaGameKind) -> String {
         switch kind {
         case .bomb: "폭탄 돌리기"
+        case .draw: "그림 퀴즈"
         }
     }
     var plazaGameUnknownName: String { "새 미니게임" }
     func plazaGameRules(_ kind: PlazaGameKind) -> [String] {
         switch kind {
         case .bomb: ["폭탄은 몸통박치기(C)로 넘길 수 있어요", "터질 때 들고 있으면 탈락!", "마지막 한 명이 이겨요 · 한 판 1~3분"]
+        case .draw: ["한 명이 제시어를 정해 그림으로 그려요", "나머지는 한마디(Enter)로 맞혀요 · 먼저 맞히면 +10", "글자나 숫자로 답을 쓰면 반칙! · 한 판 5~12분"]
         }
     }
     func plazaGameMenuRow(_ kind: PlazaGameKind) -> String { "\(plazaGameName(kind)) 열기" }
