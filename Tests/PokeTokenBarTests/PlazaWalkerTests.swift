@@ -170,4 +170,24 @@ final class PlazaWalkerTests: XCTestCase {
         XCTAssertFalse(w.isWalking)
         XCTAssertEqual(w.tile, .init(x: 6, y: 5))
     }
+    /// A step is a run when Shift asked for one, not whenever it is short: a bomb holder's walking step is shorter than
+    /// the usual one and is still a walk for teammates.
+    func testAShortStepWithoutShiftIsNotARun() {
+        var w = PlazaWalker(tile: TilePoint(x: 3, y: 3))
+        w.press(.right)
+        w.advance(by: 0.01, canEnter: { _ in true }, stepDuration: { _, _, _ in 0.1 })
+        XCTAssertTrue(w.isWalking)
+        XCTAssertFalse(w.isRunning)
+        var r = PlazaWalker(tile: TilePoint(x: 3, y: 3))
+        r.wantsToRun = true
+        r.press(.right)
+        r.advance(by: 0.01, canEnter: { _ in true }, stepDuration: { _, _, _ in 0.05 })
+        XCTAssertTrue(r.isRunning)
+        var swim = PlazaWalker(tile: TilePoint(x: 3, y: 3))
+        swim.wantsToRun = true
+        swim.press(.right)
+        swim.advance(by: 0.01, canEnter: { _ in true }, stepDuration: { _, _, _ in PlazaPond.swimStepDuration })
+        XCTAssertFalse(swim.isRunning, "Shift in the water is a swim, as before")
+    }
+
 }

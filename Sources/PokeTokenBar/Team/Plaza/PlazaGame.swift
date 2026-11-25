@@ -144,10 +144,27 @@ enum PlazaBomb {
     static let intermission: TimeInterval = 4
     /// Whoever just handed the bomb over cannot get it back for this long.
     static let returnImmunity: TimeInterval = 2
-    /// One running step of whoever holds the live bomb: 20 % faster than everyone else (`PlazaWalker.runStepDuration`).
-    /// At the same speed a holder never catches a player who keeps running. It stays above `PlazaScene.maxFrameDelta`:
-    /// a frame must never cover two tiles, or teammates see the holder jump.
-    static let holderRunStepDuration: TimeInterval = PlazaWalker.runStepDuration / 1.2
+    /// Every step of whoever holds the live bomb is this much faster than anyone else's, on land and in the water (the
+    /// pond and the hot spring). At the same speed a holder never catches a player who keeps running, and a player in
+    /// the water could not be caught at all.
+    static let holderSpeedUp: Double = 1.5
+    /// The holder's running step, the shortest step there is. `PlazaScene.maxFrameDelta` is exactly this long: a frame
+    /// must never cover two tiles, or teammates see the holder jump.
+    static let holderRunStepDuration: TimeInterval = PlazaWalker.runStepDuration / holderSpeedUp
+
+    /// One step of the holder. The plunge from land into water is a jump of a fixed length
+    /// (`PlazaPond.plungeStepDuration`) and stays as it is.
+    static func stepDuration(from: TilePoint, to: TilePoint, running: Bool, isWater: (TilePoint) -> Bool) -> TimeInterval {
+        let usual = PlazaPond.stepDuration(from: from, to: to, running: running, isWater: isWater)
+        return !isWater(from) && isWater(to) ? usual : usual / holderSpeedUp
+    }
+
+    /// A holder tackles a player they touch on their own screen. The other screen is behind by the step each of the
+    /// two has just begun (told, not yet heard), so there the holder can still be this many tiles short of touching.
+    static let passSlack = 2
+
+    /// The holder's tackle hands the bomb over: they touch `target`, or are within `passSlack` tiles of it.
+    static func reaches(_ holder: PlazaBody, _ target: PlazaBody) -> Bool { holder.gap(to: target) <= 1 + passSlack }
     /// A holder who is gone from the plaza, or whose Mac did not report the explosion, is put out after this long.
     static let absenceGrace: TimeInterval = 3
 

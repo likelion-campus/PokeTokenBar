@@ -39,6 +39,8 @@ struct PlazaWalker: Sendable {
     var wantsToRun = false
     /// 지금 가는 칸이 밀려 가는 칸이다.
     private var stepSlides = false
+    /// 지금 가는 칸을 Shift로 달려서 간다(걷는 칸보다 짧을 때만: 물속에서는 Shift를 눌러도 헤엄이다).
+    private var stepRuns = false
 
     var isWalking: Bool { stepFrom != nil }
     /// 지금 가는 칸이 밀려 미끄러지는 칸이다(뛰어들기와 걷기는 아니다).
@@ -48,8 +50,9 @@ struct PlazaWalker: Sendable {
     /// 방향키를 누르고 있다.
     var isHoldingKey: Bool { !held.isEmpty }
     /// 지금 가는 칸을 달리고 있다.
-    // Shorter than a walking step: a run, at the usual pace or a bomb holder's.
-    var isRunning: Bool { stepFrom != nil && stepLength < Self.stepDuration }
+    // Shift asked for it and the step is shorter than a walking one: a run, at the usual pace or a bomb holder's. A
+    // holder's walking step is short too, and is still a walk.
+    var isRunning: Bool { stepFrom != nil && stepRuns }
 
     init(tile: TilePoint, facing: PlazaDirection = .down) {
         self.tile = tile
@@ -134,6 +137,7 @@ struct PlazaWalker: Sendable {
                 stepLength = pendingPlungeDuration ?? length(tile, target, running: false)
                 pendingPlungeDuration = nil
                 stepSlides = false
+                stepRuns = false
                 stepFrom = tile
                 tile = target
                 stepElapsed = 0
@@ -145,6 +149,7 @@ struct PlazaWalker: Sendable {
                     pendingPush = push.tiles > 1 ? (push.direction, push.tiles - 1) : nil
                     stepLength = length(tile, target, running: false)
                     stepSlides = true
+                    stepRuns = false
                     stepFrom = tile
                     tile = target
                     stepElapsed = 0
@@ -160,6 +165,7 @@ struct PlazaWalker: Sendable {
             guard canEnter(tile, target) else { return }
             stepLength = length(tile, target, running: wantsToRun)
             stepSlides = false
+            stepRuns = wantsToRun && stepLength < Self.stepDuration
             stepFrom = tile
             tile = target
             stepElapsed = 0
