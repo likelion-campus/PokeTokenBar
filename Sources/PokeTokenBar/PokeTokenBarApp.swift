@@ -173,7 +173,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             teamRuntime.notifier = TeamNotifier(
                 settings: teamSettings, poster: poster,
                 isPlazaFrontmost: { [weak plaza] in plaza?.isFrontmost ?? false },
-                showInPlaza: { [weak plaza] in plaza?.showBanner($0) })
+                showInPlaza: { [weak plaza] in plaza?.showBanner($0) },
+                showMegaphoneInPlaza: { [weak plaza] in plaza?.showMegaphoneBanner($0) })
         }
         teamRuntime.start()
         // A dev instance (own PTB_STATE_DIR, e.g. plaza-dev.sh) never reports; the caption then reads "not sent yet".

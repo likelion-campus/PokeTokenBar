@@ -103,7 +103,8 @@ struct PlazaGameView: Equatable {
                 break
             }
             card.lines = l.plazaGameRules(kind)
-            let status = kind == .draw ? l.plazaDrawRecruiting(players: joinedCount, seconds: left) : l.plazaGameRecruiting(players: joinedCount, seconds: left)
+            let status = kind == .bomb ? l.plazaGameRecruiting(players: joinedCount, seconds: left)
+                : l.plazaRecruitingOf(players: joinedCount, of: kind.maxPlayers, seconds: left)
             if s.host == me {
                 card.lines.append(joinedCount < PlazaGame.minPlayers ? l.plazaGameNeedsTwo(seconds: left) : status)
                 card.buttons = [Button(label: l.plazaGameButtonStart, action: "start", isEnabled: joinedCount >= PlazaGame.minPlayers),

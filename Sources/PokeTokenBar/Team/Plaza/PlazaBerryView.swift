@@ -46,7 +46,7 @@ extension PlazaBerryBoard {
             }
             for (i, r) in ranking.enumerated() {
                 let place = (ranking.firstIndex { $0.score == r.score } ?? i) + 1
-                lines.append(l.plazaBerryRank(place: place, nickname: info(r.id).name, score: r.score))
+                lines.append(l.plazaBerryRank(place: place, nickname: info(r.id).name, score: r.score, tied: ranking.filter { $0.score == r.score }.count > 1))
             }
             lines.append(l.plazaBerryCloseHint)
             center = .result(lines: lines)

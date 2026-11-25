@@ -368,7 +368,8 @@ struct PlazaBerryBoard: Equatable {
         switch board.center {
         case .countdown(let n):
             let digit = "\(n)"
-            tail = [(text.line(digit, font: body), digit, Self.gold, 2)]
+            let note = l.plazaBerryCountdownNote
+            tail = [(text.line(digit, font: body), digit, Self.gold, 2)] + text.wrappedLines(note, font: small, width: inner).map { ($0, note, .white, 1) }
         case .playing(let event):
             if let event { tail = text.wrappedLines(event, font: small, width: inner).map { ($0, event, Self.gold, 1) } }
         case .result(let lines):

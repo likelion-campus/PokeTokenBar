@@ -729,7 +729,7 @@ import Observation
         scene.showChat(memberID: nil, text: text)   // 춤은 멈추지 않는다. 말풍선이 떠 있는 동안 ♪만 가려진다
         chatLog.append(time: now, name: nickname(), text: text, color: scene.nameColor, isLoud: loud)
         session?.sendChat(text, loud: loud)
-        if loud { showBanner(L(.ko).teamMegaphoneNotice(nickname: nickname(), text: text)) }
+        if loud { showMegaphoneBanner(L(.ko).teamMegaphoneNotice(nickname: nickname(), text: text)) }
         return true
     }
 
@@ -2375,9 +2375,15 @@ import Observation
         showBanner(L(.ko).teamEventText(e))
     }
 
+    /// A megaphone line's banner. The berry table shows no banner (§5.1): the line stays in the chat log and is read after the game.
+    func showMegaphoneBanner(_ text: String) {
+        guard overlayModel.content != .berryTable else { return }
+        showBanner(text)
+    }
+
     /// 배너를 띄우고 4초 뒤 지운다. 그 사이 새 배너가 오면 새 배너가 처음부터 4초를 받는다.
     func showBanner(_ text: String) {
-        guard scene != nil, overlayModel.content != .berryTable else { return }   // the table hides it: a megaphone line stays in the log, and one shown under the table would pop up stale
+        guard scene != nil else { return }
         bannerTask?.cancel()
         bannerGeneration += 1
         let generation = bannerGeneration
@@ -3287,13 +3293,15 @@ extension PlazaWindowController {
         }
     }
 
-    /// The winner, or everyone level at the top.
+    /// The winner; everyone level at a top score above 0; otherwise the plain "game is over" line (a deck that ran out with no point scored).
     fileprivate func berryResultBanner(_ s: PlazaGameState) -> String {
         let l = L(.ko), me = memberID()
         func name(_ id: String) -> String { (id == me ? nickname() : members[id]?.nickname) ?? l.plazaGroupPhotoSomeone }
         if let winner = s.winner { return l.plazaGameWinBanner(nickname: name(winner), game: l.plazaGameName(.berry)) }
         let ranking = PlazaBerry.ranking(s), best = ranking.first?.score ?? 0
-        return l.plazaBerryTieBanner(names: ranking.filter { $0.score == best }.map { name($0.id) })
+        let leaders = ranking.filter { $0.score == best }
+        guard best > 0, leaders.count > 1 else { return l.plazaGameOverBanner(game: l.plazaGameName(.berry)) }
+        return l.plazaBerryTieBanner(names: leaders.map { name($0.id) })
     }
 
     /// The four berries and the bell, once each per game; a failed one is tried again with the next berry game.

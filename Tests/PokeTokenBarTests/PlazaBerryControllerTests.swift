@@ -612,6 +612,9 @@ final class PlazaBerryControllerTests: XCTestCase {
         XCTAssertEqual(t.c.gameState?.berry?.scores.sorted(by: >).prefix(2).map { $0 }, [1, 1], "test precondition: level at the top")
         XCTAssertNil(t.c.gameState?.winner)
         XCTAssertTrue(t.c.isBerryTableOpen, "the table shows the result")
+        guard case .result(let lines)? = t.c.berryBoard?.center else { return XCTFail("the centre shows the result") }
+        XCTAssertTrue(lines.contains(l.plazaBerryRank(place: 1, nickname: "나", score: 1, tied: true)), "\(lines)")
+        XCTAssertTrue(lines.contains(l.plazaBerryRank(place: 1, nickname: "다", score: 1, tied: true)))
         XCTAssertNil(t.c.banner, "not before the table closes")
         XCTAssertNil(t.c.gameTitle, "no big title for berry")
         press(t, spaceKey)
@@ -659,26 +662,75 @@ final class PlazaBerryControllerTests: XCTestCase {
         await join(6)   // the host and six: seven
         var button = c.gameCard?.buttons.first { $0.action == "join" }
         XCTAssertEqual(button?.isEnabled, true)
-        XCTAssertEqual(c.gameCard?.lines.last, l.plazaGameRecruiting(players: 7, seconds: seconds))
+        XCTAssertEqual(c.gameCard?.lines.last, l.plazaRecruitingOf(players: 7, of: PlazaBerry.maxPlayers, seconds: seconds))
         await join(7)   // eight
         button = c.gameCard?.buttons.first { $0.action == "join" }
         XCTAssertEqual(button?.isEnabled, false)
         XCTAssertEqual(c.gameCard?.lines.last, l.plazaDrawFull)
-        XCTAssertTrue(c.gameCard?.lines.contains(l.plazaGameRecruiting(players: 8, seconds: seconds)) == true)
+        XCTAssertTrue(c.gameCard?.lines.contains(l.plazaRecruitingOf(players: 8, of: PlazaBerry.maxPlayers, seconds: seconds)) == true)
         c.scene?.handleKeyDown(keyCode: yKey, characters: "ㅛ", isRepeat: false)
         XCTAssertNil(c.gameJoined, "the Y key honours the disabled button")
     }
 
-    func testALoudLineDuringTheTableShowsNoBanner() async {
+    private final class QuietPoster: TeamNotificationPosting {
+        func post(id: String, title: String, body: String) {}
+        func requestAuthorization() {}
+    }
+
+    /// The notifier as the app wires it, with the plaza in front.
+    private func notifier(_ w: World) -> TeamNotifier {
+        TeamNotifier(settings: w.me.settings, poster: QuietPoster(), isPlazaFrontmost: { true },
+                     showInPlaza: { [weak c = w.c] in c?.showBanner($0) },
+                     showMegaphoneInPlaza: { [weak c = w.c] in c?.showMegaphoneBanner($0) }, clock: { [unowned self] in now })
+    }
+
+    func testALoudLineDuringTheTableShowsNoBanner() async throws {
         let w = await world()
         await lock(w)
         XCTAssertTrue(w.c.isBerryTableOpen, "test precondition")
         let before = w.c.banner
+        // The receive path: the runtime shows the line, then asks the notifier for the megaphone.
         w.c.showChat(memberID: w.b.id, text: "모두 회의실로", isLoud: true)
-        w.c.showBanner(L(.ko).teamMegaphoneNotice(nickname: "가", text: "모두 회의실로"))   // what the notifier asks of the plaza
+        notifier(w).megaphone(from: try XCTUnwrap(w.me.session.members[w.b.id]), text: "모두 회의실로")
         XCTAssertEqual(w.c.banner, before)
         XCTAssertEqual(w.c.chatLogLines.last?.text, "모두 회의실로")
         XCTAssertEqual(w.c.chatLogLines.last?.isLoud, true)
+    }
+
+    func testAMegaphoneBannerStillShowsWithoutTheTableAndOtherBannersShowWithIt() async throws {
+        let w = await world()
+        await lock(w, meJoins: false)
+        XCTAssertFalse(w.c.isBerryTableOpen)
+        notifier(w).megaphone(from: try XCTUnwrap(w.me.session.members[w.b.id]), text: "점심!")
+        XCTAssertEqual(w.c.banner, L(.ko).teamMegaphoneNotice(nickname: "가", text: "점심!"), "a watcher keeps the megaphone banner")
+        let t = await world()
+        await lock(t)
+        XCTAssertTrue(t.c.isBerryTableOpen, "test precondition")
+        t.c.showBanner(L(.ko).plazaPhotoCopied)   // any other banner is as before
+        XCTAssertEqual(t.c.banner, L(.ko).plazaPhotoCopied)
+    }
+
+    func testAnEndedGameWithNoPointShowsThePlainOverBanner() async {
+        let w = await world()
+        await lock(w, meJoins: false)
+        for _ in 0..<3000 {
+            await run(w, ticks: 1)
+            if w.c.gameState?.endedAt != nil { break }
+        }
+        XCTAssertNotNil(w.c.gameState?.endedAt, "test precondition: the deck ran out")
+        XCTAssertEqual(w.c.gameState?.berry?.scores.reduce(0, +), 0)
+        XCTAssertEqual(w.c.banner, L(.ko).plazaGameOverBanner(game: L(.ko).plazaGameName(.berry)))
+    }
+
+    func testAnAbandonedGameShowsNoResultBanner() async {
+        let w = await world()
+        await lock(w, meJoins: false)
+        await run(w, seconds: 4)
+        for o in [w.b, w.d] { o.engine.leave(now: now, present: [w.me.id, w.b.id, w.d.id]); o.tell() }
+        await run(w, seconds: PlazaDraw.abandonedAfter + 3)
+        XCTAssertNil(w.c.gameState, "test precondition: the watcher dropped the game")
+        XCTAssertFalse((w.c.banner ?? "").contains("1등"), "\(String(describing: w.c.banner))")
+        XCTAssertNotEqual(w.c.banner, L(.ko).plazaGameOverBanner(game: L(.ko).plazaGameName(.berry)))
     }
 
     func testPlayersAreRingedDuringTheGame() async {

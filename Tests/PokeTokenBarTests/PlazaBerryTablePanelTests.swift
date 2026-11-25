@@ -339,8 +339,10 @@ final class PlazaBerryTablePanelTests: XCTestCase {
         let labels = { try XCTUnwrap(r.host.drawings[.berryTable]).accessibility.map(\.label) }
         XCTAssertTrue(try labels().contains("3"))
         XCTAssertTrue(try labels().contains(L(.ko).plazaBerryRule))
-        r.model.board = Self.board(center: .playing(event: "하늘님이 종을 쳤어요 · 0.41초 · +1"), wrong: true)
+        XCTAssertTrue(try labels().contains(L(.ko).plazaBerryCountdownNote), "the cards turn by themselves")
+        r.model.board = Self.board(center: .playing(event: "하늘님이 종을 쳤어요 · 0.41초 · +1점"), wrong: true)
         await Self.settle()
-        XCTAssertTrue(try labels().contains("하늘님이 종을 쳤어요 · 0.41초 · +1"))
+        XCTAssertTrue(try labels().contains("하늘님이 종을 쳤어요 · 0.41초 · +1점"))
+        XCTAssertFalse(try labels().contains(L(.ko).plazaBerryCountdownNote), "only the countdown says it")
     }
 }
