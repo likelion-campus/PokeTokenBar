@@ -282,11 +282,11 @@ final class PlazaBerryControllerTests: XCTestCase {
         XCTAssertEqual(sentChats(w), [], "unsent: no teammate received a line")
         await expectRightBell(w)
 
-        // Another overlay (the game menu opens through the same `openOverlay` as the news board).
+        // Another overlay: the game menu (opened by M while the game recruits) is replaced through the same `openOverlay` the news board uses.
         w = await world()
         await lock(w) {
             press(w, mKey)
-            XCTAssertEqual(w.c.overlayContent == .none, false, "test precondition: an overlay is open")
+            if case .gameMenu = w.c.overlayContent {} else { XCTFail("test precondition: M opened the game menu") }
         }
         XCTAssertEqual(w.c.overlayContent, .berryTable, "replaced")
         await expectRightBell(w)
@@ -517,20 +517,26 @@ final class PlazaBerryControllerTests: XCTestCase {
         for name in names { XCTAssertEqual(asked.filter { $0 == name }.count, 1, "once: \(name)") }
     }
 
-    func testAClosedPlazaKeepsSendingAStaleCopyAndMyTableNeverGoesBackToIt() async throws {
+    func testAClosedPlazasRunningCopyIsNotAdoptedByAMachineWithNoGameOfItsOwn() async throws {
+        // A game runs among the host and one more teammate (I am not in it); take the host's running copy.
+        let first = await world()
+        await lock(first, meJoins: false)
+        await run(first, seconds: 3.2)
+        let stale = try XCTUnwrap(first.b.engine.state)
+        XCTAssertNotNil(stale.berry, "test precondition: a running berry copy")
+        XCTAssertNil(stale.endedAt)
+
+        // My plaza opens with no game of its own and hears only a teammate whose plaza is closed, still sending that copy.
         let w = await world()
-        await lock(w)
-        await run(w, seconds: 3.2)
-        let stale = try XCTUnwrap(w.d.engine.state)
-        // d closes its plaza mid-game: its last running copy stays on the wire while the real game goes on.
-        w.d.session.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false, isFlushed: false)
+        w.b.session.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false, isFlushed: false)
+        w.b.session.updateGame(stale, join: stale.id, bell: nil)
         await settle()
-        await run(w, seconds: 6)
-        let live = try XCTUnwrap(w.c.gameState?.berry?.flips.count)
-        XCTAssertGreaterThan(live, stale.berry?.flips.count ?? 0, "test precondition: the game moved on")
-        w.d.session.updateGame(stale, join: stale.id, bell: nil)
-        await run(w, seconds: 1)
-        XCTAssertGreaterThanOrEqual(w.c.gameState?.berry?.flips.count ?? 0, live, "my table never went back to the stale copy")
+        XCTAssertEqual(w.c.gameState, nil, "test precondition: nothing yet")
+        XCTAssertNotNil(w.me.session.members[w.b.id]?.game, "test precondition: I hear the copy")
+        await run(w, seconds: 2)
+        XCTAssertNil(w.c.gameState, "a closed plaza cannot follow a berry five game: I do not adopt its copy")
+        XCTAssertFalse(w.c.isBerryTableOpen)
+        XCTAssertNil(w.c.gameStatus, "no spectator status either")
     }
 
     func testARingThatChangesOnlyTheBellStillReachesTheTeammateAtOnce() async throws {
