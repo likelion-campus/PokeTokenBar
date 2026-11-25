@@ -130,8 +130,10 @@ final class PlazaDrawEngineTests: XCTestCase {
         XCTAssertEqual(total, 6 * (PlazaDraw.guessPoints + PlazaDraw.drawerPoints))
     }
 
-    func testTheSameGameEndsTheSameWithClocksFortyFiveSecondsApart() {
-        var plain = Room(["a", "b", "c"])
+    func testTheSameGameEndsTheSameWithClocksUnderAMinuteApart() {
+        // The same seed in both runs (the first drawer is b), so the two games are comparable score by score.
+        let seed = (1...200).first { PlazaDraw.order(players: ["a", "b", "c"], seed: UInt64($0))[0] == "b" }.map(UInt64.init)!
+        var plain = Room(["a", "b", "c"], seed: seed)
         start(&plain)
         var plainResults: [Int: PlazaDrawState.Result] = [:]
         play(&plain, results: &plainResults)
@@ -139,7 +141,6 @@ final class PlazaDrawEngineTests: XCTestCase {
         // The first drawer's clock is 45 s slow. The existing plaza checks bound the other clock: a Mac whose clock is
         // 45 s ahead of the host drops a recruiting game at once (`phase`), and a stamp more than `clockSlack` (60 s)
         // ahead of a Mac's own clock is refused, so +14 is the furthest a second clock can go from the slow one.
-        let seed = (1...200).first { PlazaDraw.order(players: ["a", "b", "c"], seed: UInt64($0))[0] == "b" }.map(UInt64.init)!
         var room = Room(["a", "b", "c"], skew: ["a": 14, "b": -45, "c": 0], seed: seed)
         let lockedAt = start(&room)
         var first: String?
@@ -153,8 +154,10 @@ final class PlazaDrawEngineTests: XCTestCase {
         var results: [Int: PlazaDrawState.Result] = [:]
         play(&room, results: &results)
         XCTAssertEqual(results.count, plainResults.count)
-        XCTAssertEqual(finalScores(room)[0].values.reduce(0, +), finalScores(plain)[0].values.reduce(0, +))
+        XCTAssertEqual(finalScores(room)[0], finalScores(plain)[0], "the same scores, player by player")
         XCTAssertEqual(Set(finalScores(room)).count, 1)
+        XCTAssertEqual(results.mapValues { [$0.drawer, $0.solver ?? "-"] }, plainResults.mapValues { [$0.drawer, $0.solver ?? "-"] },
+                       "the same drawer and solver every turn")
         XCTAssertEqual(room.live.compactMap { room[$0].state?.endedAt }.count, 3, "every Mac saw the end")
     }
 
@@ -341,6 +344,94 @@ final class PlazaDrawEngineTests: XCTestCase {
         XCTAssertEqual(room.drawState?.turn, 1)
         XCTAssertNil(room.drawState?.last?.word)
         XCTAssertNil(room.drawState?.last?.solver)
+    }
+
+    func testEightHungDrawersStillEndInsideTheGameLife() {
+        let ids = ["a", "b", "c", "d", "e", "f", "g", "h"]
+        var room = Room(ids)
+        let lockedAt = start(&room, host: "a")
+        let opened = room["a"].state!.opensAt
+        // Every drawer is here and counted in, but its app hangs on its own turn: only the referee's whole-turn
+        // deadline can end the turn.
+        for _ in 0..<(Int(PlazaGame.maxLife)) {
+            guard let draw = room.drawState, room["b"].state?.endedAt == nil else { break }
+            if draw.order.indices.contains(draw.turn) { room.frozen = [draw.order[draw.turn]] }
+            room.step(1)
+        }
+        room.frozen = []
+        room.step(2)
+        for id in ids {
+            let ended = room[id].state?.endedAt
+            XCTAssertNotNil(ended, "\(id) saw the end")
+            XCTAssertLessThan(ended ?? .infinity, opened + PlazaGame.maxLife)
+        }
+        XCTAssertGreaterThan(room.base - lockedAt, 8 * 90, "every turn ran to the referee's deadline")
+        XCTAssertEqual(room.drawState?.last?.word, nil)
+        XCTAssertEqual(room.drawState?.scores.values.reduce(0, +), 0)
+    }
+
+    func testASleeperThatWakesStillConnectedDoesNotUndoTheGame() {
+        var room = Room(["a", "b", "c"])
+        start(&room)
+        let d = untilEntry(&room)
+        XCTAssertTrue(room[d].setWord(word, now: room.now(d)))
+        room.step(2)
+        let staleJoins = room.joins(for: d), stalePresent = room.present(for: d)
+        room.gone = [d]   // asleep: not ticked, hears nobody, and the others do not see it
+        room.step(100)
+        let other = room.live.first!
+        let newer = room[other].state!
+        XCTAssertGreaterThanOrEqual(newer.draw?.turn ?? 0, 2, "the referee ended its turn and more passed")
+        XCTAssertNil(newer.endedAt)
+        // It wakes while its Mac still lists its teammates, and acts on its old turn before it hears anyone.
+        room.gone = []
+        let wrote = room.engines[d]!.tick(now: room.now(d), present: stalePresent, joins: staleJoins, connected: true)
+        XCTAssertTrue(wrote, "it ends its old turn on its own clock")
+        XCTAssertEqual(room[d].state?.draw?.turn, 1)
+        room.step()
+        let states = room.live.map { room[$0].state }
+        XCTAssertEqual(Set(states).count, 1, "one state everywhere")
+        let final = states[0]!
+        XCTAssertGreaterThanOrEqual(final.draw?.turn ?? 0, newer.draw?.turn ?? 99, "the others' turn won")
+        XCTAssertEqual(final.draw?.scores, newer.draw?.scores)
+        XCTAssertNil(final.endedAt, "the game is still running")
+    }
+
+    private func phaseValue(_ p: PlazaDrawPhase?) -> (String, TimeInterval)? {
+        switch p {
+        case .countdown(let l): ("countdown", l)
+        case .reveal(let l): ("reveal", l)
+        case .entry(let l): ("entry", l)
+        case .drawing(let l): ("drawing", l)
+        case .over: ("over", 0)
+        case nil: nil
+        }
+    }
+
+    private func assertPhase(_ room: Room, _ name: String, about left: TimeInterval, line: UInt = #line) {
+        for id in room.live {
+            guard let (n, l) = phaseValue(room[id].drawPhase(now: room.now(id))) else { return XCTFail("\(id) has no phase", line: line) }
+            XCTAssertEqual(n, name, "\(id)", line: line)
+            XCTAssertTrue(l >= max(0, left - 1) && l <= left, "\(id): \(name) left \(l), expected about \(left)", line: line)
+        }
+    }
+
+    func testThePhaseCountsFromWhenThisMachineLearnedIt() {
+        let seed = (1...200).first { PlazaDraw.order(players: ["a", "b", "c"], seed: UInt64($0))[0] == "b" }.map(UInt64.init)!
+        var room = Room(["a", "b", "c"], skew: ["a": 14, "b": -45, "c": 0], seed: seed)
+        start(&room)
+        assertPhase(room, "countdown", about: PlazaGame.countdownSeconds)
+        let d = untilEntry(&room)
+        XCTAssertEqual(d, "b")
+        assertPhase(room, "entry", about: PlazaDraw.wordSeconds)
+        XCTAssertTrue(room[d].setWord(word, now: room.now(d)))
+        room.step()
+        assertPhase(room, "drawing", about: PlazaDraw.drawSeconds)
+        room.step(30)
+        assertPhase(room, "drawing", about: PlazaDraw.drawSeconds - 30)
+        XCTAssertTrue(room[d].guess(word, from: "a", now: room.now(d), playing: Set(room.live)))
+        room.step()
+        assertPhase(room, "reveal", about: PlazaDraw.revealSeconds)
     }
 
     // MARK: - Old copies, isolation, life
