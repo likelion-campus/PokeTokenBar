@@ -605,7 +605,7 @@ import Observation
     var isNameColorPickerOpen: Bool { nameColorModel.isOpen }
     var shownNameColor: UInt32 { nameColorModel.current }
 
-    /// 지도와 바탕을 숨기거나 되살린다. 창도 투명하게 바꿔 뒤의 작업 화면이 비치게 한다.
+    /// 지도와 바탕을 숨기거나 되살린다. 창도 투명하게 바꿔 뒤의 작업 화면이 비치게 한다. 왼쪽 위 단추는 `cycleDisplayMode`를 부르고, 이건 배경만 바꾸는 테스트가 쓴다.
     func toggleBackground() {
         preferences.isBackgroundHidden.toggle()
         applyBackground()
@@ -1855,6 +1855,9 @@ import Observation
         // 복사본에게 한 인사: 복사본이 보일 때만 그 머리 위에도 띄운다.
         if overDecoy, shownDitto?.isDecoy == true { scene?.showEmote(memberID: PlazaDitto.sceneKey, kind: kind) }
     }
+
+    /// 런타임이 부른다. 그림 퀴즈 화면이 붙기 전까지는 받아서 버린다.
+    func showDraw(from sender: String, _ draw: TeamDraw) {}
 
     /// 런타임이 부른다. 창이 닫혀 있으면(장면이 없으면) 아무것도 안 한다.
     func showChat(memberID: String, text: String, isLoud: Bool = false) {

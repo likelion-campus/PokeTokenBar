@@ -49,6 +49,7 @@ import Foundation
 @MainActor final class PlazaStubChatInput: PlazaChatInputHost {
     private(set) var isOpen = false
     private(set) var isLoud = false
+    var purpose: PlazaChatInputPurpose = .chat
     var onSubmit: ((String) -> Bool)?
     var onClose: (() -> Void)?
     private let log: (String) -> Void
@@ -69,6 +70,7 @@ import Foundation
     }
 
     func close() {
+        purpose = .chat
         guard isOpen else { return }
         isOpen = false
         onClose?()
