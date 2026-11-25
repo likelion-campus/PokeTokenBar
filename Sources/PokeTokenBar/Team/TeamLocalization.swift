@@ -545,6 +545,15 @@ extension L {
     var plazaBerryWrongRest: String { "1초 쉬기" }
     var plazaBerryBellMark: String { "🔔" }
     func plazaBerrySeatLabel(name: String, score: Int) -> String { "\(name) \(score)점" }
+    // The event line, the result and the closing hint. `nickname` nil: me.
+    func plazaBerryRang(nickname: String?, ms: Int) -> String {
+        "\(nickname.map { "\($0)님이" } ?? "내가") 종을 쳤어요 · \(String(format: "%.2f", Double(ms) / 1000))초 · +1"
+    }
+    func plazaBerryMissed(nickname: String?) -> String { nickname.map { "\($0)님 −1" } ?? "내 종 −1" }
+    func plazaBerryWinner(nickname: String?) -> String { nickname.map { "\($0)님 우승!" } ?? "내가 우승!" }
+    func plazaBerryTie(names: [String]) -> String { "공동 1등 \(names.joined(separator: " · "))" }
+    func plazaBerryRank(place: Int, nickname: String, score: Int) -> String { "\(place)등 \(nickname) \(score)점" }
+    var plazaBerryCloseHint: String { "스페이스나 Esc로 닫기" }
     func plazaGameCardTitle(host: String?, game: String) -> String { host.map { "\($0)님의 \(game)" } ?? "내가 연 \(game)" }
     func plazaGameRecruiting(players: Int, seconds: Int) -> String { "참가 \(players)명 · \(seconds)초 뒤 시작" }
     func plazaGameNeedsTwo(seconds: Int) -> String { "두 명부터 시작돼요 · \(seconds)초 남음" }

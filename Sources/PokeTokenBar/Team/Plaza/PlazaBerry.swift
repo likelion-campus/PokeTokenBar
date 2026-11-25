@@ -33,6 +33,15 @@ enum PlazaBerry {
         var count: Int
     }
 
+    private static let uptimeOrigin = ContinuousClock.now
+
+    /// Monotonic seconds since the first call in this process (`ContinuousClock`: on Windows `ProcessInfo.systemUptime` counts system ticks
+    /// of about 15.6 ms). Reaction times are differences of this clock on one machine, never of `Date`.
+    static func uptime() -> TimeInterval {
+        let d = uptimeOrigin.duration(to: ContinuousClock.now).components
+        return Double(d.seconds) + Double(d.attoseconds) / 1e18
+    }
+
     /// The bell's item picture.
     static let bellItem = "soothe-bell"
 
