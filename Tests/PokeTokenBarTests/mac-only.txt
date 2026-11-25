@@ -149,6 +149,8 @@ AppWiringDriftScanTests.swift
 PlazaGIFDecoderParityTests+Mac.swift
 # PlazaPanelRenderTests+Mac: the canvas-drawn HUD panels against their SwiftUI originals (ImageRenderer, NSHostingView, CoreText) and the AppKit panel host view
 PlazaPanelRenderTests+Mac.swift
+# PlazaDrawPanelRenderTests+Mac: the layout sheet for the drawing quiz panel (CoreGraphics, CoreText, AppKit fonts)
+PlazaDrawPanelRenderTests+Mac.swift
 ReachabilityParityTests.swift
 # PlazaHUDControlRenderTests+Mac: the canvas-drawn guide, toggle, picker and photo frame against their SwiftUI originals (ImageRenderer, NSHostingView, CoreText) through the AppKit panel hosts
 PlazaHUDControlRenderTests+Mac.swift
