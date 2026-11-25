@@ -64,6 +64,7 @@ final class PlazaSteamLayerTests: XCTestCase {
 
     private func scene(start: TilePoint, zoom: Int = 2) -> PlazaScene {
         let s = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: start, zoom: zoom, nickname: "me", pondVisuals: true)
+        pinPlazaClock(s)
         s.backingOverride = 2
         s.size = CGSize(width: 800, height: 600)
         return s

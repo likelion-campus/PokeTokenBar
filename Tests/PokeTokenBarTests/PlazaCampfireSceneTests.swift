@@ -7,6 +7,7 @@ final class PlazaCampfireSceneTests: XCTestCase {
 
     func newScene() -> PlazaScene {
         let scene = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: map.spawn, zoom: 2, nickname: "나")
+        pinPlazaClock(scene)
         scene.backingOverride = 2
         scene.size = CGSize(width: 800, height: 600)
         return scene

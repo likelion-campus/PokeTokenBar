@@ -10,6 +10,7 @@ final class PlazaSceneStageTests: XCTestCase {
 
     private func scene(_ stage: PlazaHeadlessStage = PlazaHeadlessStage(size: CGSize(width: 960, height: 640))) -> PlazaScene {
         let s = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: map.spawn, zoom: 2, nickname: "나", stage: stage)
+        pinPlazaClock(s)
         s.currentModifiers = { [] }
         return s
     }

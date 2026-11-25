@@ -91,6 +91,7 @@ final class TeamHostilePeerTests: XCTestCase {
     func testAHugeDanceStyleAndAFloodOfDancesGrowNothing() async {
         let map = PlazaMapData.map
         let scene = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: map.spawn, zoom: 2, nickname: "나")
+        pinPlazaClock(scene)
         scene.size = CGSize(width: 960, height: 640)
         scene.applyMembers([PlazaSceneMember(memberID: "A", nickname: "A", isAway: false,
                                              tile: TilePoint(x: map.spawn.x + 2, y: map.spawn.y), facing: .down, isWalking: false)])
@@ -411,6 +412,7 @@ final class TeamHostilePeerTests: XCTestCase {
     private func scene() -> PlazaScene {
         let map = PlazaMapData.map
         let scene = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: map.spawn, zoom: 2, nickname: "나")
+        pinPlazaClock(scene)
         scene.applyMembers([PlazaSceneMember(memberID: "A", nickname: "A", isAway: false, tile: map.spawn, facing: .down, isWalking: false)])
         return scene
     }
@@ -479,6 +481,7 @@ final class TeamHostilePeerTests: XCTestCase {
         for paused in [false, true] {
             let map = PlazaMapData.map
             let s = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: map.spawn, zoom: 2, nickname: "나", pondVisuals: true)
+            pinPlazaClock(s)
             s.applyMembers([PlazaSceneMember(memberID: "A", nickname: "A", isAway: false, tile: TilePoint(x: 17, y: 11), facing: .up, isWalking: false)])
             s.update(0)
             XCTAssertEqual(s.treeNodeCount, 68, "precondition: the tree layer exists, so this cannot pass vacuously")
@@ -502,6 +505,7 @@ final class TeamHostilePeerTests: XCTestCase {
         let map = PlazaMapData.map
         let s = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: map.spawn, zoom: 2, nickname: "나",
                            iceArt: PlazaIceArt.none)
+        pinPlazaClock(s)
         s.applyMembers([PlazaSceneMember(memberID: "A", nickname: "A", isAway: false, tile: map.spawn, facing: .down, isWalking: false)])
         s.isPaused = true
         let before = s.children.count

@@ -696,6 +696,7 @@ final class PlazaPhotoTests: XCTestCase {
         let art = try XCTUnwrap(PlatformPlaza.tallGrassArt())
         let s = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: TilePoint(x: 20, y: 22), zoom: 2,
                            nickname: "me", tallGrass: art)
+        pinPlazaClock(s)
         s.size = CGSize(width: 800, height: 600)
         s.backingOverride = 2
         let tall = [PlazaFrame(image: solid(32, 48, red), delay: 0.1)]   // 72 world px tall at x1.5
@@ -724,6 +725,7 @@ final class PlazaPhotoTests: XCTestCase {
         let art = try XCTUnwrap(PlatformPlaza.tallGrassArt())
         let s = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: TilePoint(x: 6, y: 6), zoom: 2,
                            nickname: "me", tallGrass: art)
+        pinPlazaClock(s)
         s.size = CGSize(width: 800, height: 600)
         s.backingOverride = 2
         let tall = [PlazaFrame(image: solid(32, 48, red), delay: 0.1)]
@@ -911,6 +913,7 @@ final class PlazaPhotoTests: XCTestCase {
     private func pondScene() -> PlazaScene {
         let s = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: TilePoint(x: 20, y: 22), zoom: 2,
                            nickname: "me", pondVisuals: true)
+        pinPlazaClock(s)
         s.size = CGSize(width: 800, height: 600)
         s.backingOverride = 2
         let tall = [PlazaFrame(image: solid(32, 48, red), delay: 0.1)]
