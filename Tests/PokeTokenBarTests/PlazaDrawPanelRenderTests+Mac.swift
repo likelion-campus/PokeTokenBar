@@ -64,6 +64,83 @@ import CoreText
         return try XCTUnwrap(ctx.makeImage())
     }
 
+    /// The HUD's stack order drawn over the plaza map at `scale`, for the panels `hud` holds.
+    private func compose(_ hud: PlazaHUD, _ host: RecordingPanelHost, viewport: CGSize, scale: CGFloat, map: PlazaImage) throws -> CGImage {
+        let frames = hud.layout(viewport: viewport, scale: scale)
+        let ctx = K.context(Int(viewport.width * scale), Int(viewport.height * scale))
+        ctx.interpolationQuality = .none
+        ctx.draw(map.cgImage, in: CGRect(x: -400 * scale, y: (viewport.height - CGFloat(map.height) + 300) * scale, width: CGFloat(map.width) * scale, height: CGFloat(map.height) * scale))
+        for id in PlazaPanelID.stackOrder {
+            guard let drawing = host.drawings[id], let frame = frames[id] else { continue }
+            for layer in drawing.layers {
+                func bottomLeft(_ rect: CGRect) -> CGRect {
+                    let at = rect.offsetBy(dx: frame.minX, dy: frame.minY)
+                    return CGRect(x: at.minX * scale, y: (viewport.height - at.maxY) * scale, width: at.width * scale, height: at.height * scale)
+                }
+                switch layer {
+                case .image(let image, let rect): ctx.draw(image.cgImage, in: bottomLeft(rect))
+                case .color(let c, let rect): ctx.setFillColor(c.cgColor); ctx.fill(bottomLeft(rect))
+                }
+            }
+        }
+        return try XCTUnwrap(ctx.makeImage())
+    }
+
+    /// The M menu (the real overlay content and panel) with `kinds` and the game at `selection` chosen.
+    private func menuImage(kinds: [PlazaGameKind], selection: Int, map: PlazaImage) throws -> CGImage {
+        let overlay = PlazaOverlayModel()
+        let pills = PlazaPillsPanel(model: overlay)
+        let hud = PlazaHUD(panels: [PlazaMenuPanel(model: overlay, pills: pills), pills])
+        let host = RecordingPanelHost()
+        var menu = PlazaGameMenu()
+        menu.kinds = kinds
+        menu.selection = selection
+        overlay.content = .gameMenu(menu)   // set before the host is attached, as the draw rig does
+        hud.setViewport(wide, scale: 2)
+        hud.host = host
+        return try compose(hud, host, viewport: wide, scale: 2, map: map)
+    }
+
+    /// A game card as `PlazaGameView.make` builds it from an engine that heard `state`, in the real card panel.
+    private func cardImage(_ state: PlazaGameState, joined: Int, now: Date, map: PlazaImage) throws -> CGImage {
+        let names = ["a": "지은", "b": "도윤", "c": "민수"]
+        var engine = PlazaGameEngine(me: "a")
+        engine.learn(state, from: state.host, now: now)
+        let view = PlazaGameView.make(engine: engine, now: now, joinedCount: joined, canPlay: true, flash: nil, name: { names[$0] })
+        let game = PlazaGameModel(), overlay = PlazaOverlayModel()
+        let pills = PlazaPillsPanel(model: overlay)
+        let hud = PlazaHUD(panels: [PlazaGameCardPanel(game: game, overlay: overlay, pills: pills), pills])
+        let host = RecordingPanelHost()
+        game.card = try XCTUnwrap(view.card)
+        hud.setViewport(wide, scale: 2)
+        hud.host = host
+        return try compose(hud, host, viewport: wide, scale: 2, map: map)
+    }
+
+    /// The minigame menu before and after the drawing quiz, and the quiz's invitation and ranking cards. Sample nicknames only.
+    func testWriteMinigameCardImages() async throws {
+        guard let dir = ProcessInfo.processInfo.environment["PTB_PLAZA_HUD_OUT"] else { throw XCTSkip("PTB_PLAZA_HUD_OUT not set") }
+        let out = URL(fileURLWithPath: dir)
+        try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
+        let map = try XCTUnwrap(PlatformPlaza.tileSheet().map { PlazaTileArt.mapImage(PlazaMapData.map, sheet: $0, tallGrass: nil) })
+        try K.write(try menuImage(kinds: [.bomb], selection: 0, map: map), out.appendingPathComponent("draw-quiz-menu-before.png"))
+        try K.write(try menuImage(kinds: PlazaGameKind.offered, selection: 1, map: map), out.appendingPathComponent("draw-quiz-menu-after.png"))
+
+        let now = Date(timeIntervalSince1970: 1_800_000_100)
+        // 도윤 opened a quiz 12 s ago; 3 are in so far.
+        let open = PlazaGameState(id: "b@1", kind: PlazaGameKind.draw.rawValue, host: "b", opensAt: now.timeIntervalSince1970 - 12)
+        try K.write(try cardImage(open, joined: 3, now: now, map: map), out.appendingPathComponent("draw-quiz-invitation.png"))
+
+        // An ended quiz: 지은 and 도윤 tie for first, 민수 is last, and the last turn was solved.
+        var ended = PlazaGameState(id: "b@1", kind: PlazaGameKind.draw.rawValue, host: "b", opensAt: now.timeIntervalSince1970 - 200)
+        ended.startsAt = now.timeIntervalSince1970 - 170
+        ended.players = ["a", "b", "c"]
+        ended.endedAt = now.timeIntervalSince1970 - 5
+        ended.draw = PlazaDrawState(order: ["a", "b", "c"], turn: 3, step: 9, scores: ["a": 25, "b": 25, "c": 10],
+                                    last: .init(turn: 2, drawer: "c", word: "사과", solver: "a"))
+        try K.write(try cardImage(ended, joined: 3, now: now, map: map), out.appendingPathComponent("draw-quiz-ranking.png"))
+    }
+
     /// The pictures for the pull request: the board as the drawer and a guesser see it, at the default window and the smallest, over the plaza.
     func testWritePullRequestImages() async throws {
         guard let dir = ProcessInfo.processInfo.environment["PTB_PLAZA_HUD_OUT"] else { throw XCTSkip("PTB_PLAZA_HUD_OUT not set") }
