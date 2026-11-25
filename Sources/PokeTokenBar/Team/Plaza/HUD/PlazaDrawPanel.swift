@@ -193,6 +193,10 @@ struct PlazaDrawBoard: Equatable {
         }
         let buttonWidths = toolButtons.map { PlazaPanelStyle.pixelUp($0.line.width, scale: scale) + 2 * Self.buttonPadding.width }
         let buttonsRow = buttonWidths.reduce(0, +) + CGFloat(max(0, buttonWidths.count - 1)) * Self.buttonGap
+        // The panel is as wide for a guesser as for the drawer (the tools' row), so it does not change shape between turns.
+        let labels = [l.plazaDrawToolThinPen, l.plazaDrawToolThickPen, l.plazaDrawToolEraser, l.plazaDrawToolClear]
+        let toolsRow = labels.map { PlazaPanelStyle.pixelUp(text.line($0, font: font).width, scale: scale) + 2 * Self.buttonPadding.width }.reduce(0, +)
+            + CGFloat(labels.count - 1) * Self.buttonGap
 
         func footLines(_ inner: CGFloat) -> [(PlazaTextLine, String)] {
             guard case .lines(let strings) = board.foot else { return [] }
@@ -205,7 +209,7 @@ struct PlazaDrawBoard: Equatable {
             return n == 0 ? 0 : CGFloat(n) * lineH + CGFloat(n - 1) * 2
         }
         func canvasSize(_ n: Int) -> CGSize { CGSize(width: CGFloat(PlazaDrawCanvas.width * n) / scale, height: CGFloat(PlazaDrawCanvas.height * n) / scale) }
-        func innerWidth(_ n: Int) -> CGFloat { max(canvasSize(n).width, buttonsRow) }
+        func innerWidth(_ n: Int) -> CGFloat { max(canvasSize(n).width, toolsRow) }
         func panelSize(_ n: Int) -> CGSize {
             let inner = innerWidth(n), foot = footHeight(inner)
             return CGSize(width: PlazaPanelStyle.pixelUp(2 * pad + inner, scale: scale),
