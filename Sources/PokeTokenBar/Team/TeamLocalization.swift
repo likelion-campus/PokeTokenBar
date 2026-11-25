@@ -550,6 +550,15 @@ extension L {
     var plazaGameButtonDecline: String { "N 안 함" }
     var plazaGameButtonLeave: String { "N 빠지기" }
     var plazaGameButtonStart: String { "M 바로 시작" }
+    // The drawing quiz panel: its tool buttons, the word's label and the pen colours' names (VoiceOver reads them).
+    var plazaDrawToolThinPen: String { "가는 펜" }
+    var plazaDrawToolThickPen: String { "굵은 펜" }
+    var plazaDrawToolEraser: String { "지우개" }
+    var plazaDrawToolClear: String { "모두 지우기" }
+    var plazaDrawWord: String { "제시어" }
+    func plazaDrawColorName(_ index: Int) -> String {
+        ["", "검정", "빨강", "주황", "노랑", "초록", "파랑", "보라", "갈색"][min(max(index, 0), 8)]
+    }
     var plazaGameButtonCancel: String { "N 취소" }
     var plazaGameButtonClose: String { "N 닫기" }
     var plazaGameGo: String { "시작!" }

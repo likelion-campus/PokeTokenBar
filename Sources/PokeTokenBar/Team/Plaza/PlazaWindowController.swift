@@ -135,7 +135,7 @@ import Observation
     private let minimap = PlazaMinimapModel()
     /// The panels drawn through the canvas over the scene, bottom first: the countdown/banner/hint pills (above the
     /// overlay) and the clock on the minimap. `setRendering` switches their rendering with the scene's.
-    private(set) lazy var hud = PlazaHUD(panels: [rosterPanel] + [boardPanel].compactMap { $0 } + [cardPanel, photoFramePanel, menuPanel, gameTitlePanel, gameCardPanel, pillsPanel, chatLogPanel, minimapPanel, clockPanel, shortcutsPanel, togglePanel, pickerPanel])
+    private(set) lazy var hud = PlazaHUD(panels: [rosterPanel, drawPanel] + [boardPanel].compactMap { $0 } + [cardPanel, photoFramePanel, menuPanel, gameTitlePanel, gameCardPanel, pillsPanel, chatLogPanel, minimapPanel, clockPanel, shortcutsPanel, togglePanel, pickerPanel])
     /// The pictures the roster and the card show (the platform's loaders; a test hands in its own).
     private let iconSource: any PlazaIconSource
     private lazy var rosterPanel = PlazaRosterPanel(model: rosterModel, icons: iconSource)
@@ -152,6 +152,8 @@ import Observation
     private let gameModel = PlazaGameModel()
     private lazy var gameCardPanel = PlazaGameCardPanel(game: gameModel, overlay: overlayModel, pills: pillsPanel)
     private lazy var gameTitlePanel = PlazaGameTitlePanel(game: gameModel)
+    private let drawModel = PlazaDrawModel()
+    private lazy var drawPanel = PlazaDrawPanel(model: drawModel, pills: pillsPanel)
     private lazy var minimapPanel = PlazaMinimapPanel(model: minimap, background: backgroundModel, worldSize: map.pixelSize,
                                                       mapImage: { [unowned self] in minimapImage(for: .summer) })
     private lazy var clockPanel = PlazaClockPanel(worldSize: map.pixelSize)
@@ -571,6 +573,7 @@ import Observation
         case (.roster, "next"): turnRosterPage(by: 1)
         case (.board, "react"):   // the other board clicks ("board": the plate, my own reaction) are taken and do nothing
             if let r = boardPanel?.reaction(forHit: hit) { session?.react(to: r.eventID, kind: r.kind) }
+        case (.drawBoard, _): drawPanel.clicked(hit)
         case (.gameCard, _): gameAction(hit.action)   // the plate's own clicks ("card") are taken and do nothing
         case (.chatLog, "toggle"): toggleChatLog()   // the log's own clicks ("log") are taken and do nothing
         case (.shortcuts, "toggle"): toggleShortcuts()
