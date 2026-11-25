@@ -1267,13 +1267,15 @@ import Observation
                   connected: !members.isEmpty, heard: Set(members.keys),
                   bells: Dictionary(uniqueKeysWithValues: members.values.filter(\.inPlaza).compactMap { m in m.gameBell.map { (m.memberID, $0) } }))
         game.berrySeen(at: hud.isRendering ? uptime() : nil)
-        if let lost = game.lostConnection, lost != lostBefore, lost == game.state?.id, game.state?.kind == PlazaGameKind.draw.rawValue {
-            showBanner(game.lostWithTeammates ? L(.ko).plazaGameLostPlayersBanner : L(.ko).plazaGameLostConnectionBanner)   // the quiz keeps its state when I step out, so `gameChanged` does not see it
-        }
         session?.updateGame(game.state, join: game.joined, bell: game.berryBell)
         if game.state != before { gameChanged(from: before, now: now) }
         refreshGame(now: now)
         syncBerryTable(now: now)
+        // After the table has closed, which hides every banner. The quiz and berry five keep their state when I step out, so `gameChanged` does not see it.
+        if let lost = game.lostConnection, lost != lostBefore, lost == game.state?.id,
+           game.state?.kind == PlazaGameKind.draw.rawValue || game.state?.kind == PlazaGameKind.berry.rawValue {
+            showBanner(game.lostWithTeammates ? L(.ko).plazaGameLostPlayersBanner : L(.ko).plazaGameLostConnectionBanner)
+        }
     }
 
     /// 판이 바뀌었다: 시작, 폭탄 넘기기, 폭발, 끝을 그리고 알린다. 참가자에게는 가운데 큰 글씨로, 구경하는 사람에게는 위쪽 배너로.
@@ -1327,6 +1329,10 @@ import Observation
         if s.endedAt != nil, !(same && old?.endedAt != nil) {
             if game.lostConnection == s.id {
                 // 연결이 끊겨 내가 빠진 판: 누가 이겼는지는 이 Mac이 알 수 없다.
+            } else if s.kind == PlazaGameKind.berry.rawValue, s.startsAt != nil {
+                // A player reads the result on the table and gets the banner when it closes; a watcher gets it now.
+                if let winner = s.winner { scene.showEmote(memberID: winner == me ? nil : winner, kind: .party) }
+                if !iPlay { showBanner(berryResultBanner(s)) }
             } else if let winner = s.winner {
                 scene.showEmote(memberID: winner == me ? nil : winner, kind: .party)
                 if iPlay {
@@ -1343,6 +1349,10 @@ import Observation
             }
         } else if same, let holder = s.bomb?.holder, holder != old?.bomb?.holder, s.bomb?.round == old?.bomb?.round {
             scene.showEmote(memberID: holder == me ? nil : holder, kind: .exclaim)   // 폭탄이 넘어갔다
+        }
+        // A right bell: 🔔 over the ringer, in the chat bubble (it draws emoji on both systems).
+        if same, let v = s.berry?.last, v.right, v != old?.berry?.last, s.players.indices.contains(v.seat) {
+            scene.showChat(memberID: s.players[v.seat] == me ? nil : s.players[v.seat], text: l.plazaBerryBellMark)
         }
     }
 
@@ -2367,7 +2377,7 @@ import Observation
 
     /// 배너를 띄우고 4초 뒤 지운다. 그 사이 새 배너가 오면 새 배너가 처음부터 4초를 받는다.
     func showBanner(_ text: String) {
-        guard scene != nil else { return }
+        guard scene != nil, overlayModel.content != .berryTable else { return }   // the table hides it: a megaphone line stays in the log, and one shown under the table would pop up stale
         bannerTask?.cancel()
         bannerGeneration += 1
         let generation = bannerGeneration
@@ -3263,6 +3273,11 @@ extension PlazaWindowController {
         berryTableClosedGame = berryTableOpenFor
         berryModel.board = nil
         hud.suppressed = []
+        defer {   // the result a player read on the table, now as the banner a watcher got when it ended
+            if let s = game.state, s.id == berryTableOpenFor, s.endedAt != nil, s.startsAt != nil, game.lostConnection != s.id {
+                showBanner(berryResultBanner(s))
+            }
+        }
         if restoreFocus {
             closeOverlay()
         } else {
@@ -3270,6 +3285,15 @@ extension PlazaWindowController {
             overlayModel.content = .none
             scene?.isOverlayOpen = false
         }
+    }
+
+    /// The winner, or everyone level at the top.
+    fileprivate func berryResultBanner(_ s: PlazaGameState) -> String {
+        let l = L(.ko), me = memberID()
+        func name(_ id: String) -> String { (id == me ? nickname() : members[id]?.nickname) ?? l.plazaGroupPhotoSomeone }
+        if let winner = s.winner { return l.plazaGameWinBanner(nickname: name(winner), game: l.plazaGameName(.berry)) }
+        let ranking = PlazaBerry.ranking(s), best = ranking.first?.score ?? 0
+        return l.plazaBerryTieBanner(names: ranking.filter { $0.score == best }.map { name($0.id) })
     }
 
     /// The four berries and the bell, once each per game; a failed one is tried again with the next berry game.

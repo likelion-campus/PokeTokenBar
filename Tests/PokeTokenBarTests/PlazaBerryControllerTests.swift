@@ -553,4 +553,156 @@ final class PlazaBerryControllerTests: XCTestCase {
         await settle()
         XCTAssertEqual(w.b.session.members[w.me.id]?.gameBell?.right, true, "the teammate has it at once")
     }
+
+    // MARK: - Watchers and the result
+
+    /// A teammate (not me) rings at the next five on their own screen.
+    private func ring(_ w: World, _ o: Node) {
+        _ = o.engine.ringBerry(now: now, uptime: up + 9000)
+        o.tell()
+    }
+
+    func testWatchersSeeTheScoresAndTheBellOverTheRinger() async {
+        let w = await world()
+        await lock(w, meJoins: false)
+        XCTAssertFalse(w.c.isBerryTableOpen, "no table for a watcher")
+        let l = L(.ko)
+        XCTAssertTrue(w.c.gameStatus?.hasPrefix("열매 다섯 진행 중") == true, "\(String(describing: w.c.gameStatus))")
+        XCTAssertEqual(w.c.gameStatus, l.plazaBerryStatus(scores: [("가", 0), ("다", 0)]))
+        XCTAssertNil(w.scene.shownChat(memberID: w.d.id))
+        let seen = await until(w) { hasFive(w) }
+        XCTAssertTrue(seen)
+        ring(w, w.d)
+        let rang = await until(w) { w.scene.shownChat(memberID: w.d.id) == "🔔" }
+        XCTAssertTrue(rang, "the bell over the ringer")
+        XCTAssertEqual(w.c.gameStatus, l.plazaBerryStatus(scores: [("다", 1), ("가", 0)]))
+        XCTAssertNil(w.scene.shownChat(memberID: w.b.id))
+        XCTAssertFalse(w.c.isBerryTableOpen)
+        XCTAssertNil(w.c.gameTitle)
+        XCTAssertNil(w.c.gameCard)
+    }
+
+    func testTheResultIsABannerForWatchersAndForPlayersAfterTheTable() async throws {
+        let l = L(.ko)
+        // A watcher: the teammate d rings every five and wins.
+        let w = await world()
+        await lock(w, seed: richDeal, meJoins: false)
+        var rung = -1
+        for _ in 0..<2500 {
+            await run(w, ticks: 1)
+            guard let s = w.c.gameState, let b = s.berry else { continue }
+            if s.endedAt != nil { break }
+            if hasFive(w), rung != b.clears.count { rung = b.clears.count; ring(w, w.d) }
+        }
+        XCTAssertEqual(w.c.gameState?.winner, w.d.id, "test precondition")
+        XCTAssertEqual(w.c.banner, l.plazaGameWinBanner(nickname: "다", game: l.plazaGameName(.berry)))
+        XCTAssertNil(w.c.gameTitle)
+
+        // A player in a tie: one right bell each, the rest of the deck runs out.
+        let t = await world()
+        await lock(t)
+        var meRang = false, dRang = false
+        for _ in 0..<3000 {
+            await run(t, ticks: 1)
+            guard let s = t.c.gameState, let b = s.berry else { continue }
+            if s.endedAt != nil { break }
+            if hasFive(t), b.clears.count == 0, !meRang { meRang = true; press(t, spaceKey) }
+            if hasFive(t), b.clears.count == 1, !dRang { dRang = true; ring(t, t.d) }
+        }
+        XCTAssertEqual(t.c.gameState?.berry?.scores.sorted(by: >).prefix(2).map { $0 }, [1, 1], "test precondition: level at the top")
+        XCTAssertNil(t.c.gameState?.winner)
+        XCTAssertTrue(t.c.isBerryTableOpen, "the table shows the result")
+        XCTAssertNil(t.c.banner, "not before the table closes")
+        XCTAssertNil(t.c.gameTitle, "no big title for berry")
+        press(t, spaceKey)
+        XCTAssertFalse(t.c.isBerryTableOpen)
+        XCTAssertEqual(t.c.banner, l.plazaBerryTieBanner(names: ["나", "다"]))
+        XCTAssertNil(t.c.gameTitle)
+    }
+
+    func testThePlayerGetsTheBannerWhenTheResultTimesOut() async {
+        let w = await world()
+        await lock(w, seed: richDeal)
+        await playToResult(w)
+        XCTAssertNil(w.c.banner)
+        await run(w, seconds: PlazaBerry.resultSeconds + 0.3)
+        XCTAssertFalse(w.c.isBerryTableOpen)
+        XCTAssertEqual(w.c.banner, L(.ko).plazaGameWinBanner(nickname: "나", game: L(.ko).plazaGameName(.berry)))
+    }
+
+    func testTheInvitationClosesAtEightPlayers() async {
+        let me = node("나", id: "m-me")
+        let others = (0..<8).map { node("가\($0)", id: "o\($0)") }
+        let input = PlazaTypingChatInput()
+        let c = controller(me, input: input)
+        c.prepareScene()
+        for o in others { hub.connect(me.transport, to: o.transport) }
+        await settle()
+        for (i, o) in others.enumerated() {
+            o.session.updatePlazaPosition(inPlaza: true, tile: TilePoint(x: 11 + i, y: 6), facing: .left, isWalking: false, isFlushed: false)
+        }
+        await settle()
+        let host = others[0]
+        XCTAssertTrue(host.engine.open(.berry, now: now))
+        host.tell()
+        await settle()
+        c.advanceGame()
+        await settle()
+        let state = host.engine.state!
+        func join(_ n: Int) async {
+            for o in others.dropFirst().prefix(n) { o.session.updateGame(state, join: state.id) }
+            await settle()
+            c.advanceGame()
+            await settle()
+        }
+        let l = L(.ko), seconds = Int(PlazaGame.recruitSeconds)
+        await join(6)   // the host and six: seven
+        var button = c.gameCard?.buttons.first { $0.action == "join" }
+        XCTAssertEqual(button?.isEnabled, true)
+        XCTAssertEqual(c.gameCard?.lines.last, l.plazaGameRecruiting(players: 7, seconds: seconds))
+        await join(7)   // eight
+        button = c.gameCard?.buttons.first { $0.action == "join" }
+        XCTAssertEqual(button?.isEnabled, false)
+        XCTAssertEqual(c.gameCard?.lines.last, l.plazaDrawFull)
+        XCTAssertTrue(c.gameCard?.lines.contains(l.plazaGameRecruiting(players: 8, seconds: seconds)) == true)
+        c.scene?.handleKeyDown(keyCode: yKey, characters: "ㅛ", isRepeat: false)
+        XCTAssertNil(c.gameJoined, "the Y key honours the disabled button")
+    }
+
+    func testALoudLineDuringTheTableShowsNoBanner() async {
+        let w = await world()
+        await lock(w)
+        XCTAssertTrue(w.c.isBerryTableOpen, "test precondition")
+        let before = w.c.banner
+        w.c.showChat(memberID: w.b.id, text: "모두 회의실로", isLoud: true)
+        w.c.showBanner(L(.ko).teamMegaphoneNotice(nickname: "가", text: "모두 회의실로"))   // what the notifier asks of the plaza
+        XCTAssertEqual(w.c.banner, before)
+        XCTAssertEqual(w.c.chatLogLines.last?.text, "모두 회의실로")
+        XCTAssertEqual(w.c.chatLogLines.last?.isLoud, true)
+    }
+
+    func testPlayersAreRingedDuringTheGame() async {
+        let w = await world()
+        await lock(w)
+        XCTAssertEqual(w.scene.gameMarks, ["": .alive, w.b.id: .alive, w.d.id: .alive])
+        XCTAssertFalse(w.scene.gameMarks.values.contains(.holder))
+        XCTAssertNil(w.c.gameView.holder)
+    }
+
+    func testBeingIsolatedMidGameShowsTheLostConnectionBannerAndClosesTheTable() async {
+        let w = await world()
+        await lock(w)
+        XCTAssertTrue(w.c.isBerryTableOpen, "test precondition")
+        for link in w.links { hub.disconnect(link) }
+        await settle()
+        XCTAssertTrue(w.me.session.members.isEmpty, "test precondition: I hear nobody")
+        now += 1
+        w.c.advanceGame()
+        XCTAssertTrue(w.c.isBerryTableOpen, "not yet")
+        now += PlazaGame.isolationLimit
+        w.c.advanceGame()
+        XCTAssertEqual(w.c.banner, L(.ko).plazaGameLostConnectionBanner)
+        XCTAssertFalse(w.c.isBerryTableOpen)
+        XCTAssertNil(w.c.gameJoined)
+    }
 }

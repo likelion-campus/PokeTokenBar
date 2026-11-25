@@ -554,6 +554,12 @@ extension L {
     func plazaBerryTie(names: [String]) -> String { "공동 1등 \(names.joined(separator: " · "))" }
     func plazaBerryRank(place: Int, nickname: String, score: Int) -> String { "\(place)등 \(nickname) \(score)점" }
     var plazaBerryCloseHint: String { "스페이스나 Esc로 닫기" }
+    /// The name line for a teammate who is not at the table, best score first.
+    func plazaBerryStatus(scores: [(name: String, score: Int)]) -> String {
+        "열매 다섯 진행 중 · " + scores.map { "\($0.name) \($0.score)" }.joined(separator: " · ")
+    }
+    /// The top banner when the game ends level; a single winner gets `plazaGameWinBanner`.
+    func plazaBerryTieBanner(names: [String]) -> String { "🏆 열매 다섯 공동 1등: \(names.joined(separator: " · "))" }
     func plazaGameCardTitle(host: String?, game: String) -> String { host.map { "\($0)님의 \(game)" } ?? "내가 연 \(game)" }
     func plazaGameRecruiting(players: Int, seconds: Int) -> String { "참가 \(players)명 · \(seconds)초 뒤 시작" }
     func plazaGameNeedsTwo(seconds: Int) -> String { "두 명부터 시작돼요 · \(seconds)초 남음" }
