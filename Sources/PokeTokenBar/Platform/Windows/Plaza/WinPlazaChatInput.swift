@@ -83,7 +83,7 @@ import WinSDK
     private(set) var cueText = ""
     /// What the line asks for (`PlazaChatInputPurpose`): the word line has its own cue, no megaphone, no emoji grid and a 12-character cut.
     var purpose: PlazaChatInputPurpose = .chat {
-        didSet { if purpose != oldValue { refreshCue() } }
+        didSet { if purpose != oldValue { madeParts?.bar.hasEmojiButton = purpose == .chat; refreshCue() } }
     }
     var onSubmit: ((String) -> Bool)?
     var onClose: (() -> Void)?
@@ -216,6 +216,7 @@ import WinSDK
         isOpen = true
         bar.isLoud = false
         bar.isEmojiOpen = false
+        bar.hasEmojiButton = purpose == .chat
         resetField()
         refreshCue()
         bar.isOpen = true

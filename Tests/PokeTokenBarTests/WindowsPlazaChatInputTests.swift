@@ -185,6 +185,9 @@ import XCTest
         key(r, 0x09)
         XCTAssertFalse(r.input.isLoud)
         XCTAssertFalse(r.input.bar.isLoud)
+        XCTAssertFalse(r.input.bar.hasEmojiButton, "no 😀 in the word line, as on the Mac")
+        r.input.close()
+        XCTAssertTrue(r.input.bar.hasEmojiButton, "back for the chat line")
     }
 
     func testClosingPutsThePurposeBackToChat() async throws {

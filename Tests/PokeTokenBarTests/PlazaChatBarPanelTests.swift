@@ -27,6 +27,24 @@ import XCTest
 
     private func frame(_ r: Rig) -> CGRect? { r.hud.layout(viewport: r.hud.viewport, scale: r.hud.scale)[.chatBar] }
 
+    /// The quiz word line has no 😀 on the Mac (hidden); here it is neither drawn, nor read, nor hit, and comes back with the chat line.
+    func testTheWordLineHasNoEmojiButton() async {
+        let r = rig()
+        await flush()
+        let button = CGPoint(x: 16 + r.bar.emojiButtonRect.midX, y: 640 - 16 - 37 + r.bar.emojiButtonRect.midY)
+        func emojiItems() -> [PlazaAccessibilityItem] { r.host.drawings[.chatBar]?.accessibility.filter { $0.action?.action == "emoji" } ?? [] }
+        XCTAssertEqual(emojiItems().count, 1)
+        XCTAssertEqual(r.hud.hit(at: button, in: .chatBar)?.action, "emoji")
+        r.bar.hasEmojiButton = false
+        await flush()
+        XCTAssertTrue(emojiItems().isEmpty, "not read out")
+        XCTAssertTrue(r.host.drawings[.chatBar]?.tooltips.isEmpty ?? false, "no tooltip")
+        XCTAssertEqual(r.hud.hit(at: button, in: .chatBar)?.action, "bar", "the click lands on the plate")
+        r.bar.hasEmojiButton = true
+        await flush()
+        XCTAssertEqual(emojiItems().count, 1)
+    }
+
     func testTheClosedLineDrawsNothingAndTakesNoClick() async {
         let r = rig(open: false)
         XCTAssertFalse(r.bar.isVisible)

@@ -46,6 +46,8 @@ import Foundation
     var isOpen = false { didSet { if isOpen != oldValue { onChange?() } } }
     /// The megaphone is on: the border is orange.
     var isLoud = false { didSet { if isLoud != oldValue { onChange?() } } }
+    /// The 😀 button is there (not in the quiz word line: `PlazaChatInput` hides it too). Its place stays, so the field keeps its width.
+    var hasEmojiButton = true { didSet { if hasEmojiButton != oldValue { onChange?() } } }
     /// The emoji grid is unfolded above the field (the bar grows upward).
     var isEmojiOpen = false { didSet { if isEmojiOpen != oldValue { onChange?() } } }
 
@@ -123,19 +125,22 @@ import Foundation
             canvas.strokeRoundedRect(r.insetBy(dx: Self.borderWidth / 2, dy: Self.borderWidth / 2),
                                      radius: Self.cornerRadius - Self.borderWidth / 2, lineWidth: Self.borderWidth)
             canvas.setFillColor(.white)
-            Self.drawCentred(buttonLine, in: emojiButtonRect, text: text, size: Self.buttonEmojiSize, canvas: canvas, space: space, scale: scale)
+            if hasEmojiButton {
+                Self.drawCentred(buttonLine, in: emojiButtonRect, text: text, size: Self.buttonEmojiSize, canvas: canvas, space: space, scale: scale)
+            }
             for (line, cell) in zip(gridLines, gridCells) {
                 Self.drawCentred(line, in: cell, text: text, size: Self.gridEmojiSize, canvas: canvas, space: space, scale: scale)
             }
         }
         let l = L(.ko)
-        var items = [PlazaAccessibilityItem(frame: emojiButtonRect, role: .button, label: l.plazaChatEmoji,
-                                            action: PlazaPanelHit(action: "emoji", index: nil))]
+        var items = hasEmojiButton ? [PlazaAccessibilityItem(frame: emojiButtonRect, role: .button, label: l.plazaChatEmoji,
+                                                             action: PlazaPanelHit(action: "emoji", index: nil))] : []
         for (i, cell) in gridButtons.enumerated() {
             items.append(PlazaAccessibilityItem(frame: cell, role: .button, label: PlazaChatEmojis.all[i], action: PlazaPanelHit(action: "pick", index: i)))
         }
         return PlazaPanelDrawing(layers: image.map { [.image($0, frame: CGRect(origin: .zero, size: space.size))] } ?? [],
-                                 accessibility: items, tooltips: [PlazaTooltip(frame: emojiButtonRect, text: l.plazaChatEmoji)])
+                                 accessibility: items,
+                                 tooltips: hasEmojiButton ? [PlazaTooltip(frame: emojiButtonRect, text: l.plazaChatEmoji)] : [])
     }
 
     /// An emoji centred in `rect` (panel points) on its font's line, on whole device pixels.
@@ -149,7 +154,7 @@ import Foundation
 
     func hit(_ point: CGPoint) -> PlazaPanelHit? {
         if let i = gridButtons.firstIndex(where: { $0.contains(point) }) { return PlazaPanelHit(action: "pick", index: i) }
-        if emojiButtonRect.contains(point) { return PlazaPanelHit(action: "emoji", index: nil) }
+        if hasEmojiButton, emojiButtonRect.contains(point) { return PlazaPanelHit(action: "emoji", index: nil) }
         return CGRect(origin: .zero, size: barSize).contains(point) ? PlazaPanelHit(action: "bar", index: nil) : nil
     }
 }
