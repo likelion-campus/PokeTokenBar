@@ -37,6 +37,12 @@ final class PlazaDrawTests: XCTestCase {
         XCTAssertNil(PlazaDraw.word("🍎"))
         XCTAssertNil(PlazaDraw.word("사\n과"))
         XCTAssertNil(PlazaDraw.word("사과\n"))
+        let marks = String(repeating: "\u{0301}", count: 8)
+        let heavy = String(repeating: "e" + marks, count: 12)
+        XCTAssertEqual(heavy.count, 12)
+        XCTAssertGreaterThan(heavy.utf8.count, PlazaDraw.maxWordBytes)
+        XCTAssertNil(PlazaDraw.word(heavy), "12 characters, but more than 64 bytes")
+        XCTAssertNotNil(PlazaDraw.word(String(repeating: "사", count: 12)), "12 syllables are 36 bytes")
     }
 
     func testAnAnswerMatchesWhateverItsSpacingCaseOrComposition() {
@@ -179,8 +185,8 @@ final class PlazaDrawTests: XCTestCase {
         let alone = PlazaDraw.ended(game(order: ["a", "b", "c"]), word: "x", solver: nil, playing: ["a"], at: 50)
         XCTAssertEqual(alone.endedAt, 50)
         XCTAssertEqual(alone.draw?.turn, 3)
-        let noOneLeft = PlazaDraw.ended(game(order: ["a", "b", "c"]), word: "x", solver: nil, playing: ["a", "b"], at: 50)
-        XCTAssertNil(noOneLeft.endedAt, "two are still playing and a turn of theirs is left")
+        let gameGoesOn = PlazaDraw.ended(game(order: ["a", "b", "c"]), word: "x", solver: nil, playing: ["a", "b"], at: 50)
+        XCTAssertNil(gameGoesOn.endedAt, "two are still playing and a turn of theirs is left")
     }
 
     func testTheRankingIsByScoreThenId() {
@@ -234,6 +240,14 @@ final class PlazaDrawTests: XCTestCase {
             XCTAssertEqual(kept?.last?.solver, "b")
             XCTAssertEqual(kept?.last?.drawer, "a")
         }
+        var heavy = good
+        let weighty = String(repeating: "e\u{0301}\u{0301}\u{0301}\u{0301}\u{0301}\u{0301}\u{0301}\u{0301}", count: 12)
+        heavy.last = .init(turn: 0, drawer: "a", word: weighty, solver: "b")
+        let trimmed = PlazaDraw.accepted(heavy, players: players)
+        XCTAssertNotNil(trimmed, "the payload stays")
+        XCTAssertNil(trimmed?.last?.word, "the oversized word goes")
+        XCTAssertEqual(trimmed?.last?.solver, "b")
+        refused({ $0.initials = String(repeating: "e\u{0301}\u{0301}\u{0301}\u{0301}\u{0301}\u{0301}\u{0301}\u{0301}", count: 12) }, "initials over 64 bytes")
         var fine = good
         fine.last = .init(turn: 0, drawer: "a", word: "사과", solver: nil)
         XCTAssertEqual(PlazaDraw.accepted(fine, players: players)?.last?.word, "사과")

@@ -35,8 +35,10 @@ enum PlazaDraw {
     static let refereeSlack: TimeInterval = 10
     static let guessPoints = 10, drawerPoints = 5
     static let maxWordCharacters = 12
+    /// The word's size on the wire: combining marks make a short word long, and the word is relayed to every Mac.
+    static let maxWordBytes = 64
     /// The first hint (how many letters) and the second (the initials) appear this long after drawing begins.
-    static let lettersHintSeconds: TimeInterval = 30, initialsHintSeconds: TimeInterval = 45
+    static let lettersHintSeconds: TimeInterval = drawSeconds / 2, initialsHintSeconds: TimeInterval = drawSeconds * 3 / 4
 
     // MARK: Order
 
@@ -76,7 +78,7 @@ enum PlazaDraw {
     static func word(_ raw: String) -> String? {
         guard raw.unicodeScalars.allSatisfy(isAllowed), raw.unicodeScalars.contains(where: isLetterOrDigit) else { return nil }
         let kept = raw.split(separator: " ", omittingEmptySubsequences: true).joined(separator: " ")
-        return (1...maxWordCharacters).contains(kept.count) ? kept : nil
+        return (1...maxWordCharacters).contains(kept.count) && kept.utf8.count <= maxWordBytes ? kept : nil
     }
 
     private static let ignoredPunctuation: Set<Character> = [".", ",", "!", "?", "~", "\u{2026}", "\"", "'", "\u{201C}", "\u{201D}", "\u{2018}", "\u{2019}"]
@@ -203,7 +205,7 @@ enum PlazaDraw {
               d.scores.allSatisfy({ known.contains($0.key) && (0...(d.order.count * 10)).contains($0.value) }),
               d.entryAt.map(\.isFinite) ?? true, d.drawAt.map(\.isFinite) ?? true,
               d.letters.map({ (0...maxWordCharacters).contains($0) }) ?? true,
-              (d.initials?.count ?? 0) <= maxWordCharacters else { return nil }
+              (d.initials?.count ?? 0) <= maxWordCharacters, (d.initials?.utf8.count ?? 0) <= maxWordBytes else { return nil }
         var kept = d
         if let r = d.last {
             guard (0..<d.order.count).contains(r.turn), known.contains(r.drawer), r.solver.map(known.contains) ?? true else { return nil }

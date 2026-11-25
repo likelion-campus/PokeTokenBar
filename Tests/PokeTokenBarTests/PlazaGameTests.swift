@@ -694,7 +694,6 @@ extension PlazaGameTests {
         XCTAssertFalse(holder(1, 1).touches(me), "touching is unchanged: no diagonals")
     }
 
-
     // MARK: - Drawing quiz payload
 
     private func drawState(turn: Int, step: Int, word: String? = nil) -> PlazaGameState {
@@ -734,6 +733,16 @@ extension PlazaGameTests {
         let now = Date(timeIntervalSince1970: 1_800_000_001)
         XCTAssertNil(PlazaGame.accepted(s, now: now))
         s.draw = nil
+        XCTAssertNotNil(PlazaGame.accepted(s, now: now))
+    }
+
+    func testAGameOfAnotherKindCarriesNoDrawPayload() {
+        var s = drawState(turn: 0, step: 0)
+        s.kind = PlazaGameKind.bomb.rawValue
+        let now = Date(timeIntervalSince1970: 1_800_000_031)
+        XCTAssertNil(PlazaGame.accepted(s, now: now), "a bomb game with a draw payload")
+        s.draw = nil
+        s.bomb = PlazaBombState(round: 1, roundStartsAt: 1_800_000_030, holder: "a")
         XCTAssertNotNil(PlazaGame.accepted(s, now: now))
     }
 

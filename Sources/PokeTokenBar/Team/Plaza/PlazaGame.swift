@@ -106,6 +106,9 @@ enum PlazaGame {
                 guard let kept = PlazaDraw.accepted(d, players: s.players) else { return nil }
                 s.draw = kept
             }
+        } else {
+            // `precedes` reads the draw keys of every kind, so a stray payload could steer the merge.
+            guard s.draw == nil else { return nil }
         }
         if let ended = s.endedAt { guard okTime(ended, from: s.opensAt) else { return nil } }
         if let winner = s.winner { guard s.endedAt != nil, s.players.contains(winner) else { return nil } }
