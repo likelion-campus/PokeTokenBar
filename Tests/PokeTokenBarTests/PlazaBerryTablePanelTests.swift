@@ -360,6 +360,13 @@ final class PlazaBerryTablePanelTests: XCTestCase {
                 ("result", .result(lines: [l.plazaBerryTie(names: Self.names.prefix(n).map { $0 })] + ranks + [l.plazaBerryCloseHint]))]
     }
 
+    /// `inner` lies within `outer`, compared edge by edge: swift-corelibs's `CGRect.contains` is `union == self`, which a recomputed width
+    /// breaks by a rounding bit (every row "left the plate" on the Windows CI while the Mac's exact `contains` passed).
+    private static func inside(_ inner: CGRect, _ outer: CGRect, tolerance: CGFloat = 0.01) -> Bool {
+        inner.minX >= outer.minX - tolerance && inner.minY >= outer.minY - tolerance
+            && inner.maxX <= outer.maxX + tolerance && inner.maxY <= outer.maxY + tolerance
+    }
+
     func testPlateRowsNeverOverlapAndStayInsideThePlate() async throws {
         for viewport in [narrow, wide] {
             for scale in [CGFloat(1), 2] {
@@ -370,7 +377,7 @@ final class PlazaBerryTablePanelTests: XCTestCase {
                         let plate = try XCTUnwrap(r.panel.plate)
                         let ctx = "\(name) \(Int(viewport.width)) x\(scale) \(n) seats"
                         for (i, a) in plate.rows.enumerated() {
-                            XCTAssertTrue(plate.frame.insetBy(dx: -0.01, dy: -0.01).contains(a.frame), "\(a.kind) \(a.text) leaves the plate: \(ctx)")
+                            XCTAssertTrue(Self.inside(a.frame, plate.frame), "\(a.kind) \(a.text) leaves the plate: \(a.frame) not in \(plate.frame): \(ctx)")
                             for b in plate.rows[(i + 1)...] {
                                 XCTAssertFalse(a.frame.insetBy(dx: 0.01, dy: 0.01).intersects(b.frame.insetBy(dx: 0.01, dy: 0.01)),
                                                "\(a.kind) \(a.text) overlaps \(b.kind) \(b.text): \(ctx)")
@@ -388,6 +395,65 @@ final class PlazaBerryTablePanelTests: XCTestCase {
                             XCTAssertGreaterThanOrEqual(digit.magnify, 2, "the digit stays big: \(ctx)")
                             let note = plate.rows.filter { $0.kind == .note }.map(\.text)
                             XCTAssertEqual(note.joined(separator: " "), L(.ko).plazaBerryCountdownNote, "the note stays whole: \(ctx)")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// What a Windows engine does to the plate: every font measures `factor` times as wide and tall as the Mac's.
+    private struct EnlargedText: PlazaTextEngine {
+        let base: any PlazaTextEngine, factor: CGFloat
+        func metrics(_ font: PlazaFont) -> PlazaFontMetrics {
+            let m = base.metrics(font)
+            return PlazaFontMetrics(ascender: m.ascender * factor, descender: m.descender * factor, leading: m.leading * factor)
+        }
+        private func grown(_ l: PlazaTextLine) -> PlazaTextLine {
+            PlazaTextLine(width: l.width * factor, ascent: l.ascent * factor, descent: l.descent * factor, leading: l.leading * factor, native: l.native, runs: l.runs)
+        }
+        func line(_ text: String, font: PlazaFont) -> PlazaTextLine { grown(base.line(text, font: font)) }
+        func truncated(_ line: PlazaTextLine, width: CGFloat, ellipsis: PlazaTextLine) -> PlazaTextLine? { base.truncated(line, width: width, ellipsis: ellipsis) }
+        func paragraph(_ text: String, font: PlazaFont, alignment: PlazaTextAlignment) -> PlazaParagraph { base.paragraph(text, font: font, alignment: alignment) }
+        func wrappedLines(_ text: String, font: PlazaFont, width: CGFloat) -> [PlazaTextLine] { base.wrappedLines(text, font: font, width: width / factor).map(grown) }
+        func line(_ runs: [PlazaTextRun]) -> PlazaTextLine { grown(base.line(runs)) }
+        func wrappedLines(_ runs: [PlazaTextRun], width: CGFloat) -> [PlazaTextLine] { base.wrappedLines(runs, width: width / factor).map(grown) }
+    }
+
+    private struct EnlargedGraphics: PlazaGraphics {
+        let text: any PlazaTextEngine
+        private let base = PlatformPlaza.graphics
+        init(factor: CGFloat) { text = EnlargedText(base: PlatformPlaza.graphics.text, factor: factor) }
+        func makeCanvas(width: Int, height: Int, colorSpace: PlazaColorSpace) -> (any PlazaCanvas)? { base.makeCanvas(width: width, height: height, colorSpace: colorSpace) }
+        func assetURL(_ name: String, ext: String) -> URL? { base.assetURL(name, ext: ext) }
+        func decodeImage(at url: URL) -> PlazaImage? { base.decodeImage(at: url) }
+        func decodeImage(_ data: Data) -> PlazaImage? { base.decodeImage(data) }
+        func decodeImageFrames(at url: URL) -> [PlazaImage] { base.decodeImageFrames(at: url) }
+        func encodePNG(_ image: PlazaImage) -> Data? { base.encodePNG(image) }
+    }
+
+    /// The plate fitted by CoreText's sizes alone spilled out of the plate on Windows (#390): the same rows under text 1.5 times as big.
+    func testPlateRowsFitUnderEnlargedTextMetrics() async throws {
+        let graphics = EnlargedGraphics(factor: 1.5)
+        for viewport in [narrow, wide] {
+            for scale in [CGFloat(1), 2] {
+                for n in [2, 5, 8] {
+                    for (name, center) in centres(seats: n) {
+                        let r = Rig(viewport: viewport, scale: scale, board: Self.board(seats: n, center: center))
+                        _ = r.panel.render(scale: scale, viewport: viewport, graphics: graphics)
+                        let plate = try XCTUnwrap(r.panel.plate)
+                        let ctx = "\(name) \(Int(viewport.width)) x\(scale) \(n) seats"
+                        for (i, a) in plate.rows.enumerated() {
+                            XCTAssertTrue(Self.inside(a.frame, plate.frame), "\(a.kind) \(a.text) leaves the plate: \(a.frame) not in \(plate.frame): \(ctx)")
+                            for b in plate.rows[(i + 1)...] {
+                                XCTAssertFalse(a.frame.insetBy(dx: 0.01, dy: 0.01).intersects(b.frame.insetBy(dx: 0.01, dy: 0.01)),
+                                               "\(a.kind) \(a.text) overlaps \(b.kind) \(b.text): \(a.frame) \(b.frame): \(ctx)")
+                            }
+                        }
+                        if name == "result" { XCTAssertEqual(plate.rows.last?.kind, .close, "the close hint stays: \(ctx)") }
+                        if name == "countdown" {
+                            XCTAssertTrue(plate.rows.contains { $0.kind == .digit }, "the digit stays: \(ctx)")
+                            XCTAssertTrue(plate.rows.contains { $0.kind == .note }, "the note stays: \(ctx)")
                         }
                     }
                 }

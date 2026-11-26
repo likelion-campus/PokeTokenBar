@@ -389,10 +389,19 @@ struct PlazaBerryBoard: Equatable {
         let lineH = (metricsSmall.ascender - metricsSmall.descender).rounded()
         let platePad = max(4, (0.9 * u).rounded())
         let inner = plateFrame.width - 2 * platePad
-        let headFont = text.line(l.plazaBerryHead, font: body).width <= inner ? body : small
-        let headMetrics = headFont == body ? metricsBody : metricsSmall
-        let headH = (headMetrics.ascender - headMetrics.descender).rounded()
         let bellRect = layout.bell.offsetBy(dx: -plateFrame.minX, dy: -plateFrame.minY)
+        // The head is the body font when it fits the plate's width and the gap above the bell (whose place the layout fixed), else the small one;
+        // a head still wider than the plate is cut with an ellipsis. The text engine decides these sizes, so the plate never assumes the Mac's.
+        let bodyHeadH = (metricsBody.ascender - metricsBody.descender).rounded()
+        let headFont = text.line(l.plazaBerryHead, font: body).width <= inner && platePad + bodyHeadH <= bellRect.minY ? body : small
+        let headMetrics = headFont == body ? metricsBody : metricsSmall
+        let headFullH = (headMetrics.ascender - headMetrics.descender).rounded()
+        // Still taller than the gap above the bell (an engine with tall small text): the head is drawn scaled down into it.
+        let headScale = min(1, max(1, bellRect.minY - platePad) / max(1, headFullH))
+        let headH = headFullH * headScale
+        let ellipsis = text.line("…", font: small)
+        func clipped(_ line: PlazaTextLine) -> PlazaTextLine { line.width <= inner ? line : text.truncated(line, width: inner, ellipsis: ellipsis) ?? line }
+        let headLine = clipped(text.line(l.plazaBerryHead, font: headFont))
         let isResult: Bool = { if case .result = board.center { return true } else { return false } }()
         var textTop = isResult ? platePad + headH + 3 : bellRect.maxY + 2
         var room = plateFrame.height - platePad - textTop
@@ -400,7 +409,7 @@ struct PlazaBerryBoard: Equatable {
         // Every plate text breaks at spaces only (`wordLines`); the engines' own wrapping splits "5개면".
         typealias Row = (line: PlazaTextLine, piece: String, text: String, color: PlazaColor, magnify: CGFloat, kind: PlateRow.Kind)
         func wrapped(_ s: String, _ color: PlazaColor, _ kind: PlateRow.Kind) -> [Row] {
-            Self.wordLines(s, width: inner) { text.line($0, font: small).width }.map { (text.line($0, font: small), $0, s, color, 1, kind) }
+            Self.wordLines(s, width: inner) { text.line($0, font: small).width }.map { (clipped(text.line($0, font: small)), $0, s, color, 1, kind) }
         }
         var ruleLines: [Row] = isResult ? [] : wrapped(rule, PlazaColor(hex: 0xDFE9EE), .rule)
         var tail: [Row] = []
@@ -413,9 +422,10 @@ struct PlazaBerryBoard: Equatable {
             // even that draws the digit plain.
             let note = wrapped(l.plazaBerryCountdownNote, .white, .note)
             let bodyH = (metricsBody.ascender - metricsBody.descender).rounded()
+            let digitWidth = text.line(digit, font: body).width
             func fit(rule: Int) -> CGFloat? {
                 let others = lineH * CGFloat(rule + note.count)
-                return [CGFloat(3), 2].first { others + bodyH * $0 <= room }
+                return [CGFloat(3), 2].first { others + bodyH * $0 <= room && digitWidth * $0 <= inner }
             }
             var magnify = fit(rule: ruleLines.count)
             if magnify == nil { ruleLines = []; magnify = fit(rule: 0) }
@@ -432,13 +442,14 @@ struct PlazaBerryBoard: Equatable {
         func rowsHeight() -> CGFloat { ruleLines.map(rowHeight).reduce(0, +) + tail.map(rowHeight).reduce(0, +) }
         while rowsHeight() > room {   // too little room: the event's later lines go first, then the rule's, then the last of what is left
             if let rank = tail.lastIndex(where: { $0.kind == .rank }) { tail.remove(at: rank) }   // a result sheds its ranks from the bottom, never the close hint
+            else if let head = tail.lastIndex(where: { $0.kind == .result }), tail.contains(where: { $0.kind == .close }) { tail.remove(at: head) }   // then its head lines
             else if tail.count > 1 { tail.removeLast() }
             else if !ruleLines.isEmpty { ruleLines.removeLast() }
             else if !tail.isEmpty { tail.removeLast() }
             else { break }
         }
         let rows = ruleLines + tail
-        let plateKey = "plate \(plateFrame.size) \(scale) \(centreKey) \(headFont == body)"
+        let plateKey = "plate \(plateFrame.size) \(scale) \(centreKey) \(headFont == body) \(headScale)"
         var rowFrames: [CGRect] = []
         var ry = textTop
         for r in rows {
@@ -452,10 +463,13 @@ struct PlazaBerryBoard: Equatable {
             let r = CGRect(origin: .zero, size: plateFrame.size).insetBy(dx: 2 * u * 0.3, dy: 2 * u * 0.3)
             canvas.fillRoundedRect(r, radius: 1.2 * u)
             canvas.setShadow(nil)
-            let head = text.line(l.plazaBerryHead, font: headFont)
-            let hp = CGPoint(x: platePad + (inner - head.width) / 2, y: plateFrame.height - platePad - headMetrics.ascender)
+            let head = headLine
+            canvas.saveState()
+            canvas.translate(x: platePad + (inner - head.width * headScale) / 2, y: plateFrame.height - platePad - headH)
+            canvas.scale(x: headScale, y: headScale)
             canvas.setFillColor(PlazaColor(hex: 0xF8F8F0))
-            canvas.draw(head, at: hp)
+            canvas.draw(head, at: CGPoint(x: 0, y: -headMetrics.descender))
+            canvas.restoreState()
             for (k, row) in rows.enumerated() {
                 let fr = rowFrames[k]
                 canvas.saveState()

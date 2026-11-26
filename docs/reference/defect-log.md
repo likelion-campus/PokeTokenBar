@@ -3738,3 +3738,13 @@ Found before release by three independent read-only reviews (correctness, policy
 - **부류 스윕:** 엔진 `wrappedLines` 를 쓰는 나머지 광장 패널을 읽었다. `PlazaPillsPanel.swift:33`(배너, 안쪽 폭 332pt): 앱이 쓰는 숫자+단위 배너("그림 퀴즈 시작 · 8명" 류)는 한 줄에 들어가 꺾이지 않는다. `PlazaBoardPanel.swift:116·129`(게시판 글·반응 줄), `PlazaCardPanel.swift:164`(카드 제목), 채팅 로그: 사람이 쓴 글과 별명이고 SwiftUI 와 같은 꺾임이 의도다. 고칠 곳은 없었다.
 - **영구 캡처:** `PlazaDrawPanelRenderTests.testACoverDoesNotBreakBetweenANumberAndItsUnit`(실제 CoreText, 600×372 배율 1.25 의 그 글: 마지막 줄 폭이 "20초" 의 폭), `testEveryBoardTextBreaksAtSpacesOnlyAtEverySize`(덮개 글 6종 × 1~20초, 아래 줄 5종 × 창 6가지: 줄마다 낱말이 통째로 들어간다; 100번 넘게 실제로 꺾이는지도 단언). 주입: 두 곳을 `text.wrappedLines` 로 되돌리면 첫 테스트가 15 ≠ 35 로, 둘째가 여러 글에서 실패한다(고치기 전 상태로 확인).
 - **규칙:** 줄이 어디서 꺾이는지는 실제 글 엔진으로 단언한다. 스텁 엔진으로 통과한 줄바꿈 테스트는 증거가 아니다.
+
+## 윈도우 단위 테스트가 #390 머지 뒤 main 에서 빨갰다: 열매 다섯 판 글줄 298개가 "판 밖으로 나간다" 고 실패했다 (윈도우 CI 45732339437, 2026-11-26, fix/berry-plate-windows)
+- **증상:** main(2250ddc3)의 `test (3)` 에서 `PlazaBerryTablePanelTests.testPlateRowsNeverOverlapAndStayInsideThePlate` 가 298번 "<종류> <글> leaves the plate" 로 실패했다. "overlaps" 는 없다. 머리·종·숫자까지 모든 줄이 실패했고 맥은 같은 테스트를 통과한다.
+- **직접 원인:** 두 겹이다. (1) 테스트의 포함 검사가 `plate.frame.insetBy(dx: -0.01, dy: -0.01).contains(a.frame)` 였다. swift-corelibs 의 `CGRect.contains` 는 `union == self` 라 합집합의 폭을 다시 계산하는데, 인셋으로 소수가 낀 틀에서는 반올림 한 비트가 어긋나 판 안의 줄도 거짓으로 실패한다(윈도우 로그에서 판 위치와 무관하게 종·머리까지 전부 실패한 것이 이 모양이다. 윈도우에서 직접 재현하지는 못했고 이 PR 의 윈도우 실행이 확인한다). (2) 진짜 UI 결함도 있었다. 판은 CoreText 의 글 크기만 가정하고 짰다: 머리 글꼴은 폭만 보고 골라 종 위 틈보다 키가 크면 종과 겹쳤고(1.5배 글자에서 600×372 의 머리가 종 위로 1pt 넘어옴), 판보다 넓은 한 글자 줄은 그대로 그려졌으며, 결과가 넘칠 때 `removeLast` 가 닫기 안내를 먼저 버렸다.
+- **왜 못 걸렀나:** PR #390 자신의 윈도우 실행이 머지 전에 `test (3)` 에서 이미 실패해 있었는데, 끝난 체크를 읽지 않고 머지했다. 새 테스트는 맥의 CoreText 에서만 돌았고 맥의 `contains` 는 정확해서 통과했다. 판 배치를 다른 글 크기로 돌려 본 테스트도 없었다.
+- **부류:** 한 플랫폼의 글 크기(와 그 플랫폼의 기하 함수 구현)에 맞춰서만 검증한 배치.
+- **고침:** 머리 글꼴은 폭과 종 위 틈(`bellRect.minY - platePad`)을 둘 다 보고 고르고, 작은 글꼴로도 틈보다 크면 틈에 맞춰 줄여 그린다(`headScale`, 그려진 것과 기록되는 틀이 같다). 판보다 넓은 줄(머리·규칙·이벤트·결과)은 `…` 로 자른다. 숫자는 폭이 판 안에 들어가는 배율만 쓴다. 결과가 넘치면 등수를 아래부터, 그다음 머리 줄을, 닫기 안내는 마지막까지 남긴다. 테스트의 포함 검사는 변마다 비교하는 `inside` 로 바꿨다.
+- **부류 스윕(읽기만):** 광장 패널의 배치 중 글 크기를 `text.metrics`/`text.line` 으로 재는 곳은 그림 퀴즈(`PlazaDrawPanel`)·알약(`PlazaPillsPanel`)·게시판·카드 패널이다. 이들은 줄을 잰 폭·높이로 틀을 잡아 글 크기가 커지면 같이 커지고(고정된 맥 수치를 박은 곳을 찾지 못했다), 이 판처럼 크기가 고정된 그림(종) 옆에 글을 끼워 넣는 곳은 없었다. 고칠 곳은 없었다. 같은 `.contains(` 포함 검사를 쓰는 다른 테스트는 후속으로 남긴다.
+- **영구 캡처:** `PlazaBerryTablePanelTests.testPlateRowsFitUnderEnlargedTextMetrics`(글자 폭·높이 1.5배인 엔진으로 같은 상태 전부: 안 겹치고 판 안, 닫기 안내·숫자·안내 글 유지). 고치기 전 코드에서 20번 실패하는 것을 확인했다(머리가 종과 겹침, 닫기 안내가 사라짐). 절차: PR 은 머지 전에 끝난 체크(`gh pr checks`)를 읽는다.
+- **규칙:** 글 크기에 기대는 배치 테스트는 크기를 키운 엔진으로도 돌린다. 머지 전에 끝난 체크를 읽는다.
