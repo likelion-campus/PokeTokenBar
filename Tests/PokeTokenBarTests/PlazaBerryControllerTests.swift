@@ -722,6 +722,37 @@ final class PlazaBerryControllerTests: XCTestCase {
         XCTAssertEqual(w.c.banner, L(.ko).plazaGameOverBanner(game: L(.ko).plazaGameName(.berry)))
     }
 
+    func testAnEndWithNoPointListsTheScoresWithoutPlacesOnTheTable() async {
+        let w = await world()
+        await lock(w)   // me and the two teammates play; nobody rings
+        for _ in 0..<3000 {
+            await run(w, ticks: 1)
+            if w.c.gameState?.endedAt != nil { break }
+        }
+        XCTAssertEqual(w.c.gameState?.berry?.scores.reduce(0, +), 0, "test precondition: the deck ran out with no point")
+        guard case .result(let lines)? = w.c.berryBoard?.center else { return XCTFail("the centre shows the result") }
+        let l = L(.ko)
+        XCTAssertEqual(lines.first, l.plazaGameOverBanner(game: l.plazaGameName(.berry)))
+        XCTAssertEqual(lines.last, l.plazaBerryCloseHint)
+        let seats = lines.dropFirst().dropLast()
+        XCTAssertEqual(seats.count, 3)
+        XCTAssertFalse(lines.contains { $0.contains("등") }, "no places when nobody scored")
+        XCTAssertEqual(Set(seats), Set(w.c.berryBoard?.seats.map { l.plazaBerrySeatLabel(name: $0.name, score: 0) } ?? []))
+    }
+
+    func testAWrongBellAtZeroSaysItTookNoPoint() async {
+        let w = await world()
+        await lock(w)
+        let reached = await until(w) { hasCardsNoFive(w) }
+        XCTAssertTrue(reached, "a table with cards and no five showed")
+        press(w, spaceKey)
+        XCTAssertEqual(lastBell(w)?.right, false, "test precondition: a wrong bell")
+        await run(w, seconds: 1)
+        guard case .playing(let event)? = w.c.berryBoard?.center else { return XCTFail("the centre shows the play") }
+        XCTAssertEqual(event, L(.ko).plazaBerryMissed(nickname: nil, tookPoint: false))
+        XCTAssertTrue(event?.hasSuffix("· 1초 쉬기") == true)
+    }
+
     func testAnAbandonedGameShowsNoResultBanner() async {
         let w = await world()
         await lock(w, meJoins: false)

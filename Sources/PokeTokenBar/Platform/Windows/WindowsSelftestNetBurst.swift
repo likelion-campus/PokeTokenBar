@@ -40,6 +40,7 @@ enum WindowsSelftestNetBurst {
     struct Output: Codable { var results: [CaseResult] = []; var stacks: [Stacks] = []; var notes: [String] = [] }
 
     @MainActor static func run(_ args: [String]) -> Never {
+        guard WindowsSelftest.onCI else { WindowsSelftest.refuseOffRunner("--selftest-net-burst") }  // direct requests to external endpoints
         guard let out = args.first else { WindowsApp.exit(2, .helper) }
         _ = WinMainLoop.prepare()
         Task { @MainActor in

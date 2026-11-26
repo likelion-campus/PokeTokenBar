@@ -19,6 +19,7 @@ enum WindowsSelftestWakers {
     private struct Phase: Codable { let phase: String; let detail: String }
 
     @MainActor static func run(_ args: [String]) -> Never {
+        guard WindowsSelftest.onCI else { WindowsSelftest.refuseOffRunner("--selftest-waker-hunt") }  // sends GETs to api.github.com
         guard let out = args.first else { WindowsApp.exit(2, .helper) }
         let seconds = args.count > 1 ? Double(args[1]) ?? 30 : 30
         _ = WinMainLoop.prepare()
@@ -92,6 +93,7 @@ enum WindowsSelftestWakers {
     nonisolated(unsafe) private static var keep: Any?
 
     @MainActor static func park(_ args: [String]) -> Never {
+        guard WindowsSelftest.onCI else { WindowsSelftest.refuseOffRunner("--selftest-park") }  // sends nothing; guarded like the other diagnostic modes
         let mode = args.first ?? "none"
         if mode == "none" { while true { Thread.sleep(forTimeInterval: 3600) } }
         _ = WinMainLoop.prepare()

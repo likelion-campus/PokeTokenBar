@@ -549,7 +549,9 @@ extension L {
     func plazaBerryRang(nickname: String?, ms: Int) -> String {
         "\(nickname.map { "\($0)님이" } ?? "내가") 종을 쳤어요 · \(String(format: "%.2f", Double(ms) / 1000))초 · +1점"
     }
-    func plazaBerryMissed(nickname: String?) -> String { "\(nickname.map { "\($0)님이" } ?? "내가") 잘못 쳤어요 · −1점" }
+    func plazaBerryMissed(nickname: String?, tookPoint: Bool) -> String {
+        "\(nickname.map { "\($0)님이" } ?? "내가") 잘못 쳤어요 · \(tookPoint ? "−1점" : plazaBerryWrongRest)"
+    }
     func plazaBerryWinner(nickname: String?) -> String { nickname.map { "\($0)님이 이겼어요!" } ?? "내가 이겼어요!" }
     func plazaBerryTie(names: [String]) -> String { "공동 1등 \(names.joined(separator: " · "))" }
     func plazaBerryRank(place: Int, nickname: String, score: Int, tied: Bool) -> String { "\(tied ? "공동 " : "")\(place)등 \(nickname) \(score)점" }
@@ -695,7 +697,7 @@ extension L {
     var plazaModeShown: String { "모두 표시" }
     var plazaModeUIHidden: String { "UI 숨기기" }
     var plazaModeBackgroundHidden: String { "배경 숨기기" }
-    var plazaModeBothHidden: String { "UI·배경 숨기기" }
+    var plazaModeBothHidden: String { "UI·배경 숨김" }
     var plazaNameColor: String { "이름 색" }
     func plazaClock(phase: PlazaDaylight.Phase, time: String) -> String {
         let name = switch phase {
