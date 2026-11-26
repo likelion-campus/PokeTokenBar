@@ -345,4 +345,68 @@ final class PlazaBerryTablePanelTests: XCTestCase {
         XCTAssertTrue(try labels().contains("하늘님이 종을 쳤어요 · 0.41초 · +1점"))
         XCTAssertFalse(try labels().contains(L(.ko).plazaBerryCountdownNote), "only the countdown says it")
     }
+
+    // MARK: centre plate text
+
+    private typealias Kind = PlazaBerryTablePanel.PlateRow.Kind
+
+    /// Every centre state the plate shows, with the longest lines the game makes (an 8-seat result with a tie head).
+    private func centres(seats n: Int) -> [(String, PlazaBerryBoard.Center)] {
+        let l = L(.ko)
+        let ranks = (0..<n).map { l.plazaBerryRank(place: $0 + 1, nickname: Self.names[$0], score: 4 - $0 % 4, tied: $0 % 2 == 0) }
+        return [("countdown", .countdown(3)),
+                ("event", .playing(event: l.plazaBerryMissed(nickname: "서준", tookPoint: false))),
+                ("long event", .playing(event: l.plazaBerryRang(nickname: "가나다라마바사아자차카타파하", ms: 410))),
+                ("result", .result(lines: [l.plazaBerryTie(names: Self.names.prefix(n).map { $0 })] + ranks + [l.plazaBerryCloseHint]))]
+    }
+
+    func testPlateRowsNeverOverlapAndStayInsideThePlate() async throws {
+        for viewport in [narrow, wide] {
+            for scale in [CGFloat(1), 2] {
+                for n in [2, 5, 8] {
+                    for (name, center) in centres(seats: n) {
+                        let r = Rig(viewport: viewport, scale: scale, board: Self.board(seats: n, center: center))
+                        await Self.settle()
+                        let plate = try XCTUnwrap(r.panel.plate)
+                        let ctx = "\(name) \(Int(viewport.width)) x\(scale) \(n) seats"
+                        for (i, a) in plate.rows.enumerated() {
+                            XCTAssertTrue(plate.frame.insetBy(dx: -0.01, dy: -0.01).contains(a.frame), "\(a.kind) \(a.text) leaves the plate: \(ctx)")
+                            for b in plate.rows[(i + 1)...] {
+                                XCTAssertFalse(a.frame.insetBy(dx: 0.01, dy: 0.01).intersects(b.frame.insetBy(dx: 0.01, dy: 0.01)),
+                                               "\(a.kind) \(a.text) overlaps \(b.kind) \(b.text): \(ctx)")
+                            }
+                        }
+                        if name == "countdown" {
+                            let digit = try XCTUnwrap(plate.rows.first { $0.kind == .digit }, "the digit has its row: \(ctx)")
+                            let rule = try XCTUnwrap(plate.rows.first { $0.kind == .rule }, "the rule stays: \(ctx)")
+                            XCTAssertGreaterThan(digit.frame.height, rule.frame.height, ctx)
+                            let m = PlatformPlaza.graphics.text.metrics(.plaza(.body))
+                            XCTAssertGreaterThanOrEqual(digit.frame.height, (m.ascender - m.descender).rounded() * digit.magnify, "the row holds the magnified glyphs: \(ctx)")
+                            let note = plate.rows.filter { $0.kind == .note }.map(\.text)
+                            XCTAssertTrue(note.isEmpty || note.joined(separator: " ") == L(.ko).plazaBerryCountdownNote, "the note is whole or gone: \(ctx)")
+                            if viewport == wide { XCTAssertFalse(note.isEmpty, "the big plate keeps the note: \(ctx)") }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    func testThePlateBreaksTheRuleAtSpacesOnly() async throws {
+        let rule = L(.ko).plazaBerryRule
+        for viewport in [narrow, wide] {
+            let r = Rig(viewport: viewport, board: Self.board(center: .playing(event: nil)))
+            await Self.settle()
+            let pieces = try XCTUnwrap(r.panel.plate).rows.filter { $0.kind == .rule }.map(\.text)
+            XCTAssertGreaterThan(pieces.count, 1, "the rule wraps in this plate: \(Int(viewport.width))")
+            XCTAssertEqual(pieces.joined(separator: " "), rule, "every break falls at a space: \(Int(viewport.width))")
+        }
+    }
+
+    func testAWordWiderThanTheLineBreaksInsideItAndOnlyThen() async {
+        let wide = PlazaBerryTablePanel.wordLines("가나 다라마바사 아", width: 3) { CGFloat($0.count) }
+        XCTAssertEqual(wide, ["가나", "다라마", "바사", "아"])
+        XCTAssertEqual(PlazaBerryTablePanel.wordLines("a bb ccc", width: 5) { CGFloat($0.count) }, ["a bb", "ccc"])
+        XCTAssertEqual(PlazaBerryTablePanel.wordLines("", width: 5) { CGFloat($0.count) }, [""])
+    }
 }

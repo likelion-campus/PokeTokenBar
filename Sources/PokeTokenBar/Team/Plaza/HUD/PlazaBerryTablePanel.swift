@@ -95,6 +95,40 @@ struct PlazaBerryBoard: Equatable {
     var isAnimating: Bool { clock.isRunning }
     func didAppear() { pictures.forgetFailures() }
 
+    /// One drawn text row (or the bell) of the centre plate, in the panel's coordinates.
+    struct PlateRow: Equatable {
+        enum Kind { case head, bell, rule, digit, note, event, result }
+        var kind: Kind
+        var text: String
+        var frame: CGRect
+        /// How many times as big the text is drawn; the row must be as tall as its glyphs.
+        var magnify: CGFloat = 1
+    }
+    /// The centre plate and its rows as the last render drew them; the tests read it for overlap and wrapping.
+    private(set) var plate: (frame: CGRect, rows: [PlateRow])?
+
+    /// `s` broken at spaces only, greedy by `width` of each candidate line; a word wider than a line breaks between its characters. The
+    /// engines' own `wrappedLines` also break between a digit and the Korean after it ("5 / 개면"), which the plate must not do.
+    static func wordLines(_ s: String, width: CGFloat, measure: (String) -> CGFloat) -> [String] {
+        var lines: [String] = [], current = ""
+        for word in s.split(separator: " ", omittingEmptySubsequences: true).map(String.init) {
+            let joined = current.isEmpty ? word : current + " " + word
+            if measure(joined) <= width { current = joined; continue }
+            if !current.isEmpty { lines.append(current); current = "" }
+            var rest = word[...]
+            while measure(String(rest)) > width, rest.count > 1 {
+                var cut = rest.startIndex
+                for i in rest.indices.dropFirst() where measure(String(rest[..<rest.index(after: i)])) <= width { cut = rest.index(after: i) }
+                if cut == rest.startIndex { cut = rest.index(after: rest.startIndex) }
+                lines.append(String(rest[..<cut]))
+                rest = rest[cut...]
+            }
+            current = String(rest)
+        }
+        if !current.isEmpty { lines.append(current) }
+        return lines.isEmpty ? [""] : lines
+    }
+
     // MARK: animation
 
     /// Clock beats at which each motion started.
@@ -363,32 +397,46 @@ struct PlazaBerryBoard: Equatable {
         let textTop = isResult ? platePad + headH + 3 : bellRect.maxY + 2
         let room = plateFrame.height - platePad - textTop
         // What goes under the head (and the bell): the rule, then the event, countdown digit or the result's lines.
-        var ruleLines: [(PlazaTextLine, String)] = isResult ? [] : text.wrappedLines(rule, font: small, width: inner).map { ($0, rule) }
-        var tail: [(PlazaTextLine, String, PlazaColor, CGFloat)] = []
+        // Every plate text breaks at spaces only (`wordLines`); the engines' own wrapping splits "5개면".
+        typealias Row = (line: PlazaTextLine, piece: String, text: String, color: PlazaColor, magnify: CGFloat, kind: PlateRow.Kind)
+        func wrapped(_ s: String, _ color: PlazaColor, _ kind: PlateRow.Kind) -> [Row] {
+            Self.wordLines(s, width: inner) { text.line($0, font: small).width }.map { (text.line($0, font: small), $0, s, color, 1, kind) }
+        }
+        var ruleLines: [Row] = isResult ? [] : wrapped(rule, PlazaColor(hex: 0xDFE9EE), .rule)
+        var tail: [Row] = []
         switch board.center {
         case .countdown(let n):
             let digit = "\(n)"
-            let note = l.plazaBerryCountdownNote
-            tail = [(text.line(digit, font: body), digit, Self.gold, 2)] + text.wrappedLines(note, font: small, width: inner).map { ($0, note, .white, 1) }
+            // The digit gets its own row, as tall as its glyphs (the body font's line): 3 times as big when the rule, the digit and the note
+            // all fit, else 2, else plain (the narrow window's small plate); when even that does not fit, the note goes whole.
+            var note = wrapped(l.plazaBerryCountdownNote, .white, .note)
+            let bodyH = (metricsBody.ascender - metricsBody.descender).rounded()
+            func fit(_ note: [Row]) -> CGFloat? {
+                let others = lineH * CGFloat(ruleLines.count + note.count)
+                return [CGFloat(3), 2, 1].first { others + bodyH * $0 <= room }
+            }
+            var magnify = fit(note)
+            if magnify == nil { note = []; magnify = fit(note) }   // a note cut off mid-sentence reads worse than none
+            tail = [(text.line(digit, font: body), digit, digit, Self.gold, magnify ?? 1, .digit)] + note
         case .playing(let event):
-            if let event { tail = text.wrappedLines(event, font: small, width: inner).map { ($0, event, Self.gold, 1) } }
+            if let event { tail = wrapped(event, Self.gold, .event) }
         case .result(let lines):
-            tail = lines.enumerated().flatMap { i, s in text.wrappedLines(s, font: small, width: inner).map { ($0, s, i == 0 ? Self.gold : .white, CGFloat(1)) } }
+            tail = lines.enumerated().flatMap { i, s in wrapped(s, i == 0 ? Self.gold : .white, .result) }
         }
-        func rowsHeight() -> CGFloat { ruleLines.map { _ in lineH }.reduce(0, +) + tail.map { lineH * $0.3 }.reduce(0, +) }
+        func rowHeight(_ r: Row) -> CGFloat { r.kind == .digit ? (metricsBody.ascender - metricsBody.descender).rounded() * r.magnify : lineH }
+        func rowsHeight() -> CGFloat { ruleLines.map(rowHeight).reduce(0, +) + tail.map(rowHeight).reduce(0, +) }
         while rowsHeight() > room {   // too little room: the event's later lines go first, then the rule's, then the last of what is left
             if tail.count > 1 { tail.removeLast() }
             else if !ruleLines.isEmpty { ruleLines.removeLast() }
             else if !tail.isEmpty { tail.removeLast() }
             else { break }
         }
-        let rows: [(line: PlazaTextLine, text: String, color: PlazaColor, magnify: CGFloat)] =
-            ruleLines.map { ($0.0, $0.1, PlazaColor(hex: 0xDFE9EE), 1) } + tail.map { ($0.0, $0.1, $0.2, $0.3) }
+        let rows = ruleLines + tail
         let plateKey = "plate \(plateFrame.size) \(scale) \(centreKey) \(headFont == body)"
         var rowFrames: [CGRect] = []
         var ry = textTop
         for r in rows {
-            let h = lineH * r.magnify
+            let h = rowHeight(r)
             rowFrames.append(CGRect(x: platePad + (inner - r.line.width * r.magnify) / 2, y: ry, width: r.line.width * r.magnify, height: h))
             ry += h
         }
@@ -409,12 +457,15 @@ struct PlazaBerryBoard: Equatable {
                 canvas.scale(x: row.magnify, y: row.magnify)
                 if row.magnify > 1 { canvas.setShouldAntialias(false); canvas.setShouldSmoothFonts(false) }
                 canvas.setFillColor(row.color)
-                canvas.draw(row.line, at: CGPoint(x: 0, y: -(row.magnify == 1 ? metricsSmall.descender : metricsBody.descender)))
+                canvas.draw(row.line, at: CGPoint(x: 0, y: -(row.kind == .digit ? metricsBody.descender : metricsSmall.descender)))
                 canvas.restoreState()
             }
         }) { layers.append(.image(image, frame: plateFrame)) }
-        plateItems.append(PlazaAccessibilityItem(frame: CGRect(x: plateFrame.minX + platePad, y: plateFrame.minY + platePad, width: inner, height: headH),
-                                                 role: .staticText, label: l.plazaBerryHead))
+        let headFrame = CGRect(x: plateFrame.minX + platePad, y: plateFrame.minY + platePad, width: inner, height: headH)
+        plateItems.append(PlazaAccessibilityItem(frame: headFrame, role: .staticText, label: l.plazaBerryHead))
+        plate = (plateFrame, [PlateRow(kind: .head, text: l.plazaBerryHead, frame: headFrame)]
+                 + (isResult ? [] : [PlateRow(kind: .bell, text: "", frame: layout.bell)])
+                 + rows.enumerated().map { PlateRow(kind: $1.kind, text: $1.piece, frame: rowFrames[$0].offsetBy(dx: plateFrame.minX, dy: plateFrame.minY), magnify: $1.magnify) })
         for (k, row) in rows.enumerated() {
             plateItems.append(PlazaAccessibilityItem(frame: rowFrames[k].offsetBy(dx: plateFrame.minX, dy: plateFrame.minY), role: .staticText, label: row.text))
         }

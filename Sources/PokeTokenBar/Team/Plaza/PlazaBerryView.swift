@@ -32,7 +32,7 @@ extension PlazaBerryBoard {
             var event: String?
             if let v = b.last, s.players.indices.contains(v.seat) {
                 let name = shown(s.players[v.seat])
-                event = v.right ? l.plazaBerryRang(nickname: name, ms: v.ms) : l.plazaBerryMissed(nickname: name)
+                event = v.right ? l.plazaBerryRang(nickname: name, ms: v.ms) : l.plazaBerryMissed(nickname: name, tookPoint: v.tookPoint)
             }
             center = .playing(event: event)
         case .over:
@@ -49,6 +49,10 @@ extension PlazaBerryBoard {
                 lines.append(l.plazaGameOverBanner(game: l.plazaGameName(.berry)))
             }
             for (i, r) in ranking.enumerated() {
+                if best == 0 {   // nobody scored: no places, just the scores in the current order
+                    lines.append(l.plazaBerrySeatLabel(name: info(r.id).name, score: r.score))
+                    continue
+                }
                 let place = best > 0 ? (ranking.firstIndex { $0.score == r.score } ?? i) + 1 : i + 1
                 lines.append(l.plazaBerryRank(place: place, nickname: info(r.id).name, score: r.score,
                                               tied: best > 0 && ranking.filter { $0.score == r.score }.count > 1))
