@@ -95,12 +95,15 @@ function Measure-App([string]$Label, [int]$Seconds, [string]$Settings, [hashtabl
     $j = Get-Content "idle-$Label.json" -Raw | ConvertFrom-Json
     $wake = Get-WakeDelta (Join-Path $env:LOCALAPPDATA 'PokeTokenBar\Logs\PokeTokenBar.log')
     if ($wake) { "WAKES ${Label}: loops=$($wake.loops) messages=$($wake.messages) ids=[$($wake.messageIds -join ' ')] timers=[$($wake.timerIds -join ' ')] sources=[$($wake.sources -join ' ')]" }
+    # The main run loop's wakes next to those counts (data for a later rule; judged by nothing yet): its own line, so the WAKES line keeps its fields.
+    $runLoopWakes = Get-RunLoopWakes (Join-Path $env:LOCALAPPDATA 'PokeTokenBar\Logs\PokeTokenBar.log')
+    if ($null -ne $runLoopWakes -and $wake) { "run loop wakes ${Label}: $runLoopWakes loops=$($wake.loops)" }
     # Every window is measured with the trace on, so a missing attribution is a broken measurement, not an empty one: it fails (until
     # the follow-up of run 44297197674, 17 windows had none in every run and their clock rules passed with nothing to look at).
     $wakeOK = [bool]$wake
     if (-not $wakeOK) { "FAIL ${Label}: no wake attribution (no parsable 'wake trace start/exit' pair in the app log)" }
     $verdicts[$Label] = $verdicts[$Label] -and $wakeOK
-    $summary.windows[$Label] = [ordered]@{ fixturePhaseWaitSeconds = $summaryPhaseWait; wake = $wake; seconds = $Seconds; pass = ($code -eq 0) -and $wakeOK; budget = $Budget; processCycles = $j.processCycles; cyclesPerSec = $j.processCyclesPerSec; liveCyclesPerSec = $j.liveCyclesPerSec; goneCyclesPerSec = $j.goneCyclesPerSec; exitedThreads = @($j.exitedThreads); cpuSeconds = $j.processCpuSeconds; contextSwitchesPerMin = $j.contextSwitchesPerMin; mainThreadContextSwitches = $j.mainThreadContextSwitches; privateMB = "$($j.privateMBStart) -> $($j.privateMBEnd)"; handles = "$($j.handlesStart) -> $($j.handlesEnd)"; threads = @($j.threads | Where-Object { $_.contextSwitches -gt 0 } | Select-Object tid, main, name, start, contextSwitches, cycles) }
+    $summary.windows[$Label] = [ordered]@{ fixturePhaseWaitSeconds = $summaryPhaseWait; wake = $wake; runLoopWakes = $runLoopWakes; seconds = $Seconds; pass = ($code -eq 0) -and $wakeOK; budget = $Budget; processCycles = $j.processCycles; cyclesPerSec = $j.processCyclesPerSec; liveCyclesPerSec = $j.liveCyclesPerSec; goneCyclesPerSec = $j.goneCyclesPerSec; exitedThreads = @($j.exitedThreads); cpuSeconds = $j.processCpuSeconds; contextSwitchesPerMin = $j.contextSwitchesPerMin; mainThreadContextSwitches = $j.mainThreadContextSwitches; privateMB = "$($j.privateMBStart) -> $($j.privateMBEnd)"; handles = "$($j.handlesStart) -> $($j.handlesEnd)"; threads = @($j.threads | Where-Object { $_.contextSwitches -gt 0 } | Select-Object tid, main, name, start, contextSwitches, cycles) }
     $fetches = Get-FetchDelta (Join-Path $env:LOCALAPPDATA 'PokeTokenBar\Logs\PokeTokenBar.log')
     if ($fetches) { "FETCHES ${Label}: started=$($fetches.started) ended=$($fetches.ended) hosts=[$($fetches.hosts -join ' ')] failures=[$($fetches.failures -join ' ')]" }
     $summary.windows[$Label].fetches = $fetches

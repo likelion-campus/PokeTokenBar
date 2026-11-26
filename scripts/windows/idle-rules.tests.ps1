@@ -246,5 +246,21 @@ Check ((Get-CycleSplit ([uint64](100 * 120)) @([uint64](500 * 120)) 120).gone -e
 $gap = Get-CycleSplit ([uint64](600000 * 120)) @([uint64](140000 * 120)) 120
 Check ($gap.live -le $maxLive -and $gap.gone -eq 460000 -and ($gap.live + $gap.gone) -le $maxProc) 'KNOWN GAP (stated in the PR): 600,000/s with normal live threads (460,000/s in threads that exit within the window) passes: the old process-wide 450,000 failed it, and exited threads add no switches, so only 830,000 minus the live threads bounds them'
 
+# ---- the run-loop wake lines (PR 3 data): their own lines, never in the `wake trace` regex's way
+$wl = @('2026-11-26T03:08:28.0000000Z wake trace start: loops=40 messages_total=30 messages=0xf@Static:30 timers= sources=popoverClock:1', '2026-11-26T03:08:28.0010000Z run loop wakes start: 52',
+        '2026-11-26T03:10:30.0000000Z wake trace exit: loops=47 messages_total=36 messages=0xf@Static:36 timers= sources=popoverClock:4', '2026-11-26T03:10:30.0010000Z run loop wakes exit: 63')
+Check ((Get-RunLoopWakesFromLines $wl) -eq 11) 'the run loop wakes of a window are exit minus start (63 - 52)'
+Check ($null -ne (Get-WakeDeltaFromLines $wl[0] $wl[2]) -and (Get-WakeDeltaFromLines $wl[0] $wl[2]).loops -eq 7) 'the new lines leave the wake trace fields as they were (loops 7)'
+Check ($null -eq (ConvertFrom-WakeLine $wl[1])) 'a run loop wakes line is not a wake trace line'
+Check ($null -eq (Get-RunLoopWakesFromLines @($wl[0], $wl[2]))) 'no run loop wakes lines (an app without the counter) read as null, not as 0'
+Check ($null -eq (Get-RunLoopWakesFromLines @($wl[1]))) 'a start without an exit reads as null'
+Check ($null -eq (Get-RunLoopWakesFromLines @($wl[3], $wl[1]))) 'an exit before the start reads as null'
+Check ($null -eq (Get-RunLoopWakesFromLines $null)) 'no lines read as null'
+Check ((Get-RunLoopWakesFromLines @('run loop wakes start: 5', 'run loop wakes exit: 5')) -eq 0) 'a window with no wakes reads as 0'
+$tmpLog = Join-Path ([IO.Path]::GetTempPath()) "idle-rules-wakes-$PID.log"
+Set-Content -Path $tmpLog -Value $wl
+Check ((Get-RunLoopWakes $tmpLog) -eq 11 -and (Get-WakeDelta $tmpLog).loops -eq 7) 'from a log file: wakes 11, and the wake trace pair still reads (loops 7)'
+Remove-Item $tmpLog -ErrorAction SilentlyContinue
+
 "$script:count checks, $script:failed failed"
 if ($script:failed -gt 0) { exit 1 }
