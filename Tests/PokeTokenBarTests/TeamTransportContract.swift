@@ -50,6 +50,16 @@ func contractWaitUntil(_ timeout: TimeInterval, _ condition: () -> Bool) async -
     return condition()
 }
 
+/// `contractWaitUntil` for a wait whose failure ends the scenario: on a timeout it prints the harness's record (what its
+/// transports, raw sockets and the host's network path did), so a CI failure names what happened instead of only that 5 s passed.
+@MainActor
+func contractWait<H: TeamTransportHarness>(_ h: H, _ label: String, _ timeout: TimeInterval, line: UInt = #line,
+                                           _ condition: () -> Bool) async -> Bool {
+    let ok = await contractWaitUntil(timeout, condition)
+    if !ok { print("TRANSPORT RECORD (\(label), line \(line): not true after \(timeout) s)\n\(h.diagnosticRecord)") }
+    return ok
+}
+
 /// Two connected transports: `a` listens, `b` dials it.
 @MainActor
 func contractConnectedPair<H: TeamTransportHarness>(_ h: H) async throws
@@ -62,10 +72,7 @@ func contractConnectedPair<H: TeamTransportHarness>(_ h: H) async throws
     b.onPeerConnected = { id, _ in bPeer = id }
     a.start(code: code); b.start(code: code)
     h.connect(b, to: try await h.loopbackEndpoint(of: a))
-    let up = await contractWaitUntil(5) { aPeer != nil && bPeer != nil && h.linkCount(a) == 1 }
-    if !up {
-        print("TRANSPORT RECORD (the pair did not come up in 5 s; aPeer=\(aPeer != nil) bPeer=\(bPeer != nil) linksA=\(h.linkCount(a)) linksB=\(h.linkCount(b)))\n\(h.diagnosticRecord)")
-    }
+    let up = await contractWait(h, "connected pair", 5) { aPeer != nil && bPeer != nil && h.linkCount(a) == 1 }
     XCTAssertTrue(up)
     return (a, b, try XCTUnwrap(aPeer), try XCTUnwrap(bPeer))
 }
@@ -94,14 +101,14 @@ enum TeamTransportContract {
         a.start(code: code); b.start(code: code)
         h.connect(b, to: try await h.loopbackEndpoint(of: a))
 
-        let connected = await contractWaitUntil(5) { aPeer != nil && bPeer != nil }
+        let connected = await contractWait(h, "connected", 5) { aPeer != nil && bPeer != nil }
         XCTAssertTrue(connected)
         XCTAssertEqual(aPeer?.1, false)
         XCTAssertEqual(bPeer?.1, true)
 
         b.send(hello, to: try XCTUnwrap(bPeer).0)
         a.send(.emote(TeamEmote(kind: .heart, targetMemberID: nil)), to: try XCTUnwrap(aPeer).0)
-        let delivered = await contractWaitUntil(5) { !aGot.isEmpty && !bGot.isEmpty }
+        let delivered = await contractWait(h, "delivered", 5) { !aGot.isEmpty && !bGot.isEmpty }
         XCTAssertTrue(delivered)
         XCTAssertEqual(aGot, [hello])
         XCTAssertEqual(bGot, [.emote(TeamEmote(kind: .heart, targetMemberID: nil))])
@@ -132,10 +139,10 @@ enum TeamTransportContract {
         a.start(code: code)
         let raw = try await h.rawTLS(to: try await h.loopbackEndpoint(of: a), code: code)
         defer { raw.close() }
-        let up = await contractWaitUntil(5) { connected != nil }
+        let up = await contractWait(h, "up", 5) { connected != nil }
         XCTAssertTrue(up)
         raw.send(Data([0xFF, 0xFF, 0xFF, 0xFF]))
-        let dropped = await contractWaitUntil(5) { events.count >= 2 }
+        let dropped = await contractWait(h, "dropped", 5) { events.count >= 2 }
         XCTAssertTrue(dropped)
         let id = try XCTUnwrap(connected)
         XCTAssertEqual(events, ["bad:\(id)", "down:\(id)"])
@@ -165,13 +172,13 @@ enum TeamTransportContract {
         b.onPeerDisconnected = { _ in bDisconnected = true }
         a.start(code: code); b.start(code: code)
         h.connect(b, to: try await h.loopbackEndpoint(of: a))
-        let up = await contractWaitUntil(5) { aPeer != nil && bPeer != nil }
+        let up = await contractWait(h, "up", 5) { aPeer != nil && bPeer != nil }
         XCTAssertTrue(up)
 
         a.disconnect("no-such-peer", coveredBy: nil)
         XCTAssertFalse(aDisconnected)
         a.disconnect(try XCTUnwrap(aPeer), coveredBy: nil)
-        let remoteSawIt = await contractWaitUntil(5) { bDisconnected }
+        let remoteSawIt = await contractWait(h, "remoteSawIt", 5) { bDisconnected }
         XCTAssertTrue(remoteSawIt)
         XCTAssertFalse(aDisconnected, "owner-initiated disconnect is not reported back")
     }
@@ -186,7 +193,7 @@ enum TeamTransportContract {
         a.onPeerDisconnected = { aDown.append($0) }
         a.start(code: code); b.start(code: code)
         h.connect(b, to: try await h.loopbackEndpoint(of: a))
-        let up = await contractWaitUntil(5) { aPeer != nil && bPeer != nil }
+        let up = await contractWait(h, "up", 5) { aPeer != nil && bPeer != nil }
         XCTAssertTrue(up)
 
         h.willSleep(a)
@@ -194,7 +201,7 @@ enum TeamTransportContract {
         XCTAssertNil(h.listenerPort(of: a))
 
         h.didWake(a)
-        let back = await contractWaitUntil(5) { h.listenerPort(of: a) != nil }
+        let back = await contractWait(h, "back", 5) { h.listenerPort(of: a) != nil }
         XCTAssertTrue(back, "wake restarts a transport that was running")
 
         a.stop()
@@ -218,7 +225,7 @@ enum TeamTransportContract {
         h.failDiscovery(a)
         XCTAssertEqual(aDown, [aPeer])
         XCTAssertNil(h.listenerPort(of: a))
-        let back = await contractWaitUntil(8) { h.listenerPort(of: a) != nil }
+        let back = await contractWait(h, "back", 8) { h.listenerPort(of: a) != nil }
         XCTAssertTrue(back, "the transport comes back by itself after the retry delay")
     }
 
@@ -233,7 +240,7 @@ enum TeamTransportContract {
         let cap = TeamTransportRules.maxUnfinishedInboundPerAddress
         let close = try await h.plainTCP(toPortOf: a, count: cap + 8)
         defer { close() }
-        let full = await contractWaitUntil(5) { h.linkCount(a) >= cap }
+        let full = await contractWait(h, "full", 5) { h.linkCount(a) >= cap }
         XCTAssertTrue(full)
         try await Task.sleep(nanoseconds: 500_000_000)
         XCTAssertEqual(h.linkCount(a), cap)
@@ -280,7 +287,7 @@ enum TeamTransportContract {
         _ = try await h.loopbackEndpoint(of: a)
         let close = try await h.plainTCP(toPortOf: a, count: 6)
         defer { close() }
-        let full = await contractWaitUntil(5) { h.linkCount(a) >= 2 }
+        let full = await contractWait(h, "full", 5) { h.linkCount(a) >= 2 }
         XCTAssertTrue(full)
         try await Task.sleep(nanoseconds: 500_000_000)
         XCTAssertEqual(h.linkCount(a), 2)
@@ -297,7 +304,7 @@ enum TeamTransportContract {
         var connected = 0
         a.onPeerConnected = { _, _ in connected += 1 }
         h.injectDiscovered(a, name: "ptb-teammate", endpoint: real)
-        let up = await contractWaitUntil(5) { connected == 1 }
+        let up = await contractWait(h, "up", 5) { connected == 1 }
         XCTAssertTrue(up)
         let sink = try await h.silentSink()
         defer { sink.close() }
@@ -315,7 +322,7 @@ enum TeamTransportContract {
         let id = String(repeating: "x", count: 1_000_000)
         let frame = try TeamWire.encode(.inventory(eventIDs: [id], reactionIDs: []))
         for _ in 0..<6 { h.sendRaw(sender, frame, to: peer) }
-        let dropped = await contractWaitUntil(5) { bad == 1 }
+        let dropped = await contractWait(h, "dropped", 5) { bad == 1 }
         XCTAssertTrue(dropped)
         XCTAssertEqual(h.linkCount(receiver), 0)
     }
@@ -329,7 +336,7 @@ enum TeamTransportContract {
         let frame = try TeamWire.encode(.emote(TeamEmote(kind: .jump, targetMemberID: nil)))
         let flood = (0..<6000).reduce(into: Data()) { d, _ in d.append(frame) }
         h.sendRaw(sender, flood, to: peer)
-        let dropped = await contractWaitUntil(5) { bad == 1 }
+        let dropped = await contractWait(h, "dropped", 5) { bad == 1 }
         XCTAssertTrue(dropped)
         XCTAssertLessThan(delivered, 6000, "the rest of a flood is not handled")
     }
@@ -348,7 +355,7 @@ enum TeamTransportContract {
                                  inPlaza: true, tile: TilePoint(x: 3, y: 3), facing: .down, isWalking: true)
         let step = try TeamWire.encode(.presence(moved))
         for _ in 0..<300 { h.sendRaw(sender, step, to: peer) }
-        let all = await contractWaitUntil(5) { delivered == 333 }
+        let all = await contractWait(h, "all", 5) { delivered == 333 }
         XCTAssertTrue(all)
         XCTAssertEqual(bad, 0)
         XCTAssertEqual(h.linkCount(receiver), 1)
@@ -363,7 +370,7 @@ enum TeamTransportContract {
         XCTAssertEqual(h.linkCount(b), 1)
 
         let later = Date().addingTimeInterval(TeamDialPlanner.handshakeRetryCooldown + 1)
-        let failed = await contractWaitUntil(5) { h.plannedDials(b, now: later) == ["x"] }
+        let failed = await contractWait(h, "failed", 5) { h.plannedDials(b, now: later) == ["x"] }
         XCTAssertTrue(failed, "the failed dial should end and become due again after the cooldown")
         XCTAssertEqual(h.linkCount(b), 0)
         XCTAssertEqual(h.plannedDials(b, now: Date()), [], "no redial inside the cooldown")
@@ -379,10 +386,10 @@ enum TeamTransportContract {
         b.onPeerBadFrame = { _ in bBad += 1 }
         a.start(code: code); b.start(code: code)
         h.injectDiscovered(b, name: "x", endpoint: try await h.loopbackEndpoint(of: a))
-        let up = await contractWaitUntil(5) { aPeer != nil && h.linkCount(b) == 1 }
+        let up = await contractWait(h, "up", 5) { aPeer != nil && h.linkCount(b) == 1 }
         XCTAssertTrue(up)
         h.sendRaw(a, Data([0xFF, 0xFF, 0xFF, 0xFF]), to: try XCTUnwrap(aPeer))
-        let dropped = await contractWaitUntil(5) { bBad == 1 && h.linkCount(b) == 0 }
+        let dropped = await contractWait(h, "dropped", 5) { bBad == 1 && h.linkCount(b) == 0 }
         XCTAssertTrue(dropped)
 
         h.injectDiscovered(b, name: "x", endpoint: try await h.loopbackEndpoint(of: a))
@@ -401,12 +408,12 @@ enum TeamTransportContract {
         b.onPeerBadFrame = { _ in bBad += 1 }
         a.start(code: code); b.start(code: code)
         h.injectDiscovered(b, name: "x", endpoint: try await h.loopbackEndpoint(of: a))
-        let up = await contractWaitUntil(5) { aPeer != nil && h.linkCount(b) == 1 }
+        let up = await contractWait(h, "up", 5) { aPeer != nil && h.linkCount(b) == 1 }
         XCTAssertTrue(up)
         let frame = try TeamWire.encode(.emote(TeamEmote(kind: .jump, targetMemberID: nil)))
         let flood = (0..<6000).reduce(into: Data()) { d, _ in d.append(frame) }
         h.sendRaw(a, flood, to: try XCTUnwrap(aPeer))
-        let dropped = await contractWaitUntil(5) { bBad == 1 && h.linkCount(b) == 0 }
+        let dropped = await contractWait(h, "dropped", 5) { bBad == 1 && h.linkCount(b) == 0 }
         XCTAssertTrue(dropped)
 
         h.injectDiscovered(b, name: "x", endpoint: try await h.loopbackEndpoint(of: a))
@@ -423,10 +430,10 @@ enum TeamTransportContract {
         a.start(code: code); b.start(code: code)
         let endpoint = try await h.loopbackEndpoint(of: a)
         h.injectDiscovered(b, name: "x", endpoint: endpoint)
-        let first = await contractWaitUntil(5) { bPeers.count == 1 }
+        let first = await contractWait(h, "first", 5) { bPeers.count == 1 }
         XCTAssertTrue(first)
         h.connect(b, to: endpoint)
-        let second = await contractWaitUntil(5) { bPeers.count == 2 }
+        let second = await contractWait(h, "second", 5) { bPeers.count == 2 }
         XCTAssertTrue(second)
 
         b.disconnect(bPeers[0], coveredBy: bPeers[1])
@@ -483,10 +490,10 @@ enum TeamTransportContract {
         let a = Side("Aa", code: code, transport: ta), b = Side("Bb", code: code, transport: tb)
         defer { a.cleanUp(); b.cleanUp() }
 
-        let ready = await contractWaitUntil(5) { h.listenerPort(of: ta) != nil }
+        let ready = await contractWait(h, "ready", 5) { h.listenerPort(of: ta) != nil }
         XCTAssertTrue(ready, "listener did not become ready")
         h.connect(tb, to: try await h.loopbackEndpoint(of: ta))
-        let joined = await contractWaitUntil(5) { a.session.members.count == 1 && b.session.members.count == 1 }
+        let joined = await contractWait(h, "joined", 5) { a.session.members.count == 1 && b.session.members.count == 1 }
         XCTAssertTrue(joined, "hello exchange did not finish")
         let toA = try XCTUnwrap(h.peerIDs(tb).first)
 
@@ -501,7 +508,7 @@ enum TeamTransportContract {
         h.sendRaw(tb, try frame(["hologram": ["_0": [1, 2, 3]]]), to: toA)
         h.sendRaw(tb, try frame(["events": inner]), to: toA)
 
-        let arrived = await contractWaitUntil(5) { a.feed.eventIDs.contains("good") }
+        let arrived = await contractWait(h, "arrived", 5) { a.feed.eventIDs.contains("good") }
         XCTAssertTrue(arrived, "the readable event of the batch must arrive")
         XCTAssertFalse(a.feed.eventIDs.contains("future"))
         XCTAssertEqual(a.session.members.count, 1, "the link survives")
@@ -522,7 +529,7 @@ enum TeamTransportContract {
         h.injectDiscovered(a, name: "ptb-rogue-0", endpoint: sink.endpoint)   // outbound, never answered
         let inbound = try await h.plainTCP(toPortOf: a, count: 1)             // inbound, never handshakes
         defer { inbound() }
-        let both = await contractWaitUntil(5) { h.linkCount(a) == 2 }
+        let both = await contractWait(h, "both", 5) { h.linkCount(a) == 2 }
         XCTAssertTrue(both)
         // At the limit nothing more is taken, in either direction.
         h.injectDiscovered(a, name: "ptb-rogue-1", endpoint: sink.endpoint)
@@ -531,7 +538,7 @@ enum TeamTransportContract {
         try await Task.sleep(nanoseconds: 300_000_000)
         XCTAssertEqual(h.linkCount(a), 2)
 
-        let ended = await contractWaitUntil(TeamTransportRules.handshakeTimeout + 2) { h.linkCount(a) == 0 }
+        let ended = await contractWait(h, "ended", TeamTransportRules.handshakeTimeout + 2) { h.linkCount(a) == 0 }
         XCTAssertTrue(ended, "unfinished handshakes end within the timeout")
         let due = Date().addingTimeInterval(TeamDialPlanner.handshakeRetryCooldown + 1)
         XCTAssertTrue(h.plannedDials(a, now: due).contains("ptb-rogue-0"), "due again after the cooldown")
@@ -541,7 +548,7 @@ enum TeamTransportContract {
         h.injectDiscovered(a, name: "ptb-rogue-2", endpoint: sink.endpoint)
         let again = try await h.plainTCP(toPortOf: a, count: 1)
         defer { again() }
-        let reopened = await contractWaitUntil(5) { h.linkCount(a) == 2 }
+        let reopened = await contractWait(h, "reopened", 5) { h.linkCount(a) == 2 }
         XCTAssertTrue(reopened, "the timeout freed the slots")
     }
 
@@ -551,7 +558,7 @@ enum TeamTransportContract {
         var down: [TeamPeerID] = []
         a.onPeerDisconnected = { down.append($0) }
         b.stop()
-        let reported = await contractWaitUntil(5) { !down.isEmpty }
+        let reported = await contractWait(h, "reported", 5) { !down.isEmpty }
         XCTAssertTrue(reported)
         try await Task.sleep(nanoseconds: 700_000_000)
         XCTAssertEqual(down, [aPeer])
@@ -580,7 +587,7 @@ enum TeamTransportContract {
         var got: [TeamMessage] = []
         a.onMessage = { _, m in got.append(m) }
         b.send(hello, to: bPeer)
-        let still = await contractWaitUntil(5) { !got.isEmpty }
+        let still = await contractWait(h, "still", 5) { !got.isEmpty }
         XCTAssertTrue(still, "the ready link still delivers")
     }
 
@@ -594,7 +601,7 @@ enum TeamTransportContract {
         }
         let frame = try TeamWire.encode(hello)
         h.sendRaw(b, frame + frame, to: bPeer)   // two frames in one write
-        let first = await contractWaitUntil(5) { delivered >= 1 }
+        let first = await contractWait(h, "first", 5) { delivered >= 1 }
         XCTAssertTrue(first)
         try await Task.sleep(nanoseconds: 500_000_000)
         XCTAssertEqual(delivered, 1)
@@ -611,7 +618,7 @@ enum TeamTransportContract {
         b.onPeerDisconnected = { _ in bDown += 1 }
         a.start(code: code); b.start(code: code)
         h.injectDiscovered(b, name: "x", endpoint: try await h.loopbackEndpoint(of: a))
-        let up = await contractWaitUntil(5) { bPeer != nil }
+        let up = await contractWait(h, "up", 5) { bPeer != nil }
         XCTAssertTrue(up)
 
         b.refuse(try XCTUnwrap(bPeer))
@@ -631,13 +638,13 @@ enum TeamTransportContract {
         h.restart(a)
         XCTAssertEqual(down, [aPeer])
         XCTAssertEqual(h.linkCount(a), 0)
-        let back = await contractWaitUntil(5) { h.listenerPort(of: a) != nil }
+        let back = await contractWait(h, "back", 5) { h.listenerPort(of: a) != nil }
         XCTAssertTrue(back, "a restart listens again")
 
         var again: TeamPeerID?
         a.onPeerConnected = { id, _ in again = id }
         h.connect(b, to: try await h.loopbackEndpoint(of: a))
-        let linked = await contractWaitUntil(5) { again != nil && h.linkCount(a) == 1 }
+        let linked = await contractWait(h, "linked", 5) { again != nil && h.linkCount(a) == 1 }
         XCTAssertTrue(linked, "links work after the restart")
     }
 }
