@@ -539,6 +539,7 @@ import Observation
         showReceivedDitto(smallestReceivedDitto())
         session?.updateDitto(ready: true, state: nil)
         startDittoLoop()
+        game.returned(now: clock())
         startGameLoop()
         advanceGame()
     }
@@ -1256,11 +1257,11 @@ import Observation
         let lostBefore = game.lostConnection
         for m in members.values where m.inPlaza { if let id = m.gameJoin { game.heardPlaying(id) } }
         for m in members.values {
-            // A plaza that is closed cannot follow a drawing quiz: its running copy is whatever it held at the close.
-            // (The bomb's leave write travels in such a copy, so only the quiz is held back; an ended copy always counts.)
-            // Berry five's copy is held back the same way.
-            if !m.inPlaza, let g = m.game, g.kind == PlazaGameKind.draw.rawValue || g.kind == PlazaGameKind.berry.rawValue,
-               g.startsAt != nil, g.endedAt == nil { continue }
+            // A plaza that is closed cannot follow a game: its running copy is whatever it held at the close. A quiz's or a
+            // berry five's is never taken. A bomb's carries the leave its owner wrote while closing, so it is taken for the
+            // game I already hold, and never starts one here. An ended copy always counts.
+            if !m.inPlaza, let g = m.game, g.startsAt != nil, g.endedAt == nil,
+               g.kind == PlazaGameKind.draw.rawValue || g.kind == PlazaGameKind.berry.rawValue || g.id != game.state?.id { continue }
             game.learn(m.game, from: m.memberID, now: now)
         }
         let present = gamePresent
