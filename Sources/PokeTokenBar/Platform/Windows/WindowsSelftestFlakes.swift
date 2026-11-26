@@ -288,9 +288,9 @@ extension WindowsSelftest {
         for i in 0..<n {
             guard let w = await modalIdleWindow(app, settle: i == 0) else { continue }
             cs.append(w.cs)
-            if w.cs > w.budget { over += 1 }
-            if w.budget > 3 { withFire.append(w.cs) } else { without.append(w.cs) }
-            rows.append("#\(i + 1) cs=\(w.cs)/\(w.budget) \(w.detail.components(separatedBy: "; ")[1])")
+            if !w.wakesOK || !w.verdict.ok { over += 1 }
+            if w.legacyBudget > 3 { withFire.append(w.cs) } else { without.append(w.cs) }
+            rows.append("#\(i + 1) cs=\(w.cs)/\(w.budget) (legacy \(w.legacyBudget)) \(w.detail.components(separatedBy: "; ")[1])")
         }
         r.add("flake.modalIdle", over == 0,
               "N=\(cs.count) windows of 10 s, over budget \(over); main cs histogram \(histogram(cs)); windows with a known timer wake or refresh \(withFire.count) cs \(histogram(withFire)); "

@@ -973,7 +973,7 @@ enum WindowsSelftest {
         _ = await waitStable(timeout: 10, quiet: 2) { !app.store.isRefreshing }
         let dayFires0 = (Platform.current.events as? WindowsSystemEvents)?.dayTimerFires ?? 0
         let c0 = (WinDefaultsSync.safetyFires, WinDefaultsSync.debounceFires, app.refreshCount, WinMainLoop.iterations)
-        let mark = IdleShadow.begin()  // WindowsSelftestIdleLoop.swift: the shadow verdict's counters (nothing here reads it)
+        let mark = IdleShadow.begin()  // WindowsSelftestIdleLoop.swift: the judge's counters (wakes, passes, arrivals)
         let injected = IdleInject.arm("idle")
         let sample = await IdleSampler.measure(seconds: seconds, mainThread: WindowsApp.mainThreadID)
         injected.disarm()
@@ -985,16 +985,17 @@ enum WindowsSelftest {
             r.add("idle.window", false, "measurement failed (NtQuerySystemInformation / QueryThreadCycleTime unavailable)")
             return
         }
-        // A wake by a known timer costs a few context switches; anything else showing up here is a busy loop.
+        // Judged on wakes (`IdleWakeJudge`): anything nobody accounts for showing up here is a busy loop. The switch budget below is
+        // printed as `legacy{...}` and no longer decides.
         let dayFires = ((Platform.current.events as? WindowsSystemEvents)?.dayTimerFires ?? 0) - dayFires0
         let explained = safety + debounce + dayFires
         let budget = 3 + 3 * explained + 60 * refreshes
         let shadow = IdleShadow.end(mark, seconds: seconds, cs: sample.mainContextSwitches,
-                                    fires: IdleWakeJudge.Fires(safety: safety, debounce: debounce, day: dayFires), refreshes: refreshes,
+                                    fires: IdleWakeJudge.Fires(safety: safety, debounce: debounce, day: dayFires), refreshes: refreshes, loop: IdleShadow.loop(of: app),
                                     legacyBudget: budget, legacyOK: sample.mainContextSwitches <= budget)
-        r.add("idle.window", sample.layoutOK && sample.mainFound && sample.mainContextSwitches <= budget,
+        r.add("idle.window", sample.layoutOK && sample.mainFound && shadow.verdict.ok,
               "\(Int(seconds)) s idle: main_thread_cs=\(sample.mainContextSwitches) main_thread_cycles=\(sample.mainCycles) "
-                + "process_cycles=\(sample.processCycles) budget_cs=\(budget) known_wakes={safety_sync:\(safety), "
+                + "process_cycles=\(sample.processCycles) legacy_budget_cs=\(budget) known_wakes={safety_sync:\(safety), "
                 + "debounce_sync:\(debounce), store_refresh:\(refreshes), day_timer:\(dayFires)} loop_iterations=\(iterations) "
                 + "loop_finished_returns=\(WinMainLoop.finishedReturns) layout_ok=\(sample.layoutOK) threads=\(sample.threadCount) "
                 + "busy_threads=[\(sample.busy)] " + shadow.text)

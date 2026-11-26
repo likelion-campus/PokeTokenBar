@@ -582,7 +582,7 @@ extension WindowsSelftest {
         // a 10 s window one time in twelve (4 of 50 windows in run 43797111060); it failed this check at 45 cs once the loops shifted its phase.
         let wakes0 = WindowsSelftest.selftestApp.map { WindowsSelftest.knownWakes($0) }
         let callbacks0 = tray?.callbackCount ?? 0, shown0 = tray?.shownEventCount ?? 0
-        let mark = IdleShadow.begin()  // WindowsSelftestIdleLoop.swift: the shadow verdict's counters (nothing here reads it)
+        let mark = IdleShadow.begin()  // WindowsSelftestIdleLoop.swift: the judge's counters (printed, not judged here: see below)
         let injected = IdleInject.arm("kit")
         let measured = await IdleSampler.measure(seconds: seconds, mainThread: WindowsApp.mainThreadID)
         injected.disarm()
@@ -601,9 +601,12 @@ extension WindowsSelftest {
             fires = IdleWakeJudge.Fires(safety: b.safety - a.safety, debounce: b.debounce - a.debounce, day: b.day - a.day)
             refreshes = b.refreshesInWindow(since: a)
         }
-        let shadow = IdleShadow.end(mark, seconds: seconds, cs: sample.mainContextSwitches, fires: fires, refreshes: refreshes,
-                                    legacyBudget: budget, legacyOK: sample.mainContextSwitches <= budget)
+        let shadow = IdleShadow.end(mark, seconds: seconds, cs: sample.mainContextSwitches, fires: fires, refreshes: refreshes, loop: IdleShadow.loop(of: WindowsSelftest.selftestApp),
+                                    legacyBudget: budget, legacyOK: sample.mainContextSwitches <= budget, legacyDecides: true)
         let paints = (w.scroll?.content.paints ?? 0) + (page.drawn?.stats.paints ?? 0) - paints0
+        // NOT flipped to the wake judge (PR 2): this check's windows are 16 in all (9 without a refresh, 7 with one, all of those in the bundle
+        // selftest, none with a refresh in the installed one), too few to set the judge's limits for it; the judge's verdict is printed
+        // (`judge{...}`) and does not decide. Its switch budget stays; it has not failed since #322 (0 of 118 first attempts).
         r.add("ui.kit.idle", sample.mainContextSwitches <= budget && paints == 0 && !WinModalPump.timerLive,
               "kit page open, focus in a field (caret timeout passed), \(Int(seconds)) s: main_thread_cs=\(sample.mainContextSwitches) (budget \(budget) = 6 + 5 per known timer wake + 60 per store refresh; known wakes \(known)) "
               + "main_thread_cycles=\(sample.mainCycles) process_cycles=\(sample.processCycles) pane+part paints=\(paints) pump timer live=\(WinModalPump.timerLive); "
