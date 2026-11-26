@@ -142,6 +142,8 @@ final class UsageEnvironmentTests: XCTestCase {
             "WinDefaultsSync.swift",             // PTB_STATE_DIR: the selftest's own settings suite (QA, like CompanionStore)
             "WinPlazaAssets.swift",              // PTB_PLAZA_RESOURCES: tests and CI point at the checkout's plaza art (QA)
             "WindowsSelftestFlakes.swift",       // PTB_SELFTEST_FLAKE_LOOP: the selftest's repeat loops (QA, like WindowsSelftest.swift)
+            "WindowsSelftestIdleInject.swift",   // PTB_SELFTEST_INJECT: runner-only fault injections into the idle windows (QA; guarded by onCI and --selftest)
+            "WindowsSelftestIdleLoop.swift",     // PTB_SELFTEST_IDLE_LOOP: informational idle windows (QA, like PTB_SELFTEST_FLAKE_LOOP)
             "WindowsSelftestPopoverCompanion.swift",  // PTB_SELFTEST_SPRITES: the companion header's fixture sprites (QA, stage 7 Task 9)
             "WinDarkMode.swift",                 // PTB_SELFTEST_APPEARANCE: a batch run captures every page in dark (QA, stage 7 Task 16)
             "WakeTrace.swift",                   // PTB_WAKE_TRACE: the idle gate counts what wakes the main thread (CI, stage 7 idle gates)

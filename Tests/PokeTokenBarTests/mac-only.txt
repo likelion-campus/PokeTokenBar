@@ -33,6 +33,8 @@ FormMetadataNoteRenderingTests.swift
 GenerationDexScreenshotTests.swift
 # GrokUsageTests: NSData zlib in a helper; the cache is stored uncompressed on Windows (needs Windows-aware assertions)
 GrokUsageTests.swift
+# IdleInjectScanTests: reads Sources and the workflow through SharedSources (a Mac-only helper)
+IdleInjectScanTests.swift
 IndividualPickerRenderingTests.swift
 # KeychainAutoPathTests: needs KeychainReader (Security)
 KeychainAutoPathTests.swift
