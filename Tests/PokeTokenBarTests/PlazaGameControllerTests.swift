@@ -732,4 +732,143 @@ final class PlazaGameControllerTests: XCTestCase {
         guard case .gameMenu(let menu) = w.c.overlayContent else { return XCTFail("the menu opens") }
         XCTAssertEqual(menu.blocked, L(.ko).plazaGameMenuWait(seconds: Int(PlazaGame.reopenDelay - PlazaGame.rematchDelay - 1)))
     }
+
+    // MARK: - The ghost game (a closed plaza sends the running copy it held at the close for the game's whole life)
+
+    /// My plaza steps for `seconds` on its own; the teammates' engines do not move.
+    private func runMine(_ w: World, seconds: TimeInterval) async {
+        for _ in 0..<Int((seconds / 0.2).rounded()) {
+            now += 0.2
+            w.c.advanceGame()
+            await settle()
+        }
+    }
+
+    /// A third member "다" in the plaza, connected to both of us.
+    private func thirdMember(_ w: World) async -> Node {
+        let third = node("다")
+        hub.connect(w.me.transport, to: third.transport)
+        hub.connect(w.b.transport, to: third.transport)
+        await settle()
+        third.session.updatePlazaPosition(inPlaza: true, tile: TilePoint(x: 14, y: 6), facing: .down, isWalking: false, isFlushed: false)
+        await settle()
+        return third
+    }
+
+    /// All three step until what they know stops changing. The third member goes first: the host must hear its yes before it locks.
+    private func sync(_ w: World, _ third: Node) async {
+        for _ in 0..<4 { third.step(now); await settle(); w.b.step(now); await settle(); w.c.advanceGame(); await settle() }
+    }
+
+    /// A game the teammate and a third member play while I watch. Returns the third member, once the bomb is live.
+    private func watchedGame(_ w: World) async throws -> Node {
+        let third = await thirdMember(w)
+        XCTAssertTrue(w.b.engine.open(.bomb, now: now))
+        await sync(w, third)
+        third.engine.answer(join: true, now: now)
+        now += PlazaGame.recruitSeconds
+        await sync(w, third)
+        now += PlazaGame.countdownSeconds + 1
+        await sync(w, third)
+        let s = try XCTUnwrap(w.c.gameState)
+        XCTAssertEqual(s.players.sorted(), [w.b.id, third.id].sorted(), "test precondition")
+        XCTAssertNil(s.endedAt, "test precondition: the game runs")
+        return third
+    }
+
+    /// Before: a plaza opened after the game was over took the running copy a closed plaza still sent, showed "폭탄 돌리기
+    /// 시작" and the players' list, and could open no game for up to 15 minutes.
+    func testAClosedPlazasRunningBombCopyIsNotAdoptedByAMachineThatDoesNotHoldTheGame() async {
+        let w = await world()
+        let t = now.timeIntervalSince1970
+        let stale = PlazaGameState(id: "x@1", kind: PlazaGameKind.bomb.rawValue, host: "x", opensAt: t - 40, startsAt: t - 7,
+                                   players: ["x", "y", "z"], seed: 7,
+                                   bomb: PlazaBombState(round: 1, roundStartsAt: t - 7, holder: "y", pass: 1, out: ["x"]))
+        w.b.session.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false, isFlushed: false)
+        w.b.session.updateGame(stale, join: nil)
+        await settle()
+        XCTAssertEqual(w.me.session.members[w.b.id]?.game?.id, stale.id, "test precondition: I hear the copy")
+        XCTAssertEqual(w.me.session.members[w.b.id]?.inPlaza, false, "test precondition")
+        await runMine(w, seconds: 2)
+        XCTAssertNil(w.c.gameState, "a closed plaza cannot follow a game: I do not start one from its copy")
+        XCTAssertNil(w.c.banner)
+        XCTAssertNil(w.c.gameStatus)
+        press(w.c, mKey)
+        guard case .gameMenu(let menu) = w.c.overlayContent else { return XCTFail("the menu opens") }
+        XCTAssertNil(menu.blocked, "and I can open a game")
+    }
+
+    /// The other half of the rule: the leave a closing plaza writes reaches those who hold the game, in its running copy.
+    /// (Three players: with two, the leave ends the game and an ended copy always counts.)
+    func testATeammateWhoClosesThePlazaMidGameIsOutAtOnce() async {
+        let w = await world()
+        let third = await thirdMember(w)
+        let players = [w.me.id, w.b.id, third.id]
+        let seed = (UInt64(1)...500).first { PlazaBomb.firstHolder(seed: $0, round: 1, alive: players) == w.me.id }!
+        w.b.engine.makeSeed = { seed }
+        XCTAssertTrue(w.b.engine.open(.bomb, now: now))
+        await sync(w, third)
+        press(w.c, yKey)
+        third.engine.answer(join: true, now: now)
+        now += PlazaGame.recruitSeconds
+        await sync(w, third)
+        now += PlazaGame.countdownSeconds + 2
+        await sync(w, third)
+        XCTAssertEqual(w.c.gameState?.players.sorted(), players.sorted(), "test precondition")
+        XCTAssertEqual(w.c.gameState?.bomb?.holder, w.me.id, "test precondition")
+        // The teammate closes the plaza: it says so once and steps no more. The third member does not step either.
+        w.b.engine.leave(now: now, present: [w.me.id, third.id])
+        XCTAssertNil(w.b.engine.state?.endedAt, "test precondition: the game runs on")
+        w.b.session.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false, isFlushed: false)
+        w.b.session.updateGame(w.b.engine.state, join: w.b.engine.joined)
+        await settle()
+        XCTAssertEqual(w.me.session.members[w.b.id]?.inPlaza, false, "test precondition")
+        w.c.advanceGame()
+        await settle()
+        XCTAssertEqual(w.c.gameState?.bomb?.out, [w.b.id])
+        XCTAssertNil(w.c.gameState?.endedAt)
+        XCTAssertEqual(w.c.banner, L(.ko).plazaGameLeftBanner(nickname: "가"))
+    }
+
+    /// Before: my plaza kept the running copy it held when it closed, and showed that game again when it reopened.
+    func testReopeningThePlazaDoesNotShowAGameThatEndedWhileItWasClosed() async throws {
+        let w = await world()
+        let third = try await watchedGame(w)
+        w.c.handleClose()
+        XCTAssertNotNil(w.me.session.makePresence().game, "test precondition: my closed plaza still sends the running copy")
+        // The game ends and is forgotten by its players.
+        for _ in 0..<80 where w.b.engine.state?.endedAt == nil {
+            now += 1
+            third.step(now); await settle(); w.b.step(now); await settle()
+        }
+        for _ in 0..<3 { third.step(now); await settle(); w.b.step(now); await settle() }   // both see the end
+        XCTAssertNotNil(w.b.engine.state?.endedAt, "test precondition")
+        XCTAssertEqual(third.engine.state?.endedAt, w.b.engine.state?.endedAt, "test precondition")
+        now += PlazaGame.endedKeep + 1
+        for _ in 0..<3 { third.step(now); await settle(); w.b.step(now); await settle() }
+        XCTAssertNil(w.b.engine.state, "test precondition")
+        w.c.prepareScene()
+        await settle()
+        XCTAssertNil(w.c.gameState)
+        XCTAssertNil(w.c.gameStatus)
+        XCTAssertNil(w.c.banner)
+        await runMine(w, seconds: 2)
+        XCTAssertNil(w.c.gameState)
+        XCTAssertNil(w.me.session.makePresence().game, "and I stop sending it")
+    }
+
+    func testReopeningThePlazaMidGameWatchesTheGameThatStillRuns() async throws {
+        let w = await world()
+        let third = try await watchedGame(w)
+        let id = try XCTUnwrap(w.c.gameState?.id)
+        w.c.handleClose()
+        now += 1
+        for _ in 0..<2 { third.step(now); await settle(); w.b.step(now); await settle() }
+        XCTAssertNil(w.b.engine.state?.endedAt, "test precondition: still running")
+        w.c.prepareScene()
+        await settle()
+        XCTAssertEqual(w.c.gameState?.id, id, "taken again from the players in the plaza")
+        XCTAssertNotNil(w.c.gameStatus)
+        XCTAssertNil(w.c.gameTitle)
+    }
 }
