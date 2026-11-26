@@ -1,16 +1,22 @@
 name: idle-rules
 # The idle gate's rules that read the app log (scripts/windows/idle-rules.ps1) against real lines and the numbers of 14 full runs:
-# the wake attribution's parsing and the animated windows' judgment.
+# the wake attribution's parsing, the animated windows' and the open Home page's judgment, the fixture phase guard and the live/gone cycles split.
 on:
   push:
     paths:
       - 'scripts/windows/idle-rules*'
       - 'scripts/windows/idle-gate.ps1'
+      - 'scripts/windows/midnight-guard.ps1'
+      - 'scripts/windows/measure-idle.ps1'
+      - 'scripts/windows/fixtures/idle-companion-state.json'
       - '.github/workflows/idle-rules.yml'
   pull_request:
     paths:
       - 'scripts/windows/idle-rules*'
       - 'scripts/windows/idle-gate.ps1'
+      - 'scripts/windows/midnight-guard.ps1'
+      - 'scripts/windows/measure-idle.ps1'
+      - 'scripts/windows/fixtures/idle-companion-state.json'
       - '.github/workflows/idle-rules.yml'
 permissions:
   contents: read

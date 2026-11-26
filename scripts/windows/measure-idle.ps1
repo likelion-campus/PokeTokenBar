@@ -12,6 +12,10 @@
 # -OwnExcludeStart <module+offset> with -MaxOwnCsPerMin / -MaxOwnCyclesPerSec: the same totals over the threads that do NOT start there
 #   ("our" threads: on a GPU-less runner the Direct2D device is WARP, whose rasterizer workers all start at ntdll.dll+0x845d0 and
 #   dominate the process totals; they are reported as information, the app's own threads are budgeted).
+# -MaxLiveCyclesPerSec: the cycles of the threads alive at the end of the window (the app's own threads, read one by one). The process figure
+#   (-MaxProcessCyclesPerSec) also counts threads that exited during the window; that part is printed as `gone` and bounded only by the
+#   process figure, which the gate sets as a runaway catch (run 44873075438: 352 k/s of a plaza-closed window's 487 k/s were threads that
+#   had exited, live threads a normal 135 k/s). The exited threads are listed with their start address and name from the first edge.
 # A -Max* value >= 0 is asserted (PASS/FAIL line each, exit 1 on any FAIL); the default -1 only reports.
 param(
     [Parameter(Mandatory)][int]$ProcessId,
@@ -26,11 +30,13 @@ param(
     [double]$MaxPrivateGrowthMB = -1,
     [double]$MaxHandleGrowth = -1,
     [double]$MaxProcessCyclesPerSec = -1,
+    [double]$MaxLiveCyclesPerSec = -1,
     [string]$OwnExcludeStart = "",
     [double]$MaxOwnCsPerMin = -1,
     [double]$MaxOwnCyclesPerSec = -1
 )
 $ErrorActionPreference = "Stop"
+. "$PSScriptRoot/idle-rules.ps1"   # Get-CycleSplit (tested: idle-rules.tests.ps1)
 if (-not ([System.Management.Automation.PSTypeName]'PtbIdle').Type) {
     Add-Type -TypeDefinition @'
 using System;
@@ -139,7 +145,7 @@ function Others() {
 }
 
 $startedAt = (Get-Date).ToUniversalTime().ToString("o")
-$a = Edge $ProcessId $false
+$a = Edge $ProcessId $true   # names at the first edge too, so a thread that exits during the window can be named; still read only at the edges
 $oa = Others
 $slices = @()
 if ($SliceSeconds -gt 0) {
@@ -181,6 +187,8 @@ $rows = foreach ($t in $b.Threads) {
     }
 }
 $gone = @($a.Threads | Where-Object { $b.Threads.Tid -notcontains $_.Tid }).Count
+$exited = @($a.Threads | Where-Object { $b.Threads.Tid -notcontains $_.Tid } | ForEach-Object {
+    [pscustomobject]@{ tid = $_.Tid; start = (Where-Address $_.Win32Start); name = $_.Description; cyclesAtFirstEdge = $_.Cycles; contextSwitchesAtFirstEdge = $_.ContextSwitches } })
 $minutes = $Seconds / 60.0
 $mainRow = $rows | Where-Object { $_.main } | Select-Object -First 1
 $totalCs = ($rows | Measure-Object contextSwitches -Sum).Sum
@@ -191,6 +199,7 @@ $ownCs = [int](($ownRows | Measure-Object contextSwitches -Sum).Sum)
 $ownCycles = [uint64](($ownRows | Measure-Object cycles -Sum).Sum)
 $poolCs = [int](($poolRows | Measure-Object contextSwitches -Sum).Sum)
 $poolCycles = [uint64](($poolRows | Measure-Object cycles -Sum).Sum)
+$split = Get-CycleSplit $procCycles @($rows | ForEach-Object { [uint64]$_.cycles }) $Seconds
 $result = [ordered]@{
     label = $(if ($Label) { $Label } else { $b.Name })
     baseline = [bool]$Baseline
@@ -200,6 +209,9 @@ $result = [ordered]@{
     seconds = $Seconds
     processCycles = $procCycles
     processCyclesPerSec = [math]::Round($procCycles / $Seconds)
+    liveCyclesPerSec = $split.live
+    goneCyclesPerSec = $split.gone
+    exitedThreads = $exited
     processCpuSeconds = [math]::Round($b.CpuSeconds - $a.CpuSeconds, 3)
     contextSwitches = $totalCs
     ownContextSwitchesPerMin = [math]::Round($ownCs / $minutes, 2)
@@ -228,6 +240,7 @@ if ($Out) { Set-Content -Path $Out -Value $json -Encoding utf8 }
 Write-Host ("IDLE {0}: {1} s, process cycles {2:N0} ({3:N0}/s), cpu {4} s, context switches {5} ({6}/min), main thread cs={7} cycles={8:N0}" -f `
     $result.label, $Seconds, $procCycles, $result.processCyclesPerSec, $result.processCpuSeconds, $totalCs, $result.contextSwitchesPerMin, $result.mainThreadContextSwitches, $result.mainThreadCycles)
 Write-Host ("IDLE {0}: private {1} -> {2} MB, handles {3} -> {4}, threads {5} -> {6} ({7} gone)" -f $result.label, $result.privateMBStart, $result.privateMBEnd, $a.Handles, $b.Handles, $a.Threads.Count, $b.Threads.Count, $gone)
+Write-Host ("IDLE {0}: cycles/s by whose: threads alive at the end {1:N0}, threads gone by the end {2:N0} ({3} exited: {4})" -f $result.label, $split.live, $split.gone, $gone, ((@($exited | Sort-Object tid | ForEach-Object { "tid $($_.tid) start=$($_.start) name='$($_.name)'" }) | Select-Object -First 24) -join '; '))
 foreach ($t in ($rows | Where-Object { $_.contextSwitches -gt 0 -or $_.cycles -gt 0 } | Sort-Object cycles -Descending | Select-Object -First 12)) {
     Write-Host ("  thread {0}{1} cs={2} cycles={3:N0} start={4} name='{5}'{6}" -f $t.tid, $(if ($t.main) { " (main)" } else { "" }), $t.contextSwitches, $t.cycles, $t.start, $t.name, $(if ($t.newInWindow) { " NEW" } else { "" }))
 }
@@ -247,6 +260,7 @@ function Check([string]$name, [double]$value, [double]$max) {
 Check "mainThreadCsPerMin" ($result.mainThreadContextSwitches / $minutes) $MaxMainCsPerMin
 Check "processCsPerMin" $result.contextSwitchesPerMin $MaxProcessCsPerMin
 Check "processCyclesPerSec" $result.processCyclesPerSec $MaxProcessCyclesPerSec
+Check "liveCyclesPerSec" $result.liveCyclesPerSec $MaxLiveCyclesPerSec
 Check "ownCsPerMin" $result.ownContextSwitchesPerMin $MaxOwnCsPerMin
 Check "ownCyclesPerSec" $result.ownCyclesPerSec $MaxOwnCyclesPerSec
 Check "privateGrowthMB" ($result.privateMBEnd - $result.privateMBStart) $MaxPrivateGrowthMB
