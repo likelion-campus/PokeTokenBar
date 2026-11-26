@@ -116,25 +116,40 @@ extension WindowsSelftest {
         let e0 = (a.transport.redialFires + b.transport.redialFires, a.transport.discoveryEvents + b.transport.discoveryEvents)
         let threads = (a.transport.socketLoop?.ioThreadID ?? 0, b.transport.socketLoop?.ioThreadID ?? 0)
         let r0 = WinDNSSD.repeatsDropped
+        let k0 = WindowsSelftest.knownWakes(app), p0 = WinMainLoop.iterations
+        let mark = IdleShadow.begin()  // WindowsSelftestIdleLoop.swift: the shadow verdict's counters (nothing here reads it)
+        let injected = IdleInject.arm("team")
         let sample = await IdleSampler.measure(seconds: seconds, mainThread: WindowsApp.mainThreadID)
+        injected.disarm()
+        let k1 = WindowsSelftest.knownWakes(app)
         let wakes = ((a.transport.socketLoop?.wakeups ?? 0) - w0.0, (b.transport.socketLoop?.wakeups ?? 0) - w0.1)
         let redials = a.transport.redialFires + b.transport.redialFires - e0.0
         let discovery = a.transport.discoveryEvents + b.transport.discoveryEvents - e0.1
         // The app's own 120 s usage refresh may land in the window: budgeted as the app's idle check does.
         let refreshes = max(app.refreshCount - refreshes0, refreshStarted.value ? 1 : 0)
         guard let sample else {
+            _ = WinMessageArrivals.end()
             r.add("team.idle", false, "measurement failed (NtQuerySystemInformation / QueryThreadCycleTime unavailable)")
             return
         }
         let budget = 3 + 3 * (redials + discovery) + 60 * refreshes
         let linked = a.transport.linkCount == 1 && b.transport.linkCount == 1
+        // Safety, debounce and day are named here too (the legacy budget hides them in its 3).
+        let shadow = IdleShadow.end(mark, seconds: seconds, cs: sample.mainContextSwitches,
+                                    fires: IdleWakeJudge.Fires(safety: k1.safety - k0.safety, debounce: k1.debounce - k0.debounce, day: k1.day - k0.day,
+                                                               redial: redials, dnssd: discovery),
+                                    refreshes: refreshes, legacyBudget: budget, legacyOK: sample.mainContextSwitches <= budget)
         r.add("team.idle", linked && wakes.0 == 0 && wakes.1 == 0 && sample.mainContextSwitches <= budget,
               "\(Int(seconds)) s, two linked transports, no traffic: socket_thread_wakeups=[\(wakes.0), \(wakes.1)] "
                 + "(threads \(threads.0), \(threads.1)) main_thread_cs=\(sample.mainContextSwitches) budget_cs=\(budget) "
                 + "known_wakes={redial:\(redials), dnssd_events:\(discovery), store_refresh:\(refreshes)} "
                 + "dnssd_repeats_dropped_off_main=\(WinDNSSD.repeatsDropped - r0) "
                 + "main_cycles=\(sample.mainCycles) "
-                + "still_linked=\(linked) busy_threads=[\(sample.busy)]")
+                + "loop_iterations=\(WinMainLoop.iterations - p0) still_linked=\(linked) busy_threads=[\(sample.busy)] " + shadow.text)
+        if IdleLoop.count > 0 {  // informational windows over the same two linked transports
+            await idleLoopWindows(r, app, seconds: seconds, kind: "team", legacy: (3, 3),
+                                  team: { (a.transport.redialFires + b.transport.redialFires, a.transport.discoveryEvents + b.transport.discoveryEvents) })
+        }
     }
 
     /// Every run (a person's PC and the runner): two members listen on `[::1]` only, never advertise, and one dials the other directly (`connect(to:)`), so the

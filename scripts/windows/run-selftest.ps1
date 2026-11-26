@@ -5,7 +5,7 @@ param(
     [Parameter(Mandatory)][string]$Exe,
     [Parameter(Mandatory)][string]$Out,
     [string]$ExpectStrategy = "",
-    [int]$TimeoutSec = $(if ([int]$env:PTB_SELFTEST_FLAKE_LOOP -gt 0) { 3000 } else { 1200 }),  # 900 -> 1200 (stage 7 Task 22): run 44062168430 hit 900 s with the Shop/Bag and pet groups. Keep it under the calling step's timeout-minutes (windows-app.yml: bundle 25 min, installed 45 min for two tries) or Actions ends the step before the "checks so far" dump
+    [int]$TimeoutSec = $(if ([int]$env:PTB_SELFTEST_FLAKE_LOOP -gt 0 -or [int]$env:PTB_SELFTEST_IDLE_LOOP -gt 0) { 3000 } else { 1200 }),  # 900 -> 1200 (stage 7 Task 22): run 44062168430 hit 900 s with the Shop/Bag and pet groups. Keep it under the calling step's timeout-minutes (windows-app.yml: bundle 25 min, installed 45 min for two tries) or Actions ends the step before the "checks so far" dump
     [string]$DumpUi = ""
 )
 $ErrorActionPreference = "Stop"

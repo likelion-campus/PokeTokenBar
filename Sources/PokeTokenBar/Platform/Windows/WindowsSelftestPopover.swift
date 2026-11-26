@@ -582,23 +582,33 @@ extension WindowsSelftest {
         // a 10 s window one time in twelve (4 of 50 windows in run 43797111060); it failed this check at 45 cs once the loops shifted its phase.
         let wakes0 = WindowsSelftest.selftestApp.map { WindowsSelftest.knownWakes($0) }
         let callbacks0 = tray?.callbackCount ?? 0, shown0 = tray?.shownEventCount ?? 0
-        guard let sample = await IdleSampler.measure(seconds: seconds, mainThread: WindowsApp.mainThreadID) else {
+        let mark = IdleShadow.begin()  // WindowsSelftestIdleLoop.swift: the shadow verdict's counters (nothing here reads it)
+        let injected = IdleInject.arm("kit")
+        let measured = await IdleSampler.measure(seconds: seconds, mainThread: WindowsApp.mainThreadID)
+        injected.disarm()
+        guard let sample = measured else {
+            _ = WinMessageArrivals.end()
             r.add("ui.kit.idle", false, "measurement failed")
             return
         }
         let wakes1 = WindowsSelftest.selftestApp.map { WindowsSelftest.knownWakes($0) }
         var budget = 6
+        var fires = IdleWakeJudge.Fires(), refreshes = 0
         var known = "unknown (no app)"
         if let a = wakes0, let b = wakes1 {
             budget += 5 * ((b.safety - a.safety) + (b.debounce - a.debounce) + (b.day - a.day)) + 60 * b.refreshesInWindow(since: a)
             known = b.minus(a)
+            fires = IdleWakeJudge.Fires(safety: b.safety - a.safety, debounce: b.debounce - a.debounce, day: b.day - a.day)
+            refreshes = b.refreshesInWindow(since: a)
         }
+        let shadow = IdleShadow.end(mark, seconds: seconds, cs: sample.mainContextSwitches, fires: fires, refreshes: refreshes,
+                                    legacyBudget: budget, legacyOK: sample.mainContextSwitches <= budget)
         let paints = (w.scroll?.content.paints ?? 0) + (page.drawn?.stats.paints ?? 0) - paints0
         r.add("ui.kit.idle", sample.mainContextSwitches <= budget && paints == 0 && !WinModalPump.timerLive,
               "kit page open, focus in a field (caret timeout passed), \(Int(seconds)) s: main_thread_cs=\(sample.mainContextSwitches) (budget \(budget) = 6 + 5 per known timer wake + 60 per store refresh; known wakes \(known)) "
               + "main_thread_cycles=\(sample.mainCycles) process_cycles=\(sample.processCycles) pane+part paints=\(paints) pump timer live=\(WinModalPump.timerLive); "
               + "busy_threads=[\(sample.busy)]; tray callbacks in the window \((tray?.callbackCount ?? 0) - callbacks0) (balloon shown "
-              + "\((tray?.shownEventCount ?? 0) - shown0)); shell notification state \(PopoverRun.notificationState())")
+              + "\((tray?.shownEventCount ?? 0) - shown0)); shell notification state \(PopoverRun.notificationState()); " + shadow.text)
     }
 
     // MARK: - captures and the control tree (D19)
