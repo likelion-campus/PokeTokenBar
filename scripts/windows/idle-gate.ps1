@@ -71,7 +71,11 @@ function Get-FetchDelta([string]$LogFile) {
 # 2. The installed app, one window per state. Budgets are from the first measured runs, with margin (see the report).
 function Measure-App([string]$Label, [int]$Seconds, [string]$Settings, [hashtable]$Budget, [string[]]$AppArgs = @(), [string]$CompanionFixture = '') {
     # Before the launch: the launch and the 30 s settle are part of the measured sequence.
-    $null = Wait-PastMidnight $Label ($Seconds + 40)
+    # A window on the companion fixture also waits past the instant its Collection log's relative texts step (idle-companion-state.json: one
+    # hour-step a text at the seconds past the hour its caughtAt has; run 45744414650). Both waits repeat until neither is needed (one can move the
+    # start into the other's window), at most 600 s in all; a fixture the guard cannot read, or a wait over the cap, throws instead of passing.
+    $phases = if ($CompanionFixture) { Get-FixturePhases (Join-Path $PSScriptRoot "fixtures/$CompanionFixture") } else { @() }
+    $summaryPhaseWait = Wait-PastGuards $Label ($Seconds + 40) $phases
     Remove-Item -ErrorAction SilentlyContinue $PtbPlist, "$PtbPlist.bak"
     if ($Settings) { Set-Content -Path $PtbPlist -Value $Settings -Encoding utf8NoBOM }
     $state = Join-Path $env:PTB_FIXTURE "state-idle-$Label"
@@ -96,7 +100,7 @@ function Measure-App([string]$Label, [int]$Seconds, [string]$Settings, [hashtabl
     $wakeOK = [bool]$wake
     if (-not $wakeOK) { "FAIL ${Label}: no wake attribution (no parsable 'wake trace start/exit' pair in the app log)" }
     $verdicts[$Label] = $verdicts[$Label] -and $wakeOK
-    $summary.windows[$Label] = [ordered]@{ wake = $wake; seconds = $Seconds; pass = ($code -eq 0) -and $wakeOK; budget = $Budget; processCycles = $j.processCycles; cyclesPerSec = $j.processCyclesPerSec; cpuSeconds = $j.processCpuSeconds; contextSwitchesPerMin = $j.contextSwitchesPerMin; mainThreadContextSwitches = $j.mainThreadContextSwitches; privateMB = "$($j.privateMBStart) -> $($j.privateMBEnd)"; handles = "$($j.handlesStart) -> $($j.handlesEnd)"; threads = @($j.threads | Where-Object { $_.contextSwitches -gt 0 } | Select-Object tid, main, name, start, contextSwitches, cycles) }
+    $summary.windows[$Label] = [ordered]@{ fixturePhaseWaitSeconds = $summaryPhaseWait; wake = $wake; seconds = $Seconds; pass = ($code -eq 0) -and $wakeOK; budget = $Budget; processCycles = $j.processCycles; cyclesPerSec = $j.processCyclesPerSec; liveCyclesPerSec = $j.liveCyclesPerSec; goneCyclesPerSec = $j.goneCyclesPerSec; exitedThreads = @($j.exitedThreads); cpuSeconds = $j.processCpuSeconds; contextSwitchesPerMin = $j.contextSwitchesPerMin; mainThreadContextSwitches = $j.mainThreadContextSwitches; privateMB = "$($j.privateMBStart) -> $($j.privateMBEnd)"; handles = "$($j.handlesStart) -> $($j.handlesEnd)"; threads = @($j.threads | Where-Object { $_.contextSwitches -gt 0 } | Select-Object tid, main, name, start, contextSwitches, cycles) }
     $fetches = Get-FetchDelta (Join-Path $env:LOCALAPPDATA 'PokeTokenBar\Logs\PokeTokenBar.log')
     if ($fetches) { "FETCHES ${Label}: started=$($fetches.started) ended=$($fetches.ended) hosts=[$($fetches.hosts -join ' ')] failures=[$($fetches.failures -join ' ')]" }
     $summary.windows[$Label].fetches = $fetches
@@ -104,7 +108,23 @@ function Measure-App([string]$Label, [int]$Seconds, [string]$Settings, [hashtabl
 $off = '<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>refreshInterval</key><real>0</real></dict></plist>'
 $offNoStatus = '<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>refreshInterval</key><real>0</real><key>statusChecksEnabled</key><false/></dict></plist>'
 $noStatus = '<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>statusChecksEnabled</key><false/></dict></plist>'
-$budget = @{ MaxMainCsPerMin = 6; MaxProcessCsPerMin = 250; MaxProcessCyclesPerSec = 450000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 }
+# Cycles (defect log, rules 2 and 5): the app's own threads and the rest of the process are budgeted apart. The process figure also counts threads
+# that exited during the window (measure-idle.ps1 prints them as `gone`), whose number the gate cannot attribute.
+# Provenance: the 20 windows on this budget (popover-open has its own, below) of the 18 full runs 44748321973 44764713785 44868486165 44873075438
+# 44876132467 44921568858 45021135238 45146411400 45212572510 45368918777 45382219384 45431660526 45492698856 45542265924 45547649394 45651391066
+# 45744414650 45748312864 (2026-11-20..26): 360 windows, minus the two defective ones = N=358 (collection-log in 45744414650: a fixture-phase fire,
+# its live cycles 399,173/s; plaza-closed in 44873075438: 352 k/s of exited threads). The planner's N=327/328 came from 17 of these runs; the other
+# difference is 10 windows I cannot account for. The per-thread figures are read from the logs' thread lines (at most 12 are printed; none of the
+# 378 windows printed 12), so "gone" is the process figure minus the printed threads.
+#   threads alive at the end   p50 131 k/s, p99 191 k/s, max 208 k/s -> MaxLiveCyclesPerSec 420000 = 2 x max
+#   threads gone by the end    p50 64 k/s, p99 122 k/s, max 139 k/s (plaza-closed up to 139; the other windows up to 99); printed, not budgeted
+#   whole process              p50 196 k/s, p99 269 k/s, max 277 k/s -> MaxProcessCyclesPerSec 830000 = 3 x max, a runaway catch
+# Re-derive all three when N doubles (about 36 runs). Exited threads add cycles but no switches to the measurement (measure-idle.ps1 sums switches
+# over the threads alive at the end only), so what they cost is judged only by the process figure: 830,000 minus the live threads.
+# Before: one process-wide 450000 (set 2026-11-15 with no N recorded) failed two windows in 18 runs for causes that were not more work.
+# Main thread: 6/min (12 in 120 s) is unchanged: over the same N=358 windows the main thread read 4 cs in 280, 5 in 65, 6 in 11 and 9 in 2
+# (the highest is 4.5/min, so the margin is 1.33x and it never failed here; the gate cannot yet count timer wakes, which is what would let it go).
+$budget = @{ MaxMainCsPerMin = 6; MaxProcessCsPerMin = 250; MaxLiveCyclesPerSec = 420000; MaxProcessCyclesPerSec = 830000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 }
 # refreshInterval = 0: nothing is due after the launch refresh (the D8 window), 120 s.
 if ((Test-InShard 'manual-refresh-120s' $Shard)) { Measure-App 'manual-refresh-120s' 120 $off $budget }
 # The normal app: 120 s polling, status checks on. 300 s from 30 s after launch covers the refreshes at +120 s and +240 s.
@@ -207,7 +227,19 @@ function Test-PopoverObjects([string]$Label, [string[]]$Lines, [string]$Kind) {
 foreach ($mode in 'open', 'closed') {
     $label = "popover-$mode-120s"
     if (-not (Test-InShard $label $Shard)) { continue }
-    Measure-App $label 120 $off $budget @('--popover-idle-probe', $mode)
+    # 'open' is judged on its work (Test-StillWork): the same 18 windows (18 runs, the list above) read 6-15 main cs in 120 s with identical loops,
+    # messages and clock fires (a high mode: 4 of 18 at 12-15 cs and about 1.5x the cycles), so the main thread is a runaway catch (15/min = 2 x the
+    # highest, 7.5/min). Its cycles: threads alive at the end max 269 k/s and the whole process max 344 k/s over those N=18 (it paints, so higher than
+    # the idle windows above) -> 540000 = 2 x and 1030000 = 3 x. N=18 is small and the high mode is in it; re-derive when N doubles.
+    $openBudget = @{ MaxMainCsPerMin = 15; MaxProcessCsPerMin = 250; MaxLiveCyclesPerSec = 540000; MaxProcessCyclesPerSec = 1030000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 }
+    Measure-App $label 120 $off $(if ($mode -eq 'open') { $openBudget } else { $budget }) @('--popover-idle-probe', $mode)
+    if ($mode -eq 'open') {
+        $w = $summary.windows[$label]
+        $judged = Test-StillWork $w.wake ([math]::Round($w.mainThreadContextSwitches / ($w.seconds / 60), 1)) $openBudget.MaxMainCsPerMin
+        $w.stillWork = $judged.detail
+        "STILL WORK ${label}: $($judged.detail)"
+        $verdicts[$label] = $verdicts[$label] -and $judged.ok
+    }
     $probeLines = @(Select-String -Path $logFile -Pattern 'popover idle probe' -ErrorAction SilentlyContinue | Select-Object -Last 2 | ForEach-Object { $_.Line })
     $summary.windows[$label].popoverLog = $probeLines
     # The window measured what it says: open and never closed for 'open', closed once for 'closed' (the exit line).
@@ -286,11 +318,12 @@ foreach ($page in 'settings', 'shop', 'bag', 'collection', 'collection-log', 'de
     $summary.windows[$label].popoverState = if ($stateOK) { "ok: $want" } else { "WRONG: expected '$want' in '$exit'" }
     $verdicts[$label] = $verdicts[$label] -and $stateOK
     Test-PopoverObjects $label $lines $(if ($page -eq 'focus-closed') { 'info' } else { 'open' })
-    # No timer: a page standing still arms none (the Collection's log has its relative-time clock; every other page has no clock at all).
+    # No timer: a page standing still arms none. The Collection's log has a relative-time clock too, which fires when a caught-at text steps; the
+    # fixture steps them all at one time past the hour (13:20) and the window waited past that instant (Wait-PastGuards), so it must fire 0 times.
     $w = $summary.windows[$label].wake
-    $clocks = if ($w) { @($w.sources | Where-Object { $_ -match '^(popoverClock|animationClock):' }) } else { @() }
+    $clocks = Get-PageClockSources $w
     $summary.windows[$label].clockFires = $clocks
-    if ($page -ne 'collection-log' -and $clocks.Count -gt 0) { $verdicts[$label] = $false }
+    if ($clocks.Count -gt 0) { $verdicts[$label] = $false }
 }
 # --- stage 7 idle gates (end) ---
 # --- stage 7 Task 22: the floating pet (begin) ---

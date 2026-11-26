@@ -109,3 +109,69 @@ function Test-TimerWork($Wake, [string[]]$Sources, [int]$MinFires, [int]$MaxFire
     if ($bad.Count -gt 0) { return @{ ok = $false; detail = "$text; FAILED: $($bad -join '; ')" } }
     return @{ ok = $true; detail = $text }
 }
+
+# The real Home page, open and left alone (`popover-open-120s`), judged on the work the app did, not on how the runner scheduled it. It was
+# a main-thread budget of 6 a minute (12 in 120 s), and the same work reads 6-7 cs in 14 of 18 windows, 12-13 in 3 and 15 in 1 (18 windows in
+# 18 runs, 2026-11-20..26: run 45744414650 failed at 15 = 7.5/min, 45542265924 at 13 = 6.5/min; 44868486165 and 45368918777 sat on 12). The
+# work was identical in all 18: loops 7, messages 6 (PokeTokenBarPane 3, Static 2, the close PokeTokenBarSink 1), popoverClock 3 (the
+# updated-ago text steps at +30 s, 2 s after the +28 s snapshot the window is diffed from). So:
+# - popoverClock fires $MinFires-$MaxFires (3 in 18 of 18: a clock that stopped, or that fires on a second timer, leaves the band);
+# - at most two messages per fire + 1 (a fire is the pane's repaint plus, on two of the three, a label's; the +1 is the close; so 6 of 7 allowed at
+#   3 fires, and a 2-fire window would carry 5 of 5: the lower fire bound and this one agree);
+# - message ids only from the three window classes the page has (a message to anything else is new work). A known false-fail risk: the TSF/IME window
+#   class "MSCTFIME UI" (the plaza windows show it, a popover window has not in 18 windows). It is NOT allowed here without a sighting; if it
+#   ever fails this rule the message names the class, and the fix is a decision, not a reflex;
+# - at most messages + 2 loop passes (a main-queue block or a posted message each adds a pass: 7 of 8 allowed);
+# - main-thread switches only as a runaway catch at $MaxMainCsPerMin (2 x the highest seen, 7.5/min, N=18).
+# Real slack (what passes though it is more than the 18 windows did): one extra clock fire (4); one more message and two more loop passes than the
+# baseline; one extra loop pass beyond the 7 (a main-queue block that repeats about every 60 s or less adds 2+ passes and fails; a rarer one adds
+# one and passes). What this does NOT see: a Foundation timer of its own (no message, no pass) that runs only while Home is open. At 15/min (30
+# per 120 s window) over a floor of 6-13, a timer adds about 120/period switches (about 1.1-1.2 per fire was measured on the pets): periods under
+# about 5 s always fail, about 5-8 s fail or pass with the floor, 8 s and longer pass. The old 6/min (12 per window) caught periods up to about 20 s
+# at floor 6, so the range newly lost in this window is roughly 5-20 s, until PR 4's unattributed-wake rule. The 20 app-wide windows keep 6/min.
+# Returns @{ ok; detail }. A missing attribution fails: the window would not have been judged.
+function Test-StillWork($Wake, [double]$MainCsPerMin, [double]$MaxMainCsPerMin, [int]$MinFires = 2, [int]$MaxFires = 4,
+                        [string[]]$AllowedClasses = @('PokeTokenBarPane', 'Static', 'PokeTokenBarSink')) {
+    if (-not $Wake) { return @{ ok = $false; detail = 'no wake attribution: the window could not be judged' } }
+    $fires = Get-SourceFires $Wake @('popoverClock')
+    $maxMessages = 2 * $fires + 1
+    $maxLoops = $Wake.messages + 2
+    $strangers = @(); $strangerClasses = @()
+    foreach ($id in @($Wake.messageIds)) {
+        $at = $id.LastIndexOf(':'); $name = if ($at -gt 0) { $id.Substring(0, $at) } else { $id }
+        $class = if ($name.Contains('@')) { $name.Substring($name.IndexOf('@') + 1) } else { $name }
+        if ($AllowedClasses -notcontains $class) { $strangers += $id; $strangerClasses += $class }
+    }
+    $bad = @()
+    if ($fires -lt $MinFires -or $fires -gt $MaxFires) { $bad += "popoverClock fires $fires outside $MinFires-$MaxFires" }
+    if ($Wake.messages -gt $maxMessages) { $bad += "messages $($Wake.messages) > $maxMessages (2 per fire + 1)" }
+    if ($strangers.Count -gt 0) {
+        $classes = @($strangerClasses | Sort-Object -Unique)
+        $bad += "messages to window classes not on the list ($($AllowedClasses -join '/')): class(es) '$($classes -join "', '")' in $($strangers -join ' ')"
+    }
+    if ($Wake.loops -gt $maxLoops) { $bad += "loop passes $($Wake.loops) > $maxLoops (messages + 2)" }
+    if ($MainCsPerMin -gt $MaxMainCsPerMin) { $bad += "main cs/min $MainCsPerMin > $MaxMainCsPerMin (runaway)" }
+    $text = "popoverClock fires $fires (allowed $MinFires-$MaxFires), messages $($Wake.messages) (at most $maxMessages), loops $($Wake.loops) (at most $maxLoops), message classes only $($AllowedClasses -join '/'), main cs/min $MainCsPerMin (runaway over $MaxMainCsPerMin)"
+    if ($bad.Count -gt 0) { return @{ ok = $false; detail = "$text; FAILED: $($bad -join '; ')" } }
+    return @{ ok = $true; detail = $text }
+}
+
+# A window's cycles split by whose they are (measure-idle.ps1). QueryProcessCycleTime counts the threads that have exited too, so the process
+# figure is the sum of the threads alive at the end (read one by one: those are the app's own, judged against MaxLiveCyclesPerSec) and the rest,
+# which are cycles of threads that were gone by the end (or could not be opened): one part of the process figure the gate cannot attribute.
+# Run 44873075438: plaza-closed read 486,741 cycles/s against 450,000 with live threads at a normal 134,564/s and 352,178/s in 18 threads that
+# exited during the window (22 -> 4 threads; the other 17 plaza-closed windows: 66-139 k/s gone).
+# $ThreadCycles: the cycle deltas of the threads alive at the end. Returns @{ live; gone } in cycles per second.
+function Get-CycleSplit([uint64]$ProcessCycles, [uint64[]]$ThreadCycles, [int]$Seconds) {
+    $live = [uint64]0
+    foreach ($c in @($ThreadCycles)) { $live += $c }
+    $gone = if ($ProcessCycles -gt $live) { $ProcessCycles - $live } else { [uint64]0 }
+    return @{ live = [math]::Round($live / $Seconds); gone = [math]::Round($gone / $Seconds) }
+}
+
+# The clock sources (`popoverClock`, `animationClock`) that fired in a window, as the WakeTrace lines name them. A page window standing still has
+# none: the idle gate fails any window of the Collection's log (after the fixture phase guard) and every other page that has one.
+function Get-PageClockSources($Wake) {
+    if (-not $Wake) { return @() }
+    return @($Wake.sources | Where-Object { $_ -match '^(popoverClock|animationClock):' })
+}
