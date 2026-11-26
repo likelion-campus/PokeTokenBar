@@ -201,9 +201,14 @@ struct PlazaDrawBoard: Equatable {
         let toolsRow = labels.map { PlazaPanelStyle.pixelUp(text.line($0, font: font).width, scale: scale) + 2 * Self.buttonPadding.width }.reduce(0, +)
             + CGFloat(labels.count - 1) * Self.buttonGap
 
+        /// The board's texts break at spaces only (`PlazaBerryTablePanel.wordLines`): the engines' own `wrappedLines` also break between a
+        /// number and the Korean after it ("… 20" and then "초" alone), which the stub engine of the tests does not do.
+        func wordLines(_ s: String, _ width: CGFloat) -> [PlazaTextLine] {
+            PlazaBerryTablePanel.wordLines(s, width: width) { text.line($0, font: font).width }.map { text.line($0, font: font) }
+        }
         func footLines(_ inner: CGFloat) -> [(PlazaTextLine, String)] {
             guard case .lines(let strings) = board.foot else { return [] }
-            return strings.flatMap { s in text.wrappedLines(s, font: font, width: inner).map { ($0, s) } }
+            return strings.flatMap { s in wordLines(s, inner).map { ($0, s) } }
         }
         /// The tools: the word and the swatches in one row, the buttons in the next; the guesser's lines otherwise.
         func footHeight(_ inner: CGFloat) -> CGFloat {
@@ -268,7 +273,7 @@ struct PlazaDrawBoard: Equatable {
 
         var cover: [(PlazaTextLine, String, CGRect)] = []
         if let text0 = board.cover {
-            let lines = text.wrappedLines(text0, font: font, width: max(1, canvas.width - 2 * pad))
+            let lines = wordLines(text0, max(1, canvas.width - 2 * pad))
             let block = CGFloat(lines.count) * lineH
             var cy = canvas.minY + max(0, (canvas.height - block) / 2)
             for line in lines {

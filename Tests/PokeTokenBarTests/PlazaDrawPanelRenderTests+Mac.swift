@@ -152,4 +152,66 @@ import CoreText
             try K.write(try composed(role: role, viewport: viewport, scale: 2, map: map), out.appendingPathComponent("\(name).png"))
         }
     }
+
+    // MARK: - Where the board's texts break (real CoreText: the stub engine breaks at spaces only and cannot show this)
+
+    /// True when `widths` are `text`'s words in order, a whole number of words on each line.
+    private func wholeWords(_ text: String, _ widths: [CGFloat], _ engine: CoreTextPlazaEngine) -> Bool {
+        var words = text.split(separator: " ").map(String.init)[...]
+        func width(_ n: Int) -> CGFloat { engine.line(words.prefix(n).joined(separator: " "), font: .plaza(.body)).width }
+        for w in widths {
+            var n = 1
+            while n < words.count, width(n) < w - 0.01 { n += 1 }
+            guard !words.isEmpty, abs(width(n) - w) <= 0.01 else { return false }
+            words = words.dropFirst(n)
+        }
+        return words.isEmpty
+    }
+
+    /// The trigger: a 600x372 window at 125%, as a game has it (the scores' pill showing, the chat log reduced and the guide folded for the
+    /// board), drew "… 정하고 있어요 · 20" and then "초" alone on the next line.
+    func testACoverDoesNotBreakBetweenANumberAndItsUnit() async throws {
+        let engine = CoreTextPlazaEngine(), l = L(.ko)
+        let text = l.plazaDrawOtherEntry(nickname: "민수", seconds: 20)
+        let r = Rig(viewport: narrow, scale: 1.25, board: PlazaDrawBoard(head: l.plazaDrawHead(turn: 3, of: 6, drawer: "민수"), time: l.plazaDrawTime(seconds: 20),
+                                                                      cover: text, foot: .lines([]), canDraw: false), full: true, chatLines: 3, guideFolded: true)
+        r.overlay.gameStatus = l.plazaDrawStatus(scores: [("민수", 10), ("지은", 5), ("나", 0)], watching: false)
+        _ = r.hud.layout(viewport: narrow, scale: 1.25)
+        let widths = r.panel.layout(in: narrow, scale: 1.25, text: engine).cover.map(\.line.width)
+        XCTAssertGreaterThan(widths.count, 1, "the text wraps at this size, or the test shows nothing")
+        XCTAssertEqual(try XCTUnwrap(widths.last), engine.line("20초", font: .plaza(.body)).width, accuracy: 0.01, "the number keeps its unit")
+        XCTAssertTrue(wholeWords(text, widths, engine))
+    }
+
+    func testEveryBoardTextBreaksAtSpacesOnlyAtEverySize() async throws {
+        let engine = CoreTextPlazaEngine(), l = L(.ko)
+        let word = "가나다라마바사아자차카타"
+        let feet = [l.plazaDrawHintLater(seconds: 30), l.plazaDrawHintLetters(12), l.plazaDrawResultSolved(word: word, solver: "민수"),
+                    l.plazaDrawResultPoints(solver: "민수", solverPoints: PlazaDraw.guessPoints, drawer: "지은", drawerPoints: PlazaDraw.drawerPoints),
+                    l.plazaDrawResultTimeout(word: word)]
+        var wrapped = 0
+        for (viewport, scale) in [(narrow, CGFloat(1)), (narrow, 1.25), (narrow, 2), (CGSize(width: 720, height: 450), 2), (CGSize(width: 800, height: 500), 1), (wide, 2)] {
+            let r = Rig(viewport: viewport, scale: scale, board: nil, full: true)
+            func board(cover: String?, foot: [String]) -> PlazaDrawBoard {
+                PlazaDrawBoard(head: l.plazaDrawHead(turn: 3, of: 6, drawer: "민수"), time: l.plazaDrawTime(seconds: 20), cover: cover, foot: .lines(foot), canDraw: false)
+            }
+            for seconds in 1...Int(PlazaDraw.wordSeconds) {
+                for cover in [l.plazaDrawMyEntry(seconds: seconds), l.plazaDrawMyEntryAfterChat(seconds: seconds), l.plazaDrawMyEntryAfterWindow(seconds: seconds),
+                              l.plazaDrawOtherEntry(nickname: "민수", seconds: seconds), l.plazaDrawNext(nickname: nil, seconds: seconds),
+                              l.plazaDrawNext(nickname: "민수", seconds: seconds)] {
+                    r.model.board = board(cover: cover, foot: [])
+                    let widths = r.panel.layout(in: viewport, scale: scale, text: engine).cover.map(\.line.width)
+                    if widths.count > 1 { wrapped += 1 }
+                    XCTAssertTrue(wholeWords(cover, widths, engine), "\(cover) at \(viewport) x\(scale)")
+                }
+            }
+            for foot in feet {
+                r.model.board = board(cover: nil, foot: [foot])
+                let widths = r.panel.layout(in: viewport, scale: scale, text: engine).lines.map(\.line.width)
+                if widths.count > 1 { wrapped += 1 }
+                XCTAssertTrue(wholeWords(foot, widths, engine), "\(foot) at \(viewport) x\(scale)")
+            }
+        }
+        XCTAssertGreaterThan(wrapped, 100, "most of these wrap in the small windows, or the test shows nothing")
+    }
 }
