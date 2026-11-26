@@ -1,8 +1,10 @@
 #if os(Windows)
 import Foundation
 
-/// The shadow verdict printed beside each idle check's own (PR 1: nothing reads it; `IdleWakeJudge` documents the rules). A check calls
-/// `begin` right before its window is measured and `end` right after, with the numbers it already has.
+/// The verdict of each idle check's window (`IdleWakeJudge` documents the rules; PR 2 made it the check's verdict), printed with the old
+/// switch budget's verdict as `legacy{...}`, informational for one release. `ui.kit.idle` is not flipped yet: there the legacy verdict
+/// decides and the judge's is informational. A check calls `begin` right before its window is measured and `end` right after, with the
+/// numbers it already has.
 @MainActor enum IdleShadow {
     struct Mark {
         let passes: Int
@@ -22,7 +24,8 @@ import Foundation
         let arrivals: [IdleBurstAttribution.Arrival]
     }
 
-    static func end(_ mark: Mark, seconds: Double, cs: Int, fires: IdleWakeJudge.Fires, refreshes: Int, legacyBudget: Int, legacyOK: Bool) -> Outcome {
+    static func end(_ mark: Mark, seconds: Double, cs: Int, fires: IdleWakeJudge.Fires, refreshes: Int, legacyBudget: Int, legacyOK: Bool,
+                    legacyDecides: Bool = false) -> Outcome {
         let arrivals = WinMessageArrivals.end()
         let passes = WinMainLoop.iterations - mark.passes
         let wakes: Int? = mark.wakes.flatMap { a in WinRunLoopWakes.count.map { $0 - a } }
@@ -30,19 +33,20 @@ import Foundation
         let window = IdleWakeJudge.Window(seconds: seconds, loop: loop, cs: cs, passes: passes, wakes: wakes, fires: fires, refreshes: refreshes,
                                           arrivals: arrivals)
         let v = IdleWakeJudge.judge(window)
-        var text = "legacy{budget=\(legacyBudget),verdict=\(legacyOK ? "pass" : "fail")} "
-            + "shadow{verdict=\(v.ok ? "pass" : "fail"),wakes=\(wakes.map(String.init) ?? "n/a"),passes=\(passes),fires=\(fires.total),"
+        var text = "legacy{budget=\(legacyBudget),verdict=\(legacyOK ? "pass" : "fail"),\(legacyDecides ? "decides" : "informational")} "
+            + "judge{verdict=\(v.ok ? "pass" : "fail"),wakes=\(wakes.map(String.init) ?? "n/a"),passes=\(passes),fires=\(fires.total),"
             + "residual=\(v.residual.map(String.init) ?? "n/a"),ceiling=\(v.ceiling)} "
-            + "shadow_fires={safety:\(fires.safety), debounce:\(fires.debounce), day:\(fires.day), redial:\(fires.redial), dnssd:\(fires.dnssd)} "
-            + "shadow_refreshes=\(refreshes) shadow_arrivals=\(IdleBurstAttribution.listing(arrivals))"
-        if !v.ok { text += " shadow_failures=[\(v.failures.joined(separator: "; "))]" }
+            + "judge_fires={safety:\(fires.safety), debounce:\(fires.debounce), day:\(fires.day), redial:\(fires.redial), dnssd:\(fires.dnssd)} "
+            + "judge_refreshes=\(refreshes) judge_arrivals=\(IdleBurstAttribution.listing(arrivals))"
+        if !v.ok { text += " judge_failures=[\(v.failures.joined(separator: "; "))]" }
         return Outcome(text: text, verdict: v, arrivals: arrivals)
     }
 }
 
 /// `PTB_SELFTEST_IDLE_LOOP=N` (workflow input `idle_loop`; 0 or unset = off; forced off in release mode): N more informational windows after
-/// each of `idle.window`, `team.idle` and `modalPump.idle`, in the bundle and the installed selftest. Each prints its shadow numbers, and a
-/// summary line per kind gives the residual's spread for windows with and without a store refresh. Nothing in them is judged.
+/// each of `idle.window`, `team.idle` and `modalPump.idle`, in the bundle and the installed selftest. Each prints the judge's numbers, and a
+/// summary line per kind gives the residual's spread for windows with and without a store refresh. Nothing in them is judged: they are
+/// where the residual's distribution (W) comes from.
 enum IdleLoop {
     static var count: Int { Int(ProcessInfo.processInfo.environment["PTB_SELFTEST_IDLE_LOOP"] ?? "") ?? 0 }
 }

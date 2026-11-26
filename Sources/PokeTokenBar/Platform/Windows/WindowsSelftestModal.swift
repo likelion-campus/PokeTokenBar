@@ -196,11 +196,12 @@ extension WindowsSelftest {
         _ = await waitStable(timeout: 30, quiet: 2) { !app.store.isRefreshing }
         let after = await modalIdleWindow(app)
         if let idleBefore, let after {
-            // Over the budget, ONE burst is tolerated when it is a broadcast another process sent (IdleBurstAttribution: what arrived
-            // is recorded; follow-up of 44297197674). An unattributed burst, a posted message or a second burst still fails.
-            r.add("modalPump.idle", idleBefore.mainFound && after.found && after.verdict.ok,
+            // The wake judge decides (R1-R3: `after.wakesOK`); its R4 ceiling (runaway switches) goes through `IdleBurstAttribution.judge`
+            // as the budget, so ONE burst over it is still tolerated when it is a broadcast another process sent (what arrived is
+            // recorded; follow-up of 44297197674). An unattributed burst, a posted message or a second burst still fails.
+            r.add("modalPump.idle", idleBefore.mainFound && after.found && after.wakesOK && after.verdict.ok,
                   "10 s windows, main_thread_cs before the menu=\(idleBefore.mainContextSwitches) (not judged: the same window without the menu) -> after=\(after.cs) "
-                    + "budget \(after.budget) = 3 + 5 per known timer wake + 60 per store refresh; verdict: \(after.verdict.note); \(after.detail); "
+                    + "runaway ceiling \(after.budget) = seconds + 4 per wake (R4); wake rules R1-R3 \(after.wakesOK ? "pass" : "FAIL"); verdict: \(after.verdict.note); \(after.detail); "
                     + "before-window wake timeline [\(idleBefore.wakes)]")
         } else {
             r.add("modalPump.idle", false, "measurement failed")
@@ -213,7 +214,7 @@ extension WindowsSelftest {
     /// plist sync waits on the disk), the 2 s debounce flush after a settings write, the day timer, and a store refresh (about 45 cs,
     /// every 120 s). Each is counted from its own counter and budgeted like `idle.window` does; the old limit (before + 3) ignored them.
     @MainActor static func modalIdleWindow(_ app: WindowsAppDelegate, seconds: Double = 10, settle: Bool = true) async
-        -> (found: Bool, cs: Int, budget: Int, verdict: IdleBurstAttribution.Verdict, detail: String)? {
+        -> (found: Bool, cs: Int, budget: Int, legacyBudget: Int, wakesOK: Bool, verdict: IdleBurstAttribution.Verdict, detail: String)? {
         if settle { _ = await waitStable(timeout: 30, quiet: 2) { !app.store.isRefreshing } }
         let w0 = knownWakes(app)
         let mark = IdleShadow.begin()   // what reaches the main thread in the window, sent from outside or posted (WinMessageArrivals), and the shadow counters
@@ -223,17 +224,18 @@ extension WindowsSelftest {
         let w1 = knownWakes(app)
         let explained = (w1.safety - w0.safety) + (w1.debounce - w0.debounce) + (w1.day - w0.day)
         let refreshes = w1.refreshesInWindow(since: w0)
-        let budget = 3 + 5 * explained + 60 * refreshes
+        let legacyBudget = 3 + 5 * explained + 60 * refreshes
         guard let t = measured else {
             _ = WinMessageArrivals.end()
             return nil
         }
         let shadow = IdleShadow.end(mark, seconds: seconds, cs: t.mainContextSwitches,
                                     fires: IdleWakeJudge.Fires(safety: w1.safety - w0.safety, debounce: w1.debounce - w0.debounce, day: w1.day - w0.day),
-                                    refreshes: refreshes, legacyBudget: budget, legacyOK: t.mainContextSwitches <= budget)
+                                    refreshes: refreshes, legacyBudget: legacyBudget, legacyOK: t.mainContextSwitches <= legacyBudget)
         let arrivals = shadow.arrivals
+        let budget = shadow.verdict.ceiling
         let verdict = IdleBurstAttribution.judge(cs: t.mainContextSwitches, budget: budget, wakes: t.samples, arrivals: arrivals)
-        return (t.mainFound, t.mainContextSwitches, budget, verdict,
+        return (t.mainFound, t.mainContextSwitches, budget, legacyBudget, shadow.verdict.withoutRunaway.isEmpty, verdict,
                 "cycles \(t.mainCycles); known wakes \(w1.minus(w0)); wake timeline [\(t.wakes)]; debounce pending at the start: \(w0.pending); "
                   + "arrived: \(IdleBurstAttribution.listing(arrivals)); " + shadow.text)
     }

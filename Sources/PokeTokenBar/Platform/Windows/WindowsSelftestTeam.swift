@@ -117,7 +117,7 @@ extension WindowsSelftest {
         let threads = (a.transport.socketLoop?.ioThreadID ?? 0, b.transport.socketLoop?.ioThreadID ?? 0)
         let r0 = WinDNSSD.repeatsDropped
         let k0 = WindowsSelftest.knownWakes(app), p0 = WinMainLoop.iterations
-        let mark = IdleShadow.begin()  // WindowsSelftestIdleLoop.swift: the shadow verdict's counters (nothing here reads it)
+        let mark = IdleShadow.begin()  // WindowsSelftestIdleLoop.swift: the judge's counters (wakes, passes, arrivals)
         let injected = IdleInject.arm("team")
         let sample = await IdleSampler.measure(seconds: seconds, mainThread: WindowsApp.mainThreadID)
         injected.disarm()
@@ -134,14 +134,14 @@ extension WindowsSelftest {
         }
         let budget = 3 + 3 * (redials + discovery) + 60 * refreshes
         let linked = a.transport.linkCount == 1 && b.transport.linkCount == 1
-        // Safety, debounce and day are named here too (the legacy budget hides them in its 3).
+        // Safety, debounce and day are named here too (the legacy budget hid them in its 3). The judge decides; the budget is `legacy{...}`.
         let shadow = IdleShadow.end(mark, seconds: seconds, cs: sample.mainContextSwitches,
                                     fires: IdleWakeJudge.Fires(safety: k1.safety - k0.safety, debounce: k1.debounce - k0.debounce, day: k1.day - k0.day,
                                                                redial: redials, dnssd: discovery),
                                     refreshes: refreshes, legacyBudget: budget, legacyOK: sample.mainContextSwitches <= budget)
-        r.add("team.idle", linked && wakes.0 == 0 && wakes.1 == 0 && sample.mainContextSwitches <= budget,
+        r.add("team.idle", linked && wakes.0 == 0 && wakes.1 == 0 && shadow.verdict.ok,
               "\(Int(seconds)) s, two linked transports, no traffic: socket_thread_wakeups=[\(wakes.0), \(wakes.1)] "
-                + "(threads \(threads.0), \(threads.1)) main_thread_cs=\(sample.mainContextSwitches) budget_cs=\(budget) "
+                + "(threads \(threads.0), \(threads.1)) main_thread_cs=\(sample.mainContextSwitches) legacy_budget_cs=\(budget) "
                 + "known_wakes={redial:\(redials), dnssd_events:\(discovery), store_refresh:\(refreshes)} "
                 + "dnssd_repeats_dropped_off_main=\(WinDNSSD.repeatsDropped - r0) "
                 + "main_cycles=\(sample.mainCycles) "

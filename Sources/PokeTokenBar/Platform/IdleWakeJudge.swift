@@ -12,8 +12,9 @@ import Foundation
 ///   - `wakes`: every wait on the main run loop that ended (`WinRunLoopWakes`, the `.afterWaiting` observer);
 ///   - tolerated broadcast arrivals: one system broadcast from outside costs one wake that nothing of ours caused.
 ///
-/// PR 1 prints the verdict beside today's (shadow: no check's pass or fail reads it). Every number in `Limits` is PROVISIONAL UNTIL
-/// PR 2, which sets them from the shadow windows of at least 5 runs; none was tuned to make a window pass.
+/// PR 2 made this the verdict of `idle.window`, `team.idle` and `modalPump.idle` (`ui.kit.idle` still decides by its switch budget: too few
+/// windows of its own, see its check). The old switch budgets are printed as `legacy{...}` for one release. Each limit below carries the
+/// sample it rests on; none was tuned to make a window pass.
 enum IdleWakeJudge {
     enum Loop: Sendable, Equatable {
         /// `RunLoop.main.run` with CoreFoundation's wait: `wakes` is observable.
@@ -46,24 +47,31 @@ enum IdleWakeJudge {
         var arrivals: [IdleBurstAttribution.Arrival] = []
     }
 
-    /// PROVISIONAL UNTIL PR 2 (each with the sample it comes from; the plan's section 1, `idle-plan/plan.md`).
+    /// Every number carries its sample. "Shadow windows" = 424 windows of 8 runs (45761653192 45765179757 45765184311 45765188799 45784146296
+    /// 45787217942 45787394423 45787403934: bundle and installed selftest, 2026-11-26): idle.window 136, team.idle 136, modalPump.idle 136,
+    /// ui.kit.idle 16.
     struct Limits: Sendable, Equatable {
-        /// R1. Seen in 145 runs: safety 0-2 (N=294 idle windows), debounce 0 (N=294), day 0 (N=294), redial 8 in 60 s (N=273), dnssd 0 (N=288).
+        /// R1. Periods are the timers' own; the ceilings are what the logs of 145 runs (2026-11-20..25) and the shadow windows show:
+        /// safety 0-2 fires (N=294 idle windows), debounce 0 (N=294), day 0 (N=294), redial 8 in 60 s (N=273), dnssd 0 (N=288).
         var safetyPeriod = 30.0           // fires <= floor(s / 30) + 1
         var debounceMax = 1
         var dayMax = 1
         var redialPeriod = 15.0           // fires <= 2 * (floor(s / 15) + 1): two transports redial every 15 s
         var dnssdMax = 2
-        /// R2. Without a refresh 1-2 passes (N~600 windows); with a refresh 37-52 (installed idle.window, N=132), 17-51 (ui.kit.idle, N=105),
-        /// 29-44 (diag branch, N=78). 80 is 1.5 x the highest seen.
+        /// R2. Passes without a refresh: 1 (N=76 idle.window) or 1-2 (team, N=68); with a refresh 43-53 (N=145 shadow windows), 37-52 (installed
+        /// idle.window, N=132 earlier), 17-51 (ui.kit.idle, N=105 earlier). 80 is 1.5 x the highest seen (53).
         var passBase = 3
         var passesPerRefresh = 80
-        /// R3. The allowance is a stand-in until PR 2 (W = max residual + 2 over N >= 200 shadow windows, at least 5 runs).
-        var residualAllowance = 3
+        /// R3. W = max residual + 2 = 4: the residual (wakes - passes - named fires - tolerated broadcast) was 0 in 327, 1 in 83 and 2 in 14 of
+        /// the 424 shadow windows (min 0, median 0, max 2; per kind and refresh at least N=5 windows, in none above 2). Not above 3, so no unknown
+        /// waker. Thin cells: modalPump.idle with a refresh N=10, ui.kit.idle (N=16, none with a refresh in the installed selftest; its check does
+        /// not use the judge yet).
+        var residualAllowance = 4
         /// One broadcast from outside is tolerated per window (what `IdleBurstAttribution.judge` tolerates too).
         var toleratedBroadcasts = 1
-        /// R4. cs <= seconds + factor * (passes + fires). Worst cs seen: idle with a refresh 104 (N=132), team with a refresh 148 (N=132),
-        /// idle without 11 (N=138), modal 5 (N=279), ui.kit with a refresh 56 (N=105); each stays under its ceiling.
+        /// R4, a runaway guard only. cs <= seconds + factor * (passes + fires). The highest cs / ceiling in the shadow windows is 0.27 (N=424);
+        /// the highest ever seen is 148 cs in a team window (ceiling at its counts about 240, ratio 0.62, one window of 132). 104 cs (idle,
+        /// refresh, ceiling 256) and 148 stay under it. Re-derive when a window comes within 0.8 of its ceiling.
         var csPerWake = 4
     }
 
@@ -75,6 +83,8 @@ enum IdleWakeJudge {
         /// R4's ceiling at this window's counts.
         let ceiling: Int
         var ok: Bool { failures.isEmpty }
+        /// R1-R3 only: the verdict without the runaway ceiling (`modalPump.idle` judges R4 through `IdleBurstAttribution`, which tolerates one broadcast burst).
+        var withoutRunaway: [String] { failures.filter { !$0.hasPrefix("R4") } }
     }
 
     static func judge(_ w: Window, limits l: Limits = Limits()) -> Verdict {
