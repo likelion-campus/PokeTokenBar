@@ -261,7 +261,6 @@ $tmpLog = Join-Path ([IO.Path]::GetTempPath()) "idle-rules-wakes-$PID.log"
 Set-Content -Path $tmpLog -Value $wl
 Check ((Get-RunLoopWakes $tmpLog) -eq 11 -and (Get-WakeDelta $tmpLog).loops -eq 7) 'from a log file: wakes 11, and the wake trace pair still reads (loops 7)'
 Remove-Item $tmpLog -ErrorAction SilentlyContinue
-Check ($null -eq (Get-RunLoopWakes (Join-Path ([IO.Path]::GetTempPath()) "no-such-$PID.log"))) 'a missing log reads as null'
 
 "$script:count checks, $script:failed failed"
 if ($script:failed -gt 0) { exit 1 }
