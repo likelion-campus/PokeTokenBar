@@ -138,6 +138,7 @@ import WinSDK
     private func dayTimerFired() {
         guard !closed else { return }
         dayTimerFires += 1
+        WakeTrace.count("dayTimer")
         checkDayChange()  // an early fire (key unchanged) only re-arms
         armDayTimer()
     }
