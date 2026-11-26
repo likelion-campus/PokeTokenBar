@@ -465,6 +465,118 @@ final class PlazaDrawEngineTests: XCTestCase {
         room = assertNoGame(room, room.live, seconds: 60)
     }
 
+    // MARK: - A bomb game nobody plays (the ghost game: a closed plaza sent its running copy for the game's whole life)
+
+    /// Steps until the players `ids` saw the game end.
+    private func untilEnded(_ room: inout Room, _ ids: [String]) {
+        for _ in 0..<150 where ids.contains(where: { room[$0].state?.endedAt == nil }) { room.step(1) }
+        for id in ids { XCTAssertNotNil(room[id].state?.endedAt, "test precondition: \(id) saw the end") }
+    }
+
+    func testABombGameNobodyPlaysIsDroppedAfterFiveSecondsAndStaysGone() {
+        var room = Room(["a", "b", "c", "d"])
+        start(&room, host: "a", kind: .bomb, notJoining: ["d"])
+        room.step(2)
+        // c closes its plaza mid-game: everyone hears its copy (running, c out) for as long as the game could live.
+        room.engines["c"]!.leave(now: room.now("c"), present: room.present(for: "c"))
+        room.closed = ["c"]
+        // The watcher d misses the end (off the network, its plaza open).
+        room.views["d"] = .init(present: [], heard: [])
+        untilEnded(&room, ["a", "b"])
+        room.step(Int(PlazaGame.endedKeep) + 2)
+        XCTAssertNotNil(room["d"].state?.bomb, "test precondition: d still holds the running copy")
+        XCTAssertNil(room["d"].state?.endedAt)
+        room.views["d"] = nil
+        room.step(4)
+        XCTAssertNotNil(room["d"].state, "not yet")
+        room.step(2)
+        room = assertNoGame(room, ["a", "b", "d"], seconds: 90)
+    }
+
+    func testTwoLeaversWhoSaidYesDoNotKeepADeadBombGameAlive() {
+        var room = Room(["a", "b", "c", "d"])
+        start(&room, host: "a", kind: .bomb)
+        room.step(2)
+        let id = room["a"].state!.id
+        for leaver in ["c", "d"] {
+            room.engines[leaver]!.leave(now: room.now(leaver), present: room.present(for: leaver))
+            room.closed.insert(leaver)
+        }
+        untilEnded(&room, ["a", "b"])
+        room.step(Int(PlazaGame.endedKeep) + 2)
+        // Both reopen with the running copy and their yes: each hears the other "playing", and neither is still in the game.
+        room.closed = []
+        XCTAssertEqual(room["c"].joined, id, "test precondition")
+        XCTAssertEqual(room["d"].joined, id, "test precondition")
+        XCTAssertNil(room["c"].state?.endedAt)
+        room.step(6)
+        room = assertNoGame(room, room.live, seconds: 90)
+    }
+
+    func testAWatcherAndALeaverKeepABombGameThatIsStillPlayed() {
+        var room = Room(["a", "b", "c", "d"])
+        start(&room, host: "a", kind: .bomb, notJoining: ["d"])
+        room.step(2)
+        let id = room["a"].state!.id
+        room.engines["c"]!.leave(now: room.now("c"), present: room.present(for: "c"))   // out of the game, still in the plaza
+        var seconds = 0
+        for _ in 0..<150 where room["a"].state?.endedAt == nil {
+            room.step(1)
+            seconds += 1
+            XCTAssertEqual(room["c"].state?.id, id, "the leaver lost a live game at +\(seconds)")
+            XCTAssertEqual(room["d"].state?.id, id, "the watcher lost a live game at +\(seconds)")
+        }
+        XCTAssertGreaterThan(seconds, Int(PlazaDraw.abandonedAfter) * 2, "test precondition: the game outlasted the limit")
+        XCTAssertNotNil(room["d"].state?.endedAt, "and the watcher saw it end")
+    }
+
+    func testReturningToThePlazaForgetsARunningGameAndTakesItAgainFromThePlaza() {
+        var room = Room(["a", "b", "c"])
+        start(&room, host: "a", kind: .bomb)
+        room.step(2)
+        let id = room["a"].state!.id
+        room.engines["c"]!.leave(now: room.now("c"), present: room.present(for: "c"))
+        room.closed = ["c"]
+        room.step(1)
+        // c reopens while the two others still play: it holds nothing for a moment, then watches.
+        room.closed = []
+        room.engines["c"]!.returned(now: room.now("c"))
+        XCTAssertNil(room["c"].state)
+        XCTAssertNil(room["c"].joined)
+        room.step()
+        XCTAssertEqual(room["c"].state?.id, id, "the players in the plaza still play it")
+        XCTAssertEqual(room["c"].state?.bomb?.out, ["c"])
+        XCTAssertFalse(room["c"].isPlaying)
+        XCTAssertNil(room["a"].state?.endedAt, "the game goes on")
+        // It closes again, the game ends and is forgotten, and c reopens with nobody around.
+        room.closed = ["c"]
+        untilEnded(&room, ["a", "b"])
+        room.step(Int(PlazaGame.endedKeep) + 2)
+        XCTAssertNil(room["c"].state?.endedAt)
+        XCTAssertNotNil(room["c"].state, "test precondition: the closed plaza still holds the running copy")
+        room.closed = []
+        room.views["c"] = .init(present: [], heard: [])
+        room.engines["c"]!.returned(now: room.now("c"))
+        XCTAssertNil(room["c"].state, "no game to come back to, with or without teammates")
+        XCTAssertTrue(room["c"].canOpen(now: room.now("c")))
+    }
+
+    func testReturningKeepsAnInvitationAndAResult() {
+        var room = Room(["a", "b", "c"])
+        XCTAssertTrue(room["a"].open(.bomb, now: room.now("a")))
+        room.step()
+        room["c"].answer(join: false, now: room.now("c"))
+        let id = room["c"].state!.id
+        room.engines["c"]!.returned(now: room.now("c"))
+        XCTAssertEqual(room["c"].state?.id, id, "a game still recruiting is not one a closed plaza fell behind on")
+        XCTAssertEqual(room["c"].declined, id)
+        room["b"].answer(join: true, now: room.now("b"))
+        for _ in 0..<(Int(PlazaGame.recruitSeconds) + 5) where room["a"].state?.startsAt == nil { room.step(1) }
+        untilEnded(&room, ["a", "b", "c"])
+        room.engines["c"]!.returned(now: room.now("c"))
+        XCTAssertNotNil(room["c"].state?.endedAt, "a result stays for as long as it is shown")
+    }
+
     func testAQuizNobodyPlaysIsDroppedAfterFiveSecondsAndStaysGone() {
         var room = Room(["a", "b", "c", "d"])
         start(&room, notJoining: ["d"])

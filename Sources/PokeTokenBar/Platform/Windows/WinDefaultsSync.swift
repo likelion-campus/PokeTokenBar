@@ -48,6 +48,7 @@ final class WinSyncingDefaults: UserDefaults, @unchecked Sendable {
         let timer = Timer(fire: Date(timeIntervalSinceNow: safetyInterval), interval: safetyInterval, repeats: true) { _ in
             MainActor.assumeIsolated {
                 safetyFires += 1
+                WakeTrace.count("safetySync")   // the idle gate's attribution: a Foundation timer is no message, so it counts itself
                 flushNow()
             }
         }
@@ -177,6 +178,7 @@ final class WinSyncingDefaults: UserDefaults, @unchecked Sendable {
             MainActor.assumeIsolated {
                 debounceTimer = nil
                 debounceFires += 1
+                WakeTrace.count("debounceSync")
                 flushNow()
             }
         }

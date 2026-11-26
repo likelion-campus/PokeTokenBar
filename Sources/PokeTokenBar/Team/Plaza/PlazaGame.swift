@@ -292,10 +292,10 @@ struct PlazaGameEngine {
     /// Games I saw end (or dropped as abandoned), by id, with when they opened. A running copy of one of them that a
     /// Mac still relays (its plaza was closed during the game) is stale: it never brings the game back.
     private var finished: [String: Double] = [:]
-    /// Quizzes I dropped as abandoned, by id (with when they opened). A soft memory: a frozen copy of one is refused, but the id is
+    /// Games I dropped as abandoned, by id (with when they opened). A soft memory: a frozen copy of one is refused, but the id is
     /// forgiven the moment someone in the plaza says they are playing it (`heardPlaying`), so a partial view cannot lock me out.
     private var abandoned: [String: Double] = [:]
-    /// Since when I have seen no player of the drawing quiz playing (my clock), while I am not playing it myself.
+    /// Since when I have seen no player of the started game playing (my clock), while I am not playing it myself.
     fileprivate var abandonedSince: Double?
     /// Since when fewer than two players of the drawing quiz are playing in my view (my clock), while I hear a player.
     fileprivate var lackSince: Double?
@@ -424,6 +424,14 @@ struct PlazaGameEngine {
         }
     }
 
+    /// My plaza opens again. A plaza that is closed follows nothing, so a running game I held through the close may have
+    /// ended without me: I forget it, and take it again only from someone in the plaza.
+    mutating func returned(now: Date) {
+        guard let s = state, s.startsAt != nil, s.endedAt == nil else { return }
+        state = nil
+        settle(now: now)
+    }
+
     /// A hit from `sender` landed on me. True when it handed me the bomb.
     mutating func hit(by sender: String, now: Date) -> Bool {
         guard var s = state, phase(now: now) == .playing, var b = s.bomb, b.holder == sender, sender != me,
@@ -453,14 +461,12 @@ struct PlazaGameEngine {
         guard var s = state else { return before != nil }
         let t = now.timeIntervalSince1970
         let phase = PlazaGame.phase(s, now: now)
+        if dropAbandoned(now: now, joins: joins, hearing: heard.map { !$0.isEmpty } ?? connected) { return true }
         if s.kind == PlazaGameKind.draw.rawValue, s.startsAt != nil {
-            if dropAbandonedDraw(now: now, joins: joins, hearing: heard.map { !$0.isEmpty } ?? connected) { return true }
             tickDraw(now: now, present: present, joins: joins, connected: connected, heard: heard)
             return state != before
         }
         if s.kind == PlazaGameKind.berry.rawValue, s.startsAt != nil {
-            // The quiz's `PlazaDraw.abandonedAfter` governs berry five too.
-            if dropAbandonedDraw(now: now, joins: joins, hearing: heard.map { !$0.isEmpty } ?? connected) { return true }
             tickBerry(now: now, joins: joins, connected: connected, heard: heard, bells: bells)
             return state != before
         }
@@ -659,10 +665,13 @@ extension PlazaGameEngine {
         myWord.map { PlazaDraw.contains(line, word: $0) } ?? false
     }
 
-    /// A quiz nobody plays is over: I am not playing it, I hear a teammate, and for `abandonedAfter` seconds on my own
-    /// clock no player of it has been playing. I forget it and remember its id; nothing shared is written.
-    fileprivate mutating func dropAbandonedDraw(now: Date, joins: Set<String>, hearing: Bool) -> Bool {
-        guard let s = state, s.endedAt == nil, s.draw != nil || s.berry != nil, joined != s.id, hearing, joins.isDisjoint(with: s.players) else {
+    /// A started game nobody plays is over (every kind: `PlazaDraw.abandonedAfter` governs them all): I am not playing it, I
+    /// hear a teammate, and for `abandonedAfter` seconds on my own clock no player still in it has been playing. I forget it
+    /// and remember its id; nothing shared is written. Players who are out do not count, mine or theirs: a bomb player who
+    /// left keeps their yes, and two of them would hold a dead game up for each other.
+    fileprivate mutating func dropAbandoned(now: Date, joins: Set<String>, hearing: Bool) -> Bool {
+        guard let s = state, s.startsAt != nil, s.endedAt == nil, s.bomb != nil || s.draw != nil || s.berry != nil,
+              case let alive = PlazaBomb.alive(s), !(joined == s.id && alive.contains(me)), hearing, joins.isDisjoint(with: alive) else {
             abandonedSince = nil
             return false
         }

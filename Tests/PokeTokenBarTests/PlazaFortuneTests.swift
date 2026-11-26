@@ -65,6 +65,18 @@ final class PlazaFortuneTests: XCTestCase {
         XCTAssertFalse(PlazaFortune.lines.contains { $0.contains { $0.isASCII && $0.isLetter } }, "no Latin word (PR, CI) on a slip")
     }
 
+    /// A slip is drawn to cheer up (see `PlazaFortune.lines`). A one-row line that ends as an instruction ("고마운 마음을 전해 보세요") has
+    /// no room for a promise: it only hands the reader a task. A two-row line may end with one when its other row promises something.
+    func testNoOneRowLineIsOnlyAnInstruction() async {
+        for line in PlazaFortune.lines where PlazaFortuneArt.rows(line).count == 1 {
+            XCTAssertFalse(line.hasSuffix("세요"), line)
+        }
+        // The lines the product owner named, and their kind: a literal event, a lesson, the cookie vouching for itself.
+        for gone in ["무지개", "주사위", "가위바위보", "금강산", "신발 끈"] {
+            XCTAssertFalse(PlazaFortune.lines.contains { $0.contains(gone) }, gone)
+        }
+    }
+
     // MARK: - The wire
 
     func testAFortuneEmoteCarriesItsSlipAndAnUnreadableOneBecomesNil() async throws {
@@ -213,14 +225,16 @@ final class PlazaFortuneTests: XCTestCase {
     /// When you append, raise the counts and keep the earlier hashes as they are and add one for the new count.
     /// 2.5.639 knows the numbers 0..<80 and 2.5.640 0..<200: a teammate on one of them does not see a slip with a later number.
     /// The release after 2.5.642 rewrote all 300 texts once (the old ones were padded with chores and tips), so a teammate on 2.5.642
-    /// or older reads its own text for the same number. From here on a number keeps its text again.
+    /// or older reads its own text for the same number. The release after 2.5.645 replaced 115 of them once more: the product owner
+    /// draws a slip to get through a hard day, and lessons, instructions, random predictions ("무지개를 보게 될 운이에요"), wordplay and
+    /// flat well-wishing let the reader down. A number keeps its text otherwise.
     func testTheFirstLinesAndActionsKeepTheirNumbers() async {
         func hash(_ list: ArraySlice<String>) -> UInt64 {
             list.joined(separator: "\n").utf8.reduce(0xcbf2_9ce4_8422_2325) { ($0 ^ UInt64($1)) &* 0x0000_0100_0000_01b3 }
         }
         XCTAssertGreaterThanOrEqual(L(.ko).plazaFortuneLines.count, 300)
         XCTAssertGreaterThanOrEqual(L(.ko).plazaFortuneActions.count, 12)
-        XCTAssertEqual(hash(L(.ko).plazaFortuneLines.prefix(300)), 17_887_613_744_311_900_604, "the 300 rewritten lines")
+        XCTAssertEqual(hash(L(.ko).plazaFortuneLines.prefix(300)), 17_429_527_158_946_108_532, "the 300 lines after the second rewrite")
         XCTAssertEqual(hash(L(.ko).plazaFortuneActions.prefix(12)), 4_205_960_783_727_730_735)
     }
 
