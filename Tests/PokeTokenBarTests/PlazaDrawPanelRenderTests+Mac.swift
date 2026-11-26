@@ -168,12 +168,15 @@ import CoreText
         return words.isEmpty
     }
 
-    /// The trigger: a 600x372 window at 125% drew "… 정하고 있어요 · 20" and then "초" alone on the next line.
+    /// The trigger: a 600x372 window at 125%, as a game has it (the scores' pill showing, the chat log reduced and the guide folded for the
+    /// board), drew "… 정하고 있어요 · 20" and then "초" alone on the next line.
     func testACoverDoesNotBreakBetweenANumberAndItsUnit() async throws {
         let engine = CoreTextPlazaEngine(), l = L(.ko)
         let text = l.plazaDrawOtherEntry(nickname: "민수", seconds: 20)
         let r = Rig(viewport: narrow, scale: 1.25, board: PlazaDrawBoard(head: l.plazaDrawHead(turn: 3, of: 6, drawer: "민수"), time: l.plazaDrawTime(seconds: 20),
-                                                                      cover: text, foot: .lines([]), canDraw: false), full: true)
+                                                                      cover: text, foot: .lines([]), canDraw: false), full: true, chatLines: 3, guideFolded: true)
+        r.overlay.gameStatus = l.plazaDrawStatus(scores: [("민수", 10), ("지은", 5), ("나", 0)], watching: false)
+        _ = r.hud.layout(viewport: narrow, scale: 1.25)
         let widths = r.panel.layout(in: narrow, scale: 1.25, text: engine).cover.map(\.line.width)
         XCTAssertGreaterThan(widths.count, 1, "the text wraps at this size, or the test shows nothing")
         XCTAssertEqual(try XCTUnwrap(widths.last), engine.line("20초", font: .plaza(.body)).width, accuracy: 0.01, "the number keeps its unit")
