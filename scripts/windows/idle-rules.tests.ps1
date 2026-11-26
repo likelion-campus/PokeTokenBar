@@ -136,18 +136,42 @@ Check (-not (Still 3 6 7 @('0xf@PokeTokenBarPane:3', '0xf@Button:2', '0x10@PokeT
 Check (-not (Still 3 6 10).ok) 'popover-open: three loop passes more than its messages (a main-queue block or a posted message) fail'
 Check (-not (Still 3 6 7 -Cs 15.5).ok) 'popover-open: main cs/min over the runaway 15 fails'
 Check (-not (Test-StillWork $null 3 15).ok) 'popover-open: no attribution fails'
-# the stated cost: a timer that only runs while Home is open, period 10 s, is 12 fires -> +12 cs in a window whose floor is 6-13 -> 18-25 cs = 9-12.5/min: below the runaway
-Check ((Still 3 6 7 -Cs 12.5).ok) 'KNOWN GAP (stated in the PR): a hidden 10 s timer on the open Home adds 12 switches and stays under the 15/min runaway until the unattributed-wake rule lands'
+# boundaries of every bound (each isolates one rule: the others are kept inside theirs)
+Check ((Still 2 5 6).ok) 'boundary: 2 fires with the 5 messages and 6 loops they carry (Pane 2, Static 2, close 1) pass: the fire floor and the message bound agree'
+Check (-not (Still 2 6 7).ok) 'boundary: 2 fires with the unchanged 6 messages fail (a repaint the clock did not cause)'
+Check ((Still 4 8 9).ok) 'boundary: 4 fires (one more than the 3 it always has) pass: the stated slack'
+Check (-not (Still 5 11 13).ok) 'boundary: 5 fires fail even with messages (11 = 2 x 5 + 1) and loops (13 = messages + 2) inside their bounds'
+Check ((Still 3 7 9).ok) 'boundary: 7 messages (the bound at 3 fires) with 9 loops pass'
+Check (-not (Still 3 8 10).ok) 'boundary: 8 messages at 3 fires fail'
+Check ((Still 3 6 8).ok) 'boundary: 8 loop passes (messages + 2) pass: one more than the 7 it always has'
+Check (-not (Still 3 6 9).ok) 'boundary: 9 loop passes fail'
+Check ((Still 3 6 7 -Cs 15).ok) 'boundary: main cs/min 15 passes the runaway (15.5 fails, above)'
+$stranger = Still 3 6 7 @('0xf@PokeTokenBarPane:3', '0x113@MSCTFIME UI:2', '0x10@PokeTokenBarSink:1')
+Check (-not $stranger.ok -and $stranger.detail -match "class\(es\) 'MSCTFIME UI'") 'a message class off the list is named in the failure (the TSF "MSCTFIME UI" is a known false-fail risk, not allowed without a sighting)'
+$button = Still 3 6 7 @('0xf@PokeTokenBarPane:3', '0xf@Button:2', '0x10@PokeTokenBarSink:1')
+Check (-not $button.ok -and $button.detail -match "class\(es\) 'Button'") 'the failure names Button'
+# the stated cost, with the corrected numbers: a Foundation timer that runs only while Home is open adds about 120/period switches over a floor of
+# 6-13 per window; the runaway is 15/min = 30 per window, the old budget 6/min = 12.
+function Timer([int]$Floor, [double]$Period) { Still 3 6 7 -Cs (($Floor + 120 / $Period) / 2) }
+Check (-not (Timer 6 4).ok -and -not (Timer 13 4).ok) 'a hidden 4 s timer on Home fails at either floor'
+Check ((Timer 6 6).ok -and -not (Timer 13 6).ok) 'a hidden 6 s timer fails or passes with the floor (6: 13/min passes; 13: 16.5/min fails)'
+Check ((Timer 6 8).ok -and (Timer 13 8).ok) 'KNOWN GAP (stated in the PR): a hidden 8 s timer on the open Home passes at either floor (14/min at floor 13)'
+Check ((Timer 13 20).ok) 'KNOWN GAP (stated in the PR): a hidden 20 s timer passes (the old 6/min budget, 12 cs per window, stopped catching at about 20 s at floor 6)'
+Check ((Still 3 6 8).ok) 'KNOWN GAP (stated in the PR): one more loop pass than the baseline passes (a main-queue block about every 60 s or less adds two or more and fails)'
 
 # the collection log: the fixture's clock fire, and the guard that keeps a window away from it
 Check ((Get-PageClockSources $logWake).Count -eq 1) 'collection-log: the real release window (popoverClock:1) has a clock fire, which fails the window'
 Check ((Get-PageClockSources $quietWake).Count -eq 0) 'collection-log: the real quiet window (no sources) has none and passes'
 Check ((Get-PageClockSources @{ sources = @('animationClock:3', 'stackLayout:1') }).Count -eq 1 -and (Get-PageClockSources $null).Count -eq 0) 'the clock sources are read by name; no attribution has none (the gate fails it elsewhere)'
-$gateText = Get-Content -Raw "$PSScriptRoot/idle-gate.ps1"
-Check ($gateText -notmatch "page -ne 'collection-log'") "the gate no longer exempts the collection-log window from the clock rule"
-Check ($gateText -match 'Test-StillWork \$w\.wake' -and $gateText -match 'if \(\$mode -eq ''open''\) \{\s+\$w = ') 'the gate judges popover-open with the work rule'
-Check ($gateText -match 'Wait-PastFixturePhase \$Label \(\$Seconds \+ 40\) \$phases' -and $gateText -match 'if \(\$CompanionFixture\)') 'the gate runs the fixture phase guard before every window that uses the companion fixture'
-Check ($gateText -match '(?m)^\s*if \(\$clocks\.Count -gt 0\) \{ \$verdicts\[\$label\] = \$false \}') 'the gate fails every page window whose clock fired'
+function Get-Code([string]$Path) { (Get-Content -Path $Path | Where-Object { $_ -notmatch '^\s*#' }) -join "`n" }   # source without its comment-only lines
+$gateText = Get-Code "$PSScriptRoot/idle-gate.ps1"
+$measureText = Get-Code "$PSScriptRoot/measure-idle.ps1"
+Check ($gateText -notmatch "page -ne 'collection-log'") "the gate code no longer exempts the collection-log window from the clock rule"
+Check ($gateText -match '(?m)^\s*\$judged = Test-StillWork \$w\.wake ' -and $gateText -match '(?m)^\s*if \(\$mode -eq ''open''\) \{\s*$') 'the gate code judges popover-open with the work rule'
+Check ($gateText -match '(?m)^\s*\$summaryPhaseWait = Wait-PastGuards \$Label \(\$Seconds \+ 40\) \$phases' -and $gateText -match '(?m)^\s*\$phases = if \(\$CompanionFixture\) \{ Get-FixturePhases ') 'the gate code runs the wall-clock guards, with the fixture phases for every window that uses the companion fixture'
+Check ($gateText -match '(?m)^\s*if \(\$clocks\.Count -gt 0\) \{ \$verdicts\[\$label\] = \$false \}') 'the gate code fails every page window whose clock fired'
+Check ($measureText -match '(?m)^\s*Check "liveCyclesPerSec" \$result\.liveCyclesPerSec \$MaxLiveCyclesPerSec\s*$') 'measure-idle code enforces the live-thread cycles budget'
+Check ($measureText -match '(?m)^\s*\$split = Get-CycleSplit \$procCycles ') 'measure-idle code splits the cycles with Get-CycleSplit'
 
 . "$PSScriptRoot/midnight-guard.ps1"
 $fixture = "$PSScriptRoot/fixtures/idle-companion-state.json"
@@ -175,9 +199,35 @@ Check ((Get-FixturePhaseWait (At '2026-11-26 03:13:20') 190 @(800)) -eq 15) 'a s
 Check ((Get-FixturePhaseWait (At '2026-11-26 03:59:00') 190 @(800)) -eq 0 -and (Get-FixturePhaseWait (At '2026-11-26 04:11:00') 190 @(800)) -eq 155) 'across the hour: 03:59 clear, 04:11 waits to 04:13:35'
 Check ((Get-FixturePhaseWait (At '2026-11-26 23:59:00') 190 @(800)) -eq 0 -and (Get-FixturePhaseWait (At '2026-11-27 00:11:00') 190 @(800)) -eq 155) 'across midnight the same'
 Check ((Get-FixturePhaseWait (At '2026-11-26 03:12:00') 190 @(800, 1000)) -eq 295) 'two phases (13:20 and 16:40): the wait goes past the second one the first wait reaches'
-Check ((Get-FixturePhaseWait (At '2026-11-26 03:12:00') 190 @()) -eq 0) 'no phases, no wait'
-$script:FixturePhaseDryRun = $true
-Check ((Wait-PastFixturePhase 'case' 160 @(800) (At '2026-11-26 03:11:13')) -eq 142 -and (Wait-PastFixturePhase 'case' 160 @(800) (At '2026-11-26 03:20:00')) -eq 0) 'Wait-PastFixturePhase adds the 30 s margin like the midnight guard: waits for the release window, not at 03:20'
+function Throws([scriptblock]$Code, [string]$Pattern) { try { & $Code | Out-Null; return $false } catch { return ($_.Exception.Message -match $Pattern) } }
+Check (Throws { Get-FixturePhaseWait (At '2026-11-26 03:12:00') 190 @() } 'no phases') 'a phase wait with no phases throws (a guard that read nothing must not wait 0 s)'
+$tmp = Join-Path ([IO.Path]::GetTempPath()) "fixture-phase-$([guid]::NewGuid()).json"
+Check (Throws { Get-FixturePhases $tmp } 'is missing') 'a missing fixture throws'
+Set-Content -Path $tmp -Value '{"dex": []}'
+Check (Throws { Get-FixturePhases $tmp } 'no caughtAt') 'a fixture with no caughtAt throws'
+Set-Content -Path $tmp -Value '{"dex": [{"caughtAt": "2023-11-14T21:13:20Z"}, {"caughtAt": "2023-11-14T22:13:20Z"}]}'
+Check (Throws { Get-FixturePhases $tmp } '2 of 2 caughtAt values') 'ISO-string dates throw (the phase cannot be read)'
+Set-Content -Path $tmp -Value '{"dex": [{"caughtAt": 721689200}, {"caughtAt": "2023-11-14T22:13:20Z"}]}'
+Check (Throws { Get-FixturePhases $tmp } '1 of 2 caughtAt values') 'one unreadable date among numbers throws'
+Set-Content -Path $tmp -Value '{"dex": [{"caughtAt": 721689200}, {"caughtAt": 721692800.5}, {"caughtAt": 721685600}]}'
+Check (((Get-FixturePhases $tmp) -join ',') -eq '800') 'numeric dates (integer, fractional) parse; one phase 800'
+Remove-Item $tmp
+# the cap and the passes: a wait over the cap throws instead of sleeping on, and an unsettled loop throws
+Check (Throws { Get-FixturePhaseWait (At '2026-11-26 03:11:13') 190 @(800) 15 100 } 'over the cap of 100 s') 'a wait that needs 142 s throws under a cap of 100 s'
+Check ((Get-FixturePhaseWait (At '2026-11-26 03:11:13') 190 @(800) 15 142) -eq 142) 'the same wait passes when the cap is 142 s'
+$dense = 0..35 | ForEach-Object { $_ * 100 }
+Check (Throws { Get-FixturePhaseWait (At '2026-11-26 03:00:00') 190 $dense 15 1000000 } 'still contains a fixture text change') 'phases so dense that every wait reaches the next instant: after the passes it throws'
+Check (Throws { Get-FixturePhaseWait (At '2026-11-26 03:00:00') 190 $dense } 'over the cap of 600 s') 'the same dense phases under the default cap throw on the cap'
+# both guards: the midnight wait can move the start into a fixture window (phase 03:00 past the hour = 180 s; start 23:57:30, 190 s window)
+$start = At '2026-11-26 23:57:30'
+Check ((Get-FixturePhaseWait $start 190 @(180)) -eq 0 -and (Get-MidnightWait $start 190) -eq 165) 'the old order breaks here: the phase guard alone waits 0, the midnight guard then moves the start to 00:00:15 ...'
+Check ((Get-FixturePhaseWait (At '2026-11-27 00:00:15') 190 @(180)) -eq 180) '... where the 00:03:00 instant is inside the window'
+Check ((Get-GuardsWait $start 190 @(180)) -eq 345) 'Get-GuardsWait repeats both until neither waits: 345 s to 00:03:15'
+Check ((Get-GuardsWait (At '2026-11-26 03:11:13') 190 @(800)) -eq 142 -and (Get-GuardsWait (At '2026-11-26 12:00:00') 190 @(800)) -eq 0) 'without a midnight nearby the guards wait as the phase guard alone'
+Check ((Get-GuardsWait (At '2026-11-26 23:58:03') 190 @()) -eq (Get-MidnightWait (At '2026-11-26 23:58:03') 190) -and (Get-GuardsWait (At '2026-11-26 23:58:03') 190 $null) -gt 0) 'a window without the fixture keeps the midnight guard alone (empty or null phases)'
+Check (Throws { Get-GuardsWait $start 190 @(180) 300 } 'over the cap of 300 s') 'the combined wait over its cap throws'
+$script:GuardsDryRun = $true
+Check ((Wait-PastGuards 'case' 160 @(800) (At '2026-11-26 03:11:13')) -eq 142 -and (Wait-PastGuards 'case' 160 @(800) (At '2026-11-26 03:20:00')) -eq 0 -and (Wait-PastGuards 'case' 160 @(180) $start) -eq 345) 'Wait-PastGuards adds the 30 s margin: waits for the release window and the midnight case, not at 03:20'
 
 # the cycles: threads alive at the end against the rest (run 44873075438: plaza-closed 486,741 cycles/s, 22 -> 4 threads)
 $gate = Get-Content -Raw "$PSScriptRoot/idle-gate.ps1"
@@ -193,7 +243,8 @@ Check ((Get-CycleSplit ([uint64](450000 * 120)) @([uint64](450000 * 120)) 120).l
 $storm = Get-CycleSplit ([uint64](900000 * 120)) @([uint64](200000 * 120)) 120
 Check ($storm.live -le $maxLive -and ($storm.live + $storm.gone) -gt $maxProc) 'a 900,000/s process with normal live threads (a storm of threads that exit) fails the process runaway figure'
 Check ((Get-CycleSplit ([uint64](100 * 120)) @([uint64](500 * 120)) 120).gone -eq 0) 'threads that read more than the process (counters sampled at different moments) leave gone at 0, not negative'
-Check (600000 -le $maxProc) 'KNOWN GAP (stated in the PR): 600,000/s of cycles in threads that exit within the window passes (the old process-wide 450,000 failed it); process cs/min and the 830,000 runaway are what remain'
+$gap = Get-CycleSplit ([uint64](600000 * 120)) @([uint64](140000 * 120)) 120
+Check ($gap.live -le $maxLive -and $gap.gone -eq 460000 -and ($gap.live + $gap.gone) -le $maxProc) 'KNOWN GAP (stated in the PR): 600,000/s with normal live threads (460,000/s in threads that exit within the window) passes: the old process-wide 450,000 failed it, and exited threads add no switches, so only 830,000 minus the live threads bounds them'
 
 "$script:count checks, $script:failed failed"
 if ($script:failed -gt 0) { exit 1 }

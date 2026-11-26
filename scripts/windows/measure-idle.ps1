@@ -14,7 +14,7 @@
 #   dominate the process totals; they are reported as information, the app's own threads are budgeted).
 # -MaxLiveCyclesPerSec: the cycles of the threads alive at the end of the window (the app's own threads, read one by one). The process figure
 #   (-MaxProcessCyclesPerSec) also counts threads that exited during the window; that part is printed as `gone` and bounded only by the
-#   process figure, which the gate sets as a runaway catch (run 44873075438: 352 k/s of a plaza-closed window's 487 k/s were threads that
+#   process figure (their switches are not counted either: switches are summed over the threads alive at the end), which the gate sets as a runaway catch (run 44873075438: 352 k/s of a plaza-closed window's 487 k/s were threads that
 #   had exited, live threads a normal 135 k/s). The exited threads are listed with their start address and name from the first edge.
 # A -Max* value >= 0 is asserted (PASS/FAIL line each, exit 1 on any FAIL); the default -1 only reports.
 param(
