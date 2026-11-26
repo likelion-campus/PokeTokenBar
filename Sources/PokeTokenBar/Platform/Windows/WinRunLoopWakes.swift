@@ -19,7 +19,7 @@ enum WinRunLoopWakes {
     /// Adds the observer to `RunLoop.main` in the default mode (the mode the main loop runs in). Call on the main thread; once only.
     static func install() {
         guard observer == nil else { return }
-        observer = RunLoop.main._observe(.afterWaiting, in: .default, repeats: true, order: 0) { _ in
+        observer = RunLoop.main._observe(RunLoop._Activity.afterWaiting, in: .default, repeats: true, order: 0) { _ in
             WinRunLoopWakes.counted += 1
         }
     }
