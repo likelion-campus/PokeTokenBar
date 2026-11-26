@@ -576,6 +576,32 @@ final class PlazaBerryEngineTests: XCTestCase {
         XCTAssertEqual(room.wrote["b"] ?? 0, 0)
     }
 
+    /// The plaza reopening forgets the running copy (`returned`): the host that left comes back with no yes, so it watches.
+    func testAHostThatClosesAndReopensThePlazaWatchesAndNeverDealsAgain() {
+        var room = Room(["a", "b", "c"])
+        let lock = room.start(host: "c")
+        room.run(to: lock + 5.0)
+        XCTAssertGreaterThan(room.flips, 0, "test precondition: the host dealt")
+        let id = room["a"].state!.id
+        room.leave("c")
+        room.run(for: 4.0)
+        XCTAssertEqual(room["a"].berryDealer, "a", "test precondition: the smallest playing id took over")
+        room.closed = []
+        room.engines["c"]!.returned(now: room.now("c"))
+        XCTAssertNil(room["c"].state)
+        room.wrote = [:]
+        let flips = room.flips
+        room.run(for: 6.0)
+        XCTAssertEqual(room["c"].state?.id, id, "it watches the game that still runs")
+        XCTAssertNil(room["c"].joined)
+        XCTAssertEqual(room.wrote["c"] ?? 0, 0, "and writes nothing for it")
+        XCTAssertGreaterThan(room.flips, flips, "the game goes on")
+        XCTAssertEqual(room.wrote["b"] ?? 0, 0)
+        XCTAssertEqual(room["a"].berryDealer, "a")
+        XCTAssertEqual(room["b"].berryDealer, "a")
+        XCTAssertFalse(room["a"].berryPlaying.contains("c"))
+    }
+
     func testATakeoverDealerJudgesTheBellsItSeesAndNeverTakesAWrongPointTwice() throws {
         let seed = seed { s in
             let d = dealt(seed: s, seats: 3)
