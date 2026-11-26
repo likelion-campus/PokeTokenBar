@@ -50,6 +50,23 @@ function Get-WakeDelta([string]$LogFile) {
     return Get-WakeDeltaFromLines $lines[0] $lines[1]
 }
 
+# The run-loop wakes of a window: the difference between the app's `run loop wakes start: N` and `run loop wakes exit: N` lines (its own
+# lines, written under the gate's trace switch; the `wake trace` regex does not see them). Data only, no rule reads it yet: null when the
+# pair is not there (an app without the counter), which fails nothing.
+function Get-RunLoopWakesFromLines([string[]]$Lines) {
+    $a = $null; $b = $null
+    foreach ($l in @($Lines)) {
+        $m = [regex]::Match($l, 'run loop wakes (start|exit): (\d+)\s*$')
+        if ($m.Success) { if ($m.Groups[1].Value -eq 'start') { $a = [int64]$m.Groups[2].Value; $b = $null } elseif ($null -ne $a) { $b = [int64]$m.Groups[2].Value } }
+    }
+    if ($null -eq $a -or $null -eq $b -or $b -lt $a) { return $null }
+    return [int]($b - $a)
+}
+function Get-RunLoopWakes([string]$LogFile) {
+    $lines = @(Select-String -Path $LogFile -Pattern 'run loop wakes (start|exit):' -ErrorAction SilentlyContinue | Select-Object -Last 2 | ForEach-Object { $_.Line })
+    return Get-RunLoopWakesFromLines $lines
+}
+
 # The app's clock fires in a window (WakeTrace sources 'animationClock' and 'popoverClock').
 function Get-ClockFires($Wake) {
     $fires = 0

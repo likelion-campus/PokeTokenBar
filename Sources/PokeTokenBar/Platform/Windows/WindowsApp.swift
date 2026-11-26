@@ -120,8 +120,10 @@ public enum WindowsApp {
             WindowsSelftestPopoverWindow.startIdleProbe(app, mode: i + 1 < arguments.count ? arguments[i + 1] : "open")
         }
         if WakeTrace.enabled {  // the gate measures from about +30 s: a snapshot just before it, one at exit
+            WinRunLoopWakes.install()  // the gate's run-loop wake count (data only): installed only under the gate's PTB_WAKE_TRACE=1, like the trace itself
             DispatchQueue.main.asyncAfter(deadline: .now() + 28) {
                 AppLog.write(WakeTrace.snapshot("start", loops: WinMainLoop.iterations))
+                if let n = WinRunLoopWakes.count { AppLog.write("run loop wakes start: \(n)") }  // its own line: the `wake trace` line's fields stay as they were
                 AppLog.write(WinHTTPFetch.trace.snapshot("start"))  // the worker threads' fetches (run 44143290510)
             }
         }
@@ -161,6 +163,7 @@ extension WindowsApp {
         WinModalPump.cancelModalLoops()  // an exit asked for inside a modal loop closes the menu first
         if WakeTrace.enabled {  // the idle gate's attribution
             AppLog.write(WakeTrace.snapshot("exit", loops: WinMainLoop.iterations))
+            if let n = WinRunLoopWakes.count { AppLog.write("run loop wakes exit: \(n)") }
             AppLog.write(WinHTTPFetch.trace.snapshot("exit"))
         }
         if let line = WindowsSelftestPopoverWindow.idleProbeExitLine() { AppLog.write(line) }  // stage 7 Task 4: the idle gate's popover state at exit
