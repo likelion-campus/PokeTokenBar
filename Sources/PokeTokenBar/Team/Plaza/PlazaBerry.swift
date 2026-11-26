@@ -83,6 +83,23 @@ struct PlazaBerryState: Codable, Hashable, Sendable {
         var flip: Int
         /// `clears.count` the bell was for.
         var clear: Int
+        /// false: a wrong bell that took no point because the score was already 0. A right bell never reads it.
+        var tookPoint = true
+
+        init(seat: Int, ms: Int, right: Bool, flip: Int, clear: Int, tookPoint: Bool = true) {
+            self.seat = seat; self.ms = ms; self.right = right; self.flip = flip; self.clear = clear; self.tookPoint = tookPoint
+        }
+
+        /// A verdict from an older dev build has no `tookPoint`: it took one.
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            seat = try c.decode(Int.self, forKey: .seat)
+            ms = try c.decode(Int.self, forKey: .ms)
+            right = try c.decode(Bool.self, forKey: .right)
+            flip = try c.decode(Int.self, forKey: .flip)
+            clear = try c.decode(Int.self, forKey: .clear)
+            tookPoint = try c.decodeIfPresent(Bool.self, forKey: .tookPoint) ?? true
+        }
     }
 
     init(seats: Int) {
@@ -225,10 +242,11 @@ extension PlazaBerry {
 
     static func penalized(_ s: PlazaGameState, seat: Int, bell: PlazaBerryBell) -> PlazaGameState? {
         guard let b = s.berry, s.endedAt == nil, b.scores.indices.contains(seat), bell.serial > b.judged[seat] else { return nil }
+        let tookPoint = b.scores[seat] > 0
         return stepped(s, {
             $0.scores[seat] = max(0, $0.scores[seat] - 1)
             $0.judged[seat] = bell.serial
-            $0.last = .init(seat: seat, ms: bell.ms, right: false, flip: bell.flip, clear: bell.clears)
+            $0.last = .init(seat: seat, ms: bell.ms, right: false, flip: bell.flip, clear: bell.clears, tookPoint: tookPoint)
         }, at: nil)
     }
 

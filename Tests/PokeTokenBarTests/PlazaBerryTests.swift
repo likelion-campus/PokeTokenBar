@@ -163,6 +163,22 @@ final class PlazaBerryTests: XCTestCase {
         XCTAssertEqual(zero?.berry?.judged[0], 1)
         XCTAssertEqual(zero?.berry?.last?.seat, 0)
         XCTAssertEqual(zero?.berry?.last?.right, false)
+        XCTAssertEqual(zero?.berry?.last?.tookPoint, false, "the score was already 0: no point was taken")
+        XCTAssertEqual(p?.berry?.last?.tookPoint, true, "2 became 1: a point was taken")
+    }
+
+    func testAVerdictFromAnOlderBuildDecodesAsTakingAPoint() throws {
+        let old = #"{"seat":1,"ms":300,"right":false,"flip":2,"clear":0}"#
+        XCTAssertEqual(try JSONDecoder().decode(State.Verdict.self, from: Data(old.utf8)).tookPoint, true)
+        let v = State.Verdict(seat: 1, ms: 300, right: false, flip: 2, clear: 0, tookPoint: false)
+        XCTAssertEqual(try JSONDecoder().decode(State.Verdict.self, from: JSONEncoder().encode(v)), v)
+    }
+
+    func testTheMissedLineSaysWhetherAPointWasTaken() {
+        XCTAssertEqual(L(.ko).plazaBerryMissed(nickname: nil, tookPoint: true), "내가 잘못 쳤어요 · −1점")
+        XCTAssertEqual(L(.ko).plazaBerryMissed(nickname: "민수", tookPoint: true), "민수님이 잘못 쳤어요 · −1점")
+        XCTAssertEqual(L(.ko).plazaBerryMissed(nickname: nil, tookPoint: false), "내가 잘못 쳤어요 · 1초 쉬기")
+        XCTAssertEqual(L(.ko).plazaBerryMissed(nickname: "민수", tookPoint: false), "민수님이 잘못 쳤어요 · 1초 쉬기")
     }
 
     func testTheEndWithoutFivePointsNamesTheTopScorerOrNobody() {
