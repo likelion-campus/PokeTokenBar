@@ -84,6 +84,12 @@ on:
       flake_loop:
         description: 'Repeat the plaza.hover/cover, plaza.close, modalPump.idle and popover.realClick checks N times in one selftest process and print every iteration (diagnostics; 0 = off)'
         default: '0'
+      idle_loop:
+        description: 'Add N informational idle windows after idle.window, team.idle and modalPump.idle (bundle and installed selftest); each prints the run-loop wake counts and the shadow verdict (diagnostics; 0 = off)'
+        default: '0'
+      idle_inject:
+        description: 'Fault injection into the selftest idle windows, one of: hidden-timer, blocking-waits, mainqueue-loop, poll-waits, no-wake-observer (diagnostics; empty = off; forced off in release mode)'
+        default: ''
       release_sha:
         description: 'Release mode: the 40-hex commit to build (set by team_release.py)'
         default: ''
@@ -351,7 +357,7 @@ jobs:
     needs: build
     if: ${{ !cancelled() && needs.build.outputs.packaged == 'success' }}
     runs-on: windows-latest
-    timeout-minutes: ${{ inputs.flake_loop != '' && inputs.flake_loop != '0' && 80 || 45 }}  # the flake loops add rounds to the selftest step
+    timeout-minutes: ${{ (inputs.flake_loop != '' && inputs.flake_loop != '0' || inputs.idle_loop != '' && inputs.idle_loop != '0') && 80 || 45 }}  # the flake loops add rounds to the selftest step
     outputs:
       bundle: ${{ steps.bundle-selftest.outcome }}
       artifact_id: ${{ steps.up.outputs.artifact-id }}
@@ -365,10 +371,12 @@ jobs:
           installer-sha256: ${{ needs.build.outputs.installer_sha256 }}
       - name: Selftest with a stripped Path
         id: bundle-selftest
-        timeout-minutes: ${{ inputs.flake_loop != '' && inputs.flake_loop != '0' && 55 || 25 }}  # about 15 min (run 44068394132; the flake loops add their N rounds); above run-selftest.ps1's own limit (1200 s, 3000 with the loops) so its "checks so far" dump prints; a hang ends with the logs collected (Collect logs runs always)
+        timeout-minutes: ${{ (inputs.flake_loop != '' && inputs.flake_loop != '0' || inputs.idle_loop != '' && inputs.idle_loop != '0') && 55 || 25 }}  # about 15 min (run 44068394132; the flake loops add their N rounds); above run-selftest.ps1's own limit (1200 s, 3000 with the loops) so its "checks so far" dump prints; a hang ends with the logs collected (Collect logs runs always)
         shell: pwsh
         env:
           PTB_SELFTEST_FLAKE_LOOP: ${{ inputs.release_sha == '' && inputs.flake_loop || '0' }}   # the repeat loops run in this process only
+          PTB_SELFTEST_IDLE_LOOP: ${{ inputs.release_sha == '' && inputs.idle_loop || '0' }}   # informational idle windows
+          PTB_SELFTEST_INJECT: ${{ inputs.release_sha == '' && inputs.idle_inject || '' }}   # fault injection (runner only, never in release mode)
           PTB_SELFTEST_APPEARANCE: ${{ inputs.release_sha == '' && inputs.appearance || '' }}   # stage 7 Task 16: a dark capture run
         run: |
           $env:Path = 'C:\Windows\System32;C:\Windows'
@@ -1340,7 +1348,7 @@ jobs:
     needs: build
     if: ${{ !cancelled() && needs.build.outputs.iscc == 'success' }}
     runs-on: windows-latest
-    timeout-minutes: ${{ inputs.diagnostics == true && 115 || 70 }}  # the three diagnostic steps add about 30 min; the installed selftest step may take 45 (one retry)
+    timeout-minutes: ${{ inputs.diagnostics == true && 115 || (inputs.idle_loop != '' && inputs.idle_loop != '0' && 110 || 70) }}  # the three diagnostic steps add about 30 min; the installed selftest step may take 45 (one retry)
     outputs:
       install: ${{ steps.install.outcome }}
       upgrade: ${{ steps.upgrade.outcome }}
@@ -1410,8 +1418,11 @@ jobs:
       - name: Installed selftest (stripped Path, from the install folder)
         id: installed-selftest
         if: (success() || failure()) && steps.install.outcome == 'success'
-        timeout-minutes: 45  # about 14 min (run 44068394132), one retry: twice run-selftest.ps1's 20-min limit and a margin
+        timeout-minutes: ${{ inputs.idle_loop != '' && inputs.idle_loop != '0' && 100 || 45 }}  # about 14 min (run 44068394132), one retry: twice run-selftest.ps1's 20-min limit and a margin (idle_loop: twice 50 min)
         shell: pwsh
+        env:
+          PTB_SELFTEST_IDLE_LOOP: ${{ inputs.release_sha == '' && inputs.idle_loop || '0' }}   # informational idle windows
+          PTB_SELFTEST_INJECT: ${{ inputs.release_sha == '' && inputs.idle_inject || '' }}   # fault injection (runner only, never in release mode)
         run: |
           . ./scripts/windows/ci-helpers.ps1
           Get-Process PokeTokenBar -ErrorAction SilentlyContinue | Stop-Process -Force

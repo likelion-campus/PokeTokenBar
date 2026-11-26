@@ -125,6 +125,7 @@ enum WindowsSelftest {
 
     @MainActor static func run(_ app: WindowsAppDelegate) async -> [Check] {
         let r = Recorder()
+        installWakeCounter(r)  // WindowsSelftestIdleInject.swift: the main run loop's wake counter (and the injection record, runner only)
         // Watches the main thread from launch until the store has settled. Before PlatformCompat.atomicWrite the
         // companion and parity saves flushed to disk on the main actor (FlushFileBuffers, 146-231 ms on the runner;
         // defect log), so the loop checks still run after the store settles, with the same bounds. This check reports
@@ -180,6 +181,7 @@ enum WindowsSelftest {
         await popoverWindowChecks(r, app)  // stage 7 task 4 (WindowsSelftestPopoverWindow.swift): leaves no window behind
         await settingsChecks(r, app)  // stage 7 task 6 (WindowsSelftestSettings.swift): the Settings page; leaves the team off and no window behind
         await teamChecks(r, app)  // Task 19 (WindowsSelftestTeam.swift); shuts its transports down before the idle window
+        await wakeCounterCheck(r, app)  // WindowsSelftestIdleInject.swift: the counter the idle windows' shadow verdict reads
         await idleCheck(r, app)
         await plazaWindowChecks(r, app)  // stage 6 task 5 (WindowsSelftestPlaza.swift): after the idle window, before Direct3D is loaded by anything else
         await plazaRenderChecks(r)  // stage 6 task 4 (WindowsSelftestPlazaRender.swift): after the idle window, it loads Direct3D/WARP
@@ -971,11 +973,15 @@ enum WindowsSelftest {
         _ = await waitStable(timeout: 10, quiet: 2) { !app.store.isRefreshing }
         let dayFires0 = (Platform.current.events as? WindowsSystemEvents)?.dayTimerFires ?? 0
         let c0 = (WinDefaultsSync.safetyFires, WinDefaultsSync.debounceFires, app.refreshCount, WinMainLoop.iterations)
+        let mark = IdleShadow.begin()  // WindowsSelftestIdleLoop.swift: the shadow verdict's counters (nothing here reads it)
+        let injected = IdleInject.arm("idle")
         let sample = await IdleSampler.measure(seconds: seconds, mainThread: WindowsApp.mainThreadID)
+        injected.disarm()
         let safety = WinDefaultsSync.safetyFires - c0.0, debounce = WinDefaultsSync.debounceFires - c0.1
         let refreshes = IdleBurstAttribution.refreshesInWindow(countBefore: c0.2, countAfter: app.refreshCount, runningAtEnd: app.store.isRefreshing)
         let iterations = WinMainLoop.iterations - c0.3
         guard let sample else {
+            _ = WinMessageArrivals.end()
             r.add("idle.window", false, "measurement failed (NtQuerySystemInformation / QueryThreadCycleTime unavailable)")
             return
         }
@@ -983,12 +989,16 @@ enum WindowsSelftest {
         let dayFires = ((Platform.current.events as? WindowsSystemEvents)?.dayTimerFires ?? 0) - dayFires0
         let explained = safety + debounce + dayFires
         let budget = 3 + 3 * explained + 60 * refreshes
+        let shadow = IdleShadow.end(mark, seconds: seconds, cs: sample.mainContextSwitches,
+                                    fires: IdleWakeJudge.Fires(safety: safety, debounce: debounce, day: dayFires), refreshes: refreshes,
+                                    legacyBudget: budget, legacyOK: sample.mainContextSwitches <= budget)
         r.add("idle.window", sample.layoutOK && sample.mainFound && sample.mainContextSwitches <= budget,
               "\(Int(seconds)) s idle: main_thread_cs=\(sample.mainContextSwitches) main_thread_cycles=\(sample.mainCycles) "
                 + "process_cycles=\(sample.processCycles) budget_cs=\(budget) known_wakes={safety_sync:\(safety), "
                 + "debounce_sync:\(debounce), store_refresh:\(refreshes), day_timer:\(dayFires)} loop_iterations=\(iterations) "
                 + "loop_finished_returns=\(WinMainLoop.finishedReturns) layout_ok=\(sample.layoutOK) threads=\(sample.threadCount) "
-                + "busy_threads=[\(sample.busy)]")
+                + "busy_threads=[\(sample.busy)] " + shadow.text)
+        if IdleLoop.count > 0 { await idleLoopWindows(r, app, seconds: seconds, kind: "idle", legacy: (3, 3)) }  // informational windows
     }
 
     // MARK: - helper processes (internal flags)

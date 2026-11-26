@@ -205,6 +205,7 @@ extension WindowsSelftest {
         } else {
             r.add("modalPump.idle", false, "measurement failed")
         }
+        if IdleLoop.count > 0 { await idleLoopWindows(r, app, seconds: 10, kind: "modal", legacy: (3, 5)) }  // informational 10 s windows in the same post-menu state
     }
 
     /// One 10 s window with the menu closed. What wakes the main thread there: the 30 s safety flush of the settings
@@ -215,17 +216,26 @@ extension WindowsSelftest {
         -> (found: Bool, cs: Int, budget: Int, verdict: IdleBurstAttribution.Verdict, detail: String)? {
         if settle { _ = await waitStable(timeout: 30, quiet: 2) { !app.store.isRefreshing } }
         let w0 = knownWakes(app)
-        WinMessageArrivals.begin()   // what reaches the main thread in the window, sent from outside or posted
+        let mark = IdleShadow.begin()   // what reaches the main thread in the window, sent from outside or posted (WinMessageArrivals), and the shadow counters
+        let injected = IdleInject.arm("modal")
         let measured = await IdleTimeline.measure(seconds: seconds, mainThread: WindowsApp.mainThreadID)
-        let arrivals = WinMessageArrivals.end()
-        guard let t = measured else { return nil }
+        injected.disarm()
         let w1 = knownWakes(app)
         let explained = (w1.safety - w0.safety) + (w1.debounce - w0.debounce) + (w1.day - w0.day)
-        let budget = 3 + 5 * explained + 60 * w1.refreshesInWindow(since: w0)
+        let refreshes = w1.refreshesInWindow(since: w0)
+        let budget = 3 + 5 * explained + 60 * refreshes
+        guard let t = measured else {
+            _ = WinMessageArrivals.end()
+            return nil
+        }
+        let shadow = IdleShadow.end(mark, seconds: seconds, cs: t.mainContextSwitches,
+                                    fires: IdleWakeJudge.Fires(safety: w1.safety - w0.safety, debounce: w1.debounce - w0.debounce, day: w1.day - w0.day),
+                                    refreshes: refreshes, legacyBudget: budget, legacyOK: t.mainContextSwitches <= budget)
+        let arrivals = shadow.arrivals
         let verdict = IdleBurstAttribution.judge(cs: t.mainContextSwitches, budget: budget, wakes: t.samples, arrivals: arrivals)
         return (t.mainFound, t.mainContextSwitches, budget, verdict,
                 "cycles \(t.mainCycles); known wakes \(w1.minus(w0)); wake timeline [\(t.wakes)]; debounce pending at the start: \(w0.pending); "
-                  + "arrived: \(IdleBurstAttribution.listing(arrivals))")
+                  + "arrived: \(IdleBurstAttribution.listing(arrivals)); " + shadow.text)
     }
 
     struct KnownWakes {
