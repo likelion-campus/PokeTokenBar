@@ -2,6 +2,29 @@ import XCTest
 import Network
 @testable import PokeTokenBar
 
+/// What the host's network path did while the suite ran, for a timeout's dump: one `NWPathMonitor` for the whole process, kept
+/// as timestamped lines (status and interface types, no addresses). Seconds count from the process-wide `origin`.
+@MainActor
+enum TransportTestLog {
+    static let origin = Date()
+    static func stamp() -> String { String(format: "%9.3f ", Date().timeIntervalSince(origin)) }
+    private(set) static var pathLines: [String] = []
+    private static var monitor: NWPathMonitor?
+
+    /// Starts the monitor once; its first update is the path the run began on.
+    static func startPathMonitor() {
+        guard monitor == nil else { return }
+        _ = origin   // the clock starts before the monitor's first update, not at the first line
+        let m = NWPathMonitor()
+        m.pathUpdateHandler = { path in
+            let line = "path \(path.status) interfaces=\(path.availableInterfaces.map { "\($0.type)" }) expensive=\(path.isExpensive) constrained=\(path.isConstrained)"
+            DispatchQueue.main.async { MainActor.assumeIsolated { pathLines.append(stamp() + line) } }
+        }
+        m.start(queue: .global(qos: .utility))
+        monitor = m
+    }
+}
+
 /// The Network.framework side of the transport contract. The scenarios live in `TeamTransportContract.swift`.
 @MainActor
 final class MacTransportHarness: TeamTransportHarness {
@@ -9,15 +32,29 @@ final class MacTransportHarness: TeamTransportHarness {
     typealias Endpoint = NWEndpoint
 
     private var transports: [BonjourTeamTransport] = []
-    private let startedAt = Date()
     private var events: [String] = []
 
-    /// Every link, listener, restart, sleep and reachability event of every transport made here, with seconds since the harness
-    /// began: what `contractConnectedPair` prints when a pair does not come up. States, ports and error codes only.
-    var diagnosticRecord: String { events.joined(separator: "\n") }
+    init() { TransportTestLog.startPathMonitor() }
 
-    private func record(_ line: String) {
-        events.append(String(format: "%7.3f ", Date().timeIntervalSince(startedAt)) + line)
+    /// Every link, listener, restart, sleep and reachability event of every transport made here, the state changes of the raw
+    /// connections and listeners the tests open themselves, and the host's network path changes (process-wide), with seconds since
+    /// the test process began: what `contractWait` prints when a wait times out. States, ports and error codes only.
+    var diagnosticRecord: String { (TransportTestLog.pathLines + events).sorted().joined(separator: "\n") }
+
+    private func record(_ line: String) { events.append(TransportTestLog.stamp() + line) }
+
+    /// Records a raw connection's state changes (with their `NWError`) under `name`.
+    private func watch(_ c: NWConnection, _ name: String) {
+        record("\(name) created -> \(c.endpoint)")
+        c.stateUpdateHandler = { [weak self] state in
+            DispatchQueue.main.async { MainActor.assumeIsolated { self?.record("\(name) \(state)") } }
+        }
+    }
+
+    private func watch(_ l: NWListener, _ name: String) {
+        l.stateUpdateHandler = { [weak self, weak l] state in
+            DispatchQueue.main.async { MainActor.assumeIsolated { self?.record("\(name) \(state) port=\(l?.port?.rawValue ?? 0)") } }
+        }
     }
 
     func make(linkLimit: Int) -> BonjourTeamTransport {
@@ -29,7 +66,7 @@ final class MacTransportHarness: TeamTransportHarness {
     }
 
     func loopbackEndpoint(of t: BonjourTeamTransport) async throws -> NWEndpoint {
-        let ok = await contractWaitUntil(5) { t.listenerPort != nil }
+        let ok = await contractWait(self, "loopback listener ready", 5) { t.listenerPort != nil }
         XCTAssertTrue(ok, "listener did not become ready")
         return .hostPort(host: "127.0.0.1", port: try XCTUnwrap(t.listenerPort))
     }
@@ -55,9 +92,10 @@ final class MacTransportHarness: TeamTransportHarness {
     /// Accepts TCP and never speaks TLS, like a rogue service holding a dial open.
     func silentSink() async throws -> (endpoint: NWEndpoint, close: () -> Void) {
         let listener = try NWListener(using: .tcp)
+        watch(listener, "sink listener")
         listener.newConnectionHandler = { $0.start(queue: .main) }
         listener.start(queue: .main)
-        let ready = await contractWaitUntil(5) { listener.port != nil && listener.port?.rawValue != 0 }
+        let ready = await contractWait(self, "sink listener ready", 5) { listener.port != nil && listener.port?.rawValue != 0 }
         XCTAssertTrue(ready)
         return (.hostPort(host: "127.0.0.1", port: try XCTUnwrap(listener.port)), { listener.cancel() })
     }
@@ -66,14 +104,16 @@ final class MacTransportHarness: TeamTransportHarness {
     func plainTCP(toPortOf t: BonjourTeamTransport, count: Int) async throws -> () -> Void {
         let port = try XCTUnwrap(t.listenerPort)
         let raw = (0..<count).map { _ in NWConnection(host: "127.0.0.1", port: port, using: .tcp) }
+        for (i, c) in raw.enumerated() { watch(c, "plain\(i)") }
         raw.forEach { $0.start(queue: .main) }
         return { raw.forEach { $0.cancel() } }
     }
 
     func rawTLS(to e: NWEndpoint, code: TeamCode) async throws -> (send: (Data) -> Void, close: () -> Void) {
         let raw = NWConnection(to: e, using: BonjourTeamTransport.parameters(code: code))
+        watch(raw, "rawTLS")
         raw.start(queue: .main)
-        let up = await contractWaitUntil(5) { raw.state == .ready }
+        let up = await contractWait(self, "rawTLS ready", 5) { raw.state == .ready }
         XCTAssertTrue(up)
         return ({ raw.send(content: $0, completion: .idempotent) }, { raw.cancel() })
     }
@@ -124,7 +164,7 @@ final class TeamTransportTests: XCTestCase {
         a.onPeerDisconnected = { _ in downs += 1 }
         for _ in 0..<6 { a.send(Self.bigMessage, to: aPeer) }
         XCTAssertGreaterThan(a.queuedBytes(of: aPeer) ?? 0, 4_000_000)
-        let drained = await contractWaitUntil(10) { a.queuedBytes(of: aPeer) == 0 }
+        let drained = await contractWait(harness, "queued bytes drained", 10) { a.queuedBytes(of: aPeer) == 0 }
         XCTAssertTrue(drained, "contentProcessed gave every byte back")
         for _ in 0..<6 { a.send(Self.bigMessage, to: aPeer) }
         XCTAssertEqual(downs, 0, "6 MB after 6 MB is not 12 MB waiting")
