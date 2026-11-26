@@ -376,15 +376,18 @@ final class PlazaBerryTablePanelTests: XCTestCase {
                                                "\(a.kind) \(a.text) overlaps \(b.kind) \(b.text): \(ctx)")
                             }
                         }
+                        if name == "result" {
+                            XCTAssertEqual(plate.rows.last?.kind, .close, "the close hint is always drawn, after the ranks: \(ctx)")
+                            XCTAssertEqual(plate.rows.filter { $0.kind == .close }.map(\.text).joined(separator: " "), L(.ko).plazaBerryCloseHint, ctx)
+                        }
                         if name == "countdown" {
                             let digit = try XCTUnwrap(plate.rows.first { $0.kind == .digit }, "the digit has its row: \(ctx)")
-                            let rule = try XCTUnwrap(plate.rows.first { $0.kind == .rule }, "the rule stays: \(ctx)")
-                            XCTAssertGreaterThan(digit.frame.height, rule.frame.height, ctx)
+                            if let rule = plate.rows.first(where: { $0.kind == .rule }) { XCTAssertGreaterThan(digit.frame.height, rule.frame.height, ctx) }
                             let m = PlatformPlaza.graphics.text.metrics(.plaza(.body))
                             XCTAssertGreaterThanOrEqual(digit.frame.height, (m.ascender - m.descender).rounded() * digit.magnify, "the row holds the magnified glyphs: \(ctx)")
+                            XCTAssertGreaterThanOrEqual(digit.magnify, 2, "the digit stays big: \(ctx)")
                             let note = plate.rows.filter { $0.kind == .note }.map(\.text)
-                            XCTAssertTrue(note.isEmpty || note.joined(separator: " ") == L(.ko).plazaBerryCountdownNote, "the note is whole or gone: \(ctx)")
-                            if viewport == wide { XCTAssertFalse(note.isEmpty, "the big plate keeps the note: \(ctx)") }
+                            XCTAssertEqual(note.joined(separator: " "), L(.ko).plazaBerryCountdownNote, "the note stays whole: \(ctx)")
                         }
                     }
                 }

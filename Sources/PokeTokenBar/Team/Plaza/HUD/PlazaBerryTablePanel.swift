@@ -97,7 +97,7 @@ struct PlazaBerryBoard: Equatable {
 
     /// One drawn text row (or the bell) of the centre plate, in the panel's coordinates.
     struct PlateRow: Equatable {
-        enum Kind { case head, bell, rule, digit, note, event, result }
+        enum Kind { case head, bell, rule, digit, note, event, result, rank, close }
         var kind: Kind
         var text: String
         var frame: CGRect
@@ -394,8 +394,8 @@ struct PlazaBerryBoard: Equatable {
         let headH = (headMetrics.ascender - headMetrics.descender).rounded()
         let bellRect = layout.bell.offsetBy(dx: -plateFrame.minX, dy: -plateFrame.minY)
         let isResult: Bool = { if case .result = board.center { return true } else { return false } }()
-        let textTop = isResult ? platePad + headH + 3 : bellRect.maxY + 2
-        let room = plateFrame.height - platePad - textTop
+        var textTop = isResult ? platePad + headH + 3 : bellRect.maxY + 2
+        var room = plateFrame.height - platePad - textTop
         // What goes under the head (and the bell): the rule, then the event, countdown digit or the result's lines.
         // Every plate text breaks at spaces only (`wordLines`); the engines' own wrapping splits "5개면".
         typealias Row = (line: PlazaTextLine, piece: String, text: String, color: PlazaColor, magnify: CGFloat, kind: PlateRow.Kind)
@@ -408,25 +408,31 @@ struct PlazaBerryBoard: Equatable {
         case .countdown(let n):
             let digit = "\(n)"
             // The digit gets its own row, as tall as its glyphs (the body font's line): 3 times as big when the rule, the digit and the note
-            // all fit, else 2, else plain (the narrow window's small plate); when even that does not fit, the note goes whole.
-            var note = wrapped(l.plazaBerryCountdownNote, .white, .note)
+            // all fit, else 2. The note ("the cards turn by themselves") is the one line a first-time player needs now and the rule shows
+            // again in every later state, so a small plate gives up the rule, never the note or the digit's 2x; only a plate too small for
+            // even that draws the digit plain.
+            let note = wrapped(l.plazaBerryCountdownNote, .white, .note)
             let bodyH = (metricsBody.ascender - metricsBody.descender).rounded()
-            func fit(_ note: [Row]) -> CGFloat? {
-                let others = lineH * CGFloat(ruleLines.count + note.count)
-                return [CGFloat(3), 2, 1].first { others + bodyH * $0 <= room }
+            func fit(rule: Int) -> CGFloat? {
+                let others = lineH * CGFloat(rule + note.count)
+                return [CGFloat(3), 2].first { others + bodyH * $0 <= room }
             }
-            var magnify = fit(note)
-            if magnify == nil { note = []; magnify = fit(note) }   // a note cut off mid-sentence reads worse than none
+            var magnify = fit(rule: ruleLines.count)
+            if magnify == nil { ruleLines = []; magnify = fit(rule: 0) }
+            if magnify == nil { textTop -= 1; room += 1; magnify = fit(rule: 0) }   // the smallest plate: one point off the gap under the bell
             tail = [(text.line(digit, font: body), digit, digit, Self.gold, magnify ?? 1, .digit)] + note
         case .playing(let event):
             if let event { tail = wrapped(event, Self.gold, .event) }
         case .result(let lines):
-            tail = lines.enumerated().flatMap { i, s in wrapped(s, i == 0 ? Self.gold : .white, .result) }
+            tail = lines.enumerated().flatMap { i, s in
+                wrapped(s, i == 0 ? Self.gold : .white, i == 0 ? .result : i == lines.count - 1 ? .close : .rank)
+            }
         }
         func rowHeight(_ r: Row) -> CGFloat { r.kind == .digit ? (metricsBody.ascender - metricsBody.descender).rounded() * r.magnify : lineH }
         func rowsHeight() -> CGFloat { ruleLines.map(rowHeight).reduce(0, +) + tail.map(rowHeight).reduce(0, +) }
         while rowsHeight() > room {   // too little room: the event's later lines go first, then the rule's, then the last of what is left
-            if tail.count > 1 { tail.removeLast() }
+            if let rank = tail.lastIndex(where: { $0.kind == .rank }) { tail.remove(at: rank) }   // a result sheds its ranks from the bottom, never the close hint
+            else if tail.count > 1 { tail.removeLast() }
             else if !ruleLines.isEmpty { ruleLines.removeLast() }
             else if !tail.isEmpty { tail.removeLast() }
             else { break }
