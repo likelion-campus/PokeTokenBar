@@ -16,7 +16,7 @@ final class IdleWakeJudgeTests: XCTestCase {
         let v = IdleWakeJudge.judge(window(cs: 104, passes: 46, wakes: 46 + 3 + 1, refreshes: 1, fires: .init(safety: 2, debounce: 1)))
         XCTAssertEqual(v.failures, [])
         XCTAssertEqual(v.residual, 1)
-        XCTAssertEqual(v.ceiling, 60 + 4 * 49)
+        XCTAssertEqual(v.ceiling, 60 + 3 * 49)
     }
 
     func testTheTeamWindowThatCost148SwitchesPasses() {
@@ -57,7 +57,7 @@ final class IdleWakeJudgeTests: XCTestCase {
     }
 
     func testR3UnattributedWakes() {
-        let v = IdleWakeJudge.judge(window(cs: 70, passes: 1, wakes: 61 + 2, fires: .init(safety: 2)))   // a hidden 1 s timer: +60
+        let v = IdleWakeJudge.judge(window(cs: 60, passes: 1, wakes: 61 + 2, fires: .init(safety: 2)))   // a hidden 1 s timer: +60
         XCTAssertEqual(v.residual, 60)
         XCTAssertEqual(v.failures.count, 1)
         XCTAssertTrue(v.failures.first?.hasPrefix("R3 unattributed wakes 60") == true, "\(v.failures)")
@@ -88,10 +88,11 @@ final class IdleWakeJudgeTests: XCTestCase {
 
     func testR4RunawaySwitches() {
         let v = IdleWakeJudge.judge(window(cs: 400, passes: 1, wakes: 1, fires: .init(safety: 1)))
-        XCTAssertEqual(v.ceiling, 60 + 4 * 2)
+        XCTAssertEqual(v.ceiling, 60 + 3 * 2)
         XCTAssertEqual(v.failures.count, 1)
-        XCTAssertTrue(v.failures.first?.hasPrefix("R4 cs 400 > 68") == true, "\(v.failures)")
-        XCTAssertEqual(IdleWakeJudge.judge(window(cs: 68, passes: 1, wakes: 2, fires: .init(safety: 1))).failures, [])
+        XCTAssertTrue(v.failures.first?.hasPrefix("R4 cs 400 > 66") == true, "\(v.failures)")
+        XCTAssertEqual(IdleWakeJudge.judge(window(cs: 66, passes: 1, wakes: 2, fires: .init(safety: 1))).failures, [])
+        XCTAssertEqual(IdleWakeJudge.judge(window(cs: 67, passes: 1, wakes: 2, fires: .init(safety: 1))).failures.count, 1)
     }
 
     // MARK: the loop strategies and the tolerated broadcast
@@ -141,10 +142,10 @@ final class IdleWakeJudgeTests: XCTestCase {
     }
 
     func testFiftyBlockingWaitsInOneBlockPassBecauseTheyAreOneWake() {
-        // The case the switch budget got wrong: 53 cs against its 9, one pass, two wakes.
-        let v = IdleWakeJudge.judge(window(cs: 53, passes: 1, wakes: 2))
+        // The case the switch budget got wrong (CI run 45800274652, bundle idle.window): 53 cs against its 9, passes 3, safety 2, wakes 6.
+        let v = IdleWakeJudge.judge(window(cs: 53, passes: 3, wakes: 6, fires: .init(safety: 2)))
         XCTAssertEqual(v.failures, [])
-        XCTAssertEqual(v.ceiling, 60 + 4)
+        XCTAssertEqual(v.ceiling, 60 + 3 * 5)
     }
 
     func testAMainQueueLoopFailsOnR2() {
@@ -153,9 +154,10 @@ final class IdleWakeJudgeTests: XCTestCase {
     }
 
     func testThreeHundredPollWaitsFailOnR4Only() {
-        let v = IdleWakeJudge.judge(window(cs: 304, passes: 1, wakes: 2))
+        // CI run 45800295466: cs 307, passes 3, safety 2.
+        let v = IdleWakeJudge.judge(window(cs: 307, passes: 3, wakes: 6, fires: .init(safety: 2)))
         XCTAssertEqual(v.failures.count, 1)
-        XCTAssertTrue(v.failures.first?.hasPrefix("R4 cs 304 > 64") == true, "\(v.failures)")
+        XCTAssertTrue(v.failures.first?.hasPrefix("R4 cs 307 > 75") == true, "\(v.failures)")
     }
 
     func testWithoutRunawayKeepsR1ToR3AndDropsOnlyR4() {
@@ -166,5 +168,69 @@ final class IdleWakeJudgeTests: XCTestCase {
         let r3 = IdleWakeJudge.judge(window(10, cs: 12, passes: 1, wakes: 12))
         XCTAssertEqual(r3.withoutRunaway, r3.failures)
         XCTAssertEqual(r3.failures.count, 1)
+    }
+
+    // MARK: review round 1: the dispatch loop's R4, the negative residual, the broadcast, R1 at its limits, the 89-against-87 window
+
+    func testOnTheDispatchLoopR4CountsPassesOnceBecauseFiresAreAlreadyInThem() {
+        // 4 passes of which 3 are fires: wakes = (4 - 3) + 3 = 4, ceiling 60 + 3 * 4 (not 60 + 3 * 7).
+        let v = IdleWakeJudge.judge(window(cs: 10, passes: 4, wakes: nil, loop: .dispatchHandle, fires: .init(safety: 2, debounce: 1)))
+        XCTAssertEqual(v.ceiling, 60 + 3 * 4)
+        XCTAssertNil(v.residual)
+    }
+
+    func testANegativeResidualBelowMinusWFailsAsAnInconsistentCounter() {
+        // 6 passes but no wake counted: the accounting is broken (a wake counted twice, or a counter that misses wakes).
+        let v = IdleWakeJudge.judge(window(cs: 10, passes: 6, wakes: 0, refreshes: 1))
+        XCTAssertEqual(v.residual, -6)
+        XCTAssertEqual(v.failures.count, 1)
+        XCTAssertTrue(v.failures.first?.hasPrefix("R3 counter inconsistent: residual -6 < -4") == true, "\(v.failures)")
+        XCTAssertEqual(IdleWakeJudge.judge(window(cs: 10, passes: 5, wakes: 1, refreshes: 1)).failures, [])   // -4 = -W passes
+        XCTAssertEqual(IdleWakeJudge.judge(window(cs: 10, passes: 6, wakes: 1, refreshes: 1)).failures.count, 1)   // -5 fails
+    }
+
+    func testABroadcastIsSubtractedOnlyAsFarAsAWakeIsLeftToExplain() {
+        func sent() -> [IdleBurstAttribution.Arrival] { [.init(t: 3, message: 0x001A, root: 1, rootClass: "C", posted: false)] }
+        // No wake left (raw 0): nothing is subtracted, the residual stays 0 (it used to become -1).
+        var clean = window(cs: 10, passes: 1, wakes: 1); clean.arrivals = sent()
+        XCTAssertEqual(IdleWakeJudge.judge(clean).residual, 0)
+        // raw -4 with a broadcast stays -4 (passes), not -5 (which would fail).
+        var low = window(cs: 10, passes: 5, wakes: 1, refreshes: 1); low.arrivals = sent()
+        XCTAssertEqual(IdleWakeJudge.judge(low).residual, -4)
+        XCTAssertEqual(IdleWakeJudge.judge(low).failures, [])
+        // W + 1 unexplained wakes pass with a broadcast (one is its own), W + 2 fail: the allowance with a broadcast is W + 1 raw.
+        var five = window(cs: 10, passes: 1, wakes: 1 + 5); five.arrivals = sent()
+        XCTAssertEqual(IdleWakeJudge.judge(five).failures, [])
+        var six = window(cs: 10, passes: 1, wakes: 1 + 6); six.arrivals = sent()
+        XCTAssertEqual(IdleWakeJudge.judge(six).failures.count, 1)
+    }
+
+    func testR1AtItsLimitsPassesAndOneOverFails() {
+        func fails(_ seconds: Double, _ fires: IdleWakeJudge.Fires) -> Int {
+            IdleWakeJudge.judge(window(seconds, cs: 1, passes: 1, wakes: 1 + fires.total, fires: fires)).failures.filter { $0.hasPrefix("R1") }.count
+        }
+        XCTAssertEqual(fails(60, .init(redial: 10)), 0)   // 2 * (floor(60 / 15) + 1)
+        XCTAssertEqual(fails(60, .init(redial: 11)), 1)
+        XCTAssertEqual(fails(10, .init(redial: 2)), 0)    // 2 * (floor(10 / 15) + 1)
+        XCTAssertEqual(fails(10, .init(redial: 3)), 1)
+        XCTAssertEqual(fails(10, .init(safety: 1)), 0)    // floor(10 / 30) + 1
+        XCTAssertEqual(fails(10, .init(safety: 2)), 1)
+        XCTAssertEqual(fails(60, .init(safety: 3)), 0)
+        XCTAssertEqual(fails(60, .init(safety: 4)), 1)
+        XCTAssertEqual(fails(60, .init(dnssd: 2)), 0)
+        XCTAssertEqual(fails(60, .init(dnssd: 3)), 1)
+        XCTAssertEqual(fails(60, .init(debounce: 1)), 0)
+        XCTAssertEqual(fails(60, .init(debounce: 2)), 1)
+        XCTAssertEqual(fails(60, .init(day: 1)), 0)
+        XCTAssertEqual(fails(60, .init(day: 2)), 1)
+    }
+
+    func testTheTeamWindowThatCost89AgainstABudgetOf87Passes() {
+        // windows-app 45758990297 (#395's PR run, bundle team.idle), before the wake counter existed. From its log: cs 89, redial 8, dnssd 0,
+        // one refresh, main cycles 40.3 M. ASSUMED (the line has no counters): passes 47 (the median of 68 team windows with a refresh is 48),
+        // safety 2, residual 1. Legacy budget 87 failed it; here the ceiling is 60 + 3 * 57.
+        let v = IdleWakeJudge.judge(window(cs: 89, passes: 47, wakes: 47 + 10 + 1, refreshes: 1, fires: .init(safety: 2, redial: 8)))
+        XCTAssertEqual(v.failures, [])
+        XCTAssertEqual(v.ceiling, 60 + 3 * 57)
     }
 }

@@ -601,7 +601,7 @@ extension WindowsSelftest {
             fires = IdleWakeJudge.Fires(safety: b.safety - a.safety, debounce: b.debounce - a.debounce, day: b.day - a.day)
             refreshes = b.refreshesInWindow(since: a)
         }
-        let shadow = IdleShadow.end(mark, seconds: seconds, cs: sample.mainContextSwitches, fires: fires, refreshes: refreshes,
+        let shadow = IdleShadow.end(mark, seconds: seconds, cs: sample.mainContextSwitches, fires: fires, refreshes: refreshes, loop: IdleShadow.loop(of: WindowsSelftest.selftestApp),
                                     legacyBudget: budget, legacyOK: sample.mainContextSwitches <= budget, legacyDecides: true)
         let paints = (w.scroll?.content.paints ?? 0) + (page.drawn?.stats.paints ?? 0) - paints0
         // NOT flipped to the wake judge (PR 2): this check's windows are 16 in all (9 without a refresh, 7 with one, all of those in the bundle

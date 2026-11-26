@@ -138,7 +138,7 @@ extension WindowsSelftest {
         let shadow = IdleShadow.end(mark, seconds: seconds, cs: sample.mainContextSwitches,
                                     fires: IdleWakeJudge.Fires(safety: k1.safety - k0.safety, debounce: k1.debounce - k0.debounce, day: k1.day - k0.day,
                                                                redial: redials, dnssd: discovery),
-                                    refreshes: refreshes, legacyBudget: budget, legacyOK: sample.mainContextSwitches <= budget)
+                                    refreshes: refreshes, loop: IdleShadow.loop(of: app), legacyBudget: budget, legacyOK: sample.mainContextSwitches <= budget)
         r.add("team.idle", linked && wakes.0 == 0 && wakes.1 == 0 && shadow.verdict.ok,
               "\(Int(seconds)) s, two linked transports, no traffic: socket_thread_wakeups=[\(wakes.0), \(wakes.1)] "
                 + "(threads \(threads.0), \(threads.1)) main_thread_cs=\(sample.mainContextSwitches) legacy_budget_cs=\(budget) "

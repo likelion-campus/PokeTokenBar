@@ -17,6 +17,12 @@ import Foundation
         return Mark(passes: WinMainLoop.iterations, wakes: WinRunLoopWakes.count)
     }
 
+    /// Which loop the process runs: the dispatch-handle one has no CF wait to observe. Read from the app itself: `selftestApp` is set only
+    /// after the modal checks, so a caller early in the selftest must pass its own `app`.
+    static func loop(of app: WindowsAppDelegate?) -> IdleWakeJudge.Loop {
+        app?.loopStrategy == .dispatchHandle ? .dispatchHandle : .cfRunLoop
+    }
+
     struct Outcome {
         let text: String
         let verdict: IdleWakeJudge.Verdict
@@ -24,12 +30,11 @@ import Foundation
         let arrivals: [IdleBurstAttribution.Arrival]
     }
 
-    static func end(_ mark: Mark, seconds: Double, cs: Int, fires: IdleWakeJudge.Fires, refreshes: Int, legacyBudget: Int, legacyOK: Bool,
-                    legacyDecides: Bool = false) -> Outcome {
+    static func end(_ mark: Mark, seconds: Double, cs: Int, fires: IdleWakeJudge.Fires, refreshes: Int, loop: IdleWakeJudge.Loop,
+                    legacyBudget: Int, legacyOK: Bool, legacyDecides: Bool = false) -> Outcome {
         let arrivals = WinMessageArrivals.end()
         let passes = WinMainLoop.iterations - mark.passes
         let wakes: Int? = mark.wakes.flatMap { a in WinRunLoopWakes.count.map { $0 - a } }
-        let loop: IdleWakeJudge.Loop = WindowsSelftest.selftestApp?.loopStrategy == .dispatchHandle ? .dispatchHandle : .cfRunLoop
         let window = IdleWakeJudge.Window(seconds: seconds, loop: loop, cs: cs, passes: passes, wakes: wakes, fires: fires, refreshes: refreshes,
                                           arrivals: arrivals)
         let v = IdleWakeJudge.judge(window)
@@ -70,7 +75,7 @@ extension WindowsSelftest {
             return nil
         }
         let budget = legacy.base + legacy.perFire * fires.total + 60 * refreshes
-        let shadow = IdleShadow.end(mark, seconds: seconds, cs: sample.mainContextSwitches, fires: fires, refreshes: refreshes,
+        let shadow = IdleShadow.end(mark, seconds: seconds, cs: sample.mainContextSwitches, fires: fires, refreshes: refreshes, loop: IdleShadow.loop(of: app),
                                     legacyBudget: budget, legacyOK: sample.mainContextSwitches <= budget)
         let text = "sec=\(Int(seconds)) main_cs=\(sample.mainContextSwitches) main_Mcyc=\(String(format: "%.2f", Double(sample.mainCycles) / 1e6)) "
             + "process_Mcyc=\(String(format: "%.1f", Double(sample.processCycles) / 1e6)) layout_ok=\(sample.layoutOK) " + shadow.text

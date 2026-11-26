@@ -51,28 +51,34 @@ enum IdleWakeJudge {
     /// 45787217942 45787394423 45787403934: bundle and installed selftest, 2026-11-26): idle.window 136, team.idle 136, modalPump.idle 136,
     /// ui.kit.idle 16.
     struct Limits: Sendable, Equatable {
-        /// R1. Periods are the timers' own; the ceilings are what the logs of 145 runs (2026-11-20..25) and the shadow windows show:
-        /// safety 0-2 fires (N=294 idle windows), debounce 0 (N=294), day 0 (N=294), redial 8 in 60 s (N=273), dnssd 0 (N=288).
+        /// R1. Periods are the timers' own. Seen in 145 runs (2026-11-20..25): safety 0-2 fires per 60 s (N=294 idle windows), redial 8 in 60 s
+        /// (N=273). debounce, day and dnssd were 0 in every window (N=294, 294, 288): the limits for those three have NO sample, each is
+        /// "one (dnssd: two) tolerated event".
         var safetyPeriod = 30.0           // fires <= floor(s / 30) + 1
-        var debounceMax = 1
-        var dayMax = 1
+        var debounceMax = 1               // no sample (0 in N=294): one tolerated event
+        var dayMax = 1                    // no sample (0 in N=294): one tolerated event
         var redialPeriod = 15.0           // fires <= 2 * (floor(s / 15) + 1): two transports redial every 15 s
-        var dnssdMax = 2
-        /// R2. Passes without a refresh: 1 (N=76 idle.window) or 1-2 (team, N=68); with a refresh 43-53 (N=145 shadow windows), 37-52 (installed
-        /// idle.window, N=132 earlier), 17-51 (ui.kit.idle, N=105 earlier). 80 is 1.5 x the highest seen (53).
+        var dnssdMax = 2                  // no sample (0 in N=288): two tolerated events
+        /// R2. Passes in 60 s windows without a refresh: 1 (N=76 idle.window) or 1-2 (team, N=68); in 10 s windows without a refresh: 1 (N=135:
+        /// modalPump.idle 126, ui.kit.idle 9). With a refresh 43-53 in 60 s windows (N=128), 44-51 in 10 s windows (N=17; 37-52 installed
+        /// idle.window N=132 earlier, 17-51 ui.kit.idle N=105 earlier). 80 is 1.5 x the highest seen (53).
         var passBase = 3
         var passesPerRefresh = 80
         /// R3. W = max residual + 2 = 4: the residual (wakes - passes - named fires - tolerated broadcast) was 0 in 327, 1 in 83 and 2 in 14 of
-        /// the 424 shadow windows (min 0, median 0, max 2; per kind and refresh at least N=5 windows, in none above 2). Not above 3, so no unknown
-        /// waker. Thin cells: modalPump.idle with a refresh N=10, ui.kit.idle (N=16, none with a refresh in the installed selftest; its check does
-        /// not use the judge yet).
+        /// the 424 shadow windows (min 0, median 0, max 2; none negative). 8 runs of one day, 16 launches: by the rule of three a residual above
+        /// 2 can still occur in about 0.7 % of windows. Thin cells: modalPump.idle with a refresh N=10, ui.kit.idle (N=16, none with a refresh in
+        /// the installed selftest; its check does not use the judge yet). A residual below -W fails too (accounting broken). A broadcast is
+        /// subtracted only when a wake is left to explain, so the real allowance is W unattributed wakes plus the one the broadcast explains.
+        /// DNS-SD events arrive as main-queue blocks, so one may be counted both as a pass and as a fire (UNTESTED: dnssd was 0 in all windows).
         var residualAllowance = 4
         /// One broadcast from outside is tolerated per window (what `IdleBurstAttribution.judge` tolerates too).
         var toleratedBroadcasts = 1
-        /// R4, a runaway guard only. cs <= seconds + factor * (passes + fires). The highest cs / ceiling in the shadow windows is 0.27 (N=424);
-        /// the highest ever seen is 148 cs in a team window (ceiling at its counts about 240, ratio 0.62, one window of 132). 104 cs (idle,
-        /// refresh, ceiling 256) and 148 stay under it. Re-derive when a window comes within 0.8 of its ceiling.
-        var csPerWake = 4
+        /// R4, a runaway guard only: cs <= seconds + csPerWake * (passes + fires). cs per wake in the 424 windows: at most 2.0 (windows of 1-3
+        /// wakes), at most 1.13 with a refresh (N=145). Same-work outliers that must pass: 148 cs on about 55 wakes (team, 2.7), 104 on 49 (idle,
+        /// 2.1), 11 on 3 (idle without a refresh, 3.7), 10 on 2 (modal 10 s, 5.0); 3 per wake keeps them at 1.3-1.5 x (148), 2.0 x (104), 6 x
+        /// (11) and 1.6 x (10) under their ceilings. It cannot go lower: 2.7 per wake is a real window, and a base under `seconds` would fail the
+        /// blocking-waits injection (53 cs on 5 wakes, ceiling 75 here, 35 with a base of seconds / 4), the case this judge exists to pass.
+        var csPerWake = 3
     }
 
     struct Verdict: Sendable, Equatable {
@@ -107,18 +113,24 @@ enum IdleWakeJudge {
         var residual: Int?
         if w.loop == .cfRunLoop {
             if let wakes = w.wakes {
-                let tolerated = tolerableBroadcast(w.arrivals) ? l.toleratedBroadcasts : 0
-                let r = wakes - w.passes - f.total - tolerated
+                // A broadcast is subtracted only as far as a wake is left to explain: it never turns a clean window into a negative one.
+                let raw = wakes - w.passes - f.total
+                let tolerated = tolerableBroadcast(w.arrivals) ? min(l.toleratedBroadcasts, max(0, raw)) : 0
+                let r = raw - tolerated
                 residual = r
                 if r > l.residualAllowance {
                     failures.append("R3 unattributed wakes \(r) > \(l.residualAllowance) (wakes \(wakes) - passes \(w.passes) - fires \(f.total) - broadcast \(tolerated))")
+                } else if r < -l.residualAllowance {
+                    // More wakes accounted for than were counted: the accounting is broken (a source counted twice, or a counter that misses wakes).
+                    failures.append("R3 counter inconsistent: residual \(r) < -\(l.residualAllowance) (wakes \(wakes) - passes \(w.passes) - fires \(f.total) - broadcast \(tolerated))")
                 }
             } else {
                 failures.append("R3 not judged: no wake count (observer not installed)")
             }
         }
-        // R4: runaway context switches, the only role cs keeps.
-        let ceiling = Int(w.seconds.rounded()) + l.csPerWake * (w.passes + f.total)
+        // R4: runaway context switches, the only role cs keeps. Wakes = the same pass count as R2 plus the fires (on the dispatch-handle
+        // loop the fires are already inside `passes`, so they are not added twice).
+        let ceiling = Int(w.seconds.rounded()) + l.csPerWake * (passes + f.total)
         if w.cs > ceiling { failures.append("R4 cs \(w.cs) > \(ceiling)") }
         return Verdict(failures: failures, residual: residual, ceiling: ceiling)
     }

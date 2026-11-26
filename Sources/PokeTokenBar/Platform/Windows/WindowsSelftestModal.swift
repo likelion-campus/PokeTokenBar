@@ -231,7 +231,7 @@ extension WindowsSelftest {
         }
         let shadow = IdleShadow.end(mark, seconds: seconds, cs: t.mainContextSwitches,
                                     fires: IdleWakeJudge.Fires(safety: w1.safety - w0.safety, debounce: w1.debounce - w0.debounce, day: w1.day - w0.day),
-                                    refreshes: refreshes, legacyBudget: legacyBudget, legacyOK: t.mainContextSwitches <= legacyBudget)
+                                    refreshes: refreshes, loop: IdleShadow.loop(of: app), legacyBudget: legacyBudget, legacyOK: t.mainContextSwitches <= legacyBudget)
         let arrivals = shadow.arrivals
         let budget = shadow.verdict.ceiling
         let verdict = IdleBurstAttribution.judge(cs: t.mainContextSwitches, budget: budget, wakes: t.samples, arrivals: arrivals)

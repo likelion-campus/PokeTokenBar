@@ -991,7 +991,7 @@ enum WindowsSelftest {
         let explained = safety + debounce + dayFires
         let budget = 3 + 3 * explained + 60 * refreshes
         let shadow = IdleShadow.end(mark, seconds: seconds, cs: sample.mainContextSwitches,
-                                    fires: IdleWakeJudge.Fires(safety: safety, debounce: debounce, day: dayFires), refreshes: refreshes,
+                                    fires: IdleWakeJudge.Fires(safety: safety, debounce: debounce, day: dayFires), refreshes: refreshes, loop: IdleShadow.loop(of: app),
                                     legacyBudget: budget, legacyOK: sample.mainContextSwitches <= budget)
         r.add("idle.window", sample.layoutOK && sample.mainFound && shadow.verdict.ok,
               "\(Int(seconds)) s idle: main_thread_cs=\(sample.mainContextSwitches) main_thread_cycles=\(sample.mainCycles) "
